@@ -256,7 +256,10 @@ export function TranscriptList({
   const rowNodes = useMemo(() => createTranscriptRowNodes(rows, renderRow), [rows, renderRow, shown]);
   // A zero-height viewport has no extracted range, even in the commit
   // that reveals the pane. Its full measurement list still has the pins.
-  const mounted = shown && visible ? virtualRows : activeIndexesRef.current.flatMap((index) => virtualizer.measurementsCache[index] ?? []);
+  const mounted =
+    shown && visible
+      ? virtualRows
+      : activeIndexesRef.current.flatMap((index) => virtualizer.measurementsCache[index] ?? []);
   return (
     // directDomUpdates owns this height synchronously through containerRef.
     // A React height prop can commit an older render after a native wheel

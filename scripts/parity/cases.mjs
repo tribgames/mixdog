@@ -15,12 +15,15 @@ export function loadCases(name) {
   }
   const path = join(PARITY_DIR, `${name}.json`);
   const file = JSON.parse(readFileSync(path, 'utf8'));
-  if (file?.name !== name) throw new Error(`parity: ${path}: "name" is ${JSON.stringify(file?.name)}, expected ${JSON.stringify(name)}`);
+  if (file?.name !== name)
+    throw new Error(`parity: ${path}: "name" is ${JSON.stringify(file?.name)}, expected ${JSON.stringify(name)}`);
   if (!Array.isArray(file.cases)) throw new Error(`parity: ${path}: "cases" is not an array`);
   const seen = new Set();
   return file.cases.map((entry, index) => {
-    if (!entry || typeof entry.id !== 'string' || entry.id === '') throw new Error(`parity: ${path}: case ${index} has no string "id"`);
-    if (!('input' in entry) || !('expect' in entry)) throw new Error(`parity: ${path}: case ${entry.id} needs "input" and "expect"`);
+    if (!entry || typeof entry.id !== 'string' || entry.id === '')
+      throw new Error(`parity: ${path}: case ${index} has no string "id"`);
+    if (!('input' in entry) || !('expect' in entry))
+      throw new Error(`parity: ${path}: case ${entry.id} needs "input" and "expect"`);
     if (seen.has(entry.id)) throw new Error(`parity: ${path}: duplicate case id ${entry.id}`);
     seen.add(entry.id);
     return { id: entry.id, input: entry.input, expect: entry.expect };

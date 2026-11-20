@@ -1,9 +1,33 @@
 // A copy of mixdog-app-protocol src/boundary/blob_fields.json (which params of a method may carry a blob reference); sized-call.test.mjs
 // asserts the two are equal, so a change to the Rust table fails there until this one follows.
 export const BLOB_REF_FIELDS: Readonly<Record<string, readonly string[]>> = {
-  'turn/start': ['/input/prompt', '/input/prompt/*/text', '/input/prompt/*/data', '/input/options/pastedImages/*/content', '/input/options/pastedTexts/*/text', '/input/options/displayText', '/input/options/goalCommand'],
-  'thread/start': ['/initialInput/prompt', '/initialInput/prompt/*/text', '/initialInput/prompt/*/data', '/initialInput/options/pastedImages/*/content', '/initialInput/options/pastedTexts/*/text', '/initialInput/options/displayText', '/initialInput/options/goalCommand'],
-  'room/send': ['/input/prompt', '/input/prompt/*/text', '/input/prompt/*/data', '/input/options/pastedImages/*/content', '/input/options/pastedTexts/*/text', '/input/options/displayText', '/input/options/goalCommand'],
+  'turn/start': [
+    '/input/prompt',
+    '/input/prompt/*/text',
+    '/input/prompt/*/data',
+    '/input/options/pastedImages/*/content',
+    '/input/options/pastedTexts/*/text',
+    '/input/options/displayText',
+    '/input/options/goalCommand',
+  ],
+  'thread/start': [
+    '/initialInput/prompt',
+    '/initialInput/prompt/*/text',
+    '/initialInput/prompt/*/data',
+    '/initialInput/options/pastedImages/*/content',
+    '/initialInput/options/pastedTexts/*/text',
+    '/initialInput/options/displayText',
+    '/initialInput/options/goalCommand',
+  ],
+  'room/send': [
+    '/input/prompt',
+    '/input/prompt/*/text',
+    '/input/prompt/*/data',
+    '/input/options/pastedImages/*/content',
+    '/input/options/pastedTexts/*/text',
+    '/input/options/displayText',
+    '/input/options/goalCommand',
+  ],
   'thread/stageAttachmentOriginal': ['/input/data'],
   'thread/resizeImage': ['/input/data'],
   'feedback/upload': ['/input/attachments/*/data'],

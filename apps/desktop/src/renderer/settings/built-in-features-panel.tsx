@@ -1,11 +1,7 @@
 import { CapabilityIcon } from '../CapabilityIcon';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import type {
-  DesktopGitCliStatus,
-  DesktopLibreOfficeStatus,
-  DesktopSettings,
-} from '../../shared/contract';
+import type { DesktopGitCliStatus, DesktopLibreOfficeStatus, DesktopSettings } from '../../shared/contract';
 import { t } from '../i18n';
 import { showDesktopToast } from '../desktop-toasts';
 import { ErrorNotice } from '../ErrorNotice';
@@ -17,7 +13,13 @@ import { useSection } from '../section-store';
 import type { SidebarResourceTag } from '../sidebar-resource-row';
 import { CompactSwitch, Group } from './capability-controls';
 import { sectionError, sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
-import { ExtensionAction, ExtensionDetailDialog, ExtensionNote, ExtensionRow, ExtensionSection } from './extension-detail';
+import {
+  ExtensionAction,
+  ExtensionDetailDialog,
+  ExtensionNote,
+  ExtensionRow,
+  ExtensionSection,
+} from './extension-detail';
 import { BUILT_IN_FEATURES, type BuiltInFeatureDefinition, type BuiltInFeatureId } from './built-in-feature-registry';
 import { SlotProgress } from './built-in-install-progress';
 import { LocalProviderModels } from './local-provider-models';
@@ -153,7 +155,16 @@ function useDesktopFeatureStatus(api: PanelContext['api'], officeDetailOpen: boo
       window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, read);
     };
   }, [api, officeDetailOpen]);
-  return { settings, setSettings, gitStatus, setGitStatus, officeDependency, setOfficeDependency, settingsFailed, gitFailed };
+  return {
+    settings,
+    setSettings,
+    gitStatus,
+    setGitStatus,
+    officeDependency,
+    setOfficeDependency,
+    settingsFailed,
+    gitFailed,
+  };
 }
 
 type FeatureState = {
@@ -312,11 +323,15 @@ function FeatureDetailDialog({
       ) : null}
       {feature.id === 'memory' && (
         <ExtensionNote>
-          {t('Turning Memory off stops recall and background summaries, and leaves memory out when prompts are built. Stored memories and past messages are kept.')}
+          {t(
+            'Turning Memory off stops recall and background summaries, and leaves memory out when prompts are built. Stored memories and past messages are kept.'
+          )}
         </ExtensionNote>
       )}
       {feature.id === 'voice' && (
-        <ExtensionNote>{t('Turning voice transcription off stops dictation without removing the downloaded runtime.')}</ExtensionNote>
+        <ExtensionNote>
+          {t('Turning voice transcription off stops dictation without removing the downloaded runtime.')}
+        </ExtensionNote>
       )}
       {ready && !installed && requirement ? (
         <ExtensionNote>{t('Requires {{name}}', { name: requirement })}</ExtensionNote>
@@ -399,7 +414,14 @@ export function BuiltInFeaturesPanel({
   const localActions = useLocalProviderActions(run, pending || (!api.invokeCapability ? 'unavailable' : ''));
   const [openId, setOpenId] = useState<BuiltInFeatureId | null>(initialFeature);
   const {
-    settings, setSettings, gitStatus, setGitStatus, officeDependency, setOfficeDependency, settingsFailed, gitFailed,
+    settings,
+    setSettings,
+    gitStatus,
+    setGitStatus,
+    officeDependency,
+    setOfficeDependency,
+    settingsFailed,
+    gitFailed,
   } = useDesktopFeatureStatus(api, openId === 'office');
   const [action, setAction] = useState<FeatureAction | null>(null);
   // Optimistic toggle state: the switch flips immediately and rolls back if
@@ -431,13 +453,16 @@ export function BuiltInFeaturesPanel({
   const progress = voiceProgress(snapshot);
   // Without progress pushes, observe active installs through the read API;
   // do not poll once a job finishes or the user leaves this panel.
-  const localJobActive = Array.isArray(localProvider.installations)
-    && localProvider.installations.some((entry) => installationActive(record(entry)));
+  const localJobActive =
+    Array.isArray(localProvider.installations) &&
+    localProvider.installations.some((entry) => installationActive(record(entry)));
   const localRuntimeInstall = localProviderInstallation(localProvider, 'runtime');
-  const pollLegacy = active && (
-    (!record(toolModulesSection).localProvider && (localJobActive || openId === 'localProvider' && Boolean(pending))) ||
-    (!record(toolModulesSection).autoEffort && (autoEffort.installing === true || action?.id === 'autoEffort' && action.status === 'installing'))
-  );
+  const pollLegacy =
+    active &&
+    ((!record(toolModulesSection).localProvider &&
+      (localJobActive || (openId === 'localProvider' && Boolean(pending)))) ||
+      (!record(toolModulesSection).autoEffort &&
+        (autoEffort.installing === true || (action?.id === 'autoEffort' && action.status === 'installing'))));
   useEffect(() => {
     if (!pollLegacy || !api.invokeCapability) return;
     let live = true;
@@ -648,15 +673,16 @@ export function BuiltInFeaturesPanel({
     const supported =
       (feature.id !== 'localProvider' || localProvider.platformSupported !== false) &&
       (feature.id !== 'autoEffort' || autoEffort.supported !== false);
-    const available = feature.id === 'localProvider'
-      ? enabled.localProvider || supported && localProvider.available !== false
-      : supported;
+    const available =
+      feature.id === 'localProvider'
+        ? enabled.localProvider || (supported && localProvider.available !== false)
+        : supported;
     // Every entry waits for its own status source before painting a control,
     // so an Install pill never flashes into a toggle (or back).
     const module = record(toolModules[feature.id]);
     let ready = typeof module.enabled === 'boolean' && typeof module.installed === 'boolean';
     let statusError = ready ? '' : sectionError(data, 'toolModules');
-    if (!ready && (requestedModules || !api.invokeCapability && !api.readCapabilities)) {
+    if (!ready && (requestedModules || (!api.invokeCapability && !api.readCapabilities))) {
       statusError ||= t('This host did not provide feature status.');
     }
     if (feature.id === 'git') {
@@ -667,15 +693,21 @@ export function BuiltInFeaturesPanel({
       }
     } else if (feature.id === 'browser' || feature.id === 'computer') {
       ready = settings !== null;
-      statusError = !api.updateSetting || settingsFailed && !ready
-        ? t('Desktop feature settings are unavailable on this host.')
-        : '';
-    } else if (feature.id === 'office' && !installed.office && officeDependency?.installed === false && !api.installLibreOffice) {
+      statusError =
+        !api.updateSetting || (settingsFailed && !ready)
+          ? t('Desktop feature settings are unavailable on this host.')
+          : '';
+    } else if (
+      feature.id === 'office' &&
+      !installed.office &&
+      officeDependency?.installed === false &&
+      !api.installLibreOffice
+    ) {
       statusError = t('LibreOffice installation is unavailable on this host.');
     } else if (feature.id === 'voice') {
       ready = typeof voice.enabled === 'boolean' && typeof voice.installed === 'boolean';
       statusError = ready ? '' : sectionError(data, 'voice');
-      if (!ready && (sectionLoaded(data, 'voice') || !api.invokeCapability && !api.readCapabilities)) {
+      if (!ready && (sectionLoaded(data, 'voice') || (!api.invokeCapability && !api.readCapabilities))) {
         statusError ||= t('Voice transcription is unavailable on this host.');
       }
     }
@@ -765,4 +797,3 @@ export function BuiltInFeaturesPanel({
     </Group>
   );
 }
-

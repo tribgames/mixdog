@@ -9,7 +9,9 @@ import { browserPolicyModule } from './redaction.ts';
 // The rules are Rust, served by mixdog_main_native.node: these tests run against the built module and are skipped, not
 // failed, while it is absent (cargo build --release in native/mixdog-main-native; they never build it).
 const built = existsSync(nativeModulePath(browserPolicyModule));
-const skip = built ? false : 'mixdog_main_native.node is not built (cargo build --release in native/mixdog-main-native)';
+const skip = built
+  ? false
+  : 'mixdog_main_native.node is not built (cargo build --release in native/mixdog-main-native)';
 
 const { browserUrlPolicyFromEnvironment } = built ? await import('./host-policy.ts') : {};
 const { restorablePages } = built ? await import('./restore-pages.ts') : {};
@@ -17,7 +19,9 @@ const { assertResolvedAddressAllowed, mailLinkWindowMs, normalizeAgentUrl, norma
   ? await import('./url-policy.ts')
   : {};
 
-test('a local session allows LAN and Tailscale addresses, a remote session blocks them, metadata is always blocked', { skip }, (t) => {
+test('a local session allows LAN and Tailscale addresses, a remote session blocks them, metadata is always blocked', {
+  skip,
+}, (t) => {
   const saved = process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK;
   t.after(() => {
     if (saved === undefined) delete process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK;
@@ -67,7 +71,9 @@ test('browser URL policy blocks credentials, metadata, and private networks but 
   assert.throws(() => normalizePageUrl('file:///C:/Users/example/secrets.txt'), /only http\(s\)/);
 });
 
-test('a token link opens only as the runtime read it in a mail: exact, https, recent, on the sender’s domain', { skip }, () => {
+test('a token link opens only as the runtime read it in a mail: exact, https, recent, on the sender’s domain', {
+  skip,
+}, () => {
   const LINK =
     'https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F';
   const read = (fields = {}) => ({ url: LINK, from_domain: 'alternativeto.net', read_at: Date.now(), ...fields });

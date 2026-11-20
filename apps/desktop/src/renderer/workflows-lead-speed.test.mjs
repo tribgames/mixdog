@@ -10,7 +10,15 @@ import {
 import { leadRouteFrom } from './workflows-main-route.ts';
 
 const lead = (extra) => [
-  { id: 'workflow-lead', name: 'WORKFLOW LEAD', type: 'agent', provider: 'openai-oauth', model: 'gpt-x', tools: 'full', ...extra },
+  {
+    id: 'workflow-lead',
+    name: 'WORKFLOW LEAD',
+    type: 'agent',
+    provider: 'openai-oauth',
+    model: 'gpt-x',
+    tools: 'full',
+    ...extra,
+  },
 ];
 
 /** A window on a core connection: presets come from the pushed section; the shell snapshot predates the save. */
@@ -36,7 +44,10 @@ function coreHost(presets) {
   };
   const publish = (value) => {
     revision += 1;
-    push({ kind: 'changes', changes: [{ section: 'presets', key: null, entry: { section: 'presets', key: null, revision, value } }] });
+    push({
+      kind: 'changes',
+      changes: [{ section: 'presets', key: null, entry: { section: 'presets', key: null, revision, value } }],
+    });
   };
   return { api, publish };
 }
@@ -102,7 +113,10 @@ test('slot 2 edited alone: reopening keeps slot 1 at its speed until the save is
   host.publish([...lead({ ...slot1, fallbacks: [slot2(true)], effort: 'high' }), other]);
   const published = await reopened();
   assert.equal(published.effort, 'high', 'the published Lead is read, not the acknowledgement');
-  assert.deepEqual([published.fast, published.modelParameters, published.fallbacks[0].fast], [true, { serviceTier: 'ultrafast' }, true]);
+  assert.deepEqual(
+    [published.fast, published.modelParameters, published.fallbacks[0].fast],
+    [true, { serviceTier: 'ultrafast' }, true]
+  );
 });
 
 test('a host preset read started before the save answered never replaces it', async (t) => {
@@ -129,8 +143,14 @@ test('a host preset read started before the save answered never replaces it', as
 
 test('an inheriting draft keeps the resolved context of the same model only', () => {
   const presets = lead({ fast: true });
-  const same = leadRouteFrom({ provider: 'openai-oauth', model: 'gpt-x', contextPercent: 50, contextTokens: 500000 }, presets);
+  const same = leadRouteFrom(
+    { provider: 'openai-oauth', model: 'gpt-x', contextPercent: 50, contextTokens: 500000 },
+    presets
+  );
   assert.deepEqual([same.contextPercent, same.contextTokens], [50, 500000]);
-  const other = leadRouteFrom({ provider: 'openai-oauth', model: 'old-model', contextPercent: 50, contextTokens: 500000 }, presets);
+  const other = leadRouteFrom(
+    { provider: 'openai-oauth', model: 'old-model', contextPercent: 50, contextTokens: 500000 },
+    presets
+  );
   assert.deepEqual([other.contextPercent, other.contextTokens], [undefined, undefined], 'never another model’s');
 });

@@ -31,4 +31,3 @@ export function installationPercent(installation: RecordValue): number | null {
 export function useLocalProviderStatus(entry?: unknown): RecordValue {
   return useMemo(() => record(entry), [entry]);
 }
-

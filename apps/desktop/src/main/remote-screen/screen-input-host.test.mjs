@@ -46,7 +46,11 @@ test('a command the helper never acknowledges fails at the deadline and the help
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-screen-host-'));
   try {
     const fake = fakeSpawn();
-    const host = createScreenInputHost({ binary: () => 'C:/mixdog/mixdog-computer.exe', spawn: fake.spawn, commandTimeoutMs: 20 });
+    const host = createScreenInputHost({
+      binary: () => 'C:/mixdog/mixdog-computer.exe',
+      spawn: fake.spawn,
+      commandTimeoutMs: 20,
+    });
     const exits = [];
     host.onExit(() => exits.push('exit'));
     await host.start();
@@ -73,7 +77,11 @@ test('an acknowledged command clears its deadline', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-screen-host-'));
   try {
     const fake = fakeSpawn();
-    const host = createScreenInputHost({ binary: () => 'C:/mixdog/mixdog-computer.exe', spawn: fake.spawn, commandTimeoutMs: 20 });
+    const host = createScreenInputHost({
+      binary: () => 'C:/mixdog/mixdog-computer.exe',
+      spawn: fake.spawn,
+      commandTimeoutMs: 20,
+    });
     await host.start();
     const done = host.command({ op: 'move', x: 1, y: 1 });
     fake.children[0].say('ok 1');
@@ -110,7 +118,11 @@ test('kill fails pending commands at once and skips the release-on-quit', async 
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-screen-host-'));
   try {
     const fake = fakeSpawn();
-    const host = createScreenInputHost({ binary: () => 'C:/mixdog/mixdog-computer.exe', spawn: fake.spawn, commandTimeoutMs: 60_000 });
+    const host = createScreenInputHost({
+      binary: () => 'C:/mixdog/mixdog-computer.exe',
+      spawn: fake.spawn,
+      commandTimeoutMs: 60_000,
+    });
     await host.start();
     const pending = host.command({ op: 'move', x: 1, y: 1 });
     host.kill();

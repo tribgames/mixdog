@@ -44,7 +44,7 @@ test('scan reports file and line of each hit and skips allow-listed files', () =
     [
       { file: 'docs/a.md', line: 2 },
       { file: 'docs/a.md', line: 3 },
-    ],
+    ]
   );
 });
 
@@ -54,7 +54,10 @@ test('without an allow-list nothing is exempt', () => {
 
 test('a binary file is scanned as bytes, not skipped', () => {
   const bytes = Buffer.concat([Buffer.from([0, 1, 2, 0]), Buffer.from(`x ${samples[3]} y`), Buffer.from([0, 255])]);
-  assert.deepEqual(scan(['bin/tool.exe'], () => bytes), [{ file: 'bin/tool.exe', line: 1 }]);
+  assert.deepEqual(
+    scan(['bin/tool.exe'], () => bytes),
+    [{ file: 'bin/tool.exe', line: 1 }]
+  );
 });
 
 test('a UTF-16 text is scanned too', () => {
@@ -62,7 +65,10 @@ test('a UTF-16 text is scanned too', () => {
 });
 
 test('a clean binary passes', () => {
-  assert.deepEqual(scan(['bin/clean.bin'], () => Buffer.from([0, 1, 2, 3, 0, 255])), []);
+  assert.deepEqual(
+    scan(['bin/clean.bin'], () => Buffer.from([0, 1, 2, 3, 0, 255])),
+    []
+  );
 });
 
 test('a file that cannot be read is a failure, not a pass', () => {
@@ -83,7 +89,10 @@ test('checkMachinePaths fails on an unlisted file, reads a deleted tracked file 
     writeFileSync(join(root, 'gone.md'), `path ${samples[0]}`);
     git('add', '-A');
     rmSync(join(root, 'gone.md'));
-    assert.throws(() => checkMachinePaths(root), (error) => /dirty\.md:1/.test(error.message) && /gone\.md:1/.test(error.message));
+    assert.throws(
+      () => checkMachinePaths(root),
+      (error) => /dirty\.md:1/.test(error.message) && /gone\.md:1/.test(error.message)
+    );
     assert.throws(() => checkMachinePaths(root, ['missing-everywhere.md']), /unreadable/);
     assert.doesNotThrow(() => checkMachinePaths(root, ['clean.md']));
   } finally {
@@ -113,7 +122,10 @@ test('the allow-listed material itself is exempt', () => {
     'apps/mobile/fixtures/phone-files/golden.json',
     'benchmarks/terminal-bench-2.1/records/run/out.log',
   ];
-  assert.deepEqual(scan(exempt, () => samples[5]), []);
+  assert.deepEqual(
+    scan(exempt, () => samples[5]),
+    []
+  );
 });
 
 test('every allow-list entry states why', () => {

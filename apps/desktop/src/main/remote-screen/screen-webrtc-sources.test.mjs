@@ -255,7 +255,11 @@ test('failed screen starts release their leases once without evicting a replacem
   assert.deepEqual(disposals, [1, 1, 0], 'both failure paths release only their own leases');
   stopTargets.length = 0;
   await env.screens.stopForQuit();
-  assert.deepEqual(stopTargets.map((capture) => captures.indexOf(capture)), [2], 'quit only tries to stop the replacement');
+  assert.deepEqual(
+    stopTargets.map((capture) => captures.indexOf(capture)),
+    [2],
+    'quit only tries to stop the replacement'
+  );
   assert.deepEqual(disposals, [1, 1, 1], 'quit only releases the remaining session');
 });
 

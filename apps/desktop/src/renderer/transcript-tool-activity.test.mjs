@@ -1837,7 +1837,14 @@ test('a restored turn that took three queued completions summarizes three of the
   const { rowsOf, mergeToolRows } = await import('../../../../packages/protocol-client/src/rows.ts');
   const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
   const envelope = (id, status, summary, result = '') =>
-    ['<task-notification>', `<task-id>${id}</task-id>`, `<status>${status}</status>`, `<summary>${summary}</summary>`, ...(result ? ['<result>', result, '</result>'] : []), '</task-notification>'].join('\n');
+    [
+      '<task-notification>',
+      `<task-id>${id}</task-id>`,
+      `<status>${status}</status>`,
+      `<summary>${summary}</summary>`,
+      ...(result ? ['<result>', result, '</result>'] : []),
+      '</task-notification>',
+    ].join('\n');
   const item = (envelopes) => ({
     type: 'userMessage',
     id: 'u1',
@@ -1848,17 +1855,27 @@ test('a restored turn that took three queued completions summarizes three of the
   const ok = envelope('t0', 'completed', 'Agent "rev" completed', 'all done');
   const bad = envelope('t1', 'failed', 'Agent "fix" failed: boom');
   const shell = envelope('t2', 'completed', 'Shell task completed (exit 0): npm test');
-  assert.equal(desktopToolActivitySummary(mergeToolRows(rowsOf(item([ok, bad, shell]))), true), 'Agent response, Agent failures, Ran 1 command');
+  assert.equal(
+    desktopToolActivitySummary(mergeToolRows(rowsOf(item([ok, bad, shell]))), true),
+    'Agent response, Agent failures, Ran 1 command'
+  );
   // Two responses of one kind are counted as two, as the live card's aggregate counts them.
   const second = envelope('t1', 'completed', 'Agent "doc" completed', 'also done');
   assert.equal(desktopToolActivitySummary(mergeToolRows(rowsOf(item([ok, second]))), true), 'Agent responses ×2');
 });
 
-test('a restored turn whose core row carries its completions is cut by them even when a result quotes the next task\'s envelope', async () => {
+test("a restored turn whose core row carries its completions is cut by them even when a result quotes the next task's envelope", async () => {
   const { rowsOf, mergeToolRows } = await import('../../../../packages/protocol-client/src/rows.ts');
   const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
   const envelope = (id, status, summary, result = '') =>
-    ['<task-notification>', `<task-id>${id}</task-id>`, `<status>${status}</status>`, `<summary>${summary}</summary>`, ...(result ? ['<result>', result, '</result>'] : []), '</task-notification>'].join('\n');
+    [
+      '<task-notification>',
+      `<task-id>${id}</task-id>`,
+      `<status>${status}</status>`,
+      `<summary>${summary}</summary>`,
+      ...(result ? ['<result>', result, '</result>'] : []),
+      '</task-notification>',
+    ].join('\n');
   const bad = envelope('t1', 'failed', 'Agent "fix" failed: boom');
   // The first result quotes the envelope of the very next completion: the text alone cannot tell it from the real one.
   const ok = envelope('t0', 'completed', 'Agent "rev" completed', `see\n${bad}`);
@@ -1869,7 +1886,13 @@ test('a restored turn whose core row carries its completions is cut by them even
   const statuses = ['completed', 'failed', 'completed'];
   let at = 0;
   const completions = envelopes.map((text, index) => {
-    const entry = { executionId: `t${index}`, surface: surfaces[index], status: statuses[index], start: at, end: at + text.length };
+    const entry = {
+      executionId: `t${index}`,
+      surface: surfaces[index],
+      status: statuses[index],
+      start: at,
+      end: at + text.length,
+    };
     at = entry.end + 1;
     return entry;
   });
@@ -1901,7 +1924,10 @@ test('an agent response card the core extended with later responses counts every
   };
   const shell = { ...card, id: 'c2', name: 'shell', input: { command: 'npm test' }, run: { result: 'ok' } };
   assert.equal(desktopToolActivitySummary(mergeToolRows(rowsOf(card)), true), 'Agent responses ×3');
-  assert.equal(desktopToolActivitySummary(mergeToolRows([...rowsOf(card), ...rowsOf(shell)]), true), 'Agent responses ×3, Ran 1 command');
+  assert.equal(
+    desktopToolActivitySummary(mergeToolRows([...rowsOf(card), ...rowsOf(shell)]), true),
+    'Agent responses ×3, Ran 1 command'
+  );
 });
 
 test('the card append_to_tail writes after a third response counts three in the summary', async () => {
@@ -1909,7 +1935,13 @@ test('the card append_to_tail writes after a third response counts three in the 
   const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
   // transcript_response.rs append_to_tail: the first response's card, patched with args, the last result, the numbered raw text of
   // every entry, count/completedCount = entries, and the agentResponse* fields (typed ones on the run, the rest on meta.ext).
-  const entries = ['t1', 't2', 't3'].map((key, at) => ({ key, raw: `body ${at + 1}`, result: `body ${at + 1}`, hasBody: true, isError: false }));
+  const entries = ['t1', 't2', 't3'].map((key, at) => ({
+    key,
+    raw: `body ${at + 1}`,
+    result: `body ${at + 1}`,
+    hasBody: true,
+    isError: false,
+  }));
   const card = {
     type: 'toolCall',
     id: 'r1',

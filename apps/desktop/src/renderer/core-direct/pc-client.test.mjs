@@ -26,7 +26,11 @@ function world(windowOf) {
           queueMicrotask(() => port.onmessage({ data: JSON.stringify({ id: msg.id, result }) }));
         },
       };
-      queueMicrotask(() => listeners.forEach((l) => l({ source: host, data: { type: 'mixdog-core-port', generation, slot }, ports: [port] })));
+      queueMicrotask(() =>
+        listeners.forEach((l) =>
+          l({ source: host, data: { type: 'mixdog-core-port', generation, slot }, ports: [port] })
+        )
+      );
       return { generation };
     },
   };
@@ -45,7 +49,12 @@ test('pc_client_main_window_is_primary', async (t) => {
   assert.equal(pcCoreClient(), null);
   const client = await openDirectClient({ bridge: w.bridge, version: '1.2.3' });
   assert.equal(pcCoreClient(), client);
-  assert.deepEqual(w.infos[0].info, { name: 'mixdog-desktop-window', title: 'Mixdog Desktop', version: '1.2.3', kind: 'desktop' });
+  assert.deepEqual(w.infos[0].info, {
+    name: 'mixdog-desktop-window',
+    title: 'Mixdog Desktop',
+    version: '1.2.3',
+    kind: 'desktop',
+  });
   assert.deepEqual(w.infos[0].capabilities, { approvalsInbox: true });
   await client.close();
 });
@@ -57,11 +66,18 @@ test('pc_client_server_window_uses_pc_slot', async (t) => {
   t.after(reset);
   const primary = await openDirectClient({ bridge: w.bridge, version: '1' });
   const opening = openDirectClient({ bridge: w.bridge, version: '1', slot: 'pc' });
-  assert.equal(pcCoreClient(), null, 'a server window has no PC client until slot pc is open, and never the server client');
+  assert.equal(
+    pcCoreClient(),
+    null,
+    'a server window has no PC client until slot pc is open, and never the server client'
+  );
   const pc = await opening;
   assert.equal(pcCoreClient(), pc);
   assert.notEqual(pc, primary);
-  assert.deepEqual(w.infos.map((i) => i.slot), ['primary', 'pc']);
+  assert.deepEqual(
+    w.infos.map((i) => i.slot),
+    ['primary', 'pc']
+  );
   await primary.close();
   await pc.close();
 });

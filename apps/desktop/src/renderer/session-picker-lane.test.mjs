@@ -19,7 +19,9 @@ window.mixdogDesktop = { rendererDiagnostic() {} };
 const { createSessionLane } = await import('../shared/core-lanes/session-lane.ts');
 const { sessionReducer } = await import('../../../../packages/protocol-client/src/session-state.ts');
 const { createSessionLaneStore, useSessionLane } = await import('./session-lane-store.ts');
-const { desktopConversationShellSnapshotsEqual, desktopStreamingTailSnapshotsEqual } = await import('./desktop-snapshot-store.ts');
+const { desktopConversationShellSnapshotsEqual, desktopStreamingTailSnapshotsEqual } = await import(
+  './desktop-snapshot-store.ts'
+);
 const { useSessionRouteChoices } = await import('./model-controls.tsx');
 const { useRouteLabelParts, ComposerRouteLabel } = await import('./composer-route-label.tsx');
 const { storeWorkflowOptions } = await import('./workflow-options-cache.ts');
@@ -39,7 +41,12 @@ function rig(id) {
       runtime: { busy: true },
       route: { provider: 'openai', model: 'gpt-a', effort: 'low', fast: false, autoEffort: false, modelParameters: {} },
       context: { contextPercent: 100 },
-      workflow: { workflow: alpha, orchestrationMode: 'balanced', pendingWorkflowSwitch: false, pendingOrchestrationModeSwitch: false },
+      workflow: {
+        workflow: alpha,
+        orchestrationMode: 'balanced',
+        pendingWorkflowSwitch: false,
+        pendingOrchestrationModeSwitch: false,
+      },
     },
   });
   const listeners = new Set();
@@ -68,7 +75,9 @@ function rig(id) {
         for (const listener of listeners) listener({ type: 'thread', threadId: id });
       }
       // The lane store notifies a non-urgent change on the next layout frame: this waits for that frame.
-      await new Promise((resolve) => (globalThis.requestAnimationFrame ?? window.requestAnimationFrame)(() => setTimeout(resolve, 0)));
+      await new Promise((resolve) =>
+        (globalThis.requestAnimationFrame ?? window.requestAnimationFrame)(() => setTimeout(resolve, 0))
+      );
     });
   const dispose = () => {
     stop();
@@ -105,7 +114,11 @@ function Pane({ id, store }) {
     React.createElement('span', { className: 'mode' }, row('orchestration-mode')),
     React.createElement('span', { className: 'speed' }, String(Boolean(snapshot.fast))),
     React.createElement('span', { className: 'parameters' }, JSON.stringify(snapshot.modelParameters ?? null)),
-    React.createElement('span', { className: 'context' }, `${snapshot.contextPercent ?? ''}/${snapshot.contextTokens ?? ''}`),
+    React.createElement(
+      'span',
+      { className: 'context' },
+      `${snapshot.contextPercent ?? ''}/${snapshot.contextTokens ?? ''}`
+    ),
     React.createElement('span', { className: 'rows' }, (snapshot.items ?? []).map((item) => item.id).join(',')),
     React.createElement('span', { className: 'tail' }, String(live?.streamingTail?.text ?? '')),
     label ? React.createElement(ComposerRouteLabel, { parts: label }) : null
@@ -140,13 +153,23 @@ test('a delegation mode staged mid-turn, then applied at the next turn start, sh
   await mounted('picker-mode', async ({ publish, shown, label }) => {
     // The turn streams its reply: the live tail is on screen.
     await publish(
-      { method: 'item/started', params: { item: { type: 'agentMessage', id: 'a1', text: '', meta: { status: 'inProgress' } } } },
+      {
+        method: 'item/started',
+        params: { item: { type: 'agentMessage', id: 'a1', text: '', meta: { status: 'inProgress' } } },
+      },
       { method: 'item/agentMessage/delta', params: { itemId: 'a1', delta: 'line one\n' } }
     );
     assert.equal(shown('mode'), 'Collaborative');
     assert.equal(shown('tail'), 'line one\n');
     // `thread/setOrchestrationMode {scope: session}` while the turn runs: staged, shown pending.
-    await publish(workflowNote({ workflow: alpha, orchestrationMode: 'swarm', pendingWorkflowSwitch: false, pendingOrchestrationModeSwitch: true }));
+    await publish(
+      workflowNote({
+        workflow: alpha,
+        orchestrationMode: 'swarm',
+        pendingWorkflowSwitch: false,
+        pendingOrchestrationModeSwitch: true,
+      })
+    );
     assert.equal(shown('mode'), 'Swarm*');
     assert.equal(label(), 'Alpha · Swarm');
     assert.equal(shown('rows'), 'u1', 'no settled row is lost');
@@ -156,10 +179,24 @@ test('a delegation mode staged mid-turn, then applied at the next turn start, sh
     assert.equal(shown('mode'), 'Swarm*');
     assert.equal(shown('tail'), 'line one\nline two\n');
     // The next turn start applies it (`apply_pending_switches`): no longer pending, the turn already running.
-    await publish(workflowNote({ workflow: alpha, orchestrationMode: 'swarm', pendingWorkflowSwitch: false, pendingOrchestrationModeSwitch: false }));
+    await publish(
+      workflowNote({
+        workflow: alpha,
+        orchestrationMode: 'swarm',
+        pendingWorkflowSwitch: false,
+        pendingOrchestrationModeSwitch: false,
+      })
+    );
     assert.equal(shown('mode'), 'Swarm');
     // Between turns: applied at once.
-    await publish(workflowNote({ workflow: alpha, orchestrationMode: 'none', pendingWorkflowSwitch: false, pendingOrchestrationModeSwitch: false }));
+    await publish(
+      workflowNote({
+        workflow: alpha,
+        orchestrationMode: 'none',
+        pendingWorkflowSwitch: false,
+        pendingOrchestrationModeSwitch: false,
+      })
+    );
     assert.equal(shown('mode'), 'Solo');
     assert.equal(label(), 'Alpha · Solo');
   });
@@ -168,29 +205,56 @@ test('a delegation mode staged mid-turn, then applied at the next turn start, sh
 test('a workflow staged mid-turn shows its name, derived mode and pending mark at once; the turn start that applies it clears the mark', async () => {
   await mounted('picker-workflow', async ({ publish, shown, label }) => {
     await publish(
-      { method: 'item/started', params: { item: { type: 'agentMessage', id: 'a1', text: '', meta: { status: 'inProgress' } } } },
+      {
+        method: 'item/started',
+        params: { item: { type: 'agentMessage', id: 'a1', text: '', meta: { status: 'inProgress' } } },
+      },
       { method: 'item/agentMessage/delta', params: { itemId: 'a1', delta: 'working\n' } }
     );
     // `thread/setWorkflow {scope: session}` mid-turn: `pendingWorkflowId` with its meta, shown at once and marked pending.
-    await publish(workflowNote({ workflow: beta, orchestrationMode: 'balanced', pendingWorkflowSwitch: true, pendingOrchestrationModeSwitch: false }));
+    await publish(
+      workflowNote({
+        workflow: beta,
+        orchestrationMode: 'balanced',
+        pendingWorkflowSwitch: true,
+        pendingOrchestrationModeSwitch: false,
+      })
+    );
     assert.equal(shown('workflow'), 'Beta*');
     assert.equal(label(), 'Beta · Collaborative');
     assert.equal(shown('tail'), 'working\n');
     // The turn ends (its reply settles) and the next one starts: busy first, then the staged switch is applied with the
     // workflow's own mode, then its divider amends the anchor row.
     await publish(
-      { method: 'item/completed', params: { item: { type: 'agentMessage', id: 'a1', text: 'working\n', meta: { status: 'completed' } } } },
+      {
+        method: 'item/completed',
+        params: { item: { type: 'agentMessage', id: 'a1', text: 'working\n', meta: { status: 'completed' } } },
+      },
       { method: 'turn/completed', params: { turn: { id: 't1', status: 'completed', items: [] } } }
     );
     await publish({ method: 'turn/started', params: { turn: { id: 't2', status: 'inProgress', items: [] } } });
-    await publish(workflowNote({ workflow: beta, orchestrationMode: 'swarm', pendingWorkflowSwitch: false, pendingOrchestrationModeSwitch: false }));
+    await publish(
+      workflowNote({
+        workflow: beta,
+        orchestrationMode: 'swarm',
+        pendingWorkflowSwitch: false,
+        pendingOrchestrationModeSwitch: false,
+      })
+    );
     assert.equal(shown('workflow'), 'Beta', 'the pending mark leaves as the switch applies');
     assert.equal(shown('mode'), 'Swarm', 'the mode the applied workflow derives shows with it');
     assert.equal(label(), 'Beta · Swarm');
     assert.equal(shown('rows'), 'u1,a1');
     await publish({
       method: 'item/completed',
-      params: { item: { type: 'agentMessage', id: 'a1', text: 'working\n', meta: { status: 'completed', workflowSwitches: [{ fromId: 'alpha', toId: 'beta' }] } } },
+      params: {
+        item: {
+          type: 'agentMessage',
+          id: 'a1',
+          text: 'working\n',
+          meta: { status: 'completed', workflowSwitches: [{ fromId: 'alpha', toId: 'beta' }] },
+        },
+      },
     });
     assert.equal(shown('workflow'), 'Beta');
     assert.equal(label(), 'Beta · Swarm');
@@ -199,12 +263,25 @@ test('a workflow staged mid-turn shows its name, derived mode and pending mark a
 
 test('speed, parameters and context changes on the seated model show at once', async () => {
   await mounted('picker-speed', async ({ publish, shown }) => {
-    const route = { provider: 'openai', model: 'gpt-a', effort: 'low', fast: false, autoEffort: false, modelParameters: {} };
+    const route = {
+      provider: 'openai',
+      model: 'gpt-a',
+      effort: 'low',
+      fast: false,
+      autoEffort: false,
+      modelParameters: {},
+    };
     await publish({ method: 'thread/route/updated', params: { value: { ...route, fast: true } } });
     assert.equal(shown('speed'), 'true');
-    await publish({ method: 'thread/route/updated', params: { value: { ...route, fast: true, modelParameters: { verbosity: 'low' } } } });
+    await publish({
+      method: 'thread/route/updated',
+      params: { value: { ...route, fast: true, modelParameters: { verbosity: 'low' } } },
+    });
     assert.equal(shown('parameters'), '{"verbosity":"low"}');
-    await publish({ method: 'thread/context/updated', params: { value: { contextPercent: 50, contextTokens: 200000 } } });
+    await publish({
+      method: 'thread/context/updated',
+      params: { value: { contextPercent: 50, contextTokens: 200000 } },
+    });
     assert.equal(shown('context'), '50/200000');
   });
 });

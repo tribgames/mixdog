@@ -19,13 +19,17 @@ export const platformKey = (platform = process.platform, arch = process.arch) =>
 
 export function assetFor(manifest, key) {
   const asset = manifest.assets?.[key];
-  if (!asset?.url || !asset.sha256) throw new Error(`the runtime manifest has no asset (url and sha256) for ${key}; it has ${Object.keys(manifest.assets ?? {}).join(', ')}`);
+  if (!asset?.url || !asset.sha256)
+    throw new Error(
+      `the runtime manifest has no asset (url and sha256) for ${key}; it has ${Object.keys(manifest.assets ?? {}).join(', ')}`
+    );
   return asset;
 }
 
 export function verifySha256(bytes, expected) {
   const actual = createHash('sha256').update(bytes).digest('hex');
-  if (actual !== expected.toLowerCase()) throw new Error(`the downloaded runtime is ${actual}, the manifest says ${expected}`);
+  if (actual !== expected.toLowerCase())
+    throw new Error(`the downloaded runtime is ${actual}, the manifest says ${expected}`);
 }
 
 async function download(url) {

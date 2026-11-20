@@ -32,7 +32,11 @@ function core() {
     }
     assert.equal(method, 'blob/put');
     const parts = staged.get(params.digest) ?? [];
-    assert.equal(params.offset, parts.reduce((sum, part) => sum + part.length, 0), 'chunks arrive in order');
+    assert.equal(
+      params.offset,
+      parts.reduce((sum, part) => sum + part.length, 0),
+      'chunks arrive in order'
+    );
     const chunk = Buffer.from(params.bytesB64, 'base64');
     parts.push(chunk);
     staged.set(params.digest, parts);
@@ -70,7 +74,12 @@ const diagram = { kind: 'mermaid', source: 'graph TD; A-->B; B-->C; B-->D' };
 
 for (const [name, files, library, libraryFile] of [
   ['an inline chart page', () => inlinePageFiles(chart, async () => echarts), echarts, 'echarts.js'],
-  ['an inline mermaid export page', async () => (await inlineExportDocument(diagram, async () => mermaid)).files, mermaid, 'mermaid.js'],
+  [
+    'an inline mermaid export page',
+    async () => (await inlineExportDocument(diagram, async () => mermaid)).files,
+    mermaid,
+    'mermaid.js',
+  ],
 ]) {
   test(`${name} with its real library is one virtual lease and every frame is under the limit`, async () => {
     const { frames, requests, pages } = core();
@@ -87,10 +96,17 @@ for (const [name, files, library, libraryFile] of [
 test('pages carrying the same library, built at once, upload it once; later pages upload nothing', async () => {
   const { frames, requests, pages } = core();
   const a = await inlinePageFiles(chart, async () => echarts);
-  const b = await inlinePageFiles({ ...chart, source: JSON.stringify({ series: [{ type: 'line', data: [1] }] }) }, async () => echarts);
+  const b = await inlinePageFiles(
+    { ...chart, source: JSON.stringify({ series: [{ type: 'line', data: [1] }] }) },
+    async () => echarts
+  );
   await Promise.all([pages.virtual(a, { ownerId: 'w1' }), pages.virtual(b, { ownerId: 'w2' })]);
   const puts = frames.filter(([method]) => method === 'blob/put').length;
-  assert.equal(puts, Math.ceil(Buffer.byteLength(echarts) / (96 * 1024)), 'one upload of the library, in 96 KiB chunks');
+  assert.equal(
+    puts,
+    Math.ceil(Buffer.byteLength(echarts) / (96 * 1024)),
+    'one upload of the library, in 96 KiB chunks'
+  );
   assert.equal(requests.length, 2);
   for (const request of requests) {
     assert.equal(request.find((file) => file.path === 'echarts.js').bytes.toString('utf8'), echarts);
@@ -102,12 +118,18 @@ test('pages carrying the same library, built at once, upload it once; later page
 test('a small page (markdown, html) sends its files inline: no upload', async () => {
   const { frames, pages } = core();
   await pages.virtual(await inlinePageFiles({ kind: 'html', source: '<h1>hi</h1>' }), { ownerId: 'w1' });
-  assert.deepEqual(frames.map(([method]) => method), ['localPageVirtualIn']);
+  assert.deepEqual(
+    frames.map(([method]) => method),
+    ['localPageVirtualIn']
+  );
 });
 
 test('a page file too large for one request without a core connection to upload it is refused, not sent over the limit', async () => {
   const sent = [];
   const pages = createCoreLocalPages(async (name, args) => void sent.push([name, args]));
-  await assert.rejects(pages.virtual({ 'index.html': { type: 'text/html', body: Buffer.alloc(300_000) } }), /needs the core connection/);
+  await assert.rejects(
+    pages.virtual({ 'index.html': { type: 'text/html', body: Buffer.alloc(300_000) } }),
+    /needs the core connection/
+  );
   assert.deepEqual(sent, []);
 });

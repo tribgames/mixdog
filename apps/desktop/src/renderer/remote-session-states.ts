@@ -12,7 +12,12 @@
 //   ends a shown lane and a released one alike, and after it nothing of the thread is kept here.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { subscribeFramedSessionStates } from '../../../../packages/protocol-client/src/index.ts';
-import type { DesktopSessionLaneEnd, DesktopSessionStateUpdate, DesktopStreamPosition, SessionSnapshot } from '../shared/contract';
+import type {
+  DesktopSessionLaneEnd,
+  DesktopSessionStateUpdate,
+  DesktopStreamPosition,
+  SessionSnapshot,
+} from '../shared/contract';
 
 type Client = ProtocolClient<SessionFold>;
 
@@ -45,7 +50,12 @@ export function followSessionStates(
   const released = new Set<string>();
   let stopped = false;
   const end = (threadId: string, laneEnd: DesktopSessionLaneEnd): void => {
-    options.publish({ sessionId: threadId, snapshot: null as unknown as SessionSnapshot, frameSource: 'live', laneEnd });
+    options.publish({
+      sessionId: threadId,
+      snapshot: null as unknown as SessionSnapshot,
+      frameSource: 'live',
+      laneEnd,
+    });
   };
   /** The page's snapshot of each heard state, so a state heard current at a later position is handed on as the same object. */
   const decorated = new WeakMap<object, SessionSnapshot>();
@@ -57,7 +67,12 @@ export function followSessionStates(
       snapshot = options.decorate(state);
       if (state && typeof state === 'object') decorated.set(state, snapshot);
     }
-    options.publish({ sessionId: threadId, snapshot, frameSource: 'live', ...(streamPosition ? { streamPosition } : {}) });
+    options.publish({
+      sessionId: threadId,
+      snapshot,
+      frameSource: 'live',
+      ...(streamPosition ? { streamPosition } : {}),
+    });
   };
   const unload = (threadId: string): void => {
     if (!shown.delete(threadId)) return;

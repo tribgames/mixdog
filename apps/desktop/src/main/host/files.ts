@@ -4,10 +4,7 @@
  * The core has already confined the path; the host only renders or trashes.
  * Local pages are served by the core's own page server, not by the window process.
  */
-import type {
-  HostFileSnapshot,
-  HostFileSnapshotParams,
-} from '../../../../../packages/protocol/src/index.ts';
+import type { HostFileSnapshot, HostFileSnapshotParams } from '../../../../../packages/protocol/src/index.ts';
 import { HOST_COMMAND_FAILED, HostRpcError, type HostConnection, objectParams, type WireFields } from './connection';
 
 export const HOST_FILE_SNAPSHOT = 'host/capture/fileSnapshot';

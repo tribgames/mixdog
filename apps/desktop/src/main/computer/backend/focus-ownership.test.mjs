@@ -664,7 +664,16 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
     // Never locked: the watch alone catches the steal and restores it once, and
     // nothing is acquired, unlocked or released by the worker.
     assert.deepEqual(
-      [unlockedLate.scenario, unlockedLate.locks, unlockedLate.unlocks, unlockedLate.calls, unlockedLate.restored, unlockedLate.restore, unlockedLate.stealSeen, unlockedLate.releasedBy],
+      [
+        unlockedLate.scenario,
+        unlockedLate.locks,
+        unlockedLate.unlocks,
+        unlockedLate.calls,
+        unlockedLate.restored,
+        unlockedLate.restore,
+        unlockedLate.stealSeen,
+        unlockedLate.releasedBy,
+      ],
       ['unlocked_delayed_steal', 0, 0, 1, true, 'restored', true, '']
     );
     assert.equal(unlockedLate.events, 'armed,op_end,steal:landed,restore:applied');
@@ -672,10 +681,22 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
     // successful unlock), or the steal lifted it first and the unlock attempts
     // answer false (unknown, three attempts, none successful).
     assert.equal(lifted.scenario, 'own_lock_lifted');
-    assert.deepEqual([lifted.locks, lifted.calls, lifted.restore, lifted.restored], [1, 1, 'restored', true], lifted.events);
-    assert.deepEqual([count(lifted, 'steal:landed'), count(lifted, 'restore:applied'), lifted.refused], [1, 1, 0], lifted.events);
+    assert.deepEqual(
+      [lifted.locks, lifted.calls, lifted.restore, lifted.restored],
+      [1, 1, 'restored', true],
+      lifted.events
+    );
+    assert.deepEqual(
+      [count(lifted, 'steal:landed'), count(lifted, 'restore:applied'), lifted.refused],
+      [1, 1, 0],
+      lifted.events
+    );
     if (evs(lifted).indexOf('unlock:released') >= 0) {
-      assert.deepEqual([lifted.unlocks, lifted.release, lifted.unlockErrors, lifted.releasedBy], [1, 'released', 1, 'deadline'], lifted.events);
+      assert.deepEqual(
+        [lifted.unlocks, lifted.release, lifted.unlockErrors, lifted.releasedBy],
+        [1, 'released', 1, 'deadline'],
+        lifted.events
+      );
       assert.equal(count(lifted, 'unlock:false'), 0, lifted.events);
       inOrder(lifted, 'lock:acquired', 'unlock:released', 'steal:landed', 'restore:applied');
     } else {
@@ -688,7 +709,17 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
     // operation waits for that unlock, then the steal lands on an unlocked
     // foreground and is restored once.
     assert.deepEqual(
-      [expireFirst.scenario, expireFirst.releasedBy, expireFirst.release, expireFirst.locks, expireFirst.unlocks, expireFirst.refused, expireFirst.calls, expireFirst.restore, expireFirst.restored],
+      [
+        expireFirst.scenario,
+        expireFirst.releasedBy,
+        expireFirst.release,
+        expireFirst.locks,
+        expireFirst.unlocks,
+        expireFirst.refused,
+        expireFirst.calls,
+        expireFirst.restore,
+        expireFirst.restored,
+      ],
       ['expire_before_steal', 'deadline', 'released', 1, 1, 0, 1, 'restored', true],
       expireFirst.events
     );

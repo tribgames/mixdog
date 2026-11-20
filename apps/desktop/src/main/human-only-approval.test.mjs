@@ -121,7 +121,10 @@ test('an approval waiting its turn already holds the core, and one stopped while
     // Already stopped: the core is not held at all.
     const early = new AbortController();
     early.abort(new Error('already stopped'));
-    await assert.rejects(withHumanOnlyApproval(async () => 'never', early.signal, 'late'), /already stopped/);
+    await assert.rejects(
+      withHumanOnlyApproval(async () => 'never', early.signal, 'late'),
+      /already stopped/
+    );
     assert.equal(calls.length, 2);
     beginComputerOperation()();
   } finally {

@@ -114,23 +114,56 @@ function snapshotView(fields: readonly string[]) {
   };
 }
 
-export const paneHeaderView = snapshotView([
-  ...HEADER_SNAPSHOT_FIELDS, 'shellJobs', 'stats',
-]);
+export const paneHeaderView = snapshotView([...HEADER_SNAPSHOT_FIELDS, 'shellJobs', 'stats']);
 
 const COMPOSER_ROUTE_FIELDS = [
-  'sessionId', 'busy', 'commandBusy', 'workspace', 'promptRestore', 'promptHistoryList',
-  'provider', 'model', 'effort', 'fast', 'fastCapable', 'autoEffort', 'modelParameters', 'contextPercent', 'contextTokens',
-  'workflow', 'orchestrationMode', 'pendingWorkflowSwitch', 'pendingOrchestrationModeSwitch',
+  'sessionId',
+  'busy',
+  'commandBusy',
+  'workspace',
+  'promptRestore',
+  'promptHistoryList',
+  'provider',
+  'model',
+  'effort',
+  'fast',
+  'fastCapable',
+  'autoEffort',
+  'modelParameters',
+  'contextPercent',
+  'contextTokens',
+  'workflow',
+  'orchestrationMode',
+  'pendingWorkflowSwitch',
+  'pendingOrchestrationModeSwitch',
 ];
 export const paneComposerRouteView = snapshotView(COMPOSER_ROUTE_FIELDS);
 
 const CONVERSATION_FIELDS = [
-  ...COMPOSER_ROUTE_FIELDS, 'items', 'transcriptHasOlder', 'transcriptPreview', 'transcriptTurnKeys', 'failedTurnKeys',
-  'queued', 'toolApproval', 'toolApprovalResult', 'toolApprovalsWaiting', 'handoffQuestions',
-  'quotaResume', 'currentProject', 'project', 'cwd', 'sessionProvider', 'sessionModel', 'turnEffort',
-  'spinner', 'commandStatus', 'thinking',
-  'agentWorkers', 'agentJobs', 'activeTools',
+  ...COMPOSER_ROUTE_FIELDS,
+  'items',
+  'transcriptHasOlder',
+  'transcriptPreview',
+  'transcriptTurnKeys',
+  'failedTurnKeys',
+  'queued',
+  'toolApproval',
+  'toolApprovalResult',
+  'toolApprovalsWaiting',
+  'handoffQuestions',
+  'quotaResume',
+  'currentProject',
+  'project',
+  'cwd',
+  'sessionProvider',
+  'sessionModel',
+  'turnEffort',
+  'spinner',
+  'commandStatus',
+  'thinking',
+  'agentWorkers',
+  'agentJobs',
+  'activeTools',
 ];
 export const paneConversationView = snapshotView([...CONVERSATION_FIELDS, 'streamingTail', 'shellJobs']);
 

@@ -118,7 +118,13 @@ test('an acquire goes to the lease thread and its answer reaches the worker with
   // The thread answers each state as it is: refused and quarantined take no lease.
   fake.next = { holding: false, lease: 0, answer: 'refused', deadlineAt: 0, facts: '{"lease":0,"answer":"refused"}' };
   acquire(8, 1);
-  fake.next = { holding: true, lease: 0, answer: 'quarantined', deadlineAt: 0, facts: '{"lease":0,"answer":"quarantined"}' };
+  fake.next = {
+    holding: true,
+    lease: 0,
+    answer: 'quarantined',
+    deadlineAt: 0,
+    facts: '{"lease":0,"answer":"quarantined"}',
+  };
   acquire(8, 2);
   assert.deepEqual(taken(), ['ack 8 1 0 refused 0.000', 'ack 8 2 0 quarantined 0.000']);
   assert.equal(lock.takeFacts(1, 8).answer, 'quarantined');

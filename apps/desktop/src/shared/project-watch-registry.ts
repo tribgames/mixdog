@@ -38,7 +38,8 @@ export interface ProjectWatchRegistry {
 
 export function createProjectWatchRegistry({ keyOf, start, idle }: ProjectWatchRegistryOptions): ProjectWatchRegistry {
   const entries = new Map<string, Entry>();
-  const entryKey = (path: string, recursive: boolean): string => `${keyOf(path)}\0${recursive ? 'recursive' : 'direct'}`;
+  const entryKey = (path: string, recursive: boolean): string =>
+    `${keyOf(path)}\0${recursive ? 'recursive' : 'direct'}`;
   return {
     subscribe(path, listener, recursive = true) {
       const key = entryKey(path, recursive);

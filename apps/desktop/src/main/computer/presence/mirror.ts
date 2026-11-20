@@ -215,10 +215,15 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
       // A section without a latch is settled, as an idle coordinator is.
       cleanupState: value.cleanupState ?? 'ready',
       activities,
-      cursors: [...cursors.values()].map((cursor) => ({ ...cursor })).sort((left, right) => left.eventId - right.eventId),
+      cursors: [...cursors.values()]
+        .map((cursor) => ({ ...cursor }))
+        .sort((left, right) => left.eventId - right.eventId),
       releasedPointerSessionIds: [...released],
       presentSessionIds: activities
-        .filter((activity) => activity.phase !== 'thinking' || at < (idleSince.get(activity.sessionId) ?? at) + thinkingGraceMs)
+        .filter(
+          (activity) =>
+            activity.phase !== 'thinking' || at < (idleSince.get(activity.sessionId) ?? at) + thinkingGraceMs
+        )
         .map((activity) => activity.sessionId),
       targetLeases: sessions.flatMap((session) =>
         (session.windowIds ?? []).map((windowId) => ({ sessionId: session.sessionThreadId, windowId, expiresAt: null }))
@@ -247,11 +252,14 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
     const at = now();
     const ends = [...idleSince.values()].map((since) => since + thinkingGraceMs).filter((deadline) => deadline > at);
     if (ends.length === 0) return;
-    graceTimer = setTimeout(() => {
-      graceTimer = null;
-      if (!delegating()) changed();
-      scheduleGrace();
-    }, Math.min(...ends) - at);
+    graceTimer = setTimeout(
+      () => {
+        graceTimer = null;
+        if (!delegating()) changed();
+        scheduleGrace();
+      },
+      Math.min(...ends) - at
+    );
     graceTimer.unref?.();
   };
 
@@ -285,7 +293,13 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
       const previousModes = new Map(sessionsOf().map((session) => [session.sessionThreadId, session.mode]));
       section = next;
       const open = new Set(next.active ? next.sessions.map((session) => session.sessionThreadId) : []);
-      const known = new Set([...startedAt.keys(), ...cursors.keys(), ...released, ...lastMode.keys(), ...idleSince.keys()]);
+      const known = new Set([
+        ...startedAt.keys(),
+        ...cursors.keys(),
+        ...released,
+        ...lastMode.keys(),
+        ...idleSince.keys(),
+      ]);
       for (const sessionId of known) {
         if (open.has(sessionId)) continue;
         cursors.delete(sessionId);
@@ -308,8 +322,7 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
         // previous one.
         if (session.mode === null) {
           if (previousModes.get(id) !== null) cursors.delete(id);
-        }
-        else if (session.mode) {
+        } else if (session.mode) {
           const before = lastMode.get(id);
           if (before !== undefined && before !== session.mode) cursors.delete(id);
           lastMode.set(id, session.mode);

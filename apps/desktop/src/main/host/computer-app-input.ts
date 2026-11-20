@@ -27,7 +27,13 @@ import { electronKeyPresses } from '../computer/host/input-electron-keys';
 import type { ComputerCommand, PowerShellResponse } from '../computer/shared/types';
 import { appWindowBounds, appWindowById } from './computer-app-windows';
 import type { ComputerScopes } from './computer-scope';
-import { HOST_COMMAND_FAILED, HOST_INVALID_PARAMS, type HostConnection, HostRpcError, objectParams } from './connection';
+import {
+  HOST_COMMAND_FAILED,
+  HOST_INVALID_PARAMS,
+  type HostConnection,
+  HostRpcError,
+  objectParams,
+} from './connection';
 
 export const HOST_COMPUTER_APP_INPUT = 'host/computer/appInput';
 
@@ -218,7 +224,12 @@ export function registerComputerAppInput(connection: HostConnection, deps: Compu
         // The click that focuses a typing point lands in the renderer itself, never through the OS pointer.
         callPowerShell: async (request): Promise<PowerShellResponse> => {
           try {
-            await sendElectronPointer(renderer, { x: Number(request.x), y: Number(request.y) }, { kind: 'click' }, endpoint);
+            await sendElectronPointer(
+              renderer,
+              { x: Number(request.x), y: Number(request.y) },
+              { kind: 'click' },
+              endpoint
+            );
             return { id: 0, ok: true, result: { action: 'click', delivery_accepted: true } };
           } catch (error) {
             return { id: 0, ok: false, error: error instanceof Error ? error.message : String(error) };

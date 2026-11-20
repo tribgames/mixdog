@@ -15,7 +15,17 @@ const TS = /\.(c|m)?tsx?$/;
 const candidates = (specifier) => {
   const base = specifier.replace(/\.(c|m)?js$/, '');
   const ext = specifier.match(/\.(c|m)?js$/)?.[1] ?? '';
-  return [`${base}.${ext}ts`, `${base}.${ext}tsx`, `${specifier}.ts`, `${specifier}.tsx`, `${specifier}/index.ts`, `${specifier}/index.tsx`, `${specifier}.js`, `${specifier}.mjs`, `${specifier}/index.js`];
+  return [
+    `${base}.${ext}ts`,
+    `${base}.${ext}tsx`,
+    `${specifier}.ts`,
+    `${specifier}.tsx`,
+    `${specifier}/index.ts`,
+    `${specifier}/index.tsx`,
+    `${specifier}.js`,
+    `${specifier}.mjs`,
+    `${specifier}/index.js`,
+  ];
 };
 
 registerHooks({
@@ -35,7 +45,11 @@ registerHooks({
   load(url, context, next) {
     // A JSON module imported without `with { type: 'json' }` (TypeScript's resolveJsonModule; tsx allows it): its default export.
     if (url.startsWith('file:') && url.endsWith('.json') && context.importAttributes?.type !== 'json') {
-      return { format: 'module', source: `export default ${readFileSync(fileURLToPath(url), 'utf8')};`, shortCircuit: true };
+      return {
+        format: 'module',
+        source: `export default ${readFileSync(fileURLToPath(url), 'utf8')};`,
+        shortCircuit: true,
+      };
     }
     if (!url.startsWith('file:') || !TS.test(url)) return next(url, context);
     const file = fileURLToPath(url);

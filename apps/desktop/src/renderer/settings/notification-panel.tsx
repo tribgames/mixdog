@@ -274,8 +274,9 @@ function TestNotificationRow({ api, deviceId }: { api: NotificationsApi; deviceI
       .then((result) =>
         setMessage(
           result?.message === 'This computer does not support notifications.'
-              ? t('This computer does not support notifications.')
-              : result?.message || (result?.ok ? t('Test notification sent.') : t('Could not send the test notification.'))
+            ? t('This computer does not support notifications.')
+            : result?.message ||
+                (result?.ok ? t('Test notification sent.') : t('Could not send the test notification.'))
         )
       )
       .catch(() => setMessage(t('Could not send the test notification.')))
@@ -448,7 +449,9 @@ export function NotificationsPanel({
   api: NotificationsApi;
   openCategory?: (category: SettingsCategory) => void;
 }) {
-  const { state, save, readError, writeError, retry } = useNotificationPreferences(isSshConnectionWindow() ? undefined : api);
+  const { state, save, readError, writeError, retry } = useNotificationPreferences(
+    isSshConnectionWindow() ? undefined : api
+  );
   const [picked, setPicked] = useState<string | null>(null);
   const notices = (
     <>

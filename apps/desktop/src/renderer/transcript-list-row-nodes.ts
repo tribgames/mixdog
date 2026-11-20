@@ -18,7 +18,10 @@ export interface TranscriptRowNodes {
   paintedBelow(index: number): number;
 }
 
-export function createTranscriptRowNodes(rows: readonly TranscriptRowModel[], renderRow: RenderRow): TranscriptRowNodes {
+export function createTranscriptRowNodes(
+  rows: readonly TranscriptRowModel[],
+  renderRow: RenderRow
+): TranscriptRowNodes {
   const nodes = new Map<number, ReactNode>();
   const above = new Map<number, number>();
   const below = new Map<number, number>();

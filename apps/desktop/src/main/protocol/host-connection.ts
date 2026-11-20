@@ -15,7 +15,10 @@ import type { ProtocolConnection } from './connection';
 /** JSON-RPC method not found: a core→host request this desktop registered no handler for. */
 export const HOST_METHOD_NOT_FOUND = -32601;
 
-type Source = Pick<ProtocolConnection, 'call' | 'notify' | 'respond' | 'sendBinary' | 'onEvent' | 'client' | 'onReplaced'>;
+type Source = Pick<
+  ProtocolConnection,
+  'call' | 'notify' | 'respond' | 'sendBinary' | 'onEvent' | 'client' | 'onReplaced'
+>;
 
 /** A failure with nobody to be answered to: a notification's handler, an answer the link could not carry, a close listener. */
 export type HostFault = (where: string, error: unknown) => void;
@@ -78,14 +81,19 @@ export function createHostConnection(source: Source, onFault: HostFault = () => 
   source.onEvent((event) => {
     const live = serving();
     if (event.type === 'serverRequest') {
-      const { id, method, params } = (event as { request: { id: string | number; method: string; params: unknown } }).request;
+      const { id, method, params } = (event as { request: { id: string | number; method: string; params: unknown } })
+        .request;
       const handler = requestHandlers.get(method);
       // A host request nobody here serves is answered, on the connection that asked it (`live`, read just now), rather than
       // left to time out in the core. Other server requests on this connection (approval cards, the takeover feed) are not
       // the host role's: their own consumers answer them.
       if (!handler) {
         if (method.startsWith('host/')) {
-          answer(id, { error: { code: HOST_METHOD_NOT_FOUND, message: `${method} is not served by this desktop` } }, method);
+          answer(
+            id,
+            { error: { code: HOST_METHOD_NOT_FOUND, message: `${method} is not served by this desktop` } },
+            method
+          );
         }
         return;
       }

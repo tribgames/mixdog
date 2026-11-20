@@ -35,7 +35,11 @@ const real = {
   hrtime: process.hrtime,
   hrtimeBigint: process.hrtime.bigint,
 };
-export const realTimers = { setTimeout: real.setTimeout, clearTimeout: real.clearTimeout, setImmediate: real.setImmediate };
+export const realTimers = {
+  setTimeout: real.setTimeout,
+  clearTimeout: real.clearTimeout,
+  setImmediate: real.setImmediate,
+};
 
 /** A deadline on real time (the recorder's own; never a virtual timer): `race(promise, what)` rejects naming `what` and `seen()`. */
 export function realDeadline(ms, seen) {
@@ -88,17 +92,32 @@ class VTimer {
     else pending.delete(this.id);
     this.callback(...this.args);
   }
-  ref() { this.refed = true; this.handle?.ref(); return this; }
-  unref() { this.refed = false; this.handle?.unref(); return this; }
-  hasRef() { return this.refed; }
+  ref() {
+    this.refed = true;
+    this.handle?.ref();
+    return this;
+  }
+  unref() {
+    this.refed = false;
+    this.handle?.unref();
+    return this;
+  }
+  hasRef() {
+    return this.refed;
+  }
   refresh() {
     if (!pending.has(this.id)) return this;
     if (this.handle) real.clearTimeout(this.handle);
     this.arm();
     return this;
   }
-  close() { clear(this); return this; }
-  [Symbol.toPrimitive]() { return this.id; }
+  close() {
+    clear(this);
+    return this;
+  }
+  [Symbol.toPrimitive]() {
+    return this.id;
+  }
 }
 
 function clear(timer) {
@@ -116,16 +135,29 @@ const vPromiseTimeout = (delay, value, options = {}) =>
     const signal = options?.signal;
     if (signal?.aborted) return reject(signal.reason ?? new DOMException('The operation was aborted', 'AbortError'));
     const t = vSetTimeout(() => resolve(value), delay);
-    signal?.addEventListener('abort', () => { clear(t); reject(signal.reason ?? new DOMException('The operation was aborted', 'AbortError')); }, { once: true });
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clear(t);
+        reject(signal.reason ?? new DOMException('The operation was aborted', 'AbortError'));
+      },
+      { once: true }
+    );
   });
 
 // ── randomness ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 function seeded(seedText) {
   // sfc32 over a hash of the seed text.
   const h = crypto.createHash('sha256').update(seedText).digest();
-  let a = h.readUInt32LE(0), b = h.readUInt32LE(4), c = h.readUInt32LE(8), d = h.readUInt32LE(12);
+  let a = h.readUInt32LE(0),
+    b = h.readUInt32LE(4),
+    c = h.readUInt32LE(8),
+    d = h.readUInt32LE(12);
   return () => {
-    a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0;
+    a >>>= 0;
+    b >>>= 0;
+    c >>>= 0;
+    d >>>= 0;
     const t = (a + b) | 0;
     a = b ^ (b >>> 9);
     b = (c + (c << 3)) | 0;
@@ -153,13 +185,23 @@ function installRandom(seedText) {
   };
   crypto.randomBytes = (size, callback) => {
     const out = fill(Buffer.alloc(size));
-    if (typeof callback === 'function') { process.nextTick(callback, null, out); return undefined; }
+    if (typeof callback === 'function') {
+      process.nextTick(callback, null, out);
+      return undefined;
+    }
     return out;
   };
   crypto.randomInt = (min, max, callback) => {
-    if (max === undefined || typeof max === 'function') { callback = max; max = min; min = 0; }
+    if (max === undefined || typeof max === 'function') {
+      callback = max;
+      max = min;
+      min = 0;
+    }
     const value = min + Math.floor(next() * (max - min));
-    if (typeof callback === 'function') { process.nextTick(callback, null, value); return undefined; }
+    if (typeof callback === 'function') {
+      process.nextTick(callback, null, value);
+      return undefined;
+    }
     return value;
   };
   crypto.randomUUID = () => {
@@ -169,7 +211,8 @@ function installRandom(seedText) {
     const h = b.toString('hex');
     return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
   };
-  const set = (target, key, value) => Object.defineProperty(target, key, { value, writable: true, configurable: true, enumerable: true });
+  const set = (target, key, value) =>
+    Object.defineProperty(target, key, { value, writable: true, configurable: true, enumerable: true });
   // node:crypto's `getRandomValues` is a fixed getter over webcrypto's; webcrypto's methods are its prototype's.
   const webProto = Object.getPrototypeOf(crypto.webcrypto);
   set(webProto, 'getRandomValues', (view) => fill(view));
@@ -180,7 +223,8 @@ function installRandom(seedText) {
 // ── time ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 function installTime() {
   const VDate = new Proxy(real.Date, {
-    construct: (target, args, newTarget) => Reflect.construct(target, args.length ? args : [virtual ? now : real.dateNow()], newTarget),
+    construct: (target, args, newTarget) =>
+      Reflect.construct(target, args.length ? args : [virtual ? now : real.dateNow()], newTarget),
     apply: () => new real.Date(virtual ? now : real.dateNow()).toString(),
   });
   real.Date.now = () => (virtual ? now : real.dateNow());
@@ -193,7 +237,10 @@ function installTime() {
     if (!previous) return pair;
     let s = pair[0] - previous[0];
     let n = pair[1] - previous[1];
-    if (n < 0) { s -= 1; n += 1e9; }
+    if (n < 0) {
+      s -= 1;
+      n += 1e9;
+    }
     return [s, n];
   };
   hrtime.bigint = () => (virtual ? BigInt(Math.round(perf * 1e6)) : real.hrtimeBigint());
@@ -203,7 +250,10 @@ function installTime() {
   // AbortSignal.timeout (http-agent.mjs preconnect's 10 s) runs on one of Node's internal timers: on the virtual clock instead.
   AbortSignal.timeout = (ms) => {
     const controller = new AbortController();
-    vSetTimeout(() => controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError')), ms).unref();
+    vSetTimeout(
+      () => controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
+      ms
+    ).unref();
     return controller.signal;
   };
   globalThis.clearTimeout = clear;
@@ -213,7 +263,8 @@ function installTime() {
   timers.clearTimeout = clear;
   timers.clearInterval = clear;
   timersPromises.setTimeout = vPromiseTimeout;
-  if (timersPromises.scheduler) timersPromises.scheduler.wait = (delay, options) => vPromiseTimeout(delay, undefined, options);
+  if (timersPromises.scheduler)
+    timersPromises.scheduler.wait = (delay, options) => vPromiseTimeout(delay, undefined, options);
   syncBuiltinESMExports();
 }
 
@@ -227,7 +278,13 @@ export function freeze(epoch, perfBase) {
     if (t.handle) real.clearTimeout(t.handle);
     t.handle = null;
     t.due = perf + t.delay;
-    if (process.env.VCLOCK_TRACE) own(() => appendFileSync(`${process.env.VCLOCK_TRACE}/${process.pid}.log`, `frozen pending delay ${t.delay}${t.repeat ? ' repeat' : ''} ${t.origin}\n`));
+    if (process.env.VCLOCK_TRACE)
+      own(() =>
+        appendFileSync(
+          `${process.env.VCLOCK_TRACE}/${process.pid}.log`,
+          `frozen pending delay ${t.delay}${t.repeat ? ' repeat' : ''} ${t.origin}\n`
+        )
+      );
   }
 }
 
@@ -253,7 +310,8 @@ export function nextDue() {
 export function fireDue(at) {
   for (;;) {
     let first = null;
-    for (const t of pending.values()) if (t.due <= at && (first === null || t.due < first.due || (t.due === first.due && t.id < first.id))) first = t;
+    for (const t of pending.values())
+      if (t.due <= at && (first === null || t.due < first.due || (t.due === first.due && t.id < first.id))) first = t;
     if (!first) break;
     now += first.due - perf;
     perf = first.due;
@@ -261,7 +319,9 @@ export function fireDue(at) {
     try {
       first.fire();
     } catch (error) {
-      real.setImmediate(() => { throw error; });
+      real.setImmediate(() => {
+        throw error;
+      });
     }
   }
   now += at - perf;
@@ -270,13 +330,19 @@ export function fireDue(at) {
 export const clockNow = () => ({ now, perf, virtual });
 // Diagnosis only (VCLOCK_TRACE names a folder): each virtual timer fired, with where it was created, one file per process.
 function traceFire(t) {
-  own(() => appendFileSync(`${process.env.VCLOCK_TRACE}/${process.pid}.log`, `${perf} delay ${t.delay}${t.repeat ? ' repeat' : ''} ${t.origin}\n`));
+  own(() =>
+    appendFileSync(
+      `${process.env.VCLOCK_TRACE}/${process.pid}.log`,
+      `${perf} delay ${t.delay}${t.repeat ? ' repeat' : ''} ${t.origin}\n`
+    )
+  );
 }
 
 // ── quiet ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // HTTPCLIENTREQUEST and undici's UNDICI_REQUEST live as long as their response (a stream the daemon keeps open; undici's connect and
 // body timeouts are virtual timers): not short-lived. Their bytes are in the socket table.
-const TRANSIENT = /^(FSREQCALLBACK|FSREQPROMISE|FILEHANDLECLOSEREQ|WRITEWRAP|SHUTDOWNWRAP|TCPCONNECTWRAP|PIPECONNECTWRAP|GETADDRINFOREQWRAP|GETNAMEINFOREQWRAP|QUERYWRAP.*|ZLIB|(?!HTTPCLIENT|UNDICI_).*REQUEST)$/;
+const TRANSIENT =
+  /^(FSREQCALLBACK|FSREQPROMISE|FILEHANDLECLOSEREQ|WRITEWRAP|SHUTDOWNWRAP|TCPCONNECTWRAP|PIPECONNECTWRAP|GETADDRINFOREQWRAP|GETNAMEINFOREQWRAP|QUERYWRAP.*|ZLIB|(?!HTTPCLIENT|UNDICI_).*REQUEST)$/;
 const transient = new Map(); // asyncId -> type
 const types = new Map(); // asyncId -> type, of every resource of Node's (for the report of what ran)
 const ours = new Set();
@@ -286,11 +352,20 @@ let ranTypes = {};
 function installQuiet() {
   createHook({
     init(asyncId, type) {
-      if (ownWork) { ours.add(asyncId); return; }
+      if (ownWork) {
+        ours.add(asyncId);
+        return;
+      }
       // Ticks and microtasks only ever run after a macrotask that is counted itself (and the control socket's own writes queue ticks).
       if (type !== 'PROMISE' && type !== 'TickObject' && type !== 'Microtask') types.set(asyncId, type);
       if (TRANSIENT.test(type)) transient.set(asyncId, type);
-      if (type === 'Timeout' && process.env.VCLOCK_TRACE) own(() => appendFileSync(`${process.env.VCLOCK_TRACE}/${process.pid}.log`, `${perf} realtimer ${new Error().stack.split('\n').slice(2, 12).join(' <- ')}\n`));
+      if (type === 'Timeout' && process.env.VCLOCK_TRACE)
+        own(() =>
+          appendFileSync(
+            `${process.env.VCLOCK_TRACE}/${process.pid}.log`,
+            `${perf} realtimer ${new Error().stack.split('\n').slice(2, 12).join(' <- ')}\n`
+          )
+        );
     },
     before(asyncId) {
       if (ours.has(asyncId) || !types.has(asyncId)) return;
@@ -305,7 +380,14 @@ function installQuiet() {
     },
   }).enable();
 }
-const own = (fn) => { ownWork = true; try { return fn(); } finally { ownWork = false; } };
+const own = (fn) => {
+  ownWork = true;
+  try {
+    return fn();
+  } finally {
+    ownWork = false;
+  }
+};
 const turn = () => new Promise((resolve) => own(() => real.setImmediate(resolve)));
 
 // A child process that is not Node (a shell, git, the ACL helper) runs on real time, outside every clock, so the process that started it
@@ -320,24 +402,45 @@ const nodeChildren = new Set(); // pids of live Node children
 const everNode = new Set(); // pids of every Node child this process started
 const childExits = new Set(); // waiters woken on a Node child's exit
 /** Resolves once one of `pids` (Node children of this process) is no longer alive here. */
-export const childEnded = (pids) => own(() => new Promise((resolve) => {
-  const check = () => { if (pids.some((pid) => everNode.has(pid) && !nodeChildren.has(pid))) { childExits.delete(check); resolve(); } };
-  childExits.add(check);
-  check();
-}));
-const lines = (chunk) => { let n = 0; for (const ch of String(chunk)) if (ch === '\n') n += 1; return n; };
+export const childEnded = (pids) =>
+  own(
+    () =>
+      new Promise((resolve) => {
+        const check = () => {
+          if (pids.some((pid) => everNode.has(pid) && !nodeChildren.has(pid))) {
+            childExits.delete(check);
+            resolve();
+          }
+        };
+        childExits.add(check);
+        check();
+      })
+  );
+const lines = (chunk) => {
+  let n = 0;
+  for (const ch of String(chunk)) if (ch === '\n') n += 1;
+  return n;
+};
 let inExecFile = 0; // > 0 while child_process.execFile is starting its child (synchronously, inside the call)
 function installChildren() {
   const execFile = childProcess.execFile;
   childProcess.execFile = function (...args) {
     inExecFile += 1;
-    try { return execFile.apply(this, args); } finally { inExecFile -= 1; }
+    try {
+      return execFile.apply(this, args);
+    } finally {
+      inExecFile -= 1;
+    }
   };
   // promisify(execFile) resolves { stdout, stderr } through Node's own custom form, which calls the original execFile directly.
   const custom = execFile[promisify.custom];
   childProcess.execFile[promisify.custom] = function (...args) {
     inExecFile += 1;
-    try { return custom.apply(this, args); } finally { inExecFile -= 1; }
+    try {
+      return custom.apply(this, args);
+    } finally {
+      inExecFile -= 1;
+    }
   };
   syncBuiltinESMExports();
   const spawn = ChildProcess.prototype.spawn;
@@ -347,12 +450,20 @@ function installChildren() {
     // A Node child started in a frozen world starts frozen at the world's instant (VCLOCK_AT): its start-up timers are virtual from its
     // first instruction, never real ones that may or may not fire before it joins.
     // Any child: a native one (the daemon's supervisor, daemon-candidate.mjs launchCandidate) passes it on to the Node process it starts.
-    if (virtual && Array.isArray(options?.envPairs)) options.envPairs = [...options.envPairs.filter((p) => !p.startsWith('VCLOCK_AT=')), `VCLOCK_AT=${now},${perf}`];
+    if (virtual && Array.isArray(options?.envPairs))
+      options.envPairs = [...options.envPairs.filter((p) => !p.startsWith('VCLOCK_AT=')), `VCLOCK_AT=${now},${perf}`];
     const result = spawn.call(this, options);
     if (process.env.VCLOCK_TRACE) {
       const what = `${this.pid} ${file} ${(options?.args ?? []).slice(1, 6).join(' ').slice(0, 200)} detached=${Boolean(options?.detached)}`;
-      own(() => appendFileSync(`${process.env.VCLOCK_TRACE}/${process.pid}.log`, `${perf} spawn ${what} <- ${new Error().stack.split('\n').slice(2, 8).join(' <- ')}\n`));
-      this.once('exit', () => own(() => appendFileSync(`${process.env.VCLOCK_TRACE}/${process.pid}.log`, `${perf} exit ${what}\n`)));
+      own(() =>
+        appendFileSync(
+          `${process.env.VCLOCK_TRACE}/${process.pid}.log`,
+          `${perf} spawn ${what} <- ${new Error().stack.split('\n').slice(2, 8).join(' <- ')}\n`
+        )
+      );
+      this.once('exit', () =>
+        own(() => appendFileSync(`${process.env.VCLOCK_TRACE}/${process.pid}.log`, `${perf} exit ${what}\n`))
+      );
     }
     // A Node child is a participant only once it has said hello to the recorder; until then (its start runs on real time) it is
     // reported, and the recorder takes the world as not settled while a reported child has not joined.
@@ -360,12 +471,19 @@ function installChildren() {
       const pid = this.pid;
       nodeChildren.add(pid);
       everNode.add(pid);
-      this.once('exit', () => { nodeChildren.delete(pid); for (const check of [...childExits]) check(); });
+      this.once('exit', () => {
+        nodeChildren.delete(pid);
+        for (const check of [...childExits]) check();
+      });
     }
     if (!this.pid || isNode) return result;
     let exited = false;
     let wake = () => {};
-    const changed = () => { const w = wake; wake = () => {}; w(); };
+    const changed = () => {
+      const w = wake;
+      wake = () => {};
+      w();
+    };
     if (options?.detached) {
       // A detached child outlives its spawner. One the spawner reads (the daemon's supervisor: daemon-candidate.mjs launchCandidate reads
       // `spawned <pid>` and `ready` from its stdout, then unrefs it) holds the spawner's clock until the spawner unrefs it, its own
@@ -374,30 +492,63 @@ function installChildren() {
       if (!this.stdout) return result;
       let released = false;
       const unref = this.unref;
-      this.unref = function (...args) { released = true; changed(); return unref.apply(this, args); };
+      this.unref = function (...args) {
+        released = true;
+        changed();
+        return unref.apply(this, args);
+      };
       this.stdout.prependListener('data', () => changed());
-      this.once('exit', () => { exited = true; children.delete(this); changed(); });
-      const entry = { pid: this.pid, file: file.split(/[\\/]/).pop(), sent: 0, answered: 0, detached: true, owes: () => !exited && !released };
-      entry.settled = () => new Promise((resolve) => { wake = resolve; if (!entry.owes()) changed(); });
+      this.once('exit', () => {
+        exited = true;
+        children.delete(this);
+        changed();
+      });
+      const entry = {
+        pid: this.pid,
+        file: file.split(/[\\/]/).pop(),
+        sent: 0,
+        answered: 0,
+        detached: true,
+        owes: () => !exited && !released,
+      };
+      entry.settled = () =>
+        new Promise((resolve) => {
+          wake = resolve;
+          if (!entry.owes()) changed();
+        });
       children.set(this, entry);
       return result;
     }
     // On exit, not on its pipes' close: a child that starts a server (pg_ctl start, process.mjs) leaves its stdio with the server, so
     // its pipes stay open for the server's life after the child itself exited. What it wrote before exiting is already in the pipe and is
     // read in the loop turns the quiet check waits for.
-    this.once('exit', () => { exited = true; children.delete(this); changed(); });
+    this.once('exit', () => {
+      exited = true;
+      children.delete(this);
+      changed();
+    });
     const entry = { pid: this.pid, file: file.split(/[\\/]/).pop(), sent: 0, answered: 0 };
     if (this.stdin && this.stdout) {
       const write = this.stdin.write;
-      this.stdin.write = (chunk, ...rest) => { entry.sent += lines(chunk); return write.call(this.stdin, chunk, ...rest); };
+      this.stdin.write = (chunk, ...rest) => {
+        entry.sent += lines(chunk);
+        return write.call(this.stdin, chunk, ...rest);
+      };
       // Counted before the spawner's own listener runs (prepended), so an answer is never seen as owed after it was read.
-      this.stdout.prependListener('data', (chunk) => { entry.answered += lines(chunk); changed(); });
+      this.stdout.prependListener('data', (chunk) => {
+        entry.answered += lines(chunk);
+        changed();
+      });
       // A command run to completion through execFile (whoami, the ACL check's one-shot powershell: file-permissions.mjs) is
       // never written to, and its caller waits for its exit: owed until it exits. A long-lived helper owes only unanswered lines.
       const oneShot = inExecFile > 0;
       entry.owes = () => !exited && (oneShot || entry.answered < entry.sent);
     } else entry.owes = () => !exited;
-    entry.settled = () => new Promise((resolve) => { wake = resolve; if (!entry.owes()) changed(); });
+    entry.settled = () =>
+      new Promise((resolve) => {
+        wake = resolve;
+        if (!entry.owes()) changed();
+      });
     children.set(this, entry);
     return result;
   };
@@ -425,9 +576,21 @@ export async function quiet() {
     }
     const before = ran;
     await turn();
-    if (ran !== before || transient.size) { any = true; idleTurns = 0; } else idleTurns += 1;
+    if (ran !== before || transient.size) {
+      any = true;
+      idleTurns = 0;
+    } else idleTurns += 1;
   }
-  return { ran: any, ranTypes, sockets: socketTable(), pipes: pipeTable(), threads: threadTable(), nodeChildren: [...nodeChildren], holding: holding().length, watched: [...new Set([...watchers].map((w) => w.dir))] };
+  return {
+    ran: any,
+    ranTypes,
+    sockets: socketTable(),
+    pipes: pipeTable(),
+    threads: threadTable(),
+    nodeChildren: [...nodeChildren],
+    holding: holding().length,
+    watched: [...new Set([...watchers].map((w) => w.dir))],
+  };
 }
 
 // A directory watcher's events (fs.watch: Node's config, file caches, transcripts) come from the OS on real time, after the write that
@@ -442,11 +605,15 @@ function installWatch() {
   fs.watch = function (path, ...rest) {
     const watcher = watch.call(this, path, ...rest);
     let dir = null;
-    try { if (statSync(path).isDirectory()) dir = resolve(String(path)).toLowerCase(); } catch {}
+    try {
+      if (statSync(path).isDirectory()) dir = resolve(String(path)).toLowerCase();
+    } catch {}
     if (!dir) return watcher;
     const entry = { dir, seen: new Set(), wake: () => {} };
     // A fence already on disk when the watch began was written before it: the watcher owes nothing from before it.
-    try { for (const n of fs.readdirSync(dir)) if (n.startsWith(FENCE)) entry.seen.add(n); } catch {}
+    try {
+      for (const n of fs.readdirSync(dir)) if (n.startsWith(FENCE)) entry.seen.add(n);
+    } catch {}
     watchers.add(entry);
     const emit = watcher.emit;
     watcher.emit = function (event, type, name, ...more) {
@@ -468,21 +635,43 @@ function installWatch() {
       }
       return emit.call(this, event, type, name, ...more);
     };
-    watcher.once('close', () => { watchers.delete(entry); entry.wake(); });
+    watcher.once('close', () => {
+      watchers.delete(entry);
+      entry.wake();
+    });
     return watcher;
   };
   syncBuiltinESMExports();
 }
 /** Resolves once every watcher of each directory in `names` (directory -> fence file name) was told of its fence (or closed). */
 export function fenced(names) {
-  return Promise.all([...watchers].filter((w) => names[w.dir]).map((w) => own(() => new Promise((resolve) => {
-    w.pending = names[w.dir];
-    const check = () => { if (w.seen.has(names[w.dir]) || !watchers.has(w)) resolve(); else w.wake = check; };
-    check();
-  }))));
+  return Promise.all(
+    [...watchers]
+      .filter((w) => names[w.dir])
+      .map((w) =>
+        own(
+          () =>
+            new Promise((resolve) => {
+              w.pending = names[w.dir];
+              const check = () => {
+                if (w.seen.has(names[w.dir]) || !watchers.has(w)) resolve();
+                else w.wake = check;
+              };
+              check();
+            })
+        )
+      )
+  );
 }
 /** What is running or pending now (the report of a world that does not settle). */
-export const busyReport = () => ({ transient: [...transient.values()], children: owing().map((c) => `${c.pid} ${c.file} sent ${c.sent} answered ${c.answered}`), ranTypes, ran, pendingTimers: pending.size, virtual });
+export const busyReport = () => ({
+  transient: [...transient.values()],
+  children: owing().map((c) => `${c.pid} ${c.file} sent ${c.sent} answered ${c.answered}`),
+  ranTypes,
+  ran,
+  pendingTimers: pending.size,
+  virtual,
+});
 
 const sockets = new Set();
 function installSockets() {
@@ -491,9 +680,17 @@ function installSockets() {
     // A connection beyond this machine (undici's fetch resolves through net's own lookup, not the patched dns module) is refused as a
     // machine with no network would: its answer would come on real time, from outside every clock.
     const first = Array.isArray(args[0]) ? args[0][0] : args[0];
-    const options = first && typeof first === 'object' ? first : { port: first, host: typeof args[1] === 'string' ? args[1] : undefined };
+    const options =
+      first && typeof first === 'object'
+        ? first
+        : { port: first, host: typeof args[1] === 'string' ? args[1] : undefined };
     if (!options.path && options.host !== undefined && !LOOPBACK.test(String(options.host))) {
-      const error = Object.assign(new Error(`connect ENETUNREACH ${options.host}:${options.port}`), { code: 'ENETUNREACH', syscall: 'connect', address: options.host, port: options.port });
+      const error = Object.assign(new Error(`connect ENETUNREACH ${options.host}:${options.port}`), {
+        code: 'ENETUNREACH',
+        syscall: 'connect',
+        address: options.host,
+        port: options.port,
+      });
       process.nextTick(() => this.destroy(error));
       return this;
     }
@@ -511,7 +708,18 @@ function installSockets() {
     const assigned = Number(process.env.VCLOCK_PG_PORT) || 0;
     const port = typeof args[0] === 'object' && args[0] ? args[0].port : args[0];
     if (assigned && Number(port) >= 55432 && Number(port) <= 55632 && Number(port) !== assigned) {
-      process.nextTick(() => this.emit('error', Object.assign(new Error(`listen EADDRINUSE: address already in use 127.0.0.1:${port}`), { code: 'EADDRINUSE', errno: -4091, syscall: 'listen', address: '127.0.0.1', port: Number(port) })));
+      process.nextTick(() =>
+        this.emit(
+          'error',
+          Object.assign(new Error(`listen EADDRINUSE: address already in use 127.0.0.1:${port}`), {
+            code: 'EADDRINUSE',
+            errno: -4091,
+            syscall: 'listen',
+            address: '127.0.0.1',
+            port: Number(port),
+          })
+        )
+      );
       return this;
     }
     return listen.apply(this, args);
@@ -523,14 +731,23 @@ function installSockets() {
   const arm = (socket) => {
     const t = socket[idle];
     if (t.timer) clear(t.timer);
-    t.timer = t.ms > 0 ? vSetTimeout(() => { t.timer = null; socket.emit('timeout'); }, t.ms) : null;
+    t.timer =
+      t.ms > 0
+        ? vSetTimeout(() => {
+            t.timer = null;
+            socket.emit('timeout');
+          }, t.ms)
+        : null;
     t.timer?.unref?.();
   };
   net.Socket.prototype.setTimeout = function (ms, callback) {
     this[idle] ??= { ms: 0, timer: null };
     this[idle].ms = Number(ms) || 0;
     this.timeout = this[idle].ms;
-    if (callback) { if (this[idle].ms === 0) this.removeListener('timeout', callback); else this.once('timeout', callback); }
+    if (callback) {
+      if (this[idle].ms === 0) this.removeListener('timeout', callback);
+      else this.once('timeout', callback);
+    }
     arm(this);
     return this;
   };
@@ -541,7 +758,10 @@ function installSockets() {
   };
   const destroy = net.Socket.prototype._destroy;
   net.Socket.prototype._destroy = function (...args) {
-    if (this[idle]?.timer) { clear(this[idle].timer); this[idle].timer = null; }
+    if (this[idle]?.timer) {
+      clear(this[idle].timer);
+      this[idle].timer = null;
+    }
     return destroy.apply(this, args);
   };
   const emit = net.Server.prototype.emit;
@@ -559,7 +779,11 @@ function installSockets() {
 // other has not read.
 const pipeEnds = new Map(); // socket -> { name, side }
 const pipeClosed = new Map(); // `${name} ${side}` -> { read, written }
-const pipeName = (path) => String(path).toLowerCase().replace(/^\\\\\?\\/, '\\\\.\\').replace(/\//g, '\\');
+const pipeName = (path) =>
+  String(path)
+    .toLowerCase()
+    .replace(/^\\\\\?\\/, '\\\\.\\')
+    .replace(/\//g, '\\');
 function pipeEnd(socket, path, side) {
   const end = { name: pipeName(path), side };
   pipeEnds.set(socket, end);
@@ -595,12 +819,14 @@ function socketTable() {
   const out = [];
   for (const s of sockets) {
     if (s === control || excluded.has(s) || s.destroyed || !s.localPort || !s.remotePort) continue;
-    if (s.remoteAddress !== '127.0.0.1' && s.remoteAddress !== '::1' && s.remoteAddress !== '::ffff:127.0.0.1') continue;
+    if (s.remoteAddress !== '127.0.0.1' && s.remoteAddress !== '::1' && s.remoteAddress !== '::ffff:127.0.0.1')
+      continue;
     const written = s.bytesWritten - (s.writableLength ?? 0);
     // Whether this end wrote after the last bytes it read: a request a peer outside every clock (the memory store's postgres) still owes
     // an answer to. Observed here: when the read count moved since the last look, what was written by then has been answered.
     const seen = lastLook.get(s);
-    if (!seen || seen.read !== s.bytesRead) lastLook.set(s, { read: s.bytesRead, written: seen || s.bytesRead ? written : 0 });
+    if (!seen || seen.read !== s.bytesRead)
+      lastLook.set(s, { read: s.bytesRead, written: seen || s.bytesRead ? written : 0 });
     const awaiting = written > lastLook.get(s).written;
     out.push({ local: s.localPort, remote: s.remotePort, read: s.bytesRead, written, awaiting });
   }
@@ -612,15 +838,25 @@ function socketTable() {
 // nothing Node fetches from outside (a model catalog, an update check) answers at a time the recorder does not choose.
 const LOOPBACK = /^(localhost|127\.\d+\.\d+\.\d+|::1)$/i;
 function installNetwork() {
-  const refuse = (hostname) => Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: 'ENOTFOUND', errno: -3008, syscall: 'getaddrinfo', hostname });
+  const refuse = (hostname) =>
+    Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), {
+      code: 'ENOTFOUND',
+      errno: -3008,
+      syscall: 'getaddrinfo',
+      hostname,
+    });
   const lookup = dns.lookup;
   dns.lookup = function (hostname, options, callback) {
     const cb = typeof options === 'function' ? options : callback;
-    if (!LOOPBACK.test(String(hostname))) { process.nextTick(cb, refuse(hostname)); return {}; }
+    if (!LOOPBACK.test(String(hostname))) {
+      process.nextTick(cb, refuse(hostname));
+      return {};
+    }
     return lookup.call(this, hostname, options, callback);
   };
   const promised = dns.promises.lookup;
-  dns.promises.lookup = (hostname, options) => (LOOPBACK.test(String(hostname)) ? promised(hostname, options) : Promise.reject(refuse(hostname)));
+  dns.promises.lookup = (hostname, options) =>
+    LOOPBACK.test(String(hostname)) ? promised(hostname, options) : Promise.reject(refuse(hostname));
   syncBuiltinESMExports();
 }
 
@@ -642,7 +878,13 @@ function countHandled(target, key) {
     target[method] = function (event, listener, ...rest) {
       if (event !== 'message' || typeof listener !== 'function') return original.call(this, event, listener, ...rest);
       const wrapped = function (...args) {
-        if (!counted) { counted = true; channel(key).handled += 1; queueMicrotask(() => { counted = false; }); }
+        if (!counted) {
+          counted = true;
+          channel(key).handled += 1;
+          queueMicrotask(() => {
+            counted = false;
+          });
+        }
         return listener.apply(this, args);
       };
       wrapped.listener = listener; // removeListener(event, listener) finds it (EventEmitter matches `.listener`)
@@ -655,7 +897,10 @@ function installThreads() {
     const key = `${process.pid}:${workerThreads.threadId}`;
     const port = workerThreads.parentPort;
     const post = port.postMessage;
-    port.postMessage = function (...args) { channel(`${key} up`).sent += 1; return post.apply(this, args); };
+    port.postMessage = function (...args) {
+      channel(`${key} up`).sent += 1;
+      return post.apply(this, args);
+    };
     countHandled(port, `${key} down`);
   }
   const Base = workerThreads.Worker;
@@ -666,8 +911,13 @@ function installThreads() {
       channel(`${key} down`);
       channel(`${key} up`);
       // The worker's 'message' events are emitted on this object: a prepended listener only counts (a Worker's listeners do not ref it).
-      this.prependListener('message', () => { channel(`${key} up`).handled += 1; });
-      this.once('exit', () => { threadChannels.delete(`${key} down`); threadChannels.delete(`${key} up`); });
+      this.prependListener('message', () => {
+        channel(`${key} up`).handled += 1;
+      });
+      this.once('exit', () => {
+        threadChannels.delete(`${key} down`);
+        threadChannels.delete(`${key} up`);
+      });
     }
     postMessage(...args) {
       channel(`${process.pid}:${this.threadId} down`).sent += 1;
@@ -692,7 +942,10 @@ export function install(seedText) {
 
 // ── the preload: a Node process of the daemon, controlled over loopback ──────────────────────────────────────────────────────────────
 function controlled(port, seedRoot) {
-  const role = `${process.argv.slice(1).map((a) => a.replace(/\\/g, '/').split('/').pop()).join(' ')}`;
+  const role = `${process.argv
+    .slice(1)
+    .map((a) => a.replace(/\\/g, '/').split('/').pop())
+    .join(' ')}`;
   install(`${seedRoot}:${role}`);
   if (process.env.VCLOCK_AT) {
     const [epoch, perfBase] = process.env.VCLOCK_AT.split(',').map(Number);
@@ -713,12 +966,18 @@ function controlled(port, seedRoot) {
       buffer = buffer.slice(at + 1);
       const m = JSON.parse(line);
       // A process started frozen (VCLOCK_AT) is frozen already when its hello is answered with the world's instant.
-      if (m.op === 'freeze') { if (!virtual) freeze(m.epoch, m.perfBase); reply({ re: m.n }); }
-      else if (m.op === 'thaw') { thaw(); reply({ re: m.n }); }
-      else if (m.op === 'report') reply({ re: m.n, ...busyReport() });
+      if (m.op === 'freeze') {
+        if (!virtual) freeze(m.epoch, m.perfBase);
+        reply({ re: m.n });
+      } else if (m.op === 'thaw') {
+        thaw();
+        reply({ re: m.n });
+      } else if (m.op === 'report') reply({ re: m.n, ...busyReport() });
       else if (m.op === 'nextDue') reply({ re: m.n, due: nextDue() });
-      else if (m.op === 'fire') { fireDue(m.at); reply({ re: m.n }); }
-      else if (m.op === 'quiet') quiet().then((q) => reply({ re: m.n, ...q }));
+      else if (m.op === 'fire') {
+        fireDue(m.at);
+        reply({ re: m.n });
+      } else if (m.op === 'quiet') quiet().then((q) => reply({ re: m.n, ...q }));
       else if (m.op === 'fenced') fenced(m.names).then(() => reply({ re: m.n }));
       else if (m.op === 'heldChanged') heldChanged().then(() => reply({ re: m.n }));
       else if (m.op === 'childEnded') childEnded(m.pids).then(() => reply({ re: m.n }));

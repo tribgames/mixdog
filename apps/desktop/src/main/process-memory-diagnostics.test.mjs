@@ -30,7 +30,12 @@ test('the idle-reclaim figure sums only shell renderer processes and counts them
   routes.register(server, 'remote');
   const sample = sampleProcessMemory({
     getAppMetrics: () =>
-      [[710, 100], [720, 50], [730, 900], [999, 7]].map(([pid, kb]) => ({
+      [
+        [710, 100],
+        [720, 50],
+        [730, 900],
+        [999, 7],
+      ].map(([pid, kb]) => ({
         pid,
         type: 'Tab',
         memory: { workingSetSize: kb, peakWorkingSetSize: kb, privateBytes: kb },
@@ -72,7 +77,13 @@ test('memory diagnostics identify live surfaces without inferring roles from con
         memory: { workingSetSize: 1024, peakWorkingSetSize: 1200, privateBytes: 800 },
       })),
     getAllWebContents: () => [
-      local, server, page, loginShell, loginSite, unowned, unknownWindow,
+      local,
+      server,
+      page,
+      loginShell,
+      loginSite,
+      unowned,
+      unknownWindow,
       contents(8, 770, { destroyed: true }),
       contents(9, 770, { crashed: true }),
       contents(10, 0),
@@ -92,8 +103,15 @@ test('memory diagnostics identify live surfaces without inferring roles from con
     { rendererOsPid: 750, webContentsId: 6, windowId: null, role: 'unclassified' },
     { rendererOsPid: 760, webContentsId: 7, windowId: 107, role: 'unclassified' },
   ]);
-  assert.deepEqual(sample.processes.find(({ pid }) => pid === 730), {
-    pid: 730, type: 'Tab', workingSetKb: 1024, peakWorkingSetKb: 1200, privateKb: 800,
-  });
+  assert.deepEqual(
+    sample.processes.find(({ pid }) => pid === 730),
+    {
+      pid: 730,
+      type: 'Tab',
+      workingSetKb: 1024,
+      peakWorkingSetKb: 1200,
+      privateKb: 800,
+    }
+  );
   assert.equal(sample.processes.at(-1).pid, 770, 'processes without live contents still have their own metrics');
 });

@@ -124,7 +124,10 @@ export function createComputerUseOverlay(
     ensureShortcut();
     const currentRender = ++renderRevision;
     const revision = latestSnapshot.revision;
-    const presentation = computerUseOverlayPresentation(latestSnapshot, locale, { ...controller.state(), shortcutUnavailable });
+    const presentation = computerUseOverlayPresentation(latestSnapshot, locale, {
+      ...controller.state(),
+      shortcutUnavailable,
+    });
     latestPresentation = presentation;
     if (presentation.visible) cancelIdleRetire();
     const shellDraws = indicator ? await helperReady() : false;

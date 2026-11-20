@@ -37,7 +37,11 @@ const pushToolModules = (value) =>
     pushSections({
       kind: 'sections',
       changes: [
-        { section: 'toolModules', key: null, entry: { section: 'toolModules', key: null, revision: ++sectionRevision, value } },
+        {
+          section: 'toolModules',
+          key: null,
+          entry: { section: 'toolModules', key: null, revision: ++sectionRevision, value },
+        },
       ],
     })
   );
@@ -119,7 +123,9 @@ test('runtime progress from a chat installation stays live without a UI install 
   try {
     assert.match(document.querySelector('[data-feature-id="localProvider"]').textContent, /Install through chat/);
     assert.deepEqual(calls, []);
-    await pushToolModules({ localProvider: status({ installations: [{ phase: 'runtime', state: 'running', percent: 42 }] }) });
+    await pushToolModules({
+      localProvider: status({ installations: [{ phase: 'runtime', state: 'running', percent: 42 }] }),
+    });
     const progress = document.querySelector('[data-feature-id="localProvider"] [role="progressbar"]');
     assert.equal(progress?.getAttribute('aria-valuenow'), '42');
     assert.equal(document.querySelector('[data-feature-id="localProvider"] input'), null);
@@ -486,4 +492,3 @@ test('background hardware checks stay silent while real hardware failures remain
     await mounted.dispose();
   }
 });
-

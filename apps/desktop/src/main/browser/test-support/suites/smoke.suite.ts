@@ -7,7 +7,9 @@ import { type CoreHarnessSuite, progress } from '../core-harness';
 const suite: CoreHarnessSuite = async (harness) => {
   const server = createServer((_request, response) => {
     response.setHeader('content-type', 'text/html; charset=utf-8');
-    response.end('<!doctype html><title>Core harness smoke</title><p>Core harness smoke evidence</p><button>Smoke action</button>');
+    response.end(
+      '<!doctype html><title>Core harness smoke</title><p>Core harness smoke evidence</p><button>Smoke action</button>'
+    );
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {

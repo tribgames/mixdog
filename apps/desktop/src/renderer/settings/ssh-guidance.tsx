@@ -234,6 +234,9 @@ export function guidance(failure: GuidanceFailure, name: string): Guidance {
         body: commandBlock(failure.command),
       };
     default:
-      return { ...MESSAGE_GUIDANCE[failure.kind](name), body: rawMessage(sshMessageText(failure.notice, failure.message)) };
+      return {
+        ...MESSAGE_GUIDANCE[failure.kind](name),
+        body: rawMessage(sshMessageText(failure.notice, failure.message)),
+      };
   }
 }

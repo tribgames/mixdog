@@ -86,6 +86,7 @@ import {
   type ToolActivityBrowserPage,
   type ToolCardModel,
 } from './transcript-tool-model';
+// biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { classifyToolCategory, formatToolSurface } from '../../../../packages/protocol-client/src/rows/tool-surface.mjs';
 // biome-ignore format: @ts-expect-error must precede the specifier

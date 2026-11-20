@@ -109,9 +109,9 @@ export interface CaptureProviderModule {
 async function loadProviderModule(): Promise<CaptureProviderModule> {
   // The live runner's own provider and ids: one scripted endpoint for every harness. They are plain modules without
   // declarations, and the capture is a development harness (a packaged build excludes it).
-  // @ts-ignore TS7016: no declaration file beside scripts/live/lib
+  // @ts-expect-error TS7016: no declaration file beside scripts/live/lib
   const provider = await import('../../../../scripts/live/lib/provider.mjs');
-  // @ts-ignore TS7016: no declaration file beside scripts/live/lib
+  // @ts-expect-error TS7016: no declaration file beside scripts/live/lib
   const paths = await import('../../../../scripts/live/lib/paths.mjs');
   return {
     startProvider: provider.startProvider,

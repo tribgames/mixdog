@@ -100,9 +100,7 @@ test('synthetic-only, resume-scratch and legacy rows are told apart by durable p
 });
 
 test('a transcript of only a [truncated] marker and an interrupted assistant row stays hidden end to end', async () => {
-  const { _sessionSummary } = await import(
-    '../shared/test-recorded/desktop-state-project.test.0.recorded.mjs'
-  );
+  const { _sessionSummary } = await import('../shared/test-recorded/desktop-state-project.test.0.recorded.mjs');
   const { listLeadSessions } = await import('../shared/test-recorded/desktop-state-project.test.1.recorded.mjs');
   const stored = {
     id: 'sess_truncated_only',

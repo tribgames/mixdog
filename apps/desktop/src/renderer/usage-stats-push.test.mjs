@@ -41,14 +41,17 @@ function snapshot(tokens) {
     period,
     range: { days: period.days, firstDay: period.startDay || '2025-01-01' },
     totals: { ...route, sessions: 1 },
-    providers: [{
-      ...route,
-      provider: 'openai',
-      providerKind: 'api',
-      models: (tokens === 1200 ? [{ fast: true }] : [
-        { speedTier: 'standard' }, { speedTier: 'fast' }, { speedTier: 'ultrafast', fast: true },
-      ]).map((tier) => ({ model: 'model-a', ...tier })),
-    }],
+    providers: [
+      {
+        ...route,
+        provider: 'openai',
+        providerKind: 'api',
+        models: (tokens === 1200
+          ? [{ fast: true }]
+          : [{ speedTier: 'standard' }, { speedTier: 'fast' }, { speedTier: 'ultrafast', fast: true }]
+        ).map((tier) => ({ model: 'model-a', ...tier })),
+      },
+    ],
     daily: [{ day: period.startDay, tokens, turns: 1, costUsd: 2, costKnownTurns: 1, providers: [] }],
     hourly: Array.from({ length: 24 }, (_, hour) => ({
       key: String(hour).padStart(2, '0'),
@@ -97,7 +100,8 @@ test('a pushed usage/stats entry updates an open statistics dialog without a rea
   const push = (tokens) => {
     const entry = { section: 'usage', key: 'stats', revision: ++revision, value: snapshot(tokens) };
     entries = [entry];
-    for (const listener of [...listeners]) listener({ kind: 'sections', changes: [{ section: 'usage', key: 'stats', entry }] });
+    for (const listener of [...listeners])
+      listener({ kind: 'sections', changes: [{ section: 'usage', key: 'stats', entry }] });
   };
   const shown = () => document.querySelectorAll('.stats-card > b')[2]?.textContent;
   const props = { surface: 'stats', open: true, onClose() {}, api };
@@ -144,7 +148,9 @@ for (const core of [false, true]) {
         return { value: { totals: { tokens: reads * 1000 } } };
       },
       subscribeState: () => () => {},
-      subscribeSessionState: (listener) => (sessionListeners.add(listener), () => void sessionListeners.delete(listener)),
+      subscribeSessionState: (listener) => (
+        sessionListeners.add(listener), () => void sessionListeners.delete(listener)
+      ),
     };
     const release = holdStatsDataCache(api, { background: false });
     context.after(release);
@@ -156,7 +162,8 @@ for (const core of [false, true]) {
     let tokens = 0;
     for (let turn = 0; turn < 5; turn += 1) {
       tokens += 100;
-      for (const listener of sessionListeners) listener({ sessionId: 'busy', snapshot: { stats: { inputTokens: tokens } } });
+      for (const listener of sessionListeners)
+        listener({ sessionId: 'busy', snapshot: { stats: { inputTokens: tokens } } });
       context.mock.timers.tick(2_000);
       await new Promise(setImmediate);
     }
@@ -165,6 +172,10 @@ for (const core of [false, true]) {
       context.mock.timers.tick(REMOTE_STATS_REFRESH_INTERVAL_MS);
       await new Promise(setImmediate);
     }
-    assert.equal(reads, core ? 1 : 2, core ? 'the core connection is told, not polled' : 'one coalesced re-read, then no poll');
+    assert.equal(
+      reads,
+      core ? 1 : 2,
+      core ? 'the core connection is told, not polled' : 'one coalesced re-read, then no poll'
+    );
   });
 }

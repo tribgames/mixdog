@@ -59,7 +59,10 @@ test('selection: a shell hash pins a rebuild but never overrides a reported vers
   assert.equal(selectRelease(index, {}).id, 'new');
   const adopted = entry('legacy', '', 1, { legacy: true, shellVersion: pinned });
   assert.equal(selectRelease(registry(adopted), { appVersion: '0.9.0', rendererRelease: pinned }).id, 'legacy');
-  assert.equal(selectRelease(registry(adopted, ...index.releases), { appVersion: '0.9.0', rendererRelease: pinned }), null);
+  assert.equal(
+    selectRelease(registry(adopted, ...index.releases), { appVersion: '0.9.0', rendererRelease: pinned }),
+    null
+  );
 });
 
 test('retention keeps legacy, the newest N and releases recently-seen devices still use', () => {
@@ -351,7 +354,10 @@ test('only an absent registry enables single-renderer mode', async () => {
     });
     assert.equal(stale.dirFor({ appVersion: '1.0.0' }), null);
     await writeFile(join(root, 'renderer-releases', 'index.json'), '{broken');
-    const broken = createRendererCatalog({ rendererDir: join(root, 'renderer'), releasesDir: join(root, 'renderer-releases') });
+    const broken = createRendererCatalog({
+      rendererDir: join(root, 'renderer'),
+      releasesDir: join(root, 'renderer-releases'),
+    });
     assert.equal(broken.dirFor({ appVersion: '1.0.0' }), null);
   } finally {
     await rm(root, { recursive: true, force: true });

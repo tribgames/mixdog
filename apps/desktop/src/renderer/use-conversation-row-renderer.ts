@@ -1,7 +1,10 @@
 import { createElement, Fragment, type ReactNode, useContext, useMemo } from 'react';
 import { greetingSuggestions } from '../shared/greeting-suggestions';
 import { stripAgentMessageEnvelope } from '../shared/core-src/runtime/shared/agent-message-envelope.mjs';
-import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import {
+  MIXY_AGENT_ID,
+  agentIdOfHomeSession,
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import {
   agentChatPlace,

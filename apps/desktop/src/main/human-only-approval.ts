@@ -82,7 +82,10 @@ export async function withHumanOnlyApproval<T>(run: () => Promise<T>, signal?: A
     activeHumanApproval = true;
   } catch (error) {
     // Stopped while it waited: the core's hold ends once it is declared.
-    void begun?.then((holdId) => core?.end(holdId), () => undefined);
+    void begun?.then(
+      (holdId) => core?.end(holdId),
+      () => undefined
+    );
     dropLabel();
     throw error;
   } finally {

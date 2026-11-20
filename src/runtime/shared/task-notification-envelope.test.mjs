@@ -14,10 +14,6 @@ import {
   shouldPersistModelVisibleToolCompletion,
 } from './tool-execution-contract.mjs';
 
-
-
-
-
 test('failure without a result carries its error, not a synthetic result or usage', () => {
   const text = renderAgentCompletionEnvelope({ id: 'task_agent_2', status: 'failed', error: 'quota <limit> & retry' });
   assert.equal(
@@ -83,5 +79,3 @@ test('shell non-zero exit remains a completed command result, with log and previ
   const empty = renderShellCompletionEnvelope({ jobId: 'job_empty', status: 'completed', exitCode: 0 });
   assert.equal(modelVisibleToolCompletionMessage(empty), empty);
 });
-
-

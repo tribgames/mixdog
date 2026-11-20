@@ -11,7 +11,16 @@
 // the release version) and `mixdog-askpass` (exit 2, it is started with no endpoint), then checks the manifest the
 // launcher wrote beside the programs. Reading the tarballs needs no `tar` program: the layout is the same on every runner.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -82,15 +91,22 @@ export function platformProblems({ entries, key, version }) {
   const expected = expectedPlatformFiles(platform);
   const actual = entries.map((entry) => entry.path).sort();
   for (const path of expected) if (!actual.includes(path)) problems.push(`${platformPackageName(key)} lacks ${path}`);
-  for (const path of actual) if (!expected.includes(path)) problems.push(`${platformPackageName(key)} holds ${path}, which the package is not to carry`);
-  if (manifest.name !== platformPackageName(key)) problems.push(`${platformPackageName(key)} is named ${manifest.name}`);
-  if (manifest.version !== version) problems.push(`${platformPackageName(key)} is version ${manifest.version}, the release is ${version}`);
-  if (JSON.stringify(manifest.os) !== JSON.stringify([platform])) problems.push(`${platformPackageName(key)} os is ${JSON.stringify(manifest.os)}, not ["${platform}"]`);
-  if (JSON.stringify(manifest.cpu) !== JSON.stringify(cpu)) problems.push(`${platformPackageName(key)} cpu is ${JSON.stringify(manifest.cpu)}, not ${JSON.stringify(cpu)}`);
+  for (const path of actual)
+    if (!expected.includes(path))
+      problems.push(`${platformPackageName(key)} holds ${path}, which the package is not to carry`);
+  if (manifest.name !== platformPackageName(key))
+    problems.push(`${platformPackageName(key)} is named ${manifest.name}`);
+  if (manifest.version !== version)
+    problems.push(`${platformPackageName(key)} is version ${manifest.version}, the release is ${version}`);
+  if (JSON.stringify(manifest.os) !== JSON.stringify([platform]))
+    problems.push(`${platformPackageName(key)} os is ${JSON.stringify(manifest.os)}, not ["${platform}"]`);
+  if (JSON.stringify(manifest.cpu) !== JSON.stringify(cpu))
+    problems.push(`${platformPackageName(key)} cpu is ${JSON.stringify(manifest.cpu)}, not ${JSON.stringify(cpu)}`);
   if (platform !== 'win32') {
     for (const name of NATIVE_PROGRAMS) {
       const entry = entries.find((candidate) => candidate.path === `package/bin/${name}`);
-      if (entry && (entry.mode & 0o111) === 0) problems.push(`${platformPackageName(key)} holds ${name} without the executable bit`);
+      if (entry && (entry.mode & 0o111) === 0)
+        problems.push(`${platformPackageName(key)} holds ${name} without the executable bit`);
     }
   }
   return problems;
@@ -101,18 +117,29 @@ export function mainProblems({ entries, version }) {
   const problems = [];
   const manifest = manifestOf(entries, 'mixdog');
   if (manifest.name !== 'mixdog') problems.push(`the main package is named ${manifest.name}`);
-  if (manifest.version !== version) problems.push(`the main package is version ${manifest.version}, the release is ${version}`);
+  if (manifest.version !== version)
+    problems.push(`the main package is version ${manifest.version}, the release is ${version}`);
   const expected = Object.fromEntries(PLATFORMS.map((entry) => [platformPackageName(entry.key), version]));
   const actual = manifest.optionalDependencies ?? {};
   if (JSON.stringify(Object.entries(actual).sort()) !== JSON.stringify(Object.entries(expected).sort())) {
-    problems.push(`optionalDependencies of mixdog are ${JSON.stringify(actual)}, not every platform package at ${version}`);
+    problems.push(
+      `optionalDependencies of mixdog are ${JSON.stringify(actual)}, not every platform package at ${version}`
+    );
   }
-  for (const path of ['package/bin/mixdog.mjs', 'package/bin/native-layout.mjs', 'package/bin/staged-swap.mjs', 'package/bin/invocation.mjs']) {
+  for (const path of [
+    'package/bin/mixdog.mjs',
+    'package/bin/native-layout.mjs',
+    'package/bin/staged-swap.mjs',
+    'package/bin/invocation.mjs',
+  ]) {
     if (!entries.some((entry) => entry.path === path)) problems.push(`the main package lacks ${path}`);
   }
   for (const entry of entries) {
     const base = entry.path.split('/').pop();
-    if (entry.path.startsWith('package/native-bin/') || ['mixdog', 'mixdogd', 'mixdog-askpass', 'mixdog.exe', 'mixdogd.exe', 'mixdog-askpass.exe'].includes(base)) {
+    if (
+      entry.path.startsWith('package/native-bin/') ||
+      ['mixdog', 'mixdogd', 'mixdog-askpass', 'mixdog.exe', 'mixdogd.exe', 'mixdog-askpass.exe'].includes(base)
+    ) {
       problems.push(`the main package carries a native program: ${entry.path}`);
     }
   }
@@ -126,7 +153,8 @@ export function findTarballs(dir) {
   let main;
   for (const name of files) {
     const manifest = manifestOf(readTarball(join(dir, name)), name);
-    if (name !== `${manifest.name}-${manifest.version}.tgz`) throw new Error(`${name} does not match its package identity`);
+    if (name !== `${manifest.name}-${manifest.version}.tgz`)
+      throw new Error(`${name} does not match its package identity`);
     if (manifest.name === 'mixdog') {
       if (main) throw new Error(`${dir} holds multiple tarballs for mixdog`);
       main = join(dir, name);
@@ -150,7 +178,8 @@ export function extractTarball(file, folder) {
   }
 }
 
-const run = (program, args, options = {}) => spawnSync(program, args, { encoding: 'utf8', timeout: 120_000, windowsHide: true, ...options });
+const run = (program, args, options = {}) =>
+  spawnSync(program, args, { encoding: 'utf8', timeout: 120_000, windowsHide: true, ...options });
 
 /** Installs the packed main package and the platform package for `key` side by side and starts what they carry. */
 export function runInstall({ main, platformTarball, key, version, tmp }) {
@@ -161,7 +190,8 @@ export function runInstall({ main, platformTarball, key, version, tmp }) {
   const launcher = join(modules, 'mixdog', 'bin', 'mixdog.mjs');
   const help = run(process.execPath, [launcher, '--help']);
   if (help.status !== 0) problems.push(`the launcher exited ${help.status} on --help: ${help.stderr.trim()}`);
-  else if (!help.stdout.startsWith('mixdog')) problems.push(`the launcher's --help does not begin with "mixdog": ${help.stdout.slice(0, 80)}`);
+  else if (!help.stdout.startsWith('mixdog'))
+    problems.push(`the launcher's --help does not begin with "mixdog": ${help.stdout.slice(0, 80)}`);
   const folder = join(modules, platformPackageName(key), 'bin');
   const { platform } = platformOf(key);
   const manifestPath = join(folder, 'js-runtime.json');
@@ -169,12 +199,17 @@ export function runInstall({ main, platformTarball, key, version, tmp }) {
   else {
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     if (manifest.program !== 'node') problems.push(`js-runtime.json names ${manifest.program} as the interpreter`);
-    if (!existsSync(resolve(folder, manifest.packageRoot, 'package.json'))) problems.push(`js-runtime.json packageRoot ${manifest.packageRoot} is not the mixdog package`);
-    if (manifest.ortLibrary !== undefined && !existsSync(resolve(folder, manifest.ortLibrary))) problems.push(`js-runtime.json ortLibrary ${manifest.ortLibrary} does not exist`);
+    if (!existsSync(resolve(folder, manifest.packageRoot, 'package.json')))
+      problems.push(`js-runtime.json packageRoot ${manifest.packageRoot} is not the mixdog package`);
+    if (manifest.ortLibrary !== undefined && !existsSync(resolve(folder, manifest.ortLibrary)))
+      problems.push(`js-runtime.json ortLibrary ${manifest.ortLibrary} does not exist`);
   }
   const core = run(join(folder, programFile('mixdogd', platform)), ['--version']);
   const reported = core.status === 0 ? core.stdout.trim().split(/\s+/).pop() : undefined;
-  if (reported !== version) problems.push(`mixdogd reports ${reported ?? `exit ${core.status}: ${core.stderr.trim()}`}, the release is ${version}`);
+  if (reported !== version)
+    problems.push(
+      `mixdogd reports ${reported ?? `exit ${core.status}: ${core.stderr.trim()}`}, the release is ${version}`
+    );
   const { MIXDOG_ASKPASS_ENDPOINT: _endpoint, MIXDOG_ASKPASS_TOKEN: _token, ...env } = process.env;
   const askpass = run(join(folder, programFile('mixdog-askpass', platform)), ['prompt'], { env });
   if (askpass.status !== 2) problems.push(`mixdog-askpass exited ${askpass.status} with no endpoint, not 2`);
@@ -182,7 +217,12 @@ export function runInstall({ main, platformTarball, key, version, tmp }) {
 }
 
 /** The whole check; returns the problems. */
-export function checkPackages({ dir, platforms, run: runKey, version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version }) {
+export function checkPackages({
+  dir,
+  platforms,
+  run: runKey,
+  version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version,
+}) {
   const problems = [];
   const found = findTarballs(dir);
   if (!found.main) problems.push(`${dir} holds no tarball of the package mixdog`);
@@ -191,13 +231,18 @@ export function checkPackages({ dir, platforms, run: runKey, version = JSON.pars
     if (!found.platforms[key]) problems.push(`${dir} holds no tarball of ${platformPackageName(key)}`);
     else problems.push(...platformProblems({ entries: readTarball(found.platforms[key]), key, version }));
   }
-  for (const key of Object.keys(found.platforms)) if (!platforms.includes(key)) problems.push(`${dir} holds a tarball of ${platformPackageName(key)}, which this release does not stage`);
+  for (const key of Object.keys(found.platforms))
+    if (!platforms.includes(key))
+      problems.push(`${dir} holds a tarball of ${platformPackageName(key)}, which this release does not stage`);
   if (runKey) {
-    if (!found.main || !found.platforms[runKey]) problems.push(`cannot start ${runKey}: its tarballs are not in ${dir}`);
+    if (!found.main || !found.platforms[runKey])
+      problems.push(`cannot start ${runKey}: its tarballs are not in ${dir}`);
     else {
       const tmp = mkdtempSync(join(tmpdir(), 'mixdog-npm-check-'));
       try {
-        problems.push(...runInstall({ main: found.main, platformTarball: found.platforms[runKey], key: runKey, version, tmp }));
+        problems.push(
+          ...runInstall({ main: found.main, platformTarball: found.platforms[runKey], key: runKey, version, tmp })
+        );
       } finally {
         rmSync(tmp, { recursive: true, force: true });
       }
@@ -211,7 +256,9 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
   const value = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
   const dir = value('--dir');
   if (!dir) {
-    process.stderr.write('usage: node scripts/check-npm-packages.mjs --dir <folder> [--platforms <key,key,...>] [--run [<key>]]\n');
+    process.stderr.write(
+      'usage: node scripts/check-npm-packages.mjs --dir <folder> [--platforms <key,key,...>] [--run [<key>]]\n'
+    );
     process.exit(2);
   }
   const platforms = value('--platforms') ? value('--platforms').split(',') : PLATFORMS.map(({ key }) => key);
@@ -227,5 +274,7 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
   const problems = checkPackages({ dir: resolve(dir), platforms, run: runKey });
   for (const problem of problems) process.stderr.write(`mixdog-check: ${problem}\n`);
   if (problems.length > 0) process.exit(1);
-  process.stdout.write(`mixdog-check: ${platforms.length} platform package(s) and the main package are as released${runKey ? `; ${runKey} starts` : ''}\n`);
+  process.stdout.write(
+    `mixdog-check: ${platforms.length} platform package(s) and the main package are as released${runKey ? `; ${runKey} starts` : ''}\n`
+  );
 }

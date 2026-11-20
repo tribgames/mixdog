@@ -1089,16 +1089,28 @@ test('an already-open Agents pane follows the child request route on pool pushes
       dom.root.render(React.createElement(AgentActivityPane, { active: true, sessions }));
     });
     await expandAllAgentGroups();
-    assert.ok(document.querySelector('[data-agent-session-id="worker-live"]'), 'the existing pool is read at subscribe time');
+    assert.ok(
+      document.querySelector('[data-agent-session-id="worker-live"]'),
+      'the existing pool is read at subscribe time'
+    );
 
     const agentRow = () => document.querySelector('[data-agent-session-id="worker-live"]');
     const routeLabel = () => agentRow().querySelector('.agent-route-summary');
     const push = (rows) =>
-      act(async () => listener({ kind: 'sections', changes: [{ section: 'agentPool', key: null, entry: entry(rows) }] }));
+      act(async () =>
+        listener({ kind: 'sections', changes: [{ section: 'agentPool', key: null, entry: entry(rows) }] })
+      );
     await push([{ ...row, status: 'queued', stage: 'queued', provider: null, model: null, fast: null }]);
     assert.equal(routeLabel(), null);
     await push([
-      { ...row, provider: 'anthropic-oauth', model: 'claude-sonnet-5-5', effort: 'medium', fast: false, autoEffort: false },
+      {
+        ...row,
+        provider: 'anthropic-oauth',
+        model: 'claude-sonnet-5-5',
+        effort: 'medium',
+        fast: false,
+        autoEffort: false,
+      },
     ]);
     assert.equal(routeLabel().title, 'claude-sonnet-5-5');
     assert.match(routeLabel().textContent, /Medium$/);

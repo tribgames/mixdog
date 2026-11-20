@@ -48,19 +48,29 @@ export async function startFixtures() {
         )
       );
     }
-    if (url.pathname === '/submitted') return send(200, html('lat submitted', `<h1>Submitted</h1><p id="q">${encodeURIComponent(url.searchParams.get('q') ?? '')}</p>`));
+    if (url.pathname === '/submitted')
+      return send(
+        200,
+        html('lat submitted', `<h1>Submitted</h1><p id="q">${encodeURIComponent(url.searchParams.get('q') ?? '')}</p>`)
+      );
     if (url.pathname === '/slow') {
       // The cancel case: a page whose load takes `ms`.
       const ms = Number(url.searchParams.get('ms') ?? 30000);
       setTimeout(() => send(200, html('lat slow', '<h1>slow done</h1>')), ms);
       return;
     }
-    if (url.pathname === '/root') return send(200, JSON.stringify({ q: url.searchParams.get('q') }), 'application/json');
+    if (url.pathname === '/root')
+      return send(200, JSON.stringify({ q: url.searchParams.get('q') }), 'application/json');
     return send(200, html('lat blank', '<p>blank</p>'));
   });
   const frame = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-    res.end(html('lat inner', `<button id="inner" type="button" onclick="this.textContent='inner clicked'">Inner button</button>`));
+    res.end(
+      html(
+        'lat inner',
+        `<button id="inner" type="button" onclick="this.textContent='inner clicked'">Inner button</button>`
+      )
+    );
   });
   const port = await listen(main, '127.0.0.1');
   framePort = await listen(frame, '127.0.0.2');
@@ -69,9 +79,15 @@ export async function startFixtures() {
     origin,
     frameOrigin: `http://127.0.0.2:${framePort}`,
     url: (path) => `${origin}${path}`,
-    close: () => Promise.all([main, frame].map((s) => new Promise((r) => {
-      s.closeAllConnections?.();
-      s.close(r);
-    }))),
+    close: () =>
+      Promise.all(
+        [main, frame].map(
+          (s) =>
+            new Promise((r) => {
+              s.closeAllConnections?.();
+              s.close(r);
+            })
+        )
+      ),
   };
 }

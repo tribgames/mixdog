@@ -111,7 +111,10 @@ function summarize({ nodes, samples = [], timeDeltas = [], startTime, endTime })
     [...map]
       .sort((left, right) => right[1] - left[1])
       .slice(0, TOP)
-      .map(([label, us]) => `${(us / 1000).toFixed(1).padStart(10)} ms  ${((us / sampledUs) * 100).toFixed(1).padStart(5)}%  ${label}`);
+      .map(
+        ([label, us]) =>
+          `${(us / 1000).toFixed(1).padStart(10)} ms  ${((us / sampledUs) * 100).toFixed(1).padStart(5)}%  ${label}`
+      );
   return [
     `target: ${target.url}`,
     `window: ${((endTime - startTime) / 1e6).toFixed(1)} s, ${samples.length} samples`,

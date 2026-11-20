@@ -52,7 +52,9 @@ function themeProblemText(problem: ThemeProblem): string {
     case 'section':
       return t('"{{path}}" must be an object.', { path: detail });
     case 'version':
-      return t('This theme uses an unsupported format ({{schema}}). Supported format: mixdog-theme/v1.', { schema: detail });
+      return t('This theme uses an unsupported format ({{schema}}). Supported format: mixdog-theme/v1.', {
+        schema: detail,
+      });
     case 'name':
       return t('The theme needs a name (up to 64 characters).');
     case 'appearance':

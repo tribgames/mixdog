@@ -456,7 +456,8 @@ test('--changed lists readers of deleted modules and runtime inputs only in the 
     'native/crates/protocol/capability.rs': '',
     'apps/relay/src/contract.mjs': '',
     'apps/desktop/src/connector-api.test.mjs': "import '../../relay/src/contract.mjs';",
-    'apps/desktop/src/connector-coverage.test.mjs': "const rule = new URL('../../../native/crates/protocol/capability.rs', import.meta.url);",
+    'apps/desktop/src/connector-coverage.test.mjs':
+      "const rule = new URL('../../../native/crates/protocol/capability.rs', import.meta.url);",
     'apps/desktop/src/connector-destination.test.mjs': "import './replacement.mjs';",
     'apps/desktop/src/connector-directory.test.mjs': "import './former-module.mjs';",
     'apps/desktop/src/connector-dual.test.mjs': "import './connector.mjs';\nimport './replacement.mjs';",
@@ -502,17 +503,20 @@ test('--changed lists readers of deleted modules and runtime inputs only in the 
 
   const desktop = runNode(join(cwd, 'apps/desktop'), [runnerPath, '--changed', '--list']);
   assert.equal(desktop.status, 0, desktop.stderr);
-  assert.equal(desktop.stdout, [
-    'fast  src/connector-api.test.mjs',
-    'fast  src/connector-coverage.test.mjs',
-    'fast  src/connector-destination.test.mjs',
-    'fast  src/connector-directory.test.mjs',
-    'fast  src/connector-dual.test.mjs',
-    'fast  src/connector-fixtures.test.mjs',
-    'fast  src/connector-style.test.mjs',
-    'fast  src/connector.test.mjs',
-    '',
-  ].join('\n'));
+  assert.equal(
+    desktop.stdout,
+    [
+      'fast  src/connector-api.test.mjs',
+      'fast  src/connector-coverage.test.mjs',
+      'fast  src/connector-destination.test.mjs',
+      'fast  src/connector-directory.test.mjs',
+      'fast  src/connector-dual.test.mjs',
+      'fast  src/connector-fixtures.test.mjs',
+      'fast  src/connector-style.test.mjs',
+      'fast  src/connector.test.mjs',
+      '',
+    ].join('\n')
+  );
 
   await rm(join(cwd, 'src/retired/guide.md'));
   const orphan = runNode(cwd, [runnerPath, '--changed', '--list', 'retired']);

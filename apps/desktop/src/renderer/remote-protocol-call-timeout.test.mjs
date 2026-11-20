@@ -7,7 +7,9 @@ import test from 'node:test';
 import { adapter as terminalAdapter } from './remote-protocol-terminal.ts';
 import { createProtocolRouter } from './remote-shim-protocol.ts';
 
-const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/call-timeout/golden.json', import.meta.url), 'utf8'));
+const golden = JSON.parse(
+  readFileSync(new URL('../../../mobile/fixtures/call-timeout/golden.json', import.meta.url), 'utf8')
+);
 
 test("a core call that is never answered fails with Node's text after Node's probe", async (t) => {
   let clock = 0;
@@ -52,7 +54,9 @@ test("a core call that is never answered fails with Node's text after Node's pro
   for (let round = 0; failure === null && timers.size > 0; round += 1) {
     if (round === ROUNDS) {
       const pending = [...timers.values()].map((timer) => `at ${timer.at - sentAt} ms`).join(', ');
-      assert.fail(`the call had not failed after ${ROUNDS} timer rounds; still pending: ${pending}; probes so far: ${JSON.stringify(steps)}`);
+      assert.fail(
+        `the call had not failed after ${ROUNDS} timer rounds; still pending: ${pending}; probes so far: ${JSON.stringify(steps)}`
+      );
     }
     const [id, next] = [...timers].reduce((a, b) => (b[1].at < a[1].at ? b : a));
     timers.delete(id);

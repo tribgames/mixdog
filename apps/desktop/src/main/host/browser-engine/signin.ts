@@ -34,7 +34,12 @@ export interface FilledLogin {
 /** What the sign-in methods reach: the sign-in flows of browser/host-agent.ts and the session's turn bookkeeping. */
 export interface SignInDeps {
   /** `linkedSignIn.beforeAction`. */
-  beforeAction(guest: WebContents, action: string, command: Record<string, unknown>, signal?: AbortSignal): void | Promise<void>;
+  beforeAction(
+    guest: WebContents,
+    action: string,
+    command: Record<string, unknown>,
+    signal?: AbortSignal
+  ): void | Promise<void>;
   /** `autoSignIn.afterCommand`: the reply it would send instead (its text begins with the saved-login note), or null. */
   afterCommand(input: {
     guest: WebContents;
@@ -122,7 +127,9 @@ export function registerSignIn(
       // The reply goes out without the line either way. The one expected failure is the page closing while its record is
       // read; any other (an unreadable store, ...) is reported, never silently dropped.
       if (!guest.isDestroyed()) {
-        deps.onDiagnostic?.('browser-linked-sign-in-reply-failed', { error: (error as Error)?.message ?? String(error) });
+        deps.onDiagnostic?.('browser-linked-sign-in-reply-failed', {
+          error: (error as Error)?.message ?? String(error),
+        });
       }
     }
     return { ...(note ? { note } : {}), ...(line ? { line } : {}) };

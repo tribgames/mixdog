@@ -164,7 +164,8 @@ i18next.addResourceBundle('en', 'translation', {
   'Session send: Sent to {{name}}': 'Sent to {{name}}',
   'Turn changes: {{count}} files changed_other': '{{count}} files changed',
   // The English singular of a counted sentence whose key is its plural.
-  'The app on the server restarts, and {{count}} running sessions stop._one': 'The app on the server restarts, and {{count}} running session stops.',
+  'The app on the server restarts, and {{count}} running sessions stop._one':
+    'The app on the server restarts, and {{count}} running session stops.',
 });
 
 /** Fetch the resolved language and switch onto it. The renderer entry awaits

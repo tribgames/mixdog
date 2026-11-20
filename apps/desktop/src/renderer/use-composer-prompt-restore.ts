@@ -31,7 +31,11 @@ export function applyPromptRestore(
 
 /** A Stop reply's hand-back `id` in session `sessionId`: true when it was already applied (as the state's offer or a reply);
  *  otherwise it becomes the session's remembered reply (the offer is kept) and false is answered. */
-export function replyRestoreApplied(id: string, sessionId: string, applied: AppliedRestores = appliedPromptRestores): boolean {
+export function replyRestoreApplied(
+  id: string,
+  sessionId: string,
+  applied: AppliedRestores = appliedPromptRestores
+): boolean {
   const seen = applied.get(sessionId) ?? {};
   if (seen.offer === id || seen.reply === id) return true;
   applied.set(sessionId, { ...seen, reply: id });

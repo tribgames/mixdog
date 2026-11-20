@@ -16,7 +16,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { startCore } from '../../../scripts/rust-core/lib/core-session.mjs';
 import { computerSourceEsbuildPlugin } from './computer-source-assets.mjs';
-import { bundleElectronEntry, electronProcessEnv, spawnElectron, waitForChildExit, withTempWorkspace } from './electron-harness.mjs';
+import {
+  bundleElectronEntry,
+  electronProcessEnv,
+  spawnElectron,
+  waitForChildExit,
+  withTempWorkspace,
+} from './electron-harness.mjs';
 
 const ELECTRON_LIMIT_MS = 5 * 60_000;
 const CPU_LIMIT_PERCENT = 20;
@@ -74,14 +80,17 @@ export function evaluate(rows, timings) {
     };
     if (baseline !== undefined) {
       if (commandMs === null) result.problems.push('no browser_timing row with a commandMs');
-      else if (commandMs > result.limit) result.problems.push(`commandMs ${commandMs.toFixed(1)} > ${result.limit.toFixed(1)}`);
+      else if (commandMs > result.limit)
+        result.problems.push(`commandMs ${commandMs.toFixed(1)} > ${result.limit.toFixed(1)}`);
     }
     const typed = measured.filter((row) => row.chars);
     if (typed.length) {
       result.eventsPerChar = median(typed.map((row) => row.events / row.chars));
       result.bytesPerChar = median(typed.map((row) => row.eventBytes / row.chars));
-      if (result.eventsPerChar >= MAX_EVENTS_PER_CHAR) result.problems.push(`events/char ${result.eventsPerChar.toFixed(2)} >= ${MAX_EVENTS_PER_CHAR}`);
-      if (result.bytesPerChar >= MAX_BYTES_PER_CHAR) result.problems.push(`bytes/char ${Math.round(result.bytesPerChar)} >= ${MAX_BYTES_PER_CHAR}`);
+      if (result.eventsPerChar >= MAX_EVENTS_PER_CHAR)
+        result.problems.push(`events/char ${result.eventsPerChar.toFixed(2)} >= ${MAX_EVENTS_PER_CHAR}`);
+      if (result.bytesPerChar >= MAX_BYTES_PER_CHAR)
+        result.problems.push(`bytes/char ${Math.round(result.bytesPerChar)} >= ${MAX_BYTES_PER_CHAR}`);
     }
     result.pass = result.problems.length === 0;
     results.push(result);
@@ -100,7 +109,8 @@ export function readTimings(traceText) {
     } catch {
       continue;
     }
-    if (row.kind === 'browser_timing' && row.turn_id !== undefined && row.payload) timings.set(row.turn_id, row.payload);
+    if (row.kind === 'browser_timing' && row.turn_id !== undefined && row.payload)
+      timings.set(row.turn_id, row.payload);
   }
   return timings;
 }
@@ -108,8 +118,12 @@ export function readTimings(traceText) {
 function cpuLoad() {
   if (process.platform !== 'win32') return (loadavg()[0] / cpus().length) * 100;
   const script =
-    "$v = @(); for ($i = 0; $i -lt 3; $i++) { $v += [double]((Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average); if ($i -lt 2) { Start-Sleep -Seconds 1 } }; ($v | Measure-Object -Average).Average";
-  const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
+    '$v = @(); for ($i = 0; $i -lt 3; $i++) { $v += [double]((Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average); if ($i -lt 2) { Start-Sleep -Seconds 1 } }; ($v | Measure-Object -Average).Average';
+  const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 30_000,
+  });
   return Number(out.trim());
 }
 
@@ -119,7 +133,8 @@ function flag(name) {
   return process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
 }
 
-const format = (value, digits = 1) => (value === null || value === undefined || !Number.isFinite(value) ? '-' : value.toFixed(digits));
+const format = (value, digits = 1) =>
+  value === null || value === undefined || !Number.isFinite(value) ? '-' : value.toFixed(digits);
 
 function report(results) {
   for (const result of results) {
@@ -131,7 +146,8 @@ function report(results) {
       result.baseline === null ? 'no baseline' : `baseline ${format(result.baseline)} limit ${format(result.limit)}`,
       `host calls/command ${format(result.hostCalls, 0)}`,
     ];
-    if (result.eventsPerChar !== undefined) parts.push(`events/char ${format(result.eventsPerChar, 2)} bytes/char ${format(result.bytesPerChar, 0)}`);
+    if (result.eventsPerChar !== undefined)
+      parts.push(`events/char ${format(result.eventsPerChar, 2)} bytes/char ${format(result.bytesPerChar, 0)}`);
     console.log(parts.join('  '));
     for (const problem of result.problems) console.log(`       ${problem}`);
   }
@@ -158,48 +174,52 @@ async function main() {
       extraEnv: { MIXDOGD_TEST_HOOKS: '1', MIXDOG_AGENT_TRACE_TIMING: '1', MIXDOG_AGENT_TRACE_PATH: traceFile },
       clientName: 'browser-latency-gate',
     });
-    await withTempWorkspace('mixdog-browser-latency-gate-', async (staging) => {
-      const output = join(staging, 'browser-latency-gate.mjs');
-      const entry = join(staging, 'entry.ts');
-      const progressPath = join(staging, 'progress.log');
-      await writeFile(
-        entry,
-        `import { progress, runCoreHarnessSuite } from ${JSON.stringify(join(testSupport, 'core-harness.ts'))};\n` +
-          `import { runBrowserEngineLatencyGate } from ${JSON.stringify(scenarios)};\n` +
-          'runCoreHarnessSuite((harness) => runBrowserEngineLatencyGate(harness, progress));\n'
-      );
-      await bundleElectronEntry({
-        entry,
-        outfile: output,
-        plugins: [computerSourceEsbuildPlugin()],
-        external: ['electron', 'ws'],
-        sourcemap: 'inline',
-      });
-      const env = electronProcessEnv({
-        MIXDOG_BROWSER_INTEGRATION_LOG: progressPath,
-        MIXDOG_CORE_HARNESS_RUNTIME_ROOT: core.paths.runtimeRoot,
-        MIXDOG_CORE_HARNESS_ENGINE: 'core',
-        // Inside the staging folder, which is removed whatever becomes of the child (killed, timed out, crashed).
-        MIXDOG_CORE_HARNESS_PROFILE_DIR: join(staging, 'profile'),
-        MIXDOG_LATENCY_GATE_REPS: flag('reps') ?? '',
-        MIXDOG_LATENCY_GATE_WARMUP: flag('warmup') ?? '',
-      });
-      const child = spawnElectron(output, { env });
-      let exitCode;
-      try {
-        exitCode = await waitForChildExit(child, {
-          timeoutMs: ELECTRON_LIMIT_MS,
-          timeoutMessage: `the latency gate exceeded ${ELECTRON_LIMIT_MS / 1000} seconds`,
-          signalMessage: (signal) => `the latency gate was terminated by ${signal}`,
+    await withTempWorkspace(
+      'mixdog-browser-latency-gate-',
+      async (staging) => {
+        const output = join(staging, 'browser-latency-gate.mjs');
+        const entry = join(staging, 'entry.ts');
+        const progressPath = join(staging, 'progress.log');
+        await writeFile(
+          entry,
+          `import { progress, runCoreHarnessSuite } from ${JSON.stringify(join(testSupport, 'core-harness.ts'))};\n` +
+            `import { runBrowserEngineLatencyGate } from ${JSON.stringify(scenarios)};\n` +
+            'runCoreHarnessSuite((harness) => runBrowserEngineLatencyGate(harness, progress));\n'
+        );
+        await bundleElectronEntry({
+          entry,
+          outfile: output,
+          plugins: [computerSourceEsbuildPlugin()],
+          external: ['electron', 'ws'],
+          sourcemap: 'inline',
         });
-      } finally {
-        progress = await readFile(progressPath, 'utf8').catch(() => '');
-      }
-      if (exitCode !== 0 || !progress.includes('integration passed')) {
-        console.error(progress.split('\n').slice(-20).join('\n'));
-        throw new Error(`the latency gate run failed before its success marker (exit ${exitCode})`);
-      }
-    }, { maxRetries: 20, retryDelay: 100 });
+        const env = electronProcessEnv({
+          MIXDOG_BROWSER_INTEGRATION_LOG: progressPath,
+          MIXDOG_CORE_HARNESS_RUNTIME_ROOT: core.paths.runtimeRoot,
+          MIXDOG_CORE_HARNESS_ENGINE: 'core',
+          // Inside the staging folder, which is removed whatever becomes of the child (killed, timed out, crashed).
+          MIXDOG_CORE_HARNESS_PROFILE_DIR: join(staging, 'profile'),
+          MIXDOG_LATENCY_GATE_REPS: flag('reps') ?? '',
+          MIXDOG_LATENCY_GATE_WARMUP: flag('warmup') ?? '',
+        });
+        const child = spawnElectron(output, { env });
+        let exitCode;
+        try {
+          exitCode = await waitForChildExit(child, {
+            timeoutMs: ELECTRON_LIMIT_MS,
+            timeoutMessage: `the latency gate exceeded ${ELECTRON_LIMIT_MS / 1000} seconds`,
+            signalMessage: (signal) => `the latency gate was terminated by ${signal}`,
+          });
+        } finally {
+          progress = await readFile(progressPath, 'utf8').catch(() => '');
+        }
+        if (exitCode !== 0 || !progress.includes('integration passed')) {
+          console.error(progress.split('\n').slice(-20).join('\n'));
+          throw new Error(`the latency gate run failed before its success marker (exit ${exitCode})`);
+        }
+      },
+      { maxRetries: 20, retryDelay: 100 }
+    );
   } finally {
     // The core writes its buffered trace rows as it exits.
     if (core) await core.stop().catch((error) => console.error(error.message));
@@ -218,11 +238,15 @@ async function main() {
   const out = flag('out');
   if (out) await writeFile(out, `${JSON.stringify({ cpuBefore, cpuAfter, results }, null, 2)}\n`);
   if (!(cpuBefore < CPU_LIMIT_PERCENT && cpuAfter < CPU_LIMIT_PERCENT)) {
-    console.log(`INVALID: CPU load ${format(cpuBefore, 0)}% before and ${format(cpuAfter, 0)}% after (the timings need under ${CPU_LIMIT_PERCENT}%).`);
+    console.log(
+      `INVALID: CPU load ${format(cpuBefore, 0)}% before and ${format(cpuAfter, 0)}% after (the timings need under ${CPU_LIMIT_PERCENT}%).`
+    );
     return 2;
   }
   const failed = results.filter((result) => !result.pass);
-  console.log(failed.length ? `latency gate FAILED: ${failed.map((result) => result.scenario).join(', ')}` : 'latency gate passed');
+  console.log(
+    failed.length ? `latency gate FAILED: ${failed.map((result) => result.scenario).join(', ')}` : 'latency gate passed'
+  );
   return failed.length ? 1 : 0;
 }
 

@@ -155,7 +155,10 @@ test('a displayed device list and its cache survive until the relay answers agai
 test('an open Connection panel follows relay descriptors and roster changes, including while switched off', async (t) => {
   const listeners = new Set();
   const snapshot = async () => ({ status: 'ready', entries: [] });
-  installSectionStore({ snapshot, subscribe: (listener) => (listeners.add(listener), () => listeners.delete(listener)) });
+  installSectionStore({
+    snapshot,
+    subscribe: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+  });
   t.after(() => installSectionStore({ snapshot, subscribe: () => () => undefined }));
   const { document, state } = await mount(t, { info: null });
   const phone = client('c1', 'Fold', 'Mixdog App', true);
@@ -173,7 +176,8 @@ test('an open Connection panel follows relay descriptors and roster changes, inc
         },
       };
       const entry = { section: 'remote', key: null, revision: ++revision, value };
-      for (const listener of [...listeners]) listener({ kind: 'sections', changes: [{ section: 'remote', key: null, entry }] });
+      for (const listener of [...listeners])
+        listener({ kind: 'sections', changes: [{ section: 'remote', key: null, entry }] });
     });
   const status = () => document.querySelector('.conn-list .conn-status')?.textContent;
 
@@ -250,12 +254,13 @@ test('the latest roster can land after both slow-read deadlines and resume readb
     return id;
   });
   t.mock.method(dom.window, 'clearTimeout', (id) => timers.delete(id));
-  const elapse = (ms) => act(async () => {
-    now += ms;
-    for (const [id, timer] of [...timers]) {
-      if (timer.at <= now && timers.delete(id)) timer.run();
-    }
-  });
+  const elapse = (ms) =>
+    act(async () => {
+      now += ms;
+      for (const [id, timer] of [...timers]) {
+        if (timer.at <= now && timers.delete(id)) timer.run();
+      }
+    });
 
   await act(async () => dom.root.render(React.createElement(ConnectionPanel, { api })));
   assert.equal(pages.length, 1);
@@ -283,10 +288,20 @@ test('a paged roster stays manageable offline and a late page cannot restore rem
     clients: [pair],
     disabled: false,
     settings,
-    info: { enabled: true, connected: true, relay: { clientUrl: 'https://relay.example/d/aaaaaaaa/', clients: [pair] } },
+    info: {
+      enabled: true,
+      connected: true,
+      relay: { clientUrl: 'https://relay.example/d/aaaaaaaa/', clients: [pair] },
+    },
   };
-  const snapshot = async () => ({ status: 'ready', entries: [{ section: 'remote', key: null, revision: 1, value: ready }] });
-  installSectionStore({ snapshot, subscribe: (listener) => (listeners.add(listener), () => listeners.delete(listener)) });
+  const snapshot = async () => ({
+    status: 'ready',
+    entries: [{ section: 'remote', key: null, revision: 1, value: ready }],
+  });
+  installSectionStore({
+    snapshot,
+    subscribe: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+  });
   t.after(() =>
     installSectionStore({ snapshot: async () => ({ status: 'ready', entries: [] }), subscribe: () => () => undefined })
   );
@@ -307,7 +322,8 @@ test('a paged roster stays manageable offline and a late page cannot restore rem
   const publish = (value) =>
     act(async () => {
       const entry = { section: 'remote', key: null, revision: ++revision, value };
-      for (const listener of [...listeners]) listener({ kind: 'sections', changes: [{ section: 'remote', key: null, entry }] });
+      for (const listener of [...listeners])
+        listener({ kind: 'sections', changes: [{ section: 'remote', key: null, entry }] });
     });
   const offline = { ...ready, clients: [{ ...pair, online: false }], info: { ...ready.info, connected: false } };
   await publish(null);
@@ -317,7 +333,10 @@ test('a paged roster stays manageable offline and a late page cannot restore rem
   await click(buttonNamed(document, 'Close'));
   await click(buttonNamed(document, 'Disconnect'));
   await click(buttonNamed(document, 'Confirm disconnect'));
-  assert.deepEqual(calls.filter(([op]) => op === 'revoke'), [['revoke', pair.id]]);
+  assert.deepEqual(
+    calls.filter(([op]) => op === 'revoke'),
+    [['revoke', pair.id]]
+  );
 
   const beforeStub = pages.length;
   await publish(null);
@@ -635,7 +654,8 @@ test('the unsupported state arrives in the remote section, not as a second answe
   assert.ok(document.querySelector('.conn-code-tile--loading'));
   await act(async () => {
     const entry = { section: 'remote', key: null, revision: 1, value: { pairCode: null, pairCodeUnsupported: true } };
-    for (const listener of [...listeners]) listener({ kind: 'sections', changes: [{ section: 'remote', key: null, entry }] });
+    for (const listener of [...listeners])
+      listener({ kind: 'sections', changes: [{ section: 'remote', key: null, entry }] });
   });
   assert.equal(document.querySelector('.conn-code-tile--na').textContent, 'Codes aren’t available right now');
 });

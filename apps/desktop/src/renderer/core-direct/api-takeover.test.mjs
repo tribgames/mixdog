@@ -14,7 +14,9 @@ const setup = (answer = async () => ({})) => {
 test('provideSecretInput sends approval/provideSecret and answers true', async () => {
   const { calls, api } = setup();
   assert.equal(await api.provideSecretInput('secret_abcdefgh1234', 'hunter2'), true);
-  assert.deepEqual(calls, [{ method: 'approval/provideSecret', params: { requestId: 'secret_abcdefgh1234', secret: 'hunter2' } }]);
+  assert.deepEqual(calls, [
+    { method: 'approval/provideSecret', params: { requestId: 'secret_abcdefgh1234', secret: 'hunter2' } },
+  ]);
 });
 
 test('provideSecretInput trims the request id as the main handler did', async () => {

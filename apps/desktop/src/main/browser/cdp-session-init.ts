@@ -185,7 +185,10 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
     void Promise.allSettled([
       // Chromium keeps response bodies for getResponseBody, by default up to
       // 100 MB per page; a report reads one body's first characters.
-      send('Network.enable', { maxTotalBufferSize: NETWORK_BODY_BUFFER_BYTES, maxResourceBufferSize: NETWORK_RESOURCE_BUFFER_BYTES }),
+      send('Network.enable', {
+        maxTotalBufferSize: NETWORK_BODY_BUFFER_BYTES,
+        maxResourceBufferSize: NETWORK_RESOURCE_BUFFER_BYTES,
+      }),
       // A native file picker would block the window; Chromium reports it as
       // an event instead and `upload` answers it with approved paths.
       send('Page.setInterceptFileChooserDialog', { enabled: true }),

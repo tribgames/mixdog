@@ -14,14 +14,20 @@ test('the window IPC answers only a routed window: close it, show Connection set
   const handlers = new Map();
   const removed = [];
   const dispose = registerConnectionLinkIpc({
-    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), removeHandler: (channel) => removed.push(channel) },
+    ipcMain: {
+      handle: (channel, handler) => handlers.set(channel, handler),
+      removeHandler: (channel) => removed.push(channel),
+    },
     routes,
     closeWindow: (sender) => closed.push(sender.id),
     showConnectionSettings: () => {
       shown += 1;
     },
   });
-  assert.deepEqual([...handlers.keys()].sort(), [DESKTOP_IPC.connectionCloseWindow, DESKTOP_IPC.connectionOpenSettings].sort());
+  assert.deepEqual(
+    [...handlers.keys()].sort(),
+    [DESKTOP_IPC.connectionCloseWindow, DESKTOP_IPC.connectionOpenSettings].sort()
+  );
   await handlers.get(DESKTOP_IPC.connectionCloseWindow)({ sender: { id: 11 } });
   await handlers.get(DESKTOP_IPC.connectionOpenSettings)({ sender: { id: 11 } });
   assert.deepEqual(closed, [11]);
@@ -43,4 +49,3 @@ test('the host-lists change reaches only the window it is forwarded to, until it
   notifyHostListsChanged();
   assert.equal(sent.length, 1);
 });
-

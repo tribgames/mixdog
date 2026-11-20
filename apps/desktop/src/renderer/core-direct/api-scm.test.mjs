@@ -28,7 +28,12 @@ const CASES = [
   ['gitBranches', ['/r'], 'git/branches', { cwd: '/r' }],
   ['gitRenameBranch', ['/r', 'a', 'b'], 'git/renameBranch', { cwd: '/r', input: { branch: 'a', nextBranch: 'b' } }],
   ['gitDeleteBranch', ['/r', 'a'], 'git/deleteBranch', { cwd: '/r', input: { branch: 'a' } }],
-  ['gitDiff', ['/r', 'p', true, false, true], 'git/diff', { cwd: '/r', path: 'p', staged: true, worktreeOnly: false, untracked: true }],
+  [
+    'gitDiff',
+    ['/r', 'p', true, false, true],
+    'git/diff',
+    { cwd: '/r', path: 'p', staged: true, worktreeOnly: false, untracked: true },
+  ],
   ['gitApplyPatch', ['/r', 'p', 'x', true], 'git/applyPatch', { cwd: '/r', path: 'p', patch: 'x', reverse: true }],
   ['gitStage', ['/r', ['a']], 'git/stage', { cwd: '/r', paths: ['a'] }],
   ['gitUnstage', ['/r', ['a']], 'git/unstage', { cwd: '/r', paths: ['a'] }],
@@ -62,19 +67,37 @@ const CASES = [
   ['gitShowDiff', ['/r', 'h', 'p'], 'git/showDiff', { cwd: '/r', hash: 'h', path: 'p' }],
   ['gitRequestContext', ['/r', { k: 1 }], 'git/requestContext', { cwd: '/r', input: { k: 1 } }],
   ['gitShowFile', ['/r', 'rev', 'p'], 'git/showFile', { cwd: '/r', rev: 'rev', path: 'p' }],
-  ['gitResetToCommit', ['/r', 'h', 'mixed', true], 'git/resetToCommit', { cwd: '/r', value: 'h', mode: 'mixed', confirmedDirty: true }],
+  [
+    'gitResetToCommit',
+    ['/r', 'h', 'mixed', true],
+    'git/resetToCommit',
+    { cwd: '/r', value: 'h', mode: 'mixed', confirmedDirty: true },
+  ],
   ['gitRevertCommit', ['/r', 'h'], 'git/revertCommit', { cwd: '/r', value: 'h' }],
   ['gitCherryPickCommit', ['/r', 'h'], 'git/cherryPickCommit', { cwd: '/r', value: 'h' }],
   ['gitCreateTag', ['/r', 't', 'h'], 'git/createTag', { cwd: '/r', value: 't', at: 'h' }],
   ['gitDeleteTag', ['/r', 't'], 'git/deleteTag', { cwd: '/r', value: 't' }],
   ['gitReview', ['/r', 'head'], 'review/diff/get', { scope: 'repo', cwd: '/r', source: 'head' }],
-  ['gitReviewDiff', ['/r', 'p', true, 'head'], 'review/diff/get', { scope: 'repo', cwd: '/r', path: 'p', untracked: true, source: 'head', patch: true }],
-  ['gitReviewDiffs', ['/r', ['a'], 'head'], 'review/diff/get', { scope: 'repo', cwd: '/r', files: ['a'], source: 'head', patch: true }],
+  [
+    'gitReviewDiff',
+    ['/r', 'p', true, 'head'],
+    'review/diff/get',
+    { scope: 'repo', cwd: '/r', path: 'p', untracked: true, source: 'head', patch: true },
+  ],
+  [
+    'gitReviewDiffs',
+    ['/r', ['a'], 'head'],
+    'review/diff/get',
+    { scope: 'repo', cwd: '/r', files: ['a'], source: 'head', patch: true },
+  ],
 ];
 
 test('every scm member is covered by a case', () => {
   const covered = new Set([...CASES.map(([member]) => member), 'githubCliLoginStart', 'setGitGlobalConfig']);
-  assert.deepEqual([...DIRECT_KEYS.scm].filter((key) => !covered.has(key)), []);
+  assert.deepEqual(
+    [...DIRECT_KEYS.scm].filter((key) => !covered.has(key)),
+    []
+  );
   assert.deepEqual(Object.keys(createScmApi({ call: async () => ({}) })).sort(), [...DIRECT_KEYS.scm].sort());
 });
 
@@ -97,7 +120,9 @@ test('replies: the core value, nothing for a void operation, the boolean for ope
 });
 
 test('githubCliLoginStart answers the flow status', async () => {
-  const { api, calls } = setup(async (method) => (method === 'github/login/start' ? { flowId: 'f9' } : { flowId: 'f9', state: 'pending' }));
+  const { api, calls } = setup(async (method) =>
+    method === 'github/login/start' ? { flowId: 'f9' } : { flowId: 'f9', state: 'pending' }
+  );
   assert.deepEqual(await api.githubCliLoginStart(), { flowId: 'f9', state: 'pending' });
   assert.deepEqual(calls, [
     { method: 'github/login/start', params: {} },

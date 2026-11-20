@@ -7,9 +7,16 @@ function fakeOwner(id) {
   return {
     id,
     destroyed: false,
-    isDestroyed() { return this.destroyed; },
-    once(_event, listener) { listeners.push(listener); },
-    destroy() { this.destroyed = true; for (const l of listeners) l(); },
+    isDestroyed() {
+      return this.destroyed;
+    },
+    once(_event, listener) {
+      listeners.push(listener);
+    },
+    destroy() {
+      this.destroyed = true;
+      for (const l of listeners) l();
+    },
     count: () => listeners.length,
   };
 }
@@ -71,10 +78,16 @@ test('a revoke that fails is queued and flushed by the next refresh', async () =
   core.state.down = false;
   core.calls.length = 0;
   await pages.refresh();
-  assert.deepEqual(core.calls.map((c) => c[0]), ['localPageOrigin', 'localPageRevokeOwner']);
+  assert.deepEqual(
+    core.calls.map((c) => c[0]),
+    ['localPageOrigin', 'localPageRevokeOwner']
+  );
   core.calls.length = 0;
   await pages.refresh();
-  assert.deepEqual(core.calls.map((c) => c[0]), ['localPageOrigin']);
+  assert.deepEqual(
+    core.calls.map((c) => c[0]),
+    ['localPageOrigin']
+  );
 });
 
 test('origin is cached; refresh re-queries', async () => {

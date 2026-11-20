@@ -24,8 +24,13 @@ const releasePath = () => {
 export function readRelease(draft, target = ref) {
   const id = releaseId();
   const release = api(releasePath());
-  if (String(release.id) !== id || release.tag_name !== tag || release.target_commitish !== target
-      || release.draft !== draft || release.prerelease !== false) {
+  if (
+    String(release.id) !== id ||
+    release.tag_name !== tag ||
+    release.target_commitish !== target ||
+    release.draft !== draft ||
+    release.prerelease !== false
+  ) {
     throw new Error(`Release ${id} is not the expected ${draft ? 'draft' : 'public release'} of ${tag} at ${target}`);
   }
   return release;
@@ -48,20 +53,37 @@ export async function recordFile(file) {
   return { name, size, digest: `sha256:${hash.digest('hex')}` };
 }
 
-const sameAsset = (asset, expected) => asset.name === expected.name && asset.state === 'uploaded'
-  && asset.size === expected.size && asset.digest === expected.digest;
+const sameAsset = (asset, expected) =>
+  asset.name === expected.name &&
+  asset.state === 'uploaded' &&
+  asset.size === expected.size &&
+  asset.digest === expected.digest;
 const incompleteStarter = (asset) => asset.state === 'starter' && asset.size === 0 && asset.digest == null;
 
 export function verifyAssets(actual, expected, names) {
   const expectedNames = expected.map((asset) => asset.name);
-  const exactNames = (left, right) => left.length === new Set(left).size
-    && JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
-  if (!names.length || !exactNames(expectedNames, names) || !exactNames(actual.map((asset) => asset.name), names)) {
+  const exactNames = (left, right) =>
+    left.length === new Set(left).size && JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+  if (
+    !names.length ||
+    !exactNames(expectedNames, names) ||
+    !exactNames(
+      actual.map((asset) => asset.name),
+      names
+    )
+  ) {
     throw new Error('Verified records and remote assets must both cover the exact release asset set');
   }
   for (const record of expected) {
-    if (!Number.isSafeInteger(record.size) || record.size <= 0 || !sha256.test(record.digest ?? '')
-        || !sameAsset(actual.find((asset) => asset.name === record.name), record)) {
+    if (
+      !Number.isSafeInteger(record.size) ||
+      record.size <= 0 ||
+      !sha256.test(record.digest ?? '') ||
+      !sameAsset(
+        actual.find((asset) => asset.name === record.name),
+        record
+      )
+    ) {
       throw new Error(`Release asset differs from the verified bytes: ${record.name}`);
     }
   }
@@ -101,11 +123,31 @@ export async function uploadAssets(files) {
       url.searchParams.set('name', name);
       let stdout;
       try {
-        ({ stdout } = await curl('curl', ['--fail', '--silent', '--show-error', '--http1.1',
-          '--connect-timeout', '20', '--max-time', '150', '--speed-limit', '1024', '--speed-time', '20',
-          '--header', `Authorization: Bearer ${GH_TOKEN}`, '--header', 'Accept: application/vnd.github+json',
-          '--header', 'Content-Type: application/octet-stream', '--header', 'Expect:',
-          '--data-binary', `@${file}`, url.href]));
+        ({ stdout } = await curl('curl', [
+          '--fail',
+          '--silent',
+          '--show-error',
+          '--http1.1',
+          '--connect-timeout',
+          '20',
+          '--max-time',
+          '150',
+          '--speed-limit',
+          '1024',
+          '--speed-time',
+          '20',
+          '--header',
+          `Authorization: Bearer ${GH_TOKEN}`,
+          '--header',
+          'Accept: application/vnd.github+json',
+          '--header',
+          'Content-Type: application/octet-stream',
+          '--header',
+          'Expect:',
+          '--data-binary',
+          `@${file}`,
+          url.href,
+        ]));
       } catch {
         const after = readAssets().filter((asset) => asset.name === name);
         if (after.length === 1 && sameAsset(after[0], record)) return;
@@ -118,21 +160,39 @@ export async function uploadAssets(files) {
   };
   const results = await Promise.allSettled(files.map((file, i) => upload(file, expected[i])));
   const failures = results.filter((result) => result.status === 'rejected');
-  if (failures.length) throw new AggregateError(failures.map(({ reason }) => reason), 'Draft asset upload failed');
+  if (failures.length)
+    throw new AggregateError(
+      failures.map(({ reason }) => reason),
+      'Draft asset upload failed'
+    );
   return expected;
 }
 
 export const DESKTOP_ASSET_NAMES = Object.freeze([
-  'latest.yml', 'mixdog-desktop-win-x64.exe', 'mixdog-desktop-win-x64.exe.blockmap',
+  'latest.yml',
+  'mixdog-desktop-win-x64.exe',
+  'mixdog-desktop-win-x64.exe.blockmap',
   'latest-mac.yml',
-  ...['arm64', 'x64'].flatMap((arch) => ['dmg', 'zip', 'zip.blockmap'].map((ext) => `mixdog-desktop-mac-${arch}.${ext}`)),
-  'latest-linux.yml', 'latest-linux-arm64.yml',
-  'mixdog-desktop-linux-arm64.AppImage', 'mixdog-desktop-linux-arm64.deb',
-  'mixdog-desktop-linux-x86_64.AppImage', 'mixdog-desktop-linux-amd64.deb',
+  ...['arm64', 'x64'].flatMap((arch) =>
+    ['dmg', 'zip', 'zip.blockmap'].map((ext) => `mixdog-desktop-mac-${arch}.${ext}`)
+  ),
+  'latest-linux.yml',
+  'latest-linux-arm64.yml',
+  'mixdog-desktop-linux-arm64.AppImage',
+  'mixdog-desktop-linux-arm64.deb',
+  'mixdog-desktop-linux-x86_64.AppImage',
+  'mixdog-desktop-linux-amd64.deb',
 ]);
 
-const desktopRecords = () => ['WINDOWS_ASSETS', 'MAC_ARM64_ASSETS', 'MAC_X64_ASSETS',
-  'LINUX_ARM64_ASSETS', 'LINUX_X64_ASSETS', 'MERGED_FEED'].flatMap((key) => JSON.parse(process.env[key]));
+const desktopRecords = () =>
+  [
+    'WINDOWS_ASSETS',
+    'MAC_ARM64_ASSETS',
+    'MAC_X64_ASSETS',
+    'LINUX_ARM64_ASSETS',
+    'LINUX_X64_ASSETS',
+    'MERGED_FEED',
+  ].flatMap((key) => JSON.parse(process.env[key]));
 
 function verifyDesktop() {
   readRelease(true);
@@ -142,8 +202,10 @@ function verifyDesktop() {
     const { id: feedId } = assets.find((asset) => asset.name === name);
     const feed = gh(['api', `repos/${repo}/releases/assets/${feedId}`, '-H', 'Accept: application/octet-stream']);
     const referenced = [...feed.matchAll(/^\s*(?:-\s+)?(?:url|path):\s*['"]?([^'"\s]+)['"]?\s*$/gm)].map((m) => m[1]);
-    if (referenced.some((file) => !DESKTOP_ASSET_NAMES.includes(file))
-        || ['.AppImage', '.deb'].some((ext) => !referenced.some((file) => file.endsWith(ext)))) {
+    if (
+      referenced.some((file) => !DESKTOP_ASSET_NAMES.includes(file)) ||
+      ['.AppImage', '.deb'].some((ext) => !referenced.some((file) => file.endsWith(ext)))
+    ) {
       throw new Error(`${name} must reference draft assets including both an AppImage and a .deb`);
     }
   }
@@ -153,8 +215,15 @@ export function publishDraft({ expected, names, latest, notes }) {
   const id = releaseId();
   readRelease(true);
   verifyAssets(readAssets(), expected, names);
-  const result = api(releasePath(), ['--method', 'PATCH', '-F', 'draft=false', '-f', `make_latest=${latest}`,
-    ...(notes ? ['-F', `body=@${notes}`] : [])]);
+  const result = api(releasePath(), [
+    '--method',
+    'PATCH',
+    '-F',
+    'draft=false',
+    '-f',
+    `make_latest=${latest}`,
+    ...(notes ? ['-F', `body=@${notes}`] : []),
+  ]);
   if (String(result.id) !== id || result.draft !== false || result.tag_name !== tag) {
     throw new Error(`Finalization did not publish ${tag} (release ${id})`);
   }

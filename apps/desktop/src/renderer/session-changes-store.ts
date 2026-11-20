@@ -162,7 +162,15 @@ type ChangesEntry = {
 
 type ChangesRead = Pick<
   ChangesEntry,
-  'repository' | 'root' | 'base' | 'rows' | 'untracked' | 'revisions' | 'sessionDiffBinding' | 'diffTooLarge' | 'untrackedOmitted'
+  | 'repository'
+  | 'root'
+  | 'base'
+  | 'rows'
+  | 'untracked'
+  | 'revisions'
+  | 'sessionDiffBinding'
+  | 'diffTooLarge'
+  | 'untrackedOmitted'
 >;
 
 const NO_REVISIONS: ReadonlyMap<string, string> = new Map();
@@ -360,7 +368,9 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
       base: '',
       rows,
       untracked: new Set(),
-      revisions: new Map(rows.map((row) => [row.path, row.parts.length ? (digests.get(row.path) ?? revision) : revision])),
+      revisions: new Map(
+        rows.map((row) => [row.path, row.parts.length ? (digests.get(row.path) ?? revision) : revision])
+      ),
       sessionDiffBinding: binding,
       diffTooLarge: result?.diffTooLarge === true,
       untrackedOmitted: 0,
@@ -441,7 +451,8 @@ function adopt(target: ChangesTarget, read: ChangesRead, mode: LoadMode): void {
     previous.diffTooLarge !== read.diffTooLarge ||
     previous.untrackedOmitted !== read.untrackedOmitted ||
     rows.some(
-      ({ path }) => previous.revisions.get(path) !== read.revisions.get(path) ||
+      ({ path }) =>
+        previous.revisions.get(path) !== read.revisions.get(path) ||
         previous.untracked.has(path) !== read.untracked.has(path)
     );
   // A prefetch that found nothing new keeps the shown entry (no render).
@@ -449,9 +460,12 @@ function adopt(target: ChangesTarget, read: ChangesRead, mode: LoadMode): void {
   const next = {
     ...read,
     rows,
-    generation: changed || mode !== 'warm'
-      ? (sessionScopedSource(target.source) ? ++scopedGeneration : (previous?.generation ?? 0) + 1)
-      : previous.generation,
+    generation:
+      changed || mode !== 'warm'
+        ? sessionScopedSource(target.source)
+          ? ++scopedGeneration
+          : (previous?.generation ?? 0) + 1
+        : previous.generation,
     patchEpoch: (previous?.patchEpoch ?? 0) + (mode === 'foreground' ? 1 : 0),
     evidenceEpoch: (previous?.evidenceEpoch ?? 0) + (mode === 'activity' ? 1 : 0),
     loading: false,
@@ -584,7 +598,8 @@ export function adoptLastTurnReview(
       lastTurnBarOwners.get(sessionId) !== key ||
       lastTurnAdoptions.get(key) !== validation ||
       ticket < (validation.pending?.ticket ?? validation.ticket)
-    ) return;
+    )
+      return;
     const diffTooLarge = decoded.diffTooLarge === true;
     if (staleKeys.has(key)) {
       // Keep the rows with this validation, not the session. A switch
@@ -597,9 +612,12 @@ export function adoptLastTurnReview(
     validation.ticket = ticket;
     const read = { ...previous, rows: keepRows(previous.rows, rows), diffTooLarge };
     if (
-      previous.rows === read.rows && previous.diffTooLarge === read.diffTooLarge &&
-      !previous.loading && !previous.error
-    ) return;
+      previous.rows === read.rows &&
+      previous.diffTooLarge === read.diffTooLarge &&
+      !previous.loading &&
+      !previous.error
+    )
+      return;
     publish(key, { ...read, loading: false, error: '', generation: ++scopedGeneration });
   });
 }
@@ -990,7 +1008,9 @@ export function resolveSelectedRow<Row extends { path: string }>(
   focusRow: Row | null,
   selectedPath: string
 ): Row | null {
-  return focusRow ?? (selectedPath ? rows[rowListIndex(rows).byPath.get(selectedPath) ?? -1] : undefined) ?? rows[0] ?? null;
+  return (
+    focusRow ?? (selectedPath ? rows[rowListIndex(rows).byPath.get(selectedPath) ?? -1] : undefined) ?? rows[0] ?? null
+  );
 }
 
 /** Per session: the workspaces its Changes readers are reading, counted per
@@ -1262,10 +1282,7 @@ export function useSessionChanges({
   // The session diff re-reads on what can change files (a finished tool that
   // may write, a turn's end via `busy`), not on every lane publication.
   const laneItemsForKey = lane?.items;
-  const changeRevision = useMemo(
-    () => `${fileChangeKey(laneItemsForKey)}:${busy ? 1 : 0}`,
-    [laneItemsForKey, busy]
-  );
+  const changeRevision = useMemo(() => `${fileChangeKey(laneItemsForKey)}:${busy ? 1 : 0}`, [laneItemsForKey, busy]);
   const fallback = !gitOnly && !git;
   const diff = useSessionDiffRefresh({ sessionId: fallback ? session : '', active, revision: changeRevision, busy });
   const lastScopedTarget = useRef<ChangesTarget | null>(null);
@@ -1297,9 +1314,10 @@ export function useSessionChanges({
   const laneItems = lane?.items;
   const latestCheckpoint = useMemo(() => latestTurnCheckpoint(laneItems), [laneItems]);
   const rows = useMemo(
-    () => fallback
-      ? resolvedSessionRows(diff.result, Array.isArray(laneItems) ? laneItems : EMPTY_ITEMS, project)
-      : (entry?.rows ?? EMPTY_ROWS),
+    () =>
+      fallback
+        ? resolvedSessionRows(diff.result, Array.isArray(laneItems) ? laneItems : EMPTY_ITEMS, project)
+        : (entry?.rows ?? EMPTY_ROWS),
     [fallback, diff.result, laneItems, project, entry?.rows]
   );
   const summary = rowsSummary(rows);

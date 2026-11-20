@@ -6,7 +6,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../packages/protocol-client/src/actions/action-overrides.mjs';
+import {
+  ACTION_OVERRIDES,
+  OVERRIDE_THREAD_SOURCE,
+} from '../../../../../packages/protocol-client/src/actions/action-overrides.mjs';
 import { isOfferedRequest } from '../../../../../packages/protocol-client/src/method-table.ts';
 import { METHOD_ARGS } from '../../../../../packages/protocol-client/src/actions/method-args.generated.mjs';
 import { DESKTOP_CAPABILITIES } from '../../shared/contract-capabilities.ts';
@@ -22,12 +25,13 @@ import {
 const schemaDir = new URL('../../../../../native/core/crates/mixdog-app-protocol/schema/', import.meta.url);
 const json = (name) => JSON.parse(readFileSync(new URL(name, schemaDir), 'utf8'));
 const specActions = new Map(
-  json('operations_map.json').inventory.filter((row) => row.list === 'actions').map((row) => [row.name, row.target])
+  json('operations_map.json')
+    .inventory.filter((row) => row.list === 'actions')
+    .map((row) => [row.name, row.target])
 );
 const methodTable = new Map(json('method_table.json').clientMethods.map((row) => [row.method, row]));
 const clientMethods = json('client_methods.json');
-const paramsSchema = (method) =>
-  clientMethods.definitions[clientMethods.methods[method].params.$ref.split('/').pop()];
+const paramsSchema = (method) => clientMethods.definitions[clientMethods.methods[method].params.$ref.split('/').pop()];
 
 /** Capabilities with no request op (desktop-gaps-1): the spec map points them at a pushed section or deletes them. They
  *  fail before anything is sent. `noteUserInput` is a notification, sent by the lane and not routed to a request. */
@@ -103,7 +107,8 @@ function recordingLane(answer = async () => ({ ok: true })) {
   const emit = (event) => {
     if (event.type === 'serverRequest') {
       if (isOfferedRequest(event.request.method)) pending.push(event.request);
-    } else if (event.type === 'serverRequestResolved') pending.splice(0, pending.length, ...pending.filter((r) => r.id !== event.params.requestId));
+    } else if (event.type === 'serverRequestResolved')
+      pending.splice(0, pending.length, ...pending.filter((r) => r.id !== event.params.requestId));
     else if (event.type === 'status' && event.status.state !== 'ready') pending.length = 0;
     listeners.forEach((listener) => listener(event));
   };
@@ -222,7 +227,8 @@ test('a call that takes a session, without one, names the control thread; a call
     assert.equal(calls[0].method, calls[1].method, capability);
   }
   const others = DESKTOP_CAPABILITIES.filter(
-    (capability) => !NOT_ROUTED.includes(capability) && !SESSION_CALLS.includes(capability) && capability !== 'retryFailedTurn'
+    (capability) =>
+      !NOT_ROUTED.includes(capability) && !SESSION_CALLS.includes(capability) && capability !== 'retryFailedTurn'
   );
   for (const capability of others) {
     const { calls, lane } = recordingLane();
@@ -234,7 +240,18 @@ test('a call that takes a session, without one, names the control thread; a call
 // These were outside the lane's hand lists (`THREAD_REQUIRED_CAPABILITIES`, `MCP_CAPABILITIES`), so the core got no `threadId`
 // and answered from the user cwd or its own folder. Node serves every one from the control session.
 test('the capabilities no list named reach the control thread without a session', async () => {
-  for (const capability of ['toolsStatus', 'listInstructionFiles', 'getInstructionFile', 'saveInstructionFile', 'resetInstructionFile', 'setInstructionFiles', 'memoryControl', 'recall', 'skillsStatus', 'reloadSkills']) {
+  for (const capability of [
+    'toolsStatus',
+    'listInstructionFiles',
+    'getInstructionFile',
+    'saveInstructionFile',
+    'resetInstructionFile',
+    'setInstructionFiles',
+    'memoryControl',
+    'recall',
+    'skillsStatus',
+    'reloadSkills',
+  ]) {
     const { calls, lane } = recordingLane();
     await lane.invoke(capability, [], undefined);
     assert.equal(calls[0].params.threadId, 'control-1', capability);
@@ -307,7 +324,12 @@ test('every override declares its thread source, and the declaration is what the
     if (source === 'session') assert.equal(withSession.params.threadId, 'pane-1', capability);
     else if (source === 'none') assert.deepEqual(withSession, without, capability);
     // `inheritFrom` also binds the call's session as the heir (`intoThreadId`); its `threadId` is the argument's.
-    else if (source === 'argument') assert.equal(withSession.params.threadId, without.params.threadId, `${capability}: the call's session is not its thread`);
+    else if (source === 'argument')
+      assert.equal(
+        withSession.params.threadId,
+        without.params.threadId,
+        `${capability}: the call's session is not its thread`
+      );
   }
   assert.equal(routeCapability('retryFailedTurn', [undefined, 't'], 'pane-1').params.threadId, undefined);
 });
@@ -326,18 +348,24 @@ test('an explicit target is never rerouted, whatever valid id it holds', async (
     continueSessionInModel: (id) => [id, { provider: 'openai', model: 'gpt-5' }],
     retryFailedTurn: (id) => [id, 'turn-1'],
   };
-  const arguments_ = Object.entries(OVERRIDE_THREAD_SOURCE).filter(([, source]) => source.startsWith('argument')).map(([name]) => name);
+  const arguments_ = Object.entries(OVERRIDE_THREAD_SOURCE)
+    .filter(([, source]) => source.startsWith('argument'))
+    .map(([name]) => name);
   assert.deepEqual(Object.keys(withTarget).sort(), arguments_.sort());
   for (const [capability, build] of Object.entries(withTarget)) {
     for (const id of targets) {
-      const { calls, lane } = recordingLane(async (method) => (method === 'thread/fork' ? { thread: { id: 'heir' } } : { ok: true }));
+      const { calls, lane } = recordingLane(async (method) =>
+        method === 'thread/fork' ? { thread: { id: 'heir' } } : { ok: true }
+      );
       await lane.invoke(capability, build(id), undefined);
       assert.deepEqual(calls, [routeCapability(capability, build(id), undefined)], `${capability}(${id})`);
     }
   }
   const { calls, lane } = recordingLane(async () => ({ thread: { id: 'heir-1' } }));
   await lane.invoke('inheritFrom', ['session-probe', { compact: false }], 'heir-1');
-  assert.deepEqual(calls, [{ method: 'thread/fork', params: { threadId: 'session-probe', intoThreadId: 'heir-1', compact: false } }]);
+  assert.deepEqual(calls, [
+    { method: 'thread/fork', params: { threadId: 'session-probe', intoThreadId: 'heir-1', compact: false } },
+  ]);
 });
 
 test('the control thread is a control-kind thread started once and kept', async () => {
@@ -355,7 +383,8 @@ test('the control thread is a control-kind thread started once and kept', async 
 // swept, and the lane still named it. The client now holds and resumes the thread it started (packages/protocol-client
 // control-thread-held.test.ts); the lane keeps its id for as long as the current client holds it.
 const RESIZE = [{ data: 'AAAA', mimeType: 'image/png' }];
-const resizedOn = (calls) => calls.filter((call) => call.method === 'thread/resizeImage').map((call) => call.params.threadId);
+const resizedOn = (calls) =>
+  calls.filter((call) => call.method === 'thread/resizeImage').map((call) => call.params.threadId);
 
 test('a control thread the client holds stays the one named, across any number of calls', async () => {
   const { calls, lane, world } = recordingLane();
@@ -405,7 +434,8 @@ test('a failed call leaves the held control thread in place and is not sent agai
   const { calls, lane, link, world } = recordingLane(async () => {
     throw new Error('refused');
   });
-  for (const capability of ['clear', 'mcpStatus']) await assert.rejects(lane.invoke(capability, [], undefined), /refused/);
+  for (const capability of ['clear', 'mcpStatus'])
+    await assert.rejects(lane.invoke(capability, [], undefined), /refused/);
   assert.equal(world.starts, 1);
   assert.deepEqual(link.released, []);
   assert.deepEqual([...link.client.held], ['control-1']);
@@ -440,7 +470,9 @@ test('a failed start of the control thread is tried again by the next call', asy
 
 test('clear asks for the prompt rebuild only with rebuildPrompt, and inheritFrom answers as Node does', async () => {
   const { calls, lane } = recordingLane(async (method) =>
-    method === 'thread/fork' ? { thread: { id: 'heir-1' }, messages: 3, provider: 'openai', model: 'gpt-5' } : { promptRebuilt: true }
+    method === 'thread/fork'
+      ? { thread: { id: 'heir-1' }, messages: 3, provider: 'openai', model: 'gpt-5' }
+      : { promptRebuilt: true }
   );
   const rebuilt = await lane.invoke('clear', [{ rebuildPrompt: true, archiveAs: 'sess_x' }], 'pane-1');
   assert.deepEqual(rebuilt.value, { promptRebuilt: true });
@@ -453,8 +485,16 @@ test('clear asks for the prompt rebuild only with rebuildPrompt, and inheritFrom
   ]);
   calls.length = 0;
   const inherited = await lane.invoke('inheritFrom', ['src-1', { compact: false }], 'heir-1');
-  assert.deepEqual(inherited.value, { sessionId: 'heir-1', sourceSessionId: 'src-1', messages: 3, provider: 'openai', model: 'gpt-5' });
-  assert.deepEqual(calls, [{ method: 'thread/fork', params: { threadId: 'src-1', intoThreadId: 'heir-1', compact: false } }]);
+  assert.deepEqual(inherited.value, {
+    sessionId: 'heir-1',
+    sourceSessionId: 'src-1',
+    messages: 3,
+    provider: 'openai',
+    model: 'gpt-5',
+  });
+  assert.deepEqual(calls, [
+    { method: 'thread/fork', params: { threadId: 'src-1', intoThreadId: 'heir-1', compact: false } },
+  ]);
 });
 
 test('the desktop-only overrides send the ops the spec maps them to', () => {
@@ -490,7 +530,10 @@ test('the actions the TUI routes by override keep their ops on the desktop', () 
 });
 
 test('every capability the desktop declares is in the spec map', () => {
-  assert.deepEqual([...DESKTOP_CAPABILITIES].filter((capability) => !specActions.has(capability)), []);
+  assert.deepEqual(
+    [...DESKTOP_CAPABILITIES].filter((capability) => !specActions.has(capability)),
+    []
+  );
 });
 
 test('every routed capability sends the op the spec map names, with params the Rust schema declares', () => {
@@ -519,11 +562,20 @@ test('every routed capability sends the op the spec map names, with params the R
   }
   // The ops that cannot run without a thread are session calls, which the lane addresses to the control thread: the ones whose
   // schema requires it, and the eight whose optional `threadId` the Rust handler needs (`thread_of`, or `null` without one).
-  const requiresThread = routed.filter((capability) => (paramsSchema(routeCapability(capability, [], 'pane-1').method).required ?? []).includes('threadId'));
-  for (const capability of [...requiresThread, ...HANDLER_REQUIRES_THREAD.filter((name) => DESKTOP_CAPABILITIES.includes(name))]) assert.ok(SESSION_CALLS.includes(capability) || capability === 'retryFailedTurn', capability);
+  const requiresThread = routed.filter((capability) =>
+    (paramsSchema(routeCapability(capability, [], 'pane-1').method).required ?? []).includes('threadId')
+  );
+  for (const capability of [
+    ...requiresThread,
+    ...HANDLER_REQUIRES_THREAD.filter((name) => DESKTOP_CAPABILITIES.includes(name)),
+  ])
+    assert.ok(SESSION_CALLS.includes(capability) || capability === 'retryFailedTurn', capability);
   for (const capability of HANDLER_REQUIRES_THREAD) {
     const { method } = routeCapability(capability, [], 'pane-1');
-    assert.ok(!(paramsSchema(method).required ?? []).includes('threadId'), `${capability}: the schema leaves threadId optional`);
+    assert.ok(
+      !(paramsSchema(method).required ?? []).includes('threadId'),
+      `${capability}: the schema leaves threadId optional`
+    );
   }
 });
 
@@ -573,7 +625,10 @@ test('reads are answered together, in order, from the control session whatever s
     all.filter((call) => call.method === 'thread/start'),
     [{ method: 'thread/start', params: { kind: 'control' } }]
   );
-  assert.deepEqual(all.filter((call) => call.method !== 'thread/start'), calls);
+  assert.deepEqual(
+    all.filter((call) => call.method !== 'thread/start'),
+    calls
+  );
 });
 
 test('a domain error of the core reaches the window as the error Node raised', async () => {
@@ -660,17 +715,27 @@ test("a connection with a core endpoint routes its client's capabilities through
 
 test('the queue, review and model actions send the exact op and params of desktop-gaps-1', () => {
   const at = (capability, args, session = 's1') => routeCapability(capability, args, session);
-  assert.deepEqual(at('prioritizeQueued', ['q1']), { method: 'turn/steer', params: { threadId: 's1', queuedId: 'q1' } });
+  assert.deepEqual(at('prioritizeQueued', ['q1']), {
+    method: 'turn/steer',
+    params: { threadId: 's1', queuedId: 'q1' },
+  });
   assert.deepEqual(at('restoreQueued', ['typed', 'q1']), {
     method: 'thread/queue/delete',
     params: { threadId: 's1', queuedId: 'q1', currentText: 'typed', restore: true },
   });
-  assert.deepEqual(at('getSessionReviewDiff', []), { method: 'review/diff/get', params: { threadId: 's1', scope: 'session' } });
+  assert.deepEqual(at('getSessionReviewDiff', []), {
+    method: 'review/diff/get',
+    params: { threadId: 's1', scope: 'session' },
+  });
   assert.deepEqual(at('getSessionReviewFilePatch', ['a.ts', 'b.ts']), {
     method: 'review/diff/get',
     params: { threadId: 's1', scope: 'session', path: 'a.ts', oldPath: 'b.ts' },
   });
-  assert.deepEqual(at('getSessionReviewFilePatch', ['a.ts']).params, { threadId: 's1', scope: 'session', path: 'a.ts' });
+  assert.deepEqual(at('getSessionReviewFilePatch', ['a.ts']).params, {
+    threadId: 's1',
+    scope: 'session',
+    path: 'a.ts',
+  });
   assert.deepEqual(at('getTurnReviewDiff', [{ summary: true, known: 'k', refresh: true, poll: true }]), {
     method: 'review/diff/get',
     params: { threadId: 's1', scope: 'turn', summary: true, known: 'k' },
@@ -685,7 +750,10 @@ test('the queue, review and model actions send the exact op and params of deskto
     method: 'review/diff/get',
     params: { threadId: 's1', scope: 'turn', checkpointId: 'c1', patch: true, path: 'a.ts' },
   });
-  assert.deepEqual(at('setModel', ['gpt']), { method: 'route/set', params: { threadId: 's1', route: { model: 'gpt' } } });
+  assert.deepEqual(at('setModel', ['gpt']), {
+    method: 'route/set',
+    params: { threadId: 's1', route: { model: 'gpt' } },
+  });
 });
 
 test('setEffort, setToolMode and setModel answer as the Node session-api wrapper does, not with the core route reply', async () => {
@@ -706,7 +774,10 @@ test('noteUserInput is the client/activity notification: it sends no request and
   const result = await lane.invoke('noteUserInput', [1234], 'pane-1');
   assert.deepEqual(result.value, { ok: true });
   assert.deepEqual(world.inputs, [1234]);
-  assert.deepEqual(all.filter((call) => call.method !== 'thread/read'), []);
+  assert.deepEqual(
+    all.filter((call) => call.method !== 'thread/read'),
+    []
+  );
 });
 
 const notAvailable = Object.assign(new Error('rpc'), {
@@ -760,9 +831,10 @@ test('renameSession validates before sending and gives the window the core refus
       } else {
         if (accepted) await rename;
         else await assert.rejects(rename, { name: 'Error', message: 'Session is not available.' });
-        assert.deepEqual(all.filter((call) => call.method === 'thread/name/set'), [
-          { method: 'thread/name/set', params: { threadId: 'sess-1', title: normalized } },
-        ]);
+        assert.deepEqual(
+          all.filter((call) => call.method === 'thread/name/set'),
+          [{ method: 'thread/name/set', params: { threadId: 'sess-1', title: normalized } }]
+        );
       }
     }
   }
@@ -774,7 +846,6 @@ test('renameSession keeps the host check for the session id before the title', a
   assert.deepEqual(all, []);
 });
 
-
 // Node's `forwardedArgs` (session-host-lifecycle.ts) resolved a project path before the call: `skillsStatus({ projectPath })`
 // to `{ cwd }`, and the five session-less project-branch capabilities to the registered Project. On a core connection the
 // host sends the renderer's arguments as they are and the core resolves them: `skills/skillsStatus` reads `options.projectPath`
@@ -783,7 +854,10 @@ test('renameSession keeps the host check for the session id before the title', a
 test('a draft skillsStatus names its Project in options, never a folder, and a session call still addresses its thread', async () => {
   const { calls, lane } = recordingLane(async () => ({ cwd: '/resolved' }));
   await lane.invoke('skillsStatus', [{ projectPath: 'C:\\work\\app' }]);
-  await lane.read([{ capability: 'skillsStatus', args: [{ projectPath: 'C:\\work\\app' }] }, { capability: 'skillsStatus', args: [] }]);
+  await lane.read([
+    { capability: 'skillsStatus', args: [{ projectPath: 'C:\\work\\app' }] },
+    { capability: 'skillsStatus', args: [] },
+  ]);
   await lane.invoke('skillsStatus', [{ projectPath: '' }], 'pane-1');
   assert.deepEqual(calls, [
     { method: 'skills/skillsStatus', params: { threadId: 'control-1', options: { projectPath: 'C:\\work\\app' } } },
@@ -851,11 +925,18 @@ test('inheritFrom of a missing session is refused with the text Node throws', as
   });
   await assert.rejects(lane.invoke('inheritFrom', ['src-1', { compact: false }], 'heir-1'), { message: thrown });
   const other = new Error('core busy');
-  await assert.rejects(recordingLane(async () => { throw other; }).lane.invoke('inheritFrom', ['src-1'], 'heir-1'), other);
+  await assert.rejects(
+    recordingLane(async () => {
+      throw other;
+    }).lane.invoke('inheritFrom', ['src-1'], 'heir-1'),
+    other
+  );
 });
 
 const wireRefusal = (reason, data) =>
-  Object.assign(new Error(`-32600 ${reason} ${reason}`), { detail: { kind: 'rpc', code: -32600, reason, message: reason, data: { reason, ...data } } });
+  Object.assign(new Error(`-32600 ${reason} ${reason}`), {
+    detail: { kind: 'rpc', code: -32600, reason, message: reason, data: { reason, ...data } },
+  });
 
 test('rewindToItem returns null for a missing item or a busy session, but propagates other failures', async () => {
   for (const [itemId, refusal] of [
@@ -871,7 +952,12 @@ test('rewindToItem returns null for a missing item or a busy session, but propag
     assert.equal(calls[0].method, 'thread/rewind');
   }
   const other = wireRefusal('turnNotActive', { threadId: 't1' });
-  await assert.rejects(recordingLane(async () => { throw other; }).lane.invoke('rewindToItem', ['i1'], 't1'), other);
+  await assert.rejects(
+    recordingLane(async () => {
+      throw other;
+    }).lane.invoke('rewindToItem', ['i1'], 't1'),
+    other
+  );
 });
 
 // A call naming a session the core does not have: Node's daemon answered its session action with its own text
@@ -881,7 +967,9 @@ test('a call naming a session the core does not have is refused with the text No
   const { lane } = recordingLane(async () => {
     throw missing;
   });
-  await assert.rejects(lane.invoke('getTurnReviewDiff', [], 'sess_gone'), { message: 'session sess_gone is not available' });
+  await assert.rejects(lane.invoke('getTurnReviewDiff', [], 'sess_gone'), {
+    message: 'session sess_gone is not available',
+  });
 });
 
 test('prioritizeQueued reports a count of one for a promoted entry and zero for a missing entry or slash command', async () => {
@@ -898,10 +986,22 @@ test('prioritizeQueued reports a count of one for a promoted entry and zero for 
     assert.deepEqual(value, expected, id);
   }
   const other = new Error('core busy');
-  await assert.rejects(recordingLane(async () => { throw other; }).lane.invoke('prioritizeQueued', ['q1'], 't1'), other);
+  await assert.rejects(
+    recordingLane(async () => {
+      throw other;
+    }).lane.invoke('prioritizeQueued', ['q1'], 't1'),
+    other
+  );
 });
 test('getQuotaAutoResume finds its own config subtree and is on unless it is explicitly false', async () => {
-  for (const [stored, enabled] of [[false, false], [true, true], [undefined, true], [null, true], [0, true], ['false', true]]) {
+  for (const [stored, enabled] of [
+    [false, false],
+    [true, true],
+    [undefined, true],
+    [null, true],
+    [0, true],
+    ['false', true],
+  ]) {
     const { world, lane } = recordingLane();
     world.shell.push({ section: 'config', key: 'desktop', value: { editor: {} } });
     if (stored !== undefined) {
@@ -915,23 +1015,43 @@ test('getQuotaAutoResume finds its own config subtree and is on unless it is exp
 // (the lane's own projection shows it as a string), and the decision goes to `thread/approval/answer` for the request's own
 // thread, without `device` (the core stamps the answering connection's device: `ToolApprovalDecision`). The card is told the
 // core's `accepted`: false when another decision resolved the request first (Node's serialized answer).
-test('resolveToolApproval answers the server request the card shows with the core\'s acceptance, and false for an id the core no longer asks', async () => {
+test("resolveToolApproval answers the server request the card shows with the core's acceptance, and false for an id the core no longer asks", async () => {
   const { emit, lane, calls } = recordingLane(async (_method, params) => ({ accepted: params.approvalId === '7' }));
   const ask = (id, thread, surface) => ({
     type: 'serverRequest',
     request: {
       id,
       method: 'item/tool/requestApproval',
-      params: { threadId: thread, ...(surface ? { surfaceThreadId: surface } : {}), turnId: 't', itemId: `i${id}`, order: 1, request: { name: 'shell' } },
+      params: {
+        threadId: thread,
+        ...(surface ? { surfaceThreadId: surface } : {}),
+        turnId: 't',
+        itemId: `i${id}`,
+        order: 1,
+        request: { name: 'shell' },
+      },
     },
   });
   emit(ask(7, 'pane-1'));
   emit(ask('req-8', 'sub-1', 'pane-1'));
-  assert.equal(await lane.resolveToolApproval('pane-1', '7', { approved: true, device: 'PC', response: 'approve' }), true);
-  assert.equal(await lane.resolveToolApproval('pane-1', 'req-8', { approved: false, reason: 'no' }), false, 'another decision got in first');
+  assert.equal(
+    await lane.resolveToolApproval('pane-1', '7', { approved: true, device: 'PC', response: 'approve' }),
+    true
+  );
+  assert.equal(
+    await lane.resolveToolApproval('pane-1', 'req-8', { approved: false, reason: 'no' }),
+    false,
+    'another decision got in first'
+  );
   assert.deepEqual(calls, [
-    { method: 'thread/approval/answer', params: { threadId: 'pane-1', approvalId: '7', result: { approved: true, response: 'approve' } } },
-    { method: 'thread/approval/answer', params: { threadId: 'sub-1', approvalId: 'req-8', result: { approved: false, reason: 'no' } } },
+    {
+      method: 'thread/approval/answer',
+      params: { threadId: 'pane-1', approvalId: '7', result: { approved: true, response: 'approve' } },
+    },
+    {
+      method: 'thread/approval/answer',
+      params: { threadId: 'sub-1', approvalId: 'req-8', result: { approved: false, reason: 'no' } },
+    },
   ]);
   // Another session's card, an unknown id and a settled one are not answered.
   assert.equal(await lane.resolveToolApproval('pane-2', '7', { approved: true }), false);
@@ -950,12 +1070,33 @@ test('resolveToolApproval finds the request by the id its card shows', async () 
     request: {
       id: 12,
       method: 'item/tool/requestApproval',
-      params: { threadId: 'bot-1', turnId: 't', itemId: 'i12', order: 1, request: { name: 'mcp__gmail__send' }, card: { id: 'itm_abc', kind: 'outbound' } },
+      params: {
+        threadId: 'bot-1',
+        turnId: 't',
+        itemId: 'i12',
+        order: 1,
+        request: { name: 'mcp__gmail__send' },
+        card: { id: 'itm_abc', kind: 'outbound' },
+      },
     },
   });
-  assert.equal(await lane.resolveToolApproval('bot-1', 'itm_abc', { approved: true, response: 'edit-and-approve', editedArgs: { body: 'x' } }), true);
+  assert.equal(
+    await lane.resolveToolApproval('bot-1', 'itm_abc', {
+      approved: true,
+      response: 'edit-and-approve',
+      editedArgs: { body: 'x' },
+    }),
+    true
+  );
   assert.deepEqual(calls, [
-    { method: 'thread/approval/answer', params: { threadId: 'bot-1', approvalId: '12', result: { approved: true, response: 'edit-and-approve', editedArgs: { body: 'x' } } } },
+    {
+      method: 'thread/approval/answer',
+      params: {
+        threadId: 'bot-1',
+        approvalId: '12',
+        result: { approved: true, response: 'edit-and-approve', editedArgs: { body: 'x' } },
+      },
+    },
   ]);
 });
 
@@ -964,7 +1105,15 @@ const askWithCard = (id, thread, cardId, surface) => ({
   request: {
     id,
     method: 'item/tool/requestApproval',
-    params: { threadId: thread, ...(surface ? { surfaceThreadId: surface } : {}), turnId: 't', itemId: `i${id}`, order: Number(id), request: { name: 'shell' }, card: { id: cardId } },
+    params: {
+      threadId: thread,
+      ...(surface ? { surfaceThreadId: surface } : {}),
+      turnId: 't',
+      itemId: `i${id}`,
+      order: Number(id),
+      request: { name: 'shell' },
+      card: { id: cardId },
+    },
   },
 });
 
@@ -973,7 +1122,9 @@ test('with two derived-id approvals pending on one surface, answering the second
   emit(askWithCard(1, 'pane-1', 'itm_a'));
   emit(askWithCard(2, 'pane-1', 'itm_b'));
   assert.equal(await lane.resolveToolApproval('pane-1', 'itm_b', { approved: true }), true);
-  assert.deepEqual(calls, [{ method: 'thread/approval/answer', params: { threadId: 'pane-1', approvalId: '2', result: { approved: true } } }]);
+  assert.deepEqual(calls, [
+    { method: 'thread/approval/answer', params: { threadId: 'pane-1', approvalId: '2', result: { approved: true } } },
+  ]);
 });
 
 test('an answer from the wrong surface is refused and sends nothing', async () => {
@@ -991,7 +1142,9 @@ test('a derived-id request of a child thread is answered from its surface only, 
   assert.equal(await lane.resolveToolApproval('sub-1', 'itm_c', { approved: true }), false);
   assert.equal(calls.length, 0);
   assert.equal(await lane.resolveToolApproval('pane-1', 'itm_c', { approved: true }), true);
-  assert.deepEqual(calls, [{ method: 'thread/approval/answer', params: { threadId: 'sub-1', approvalId: '3', result: { approved: true } } }]);
+  assert.deepEqual(calls, [
+    { method: 'thread/approval/answer', params: { threadId: 'sub-1', approvalId: '3', result: { approved: true } } },
+  ]);
 });
 
 test('the raw request id still resolves a request that carries a card id, and is refused once it settled', async () => {
@@ -1016,7 +1169,12 @@ test('every decision kind is delivered unchanged when the answer names the deriv
     const { emit, lane, calls } = recordingLane(async () => ({ accepted: true }));
     emit(askWithCard(10 + index, 'pane-1', `itm_${index}`));
     assert.equal(await lane.resolveToolApproval('pane-1', `itm_${index}`, { ...decision, device: 'PC' }), true);
-    assert.deepEqual(calls, [{ method: 'thread/approval/answer', params: { threadId: 'pane-1', approvalId: String(10 + index), result: decision } }]);
+    assert.deepEqual(calls, [
+      {
+        method: 'thread/approval/answer',
+        params: { threadId: 'pane-1', approvalId: String(10 + index), result: decision },
+      },
+    ]);
   }
 });
 
@@ -1027,7 +1185,18 @@ test('an approval held under another surface, or not held at all, is refused wit
   const { emit, lane, calls } = recordingLane(async () => ({ accepted: true }));
   emit({
     type: 'serverRequest',
-    request: { id: 'req-8', method: 'item/tool/requestApproval', params: { threadId: 'sub-1', surfaceThreadId: 'pane-1', turnId: 't', itemId: 'i8', order: 1, request: { name: 'shell' } } },
+    request: {
+      id: 'req-8',
+      method: 'item/tool/requestApproval',
+      params: {
+        threadId: 'sub-1',
+        surfaceThreadId: 'pane-1',
+        turnId: 't',
+        itemId: 'i8',
+        order: 1,
+        request: { name: 'shell' },
+      },
+    },
   });
   assert.equal(await lane.resolveToolApproval('sub-1', 'req-8', { approved: true }), false);
   assert.equal(await lane.resolveToolApproval('pane-1', 'req-9', { approved: true }), false);
@@ -1039,7 +1208,7 @@ test('an approval held under another surface, or not held at all, is refused wit
 // Node's recorded sign-in (`fixtures/mcp-oauth-control-session-cases/golden.json`) replaced its control session after a failed call and
 // sent a failed read once more on the new one. The core's control thread is the client's (held, resumed after a redial, never named
 // once lost), so a failed call is only that call's failure: the same thread serves the next call and nothing is sent twice.
-test('a failed control call is that call\'s failure, and the next call uses the same control thread', async () => {
+test("a failed control call is that call's failure, and the next call uses the same control thread", async () => {
   let next = 0;
   const { calls, world, lane } = recordingLane(async (method) => {
     if (next++ === 0) throw new Error('status unavailable');
@@ -1048,7 +1217,10 @@ test('a failed control call is that call\'s failure, and the next call uses the 
   await assert.rejects(lane.invoke('mcpStatus', []), /status unavailable/);
   assert.equal((await lane.invoke('mcpStatus', [])).value, 'mcp/mcpStatus');
   assert.equal(world.starts, 1);
-  assert.deepEqual(calls.map((call) => call.params.threadId), ['control-1', 'control-1']);
+  assert.deepEqual(
+    calls.map((call) => call.params.threadId),
+    ['control-1', 'control-1']
+  );
 });
 // session-host-transport.ts `invokeControlResult` awaits `ensureControlSession()` outside its try: a control thread that cannot be
 // created is not retried, whatever the call, and its error reaches the caller at once.

@@ -54,7 +54,8 @@ export function sectionSourceOf(host: Host): SectionSource {
   };
 }
 
-const windowSource = (): SectionSource => sectionSourceOf(typeof window === 'undefined' ? undefined : window.mixdogDesktop);
+const windowSource = (): SectionSource =>
+  sectionSourceOf(typeof window === 'undefined' ? undefined : window.mixdogDesktop);
 
 /** The value of `ref` once the store holds it. A keyed `providerAccounts` entry the core did not publish while it
  *  published others is an unknown provider; a closed connection ends the wait. */
@@ -66,7 +67,8 @@ export async function awaitEntry(store: SectionStore, ref: SectionRef): Promise<
     if (ref.section === 'providerAccounts' && store.list('providerAccounts').length > 0) {
       throw new Error('Unknown OAuth provider.');
     }
-    if (store.status() === 'closed') throw new Error(`The ${ref.section} section is unavailable: the connection is closed.`);
+    if (store.status() === 'closed')
+      throw new Error(`The ${ref.section} section is unavailable: the connection is closed.`);
     await new Promise<void>((resolve) => {
       const stop = store.subscribe('*', () => {
         stop();

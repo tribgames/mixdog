@@ -111,7 +111,10 @@ export class DesktopServiceClient implements DesktopService {
   }
 
   /** Node's host published a start call's blank snapshot as its shell snapshot (session-host-lifecycle.ts `publishShell`). */
-  private async startShell(method: 'startProject' | 'startProjectTask' | 'startTask', args: unknown[]): Promise<SessionSnapshot> {
+  private async startShell(
+    method: 'startProject' | 'startProjectTask' | 'startTask',
+    args: unknown[]
+  ): Promise<SessionSnapshot> {
     const snapshot = await this.invoke<SessionSnapshot>(method, args);
     this.cachedSnapshot = snapshot;
     for (const listener of [...this.listeners]) listener(snapshot);
@@ -145,7 +148,12 @@ export class DesktopServiceClient implements DesktopService {
     );
   }
 
-  private invoke<T>(method: DesktopServiceMethod, args: unknown[] = [], _timeoutMs?: number, signal?: AbortSignal): Promise<T> {
+  private invoke<T>(
+    method: DesktopServiceMethod,
+    args: unknown[] = [],
+    _timeoutMs?: number,
+    signal?: AbortSignal
+  ): Promise<T> {
     return this.options.serviceLane.call<T>(method, args, signal);
   }
 
@@ -355,13 +363,18 @@ export class DesktopServiceClient implements DesktopService {
     // stalled daemon times its call out; the answer the user gave must wait
     // for that restart instead of surfacing as a failed, then cancelled, ask.
     // A core connection answers the server request the card shows (capability-route.ts `resolveToolApproval`).
-    return this.options.capabilityLane.resolveToolApproval(sessionId, id, decision as unknown as Record<string, unknown>);
+    return this.options.capabilityLane.resolveToolApproval(
+      sessionId,
+      id,
+      decision as unknown as Record<string, unknown>
+    );
   }
   async listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
     return (await this.options.sessionLane.chat()).listProviderModels(options);
   }
   async setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot> {
-    return (await this.options.capabilityLane.invoke('setRoute', [modelRouteWrite(selection, sessionId)], sessionId)).snapshot;
+    return (await this.options.capabilityLane.invoke('setRoute', [modelRouteWrite(selection, sessionId)], sessionId))
+      .snapshot;
   }
   async setFast(enabled: boolean, sessionId?: string): Promise<SessionSnapshot> {
     return (await this.options.capabilityLane.invoke('setFast', [enabled], sessionId)).snapshot;

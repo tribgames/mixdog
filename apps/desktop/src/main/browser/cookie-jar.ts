@@ -223,7 +223,10 @@ export function createBrowserCookieJar(
         if (timer) clearTimeout(timer);
       }
     });
-    const tail = result.then(() => undefined, () => undefined);
+    const tail = result.then(
+      () => undefined,
+      () => undefined
+    );
     chain = tail;
     void tail.then(() => {
       if (chain !== tail || !view || disposed) return;

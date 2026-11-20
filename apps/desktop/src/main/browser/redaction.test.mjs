@@ -9,7 +9,9 @@ import { browserPolicyModule } from './redaction.ts';
 // The rules are Rust, served by mixdog_main_native.node: these tests run against the built module and are skipped, not
 // failed, while it is absent (cargo build --release in native/mixdog-main-native; they never build it).
 const built = existsSync(nativeModulePath(browserPolicyModule));
-const skip = built ? false : 'mixdog_main_native.node is not built (cargo build --release in native/mixdog-main-native)';
+const skip = built
+  ? false
+  : 'mixdog_main_native.node is not built (cargo build --release in native/mixdog-main-native)';
 
 const { browserUrlContainsSecret, redactBrowserText, redactBrowserKnownSecrets, redactBrowserUrl } = built
   ? await import('./redaction.ts')

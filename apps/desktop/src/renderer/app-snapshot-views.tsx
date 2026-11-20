@@ -268,7 +268,8 @@ export const PaneConversation = memo(function PaneConversation({
     !hidden && presentedSessionId !== sessionId
   );
   const presentedLaneSnapshot = presentedSessionId === sessionId ? lane : presentedLane;
-  const routeSnapshot = presentedSessionId && presentedLaneSnapshot ? paneConversationView(presentedLaneSnapshot) : EMPTY_SNAPSHOT;
+  const routeSnapshot =
+    presentedSessionId && presentedLaneSnapshot ? paneConversationView(presentedLaneSnapshot) : EMPTY_SNAPSHOT;
   const paneSnapshot = hidden ? EMPTY_SNAPSHOT : routeSnapshot;
   const paintGate = conversationSwitchPaintGate(heldPaintId, incomingPaintId, {
     hidden,

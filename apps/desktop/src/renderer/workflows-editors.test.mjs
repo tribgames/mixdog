@@ -90,7 +90,11 @@ for (const capability of ['setAgentRoute', 'setModelRoute']) {
     const harness = mount(t, {
       async invokeCapability({ args: [selection] }) {
         sent.push(selection);
-        return { value: { preset: { ...selection, id: 'workflow-lead', fallbacks: selection.fallbacks ?? [OTHER, DUPLICATE] } } };
+        return {
+          value: {
+            preset: { ...selection, id: 'workflow-lead', fallbacks: selection.fallbacks ?? [OTHER, DUPLICATE] },
+          },
+        };
       },
     });
     await harness.render();
@@ -134,7 +138,9 @@ test('a slot-2-only speed edit sends slot 1 unchanged and shows both speeds as s
       assert.equal(capability, 'setRoute');
       sent.push(selection);
       return {
-        value: { preset: { ...PRIMARY, id: 'workflow-lead', fallbacks: [{ ...SLOT2, fast: true, autoEffort: false }] } },
+        value: {
+          preset: { ...PRIMARY, id: 'workflow-lead', fallbacks: [{ ...SLOT2, fast: true, autoEffort: false }] },
+        },
         snapshot: { ...PRIMARY, modelParameters: { serviceTier: 'ultrafast' } },
       };
     },

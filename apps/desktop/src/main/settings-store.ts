@@ -5,13 +5,13 @@ import {
   type DesktopSettings,
   type SessionRetentionSettingKey,
 } from '../shared/contract';
+import { normalizeActivityRailPins, storedPinsState, type ActivityRailPinsState } from '../shared/activity-rail-pins';
+import type { BrowserPermissionPolicy } from '../shared/browser-permission-policy';
 import {
-  normalizeActivityRailPins,
-  storedPinsState,
-  type ActivityRailPinsState,
-} from '../shared/activity-rail-pins';
-import { type BrowserPermissionPolicy } from '../shared/browser-permission-policy';
-import { desktopSettingsFromConfig, isNotificationVolume, SESSION_RETENTION_DEFAULTS } from '../shared/desktop-settings';
+  desktopSettingsFromConfig,
+  isNotificationVolume,
+  SESSION_RETENTION_DEFAULTS,
+} from '../shared/desktop-settings';
 import type { ProtocolConnection } from './protocol/connection';
 
 /** What the store needs of this PC's core: desktop operations (settings are keys of the core's Config actor, routed in

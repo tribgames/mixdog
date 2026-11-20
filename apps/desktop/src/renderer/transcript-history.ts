@@ -162,7 +162,8 @@ export class TranscriptHistoryPager<T extends HistoryItem> {
       const edges = page.positionEdges?.[index];
       const position = page.positions?.[index];
       if (edges) setHistoryPositions(row, edges.before, edges.after);
-      else if (position && CORE_TRANSCRIPT_HISTORY_POSITION.test(position)) setHistoryPositions(row, position, position);
+      else if (position && CORE_TRANSCRIPT_HISTORY_POSITION.test(position))
+        setHistoryPositions(row, position, position);
       else if (position) this.positions.set(row, position);
     });
     return rows;
@@ -214,7 +215,10 @@ export class TranscriptHistoryPager<T extends HistoryItem> {
     // rows on screen as they are, as Node's pager placed it (re-reading the window replaced every row the reader was looking at).
     const position = historyPositionOf(row) ?? this.positions.get(row);
     const first = current.items[0];
-    if (first?.id !== boundary || (position !== undefined && position !== (historyPositionOf(first) ?? this.positions.get(first)))) {
+    if (
+      first?.id !== boundary ||
+      (position !== undefined && position !== (historyPositionOf(first) ?? this.positions.get(first)))
+    ) {
       this.movedFrom = base.items.length;
       this.toLive();
       return 'moved';

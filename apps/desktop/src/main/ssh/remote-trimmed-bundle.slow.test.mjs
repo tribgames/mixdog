@@ -16,8 +16,12 @@ import { buildJsPayload, packedFiles } from '../../../scripts/stage-js-bundle.mj
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..');
 const key = `${process.platform}-${process.arch}`;
-test('the pptxgenjs authoring entry and the skill scripts pass on the trimmed bundle', { timeout: 1_800_000 }, async () => {
-  const work = process.env.MIXDOG_BUILD_SCRATCH ? resolve(process.env.MIXDOG_BUILD_SCRATCH, `trimmed-${process.pid}`) : makeTempDirSync('trimmed-bundle');
+test('the pptxgenjs authoring entry and the skill scripts pass on the trimmed bundle', {
+  timeout: 1_800_000,
+}, async () => {
+  const work = process.env.MIXDOG_BUILD_SCRATCH
+    ? resolve(process.env.MIXDOG_BUILD_SCRATCH, `trimmed-${process.pid}`)
+    : makeTempDirSync('trimmed-bundle');
   const payloadDir = join(work, 'payload');
   await buildJsPayload({
     key,
@@ -32,7 +36,16 @@ test('the pptxgenjs authoring entry and the skill scripts pass on the trimmed bu
   const node = process.platform === 'win32' ? process.execPath : join(payloadDir, 'js', 'node');
 
   // What was left out stays out, and what the entry points reach is there.
-  for (const gone of ['openai', '@img/sharp-wasm32', '@img/sharp-linuxmusl-x64', '@napi-rs/canvas-linux-x64-musl', 'pdf-lib', 'pdfjs-dist', 'puppeteer-core', 'jsdom']) {
+  for (const gone of [
+    'openai',
+    '@img/sharp-wasm32',
+    '@img/sharp-linuxmusl-x64',
+    '@napi-rs/canvas-linux-x64-musl',
+    'pdf-lib',
+    'pdfjs-dist',
+    'puppeteer-core',
+    'jsdom',
+  ]) {
     assert.equal(existsSync(join(modules, gone)), false, `${gone} should not ship`);
   }
   for (const root of ['pptxgenjs', 'sharp', 'jszip', 'yaml', '@napi-rs/canvas']) {
@@ -51,13 +64,17 @@ test('the pptxgenjs authoring entry and the skill scripts pass on the trimmed bu
     "pres.addSlide().addText('Hello', { x: 1, y: 1, w: 4, h: 1 });",
     'await pres.writeFile({ fileName: OUTPUT });',
   ].join('\n');
-  const authored = spawnSync(node, [join(packageRoot, 'src', 'runtime', 'office', 'authoring', 'pptx-script-entry.mjs')], {
-    cwd: work,
-    env,
-    input: JSON.stringify({ script, output, cwd: work }),
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  const authored = spawnSync(
+    node,
+    [join(packageRoot, 'src', 'runtime', 'office', 'authoring', 'pptx-script-entry.mjs')],
+    {
+      cwd: work,
+      env,
+      input: JSON.stringify({ script, output, cwd: work }),
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    }
+  );
   assert.equal(authored.status, 0, `${authored.stdout}\n${authored.stderr}`.slice(-6000));
   const marker = '\u0000mixdog-pptx-script-answer\u0000';
   const answerLine = authored.stdout.split('\n').find((line) => line.startsWith(marker));
@@ -71,7 +88,11 @@ test('the pptxgenjs authoring entry and the skill scripts pass on the trimmed bu
   assert.ok(scripts.length >= 5, `skill scripts: ${scripts.join(', ')}`);
   for (const script of scripts) {
     const url = pathToFileURL(join(packageRoot, script)).href;
-    const loaded = spawnSync(node, ['--input-type=module', '-e', `await import(${JSON.stringify(url)});`], { cwd: work, env, encoding: 'utf8' });
+    const loaded = spawnSync(node, ['--input-type=module', '-e', `await import(${JSON.stringify(url)});`], {
+      cwd: work,
+      env,
+      encoding: 'utf8',
+    });
     assert.equal(loaded.status, 0, `${script}: ${loaded.stderr}`.slice(-3000));
   }
 });

@@ -7,12 +7,22 @@ import { checkLanes, runnableTestsByPackage } from './check-lane-filters.mjs';
 // testcases (name -> { ignored }).
 const suite = (pkg, names, ignored = []) => ({
   'package-name': pkg,
-  testcases: Object.fromEntries([...names.map((name) => [name, { ignored: false }]), ...ignored.map((name) => [name, { ignored: true }])]),
+  testcases: Object.fromEntries([
+    ...names.map((name) => [name, { ignored: false }]),
+    ...ignored.map((name) => [name, { ignored: true }]),
+  ]),
 });
 const list = {
   'rust-suites': {
-    'mixdog-tools': suite('mixdog-tools', ['exec::direct::tests::runs_a_program', 'fs::tests::the_advisory_lock_waits']),
-    'mixdog-agent::it': suite('mixdog-agent', ['compact_fresh::a_fresh_session', 'turns::one'], ['compact_commit::ignored_only']),
+    'mixdog-tools': suite('mixdog-tools', [
+      'exec::direct::tests::runs_a_program',
+      'fs::tests::the_advisory_lock_waits',
+    ]),
+    'mixdog-agent::it': suite(
+      'mixdog-agent',
+      ['compact_fresh::a_fresh_session', 'turns::one'],
+      ['compact_commit::ignored_only']
+    ),
     'mixdog-agent': suite('mixdog-agent', ['lib_only::x']),
   },
 };
@@ -36,7 +46,9 @@ test('a filter that matches no name fails, an ignored-only match does not count,
     'lane only: filter compact_commit selects no un-ignored test of mixdog-agent',
   ]);
   const empty = { 'rust-suites': { ...list['rust-suites'], 'mixdog-ai': suite('mixdog-ai', [], ['a']) } };
-  assert.deepEqual(checkLanes(empty, { lanes: { all: { pkg: 'mixdog-ai', filters: [] } } }), ['lane all: filter (all) selects no un-ignored test of mixdog-ai']);
+  assert.deepEqual(checkLanes(empty, { lanes: { all: { pkg: 'mixdog-ai', filters: [] } } }), [
+    'lane all: filter (all) selects no un-ignored test of mixdog-ai',
+  ]);
 });
 
 test('a package missing from the archive fails, unless a pull request archive is allowed to hold only some crates', () => {

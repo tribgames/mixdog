@@ -31,13 +31,22 @@ export const PACKAGE_DIR = 'mixdog';
  *  layout: `resources/core/`, `<isoRoot>/core/`, the dev binary's folder, the remote version directory (the
  *  bundle's `payload/` entries move beside the binary) and `native-bin/<platform>-<arch>/`. */
 export const OFFICE_TEMPLATES_DIR = 'assets/templates';
-export const OFFICE_TEMPLATES_SOURCE = resolve(dirname(fileURLToPath(import.meta.url)), '../../../native/core/crates/mixdog-office-design', OFFICE_TEMPLATES_DIR);
-export const OFFICE_TEMPLATE_FILES = Object.freeze(['mixdog-executive.pptx', 'mixdog-executive.pptx.mixdog.json', 'mixdog-executive.mixdog-edit.pptx']);
+export const OFFICE_TEMPLATES_SOURCE = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../native/core/crates/mixdog-office-design',
+  OFFICE_TEMPLATES_DIR
+);
+export const OFFICE_TEMPLATE_FILES = Object.freeze([
+  'mixdog-executive.pptx',
+  'mixdog-executive.pptx.mixdog.json',
+  'mixdog-executive.mixdog-edit.pptx',
+]);
 
 /** Copies the packaged templates into `<executableDir>/assets/templates`; throws when the source lacks one. */
 export async function stageOfficeTemplates(executableDir, source = OFFICE_TEMPLATES_SOURCE) {
   const target = join(executableDir, OFFICE_TEMPLATES_DIR);
-  for (const file of OFFICE_TEMPLATE_FILES) if (!existsSync(join(source, file))) throw new Error(`Office template ${join(source, file)} does not exist`);
+  for (const file of OFFICE_TEMPLATE_FILES)
+    if (!existsSync(join(source, file))) throw new Error(`Office template ${join(source, file)} does not exist`);
   await mkdir(target, { recursive: true });
   for (const file of OFFICE_TEMPLATE_FILES) await cp(join(source, file), join(target, file));
   return target;
@@ -96,7 +105,11 @@ export const desktopMixdogRoot = (resources) => join(resources, UNPACKED_NODE_MO
 export const onnxRuntimeSupported = (platform, arch) => !(platform === 'darwin' && arch === 'x64');
 
 /** The library file onnxruntime-node's binding loads, per platform. */
-const ORT_LIBRARY_FILE = Object.freeze({ win32: 'onnxruntime.dll', linux: 'libonnxruntime.so.1', darwin: 'libonnxruntime.1.dylib' });
+const ORT_LIBRARY_FILE = Object.freeze({
+  win32: 'onnxruntime.dll',
+  linux: 'libonnxruntime.so.1',
+  darwin: 'libonnxruntime.1.dylib',
+});
 /** MSVC runtime the Windows ONNX Runtime imports and Windows does not ship; deployed app-local. */
 export const WINDOWS_ONNX_VC_RUNTIME_DLLS = Object.freeze([
   'msvcp140.dll',
@@ -125,7 +138,11 @@ function ortLibraryIn(modulesPrefix, platform, arch) {
 /** `ortLibrary` of a desktop install, relative to `resources/core/`. */
 export const desktopOrtLibraryPath = (platform, arch) => ortLibraryIn(`../${UNPACKED_NODE_MODULES}`, platform, arch);
 
-const APP_EXECUTABLE = Object.freeze({ win32: '../../Mixdog.exe', darwin: '../../MacOS/Mixdog', linux: '../../mixdog-desktop' });
+const APP_EXECUTABLE = Object.freeze({
+  win32: '../../Mixdog.exe',
+  darwin: '../../MacOS/Mixdog',
+  linux: '../../mixdog-desktop',
+});
 
 /** js-runtime.json of the desktop: the app in node mode runs the JS; the package root is real files. */
 export function desktopJsRuntimeManifest(platform, arch) {
@@ -146,7 +163,9 @@ export function remoteJsRuntimeManifest(platform, arch) {
     program: 'js/node',
     packageRoot: `js/pkg/node_modules/${PACKAGE_DIR}`,
     electron: false,
-    ...(onnxRuntimeSupported(platform, arch) ? { ortLibrary: ortLibraryIn('js/pkg/node_modules', platform, arch) } : {}),
+    ...(onnxRuntimeSupported(platform, arch)
+      ? { ortLibrary: ortLibraryIn('js/pkg/node_modules', platform, arch) }
+      : {}),
   };
 }
 
@@ -175,14 +194,16 @@ export function trimOrtBinaries(ortPackageDir, platform, arch) {
       rmSync(join(napi, os), { recursive: true, force: true });
       continue;
     }
-    for (const cpu of readdirSync(join(napi, os))) if (cpu !== arch) rmSync(join(napi, os, cpu), { recursive: true, force: true });
+    for (const cpu of readdirSync(join(napi, os)))
+      if (cpu !== arch) rmSync(join(napi, os, cpu), { recursive: true, force: true });
   }
   const library = join(napi, platform, arch, ORT_LIBRARY_FILE[platform]);
   if (!existsSync(library)) throw new Error(`onnxruntime-node holds no ${platform}-${arch} library: ${library}`);
 }
 
 const isFile = (file) => existsSync(file) && statSync(file).isFile();
-const nonEmptyDir = (dir) => existsSync(dir) && statSync(dir).isDirectory() && readdirSync(dir, { recursive: true }).length > 0;
+const nonEmptyDir = (dir) =>
+  existsSync(dir) && statSync(dir).isDirectory() && readdirSync(dir, { recursive: true }).length > 0;
 
 /**
  * Integrity of one install of the core's JS runtime: `manifestDir` holds `js-runtime.json`. Throws a message
@@ -206,10 +227,12 @@ export function verifyCoreInstall({ manifestDir, kind, platform, arch, checkProg
   }
   const at = (relative) => resolve(manifestDir, relative);
   const packageRoot = at(expected.packageRoot);
-  if (checkProgram && !isFile(at(expected.program))) problems.push(`interpreter ${at(expected.program)} does not exist`);
+  if (checkProgram && !isFile(at(expected.program)))
+    problems.push(`interpreter ${at(expected.program)} does not exist`);
   problems.push(...coreTreeProblems({ modulesDir: dirname(packageRoot), platform, arch, kind }));
   problems.push(...officeTemplateProblems(manifestDir));
-  if (problems.length) throw new Error(`${kind} core install ${manifestDir} is incomplete:\n- ${problems.join('\n- ')}`);
+  if (problems.length)
+    throw new Error(`${kind} core install ${manifestDir} is incomplete:\n- ${problems.join('\n- ')}`);
   return { manifest, packageRoot };
 }
 
@@ -223,7 +246,9 @@ export async function mirrorCoreRuntime({ modulesDir, destination, platform, arc
   const { dirs, skipped } = closureOf(modulesDir, desktopExtraRoots(platform));
   // ORT is loaded by Rust, so no JS import reaches it. Keep its package metadata
   // and licence as well as the library, so shipped-version verification covers it.
-  const mirrored = [...new Set([join(modulesDir, PACKAGE_DIR), ...dirs, ...(ortBinarySource ? [join(modulesDir, ORT_PACKAGE)] : [])])].sort();
+  const mirrored = [
+    ...new Set([join(modulesDir, PACKAGE_DIR), ...dirs, ...(ortBinarySource ? [join(modulesDir, ORT_PACKAGE)] : [])]),
+  ].sort();
   for (const dir of mirrored) {
     // A nested package comes with the package that holds it.
     if (mirrored.some((other) => other !== dir && dir.startsWith(`${other}${sep}`))) continue;
@@ -233,7 +258,8 @@ export async function mirrorCoreRuntime({ modulesDir, destination, platform, arc
     await cp(dir, join(destination, relative(modulesDir, dir)), { recursive: true, filter });
   }
   // The library with its siblings (and the app-local VC runtime on Windows).
-  if (ortBinarySource) await cp(ortBinarySource, join(destination, ORT_PACKAGE, ortBinaryDir(platform, arch)), { recursive: true });
+  if (ortBinarySource)
+    await cp(ortBinarySource, join(destination, ORT_PACKAGE, ortBinaryDir(platform, arch)), { recursive: true });
   await mkdir(destination, { recursive: true });
   writeClosureRecord(destination, skipped);
   verifyCoreTree({ modulesDir: destination, platform, arch, kind: 'desktop' });
@@ -244,7 +270,11 @@ export async function mirrorCoreRuntime({ modulesDir, destination, platform, arc
  *  the installer left out is `skipped`. */
 function closureOf(modulesDir, extraRoots = []) {
   const { roots } = deriveRemoteRoots({ packageRootDir: join(modulesDir, PACKAGE_DIR) });
-  const { dirs, missing, skipped } = installedClosure(modulesDir, [...roots.keys(), ...extraRoots], (_name, kind) => kind === 'optional dependency');
+  const { dirs, missing, skipped } = installedClosure(
+    modulesDir,
+    [...roots.keys(), ...extraRoots],
+    (_name, kind) => kind === 'optional dependency'
+  );
   if (missing.length) throw new Error(`The extension host closure is incomplete:\n- ${missing.join('\n- ')}`);
   return { dirs, skipped };
 }
@@ -253,7 +283,10 @@ function closureOf(modulesDir, extraRoots = []) {
  *  that are not for the platform). The check of the staged tree accepts exactly these as absent. */
 export const CLOSURE_RECORD = 'mixdog-core-closure.json';
 const writeClosureRecord = (modulesDir, skipped) =>
-  writeFileSync(join(modulesDir, CLOSURE_RECORD), `${JSON.stringify({ skippedOptional: [...skipped].sort() }, null, 2)}\n`);
+  writeFileSync(
+    join(modulesDir, CLOSURE_RECORD),
+    `${JSON.stringify({ skippedOptional: [...skipped].sort() }, null, 2)}\n`
+  );
 
 /** Writes `CLOSURE_RECORD` into the installed tree `modulesDir` (the remote bundle's `node_modules`). */
 export function recordCoreClosure(modulesDir) {
@@ -270,10 +303,15 @@ export function verifyCoreTree(options) {
 function coreTreeProblems({ modulesDir, platform, arch, kind }) {
   const problems = [];
   const packageRoot = join(modulesDir, PACKAGE_DIR);
-  for (const file of CORE_READS.files) if (!isFile(join(packageRoot, file))) problems.push(`missing file ${file} in the package root`);
-  for (const dir of CORE_READS.dirs) if (!nonEmptyDir(join(packageRoot, dir))) problems.push(`missing or empty ${dir} in the package root`);
+  for (const file of CORE_READS.files)
+    if (!isFile(join(packageRoot, file))) problems.push(`missing file ${file} in the package root`);
+  for (const dir of CORE_READS.dirs)
+    if (!nonEmptyDir(join(packageRoot, dir))) problems.push(`missing or empty ${dir} in the package root`);
 
-  if (isFile(join(packageRoot, 'src', 'runtime', 'office', 'authoring', 'pptx-script-entry.mjs')) && isFile(join(packageRoot, 'src', 'skill-script-entry.mjs'))) {
+  if (
+    isFile(join(packageRoot, 'src', 'runtime', 'office', 'authoring', 'pptx-script-entry.mjs')) &&
+    isFile(join(packageRoot, 'src', 'skill-script-entry.mjs'))
+  ) {
     const { roots } = deriveRemoteRoots({ packageRootDir: packageRoot });
     const record = join(modulesDir, CLOSURE_RECORD);
     if (isFile(record)) {
@@ -287,10 +325,13 @@ function coreTreeProblems({ modulesDir, platform, arch, kind }) {
 
   const ortPackage = join(modulesDir, ORT_PACKAGE);
   if (onnxRuntimeSupported(platform, arch)) {
-    if (!isFile(join(ortPackage, 'package.json'))) problems.push('ONNX Runtime package.json is missing: its shipped version cannot be verified');
+    if (!isFile(join(ortPackage, 'package.json')))
+      problems.push('ONNX Runtime package.json is missing: its shipped version cannot be verified');
     const binaryDir = join(ortPackage, ortBinaryDir(platform, arch));
-    if (!isFile(join(binaryDir, ORT_LIBRARY_FILE[platform]))) problems.push(`ONNX Runtime library ${join(binaryDir, ORT_LIBRARY_FILE[platform])} does not exist`);
-    for (const sibling of ORT_SIBLINGS[platform]) if (!isFile(join(binaryDir, sibling))) problems.push(`${sibling} is missing beside the ONNX Runtime library`);
+    if (!isFile(join(binaryDir, ORT_LIBRARY_FILE[platform])))
+      problems.push(`ONNX Runtime library ${join(binaryDir, ORT_LIBRARY_FILE[platform])} does not exist`);
+    for (const sibling of ORT_SIBLINGS[platform])
+      if (!isFile(join(binaryDir, sibling))) problems.push(`${sibling} is missing beside the ONNX Runtime library`);
     const napi = join(ortPackage, 'bin', 'napi-v6');
     for (const os of existsSync(napi) ? readdirSync(napi) : []) {
       const foreign = os === platform ? readdirSync(join(napi, os)).filter((cpu) => cpu !== arch) : [os];

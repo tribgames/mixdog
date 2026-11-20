@@ -14,7 +14,10 @@ const SENTENCES = [
   'The SSH connection to me@box is not ready after 200 ms.',
   'The SSH connection to me@box is closed.',
   'The connection to the server is closed.',
-  'This app ({{client}}) is older than the version on me@box (2.0.0). Update the app on this PC, then reconnect.'.replace('{{client}}', '1.0.0'),
+  'This app ({{client}}) is older than the version on me@box (2.0.0). Update the app on this PC, then reconnect.'.replace(
+    '{{client}}',
+    '1.0.0'
+  ),
   'The version running on me@box (2.0.0) does not match this app (1.0.0). Reconnect to install the matching version on the server.',
   'The password was not accepted. Check it and try again.',
   'The passphrase for the key was not accepted. Check it and try again.',

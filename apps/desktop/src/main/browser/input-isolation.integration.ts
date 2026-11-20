@@ -3,7 +3,7 @@ import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { app, BrowserWindow, webContents, type WebContents } from 'electron';
-import { type BrowserHost } from './host-types';
+import type { BrowserHost } from './host-types';
 import { createBrowserHost } from './host';
 import { createPolling } from '../host-harness-poll';
 import { exerciseBrowserInputSurface, readyBrowserFrame } from './input-surface.integration';
@@ -69,7 +69,8 @@ async function run(): Promise<void> {
         preload: join(directory, 'fixture-preload.cjs'),
       },
     });
-    host = createBrowserHost(parent, { hostId: 'test-host',
+    host = createBrowserHost(parent, {
+      hostId: 'test-host',
       remoteSession: false,
       requestApproval: async () => true,
       chooseBrowserFiles: async () => ({ canceled: false, filePaths: [chosenFile] }),

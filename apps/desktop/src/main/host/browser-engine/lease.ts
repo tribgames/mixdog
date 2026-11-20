@@ -188,13 +188,16 @@ export function createLeases(
   function schedule(pageId: string, page: PageState): void {
     if (page.timer !== undefined) clock.clearTimer(page.timer);
     const wait = Math.max(page.until, page.gestureUntil) - clock.now();
-    page.timer = clock.setTimer(() => {
-      page.timer = undefined;
-      if (closed || pages.get(pageId) !== page) return;
-      if (holdsPage(page)) return schedule(pageId, page);
-      publish(pageId, page, false);
-      idle(pageId, page);
-    }, Math.max(wait, 1));
+    page.timer = clock.setTimer(
+      () => {
+        page.timer = undefined;
+        if (closed || pages.get(pageId) !== page) return;
+        if (holdsPage(page)) return schedule(pageId, page);
+        publish(pageId, page, false);
+        idle(pageId, page);
+      },
+      Math.max(wait, 1)
+    );
   }
 
   function dropLease(page: PageState): void {

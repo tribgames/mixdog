@@ -90,11 +90,19 @@ test('begin_turn and finish_turn go to the turn method; a bad cleanup context is
       const began = await post(dataDirectory, { action: 'begin_turn', session_id: 's1', turn_id: 4 });
       assert.deepEqual(await began.json(), { ok: true, value: { text: 'Browser turn started.' } });
       await post(dataDirectory, { action: 'finish_turn', session_id: 's1', turn_id: 4, aborted: true });
-      assert.deepEqual(core.calls.map((call) => call.params), [
-        { phase: 'begin', sessionId: 's1', turnId: 4 },
-        { phase: 'finish', sessionId: 's1', turnId: 4, aborted: true },
-      ]);
-      for (const bad of [{ turn_id: 4 }, { session_id: 's1', turn_id: 0 }, { session_id: 's1', turn_id: 1.5 }, { session_id: 's1', turn_id: 1, url: 'x' }]) {
+      assert.deepEqual(
+        core.calls.map((call) => call.params),
+        [
+          { phase: 'begin', sessionId: 's1', turnId: 4 },
+          { phase: 'finish', sessionId: 's1', turnId: 4, aborted: true },
+        ]
+      );
+      for (const bad of [
+        { turn_id: 4 },
+        { session_id: 's1', turn_id: 0 },
+        { session_id: 's1', turn_id: 1.5 },
+        { session_id: 's1', turn_id: 1, url: 'x' },
+      ]) {
         const reply = await (await post(dataDirectory, { action: 'finish_turn', ...bad })).json();
         assert.equal(reply.error, 'Invalid browser task cleanup context.');
       }
@@ -120,5 +128,8 @@ test('an unreachable core answers the runtime with its reason', async () => {
   const request = async () => {
     throw new Error('core is not connected');
   };
-  await assert.rejects(forwardBrowserCommand(request, { action: 'read' }, new AbortController().signal), /core is not connected/);
+  await assert.rejects(
+    forwardBrowserCommand(request, { action: 'read' }, new AbortController().signal),
+    /core is not connected/
+  );
 });

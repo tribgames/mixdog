@@ -118,7 +118,9 @@ export function createDesktopHost(options: DesktopHostOptions) {
   registerSystemProxyHost(connection, options.resolveProxy);
   const stopComputer = registerComputerHost(connection, options.computer);
   // The on-PC pill of a phone's screen session, driven by the core (host/screen/indicator, host/screen/indicator/stop).
-  const closeScreenIndicators = options.showScreenIndicator ? registerScreenIndicatorHost(connection, options.showScreenIndicator) : () => {};
+  const closeScreenIndicators = options.showScreenIndicator
+    ? registerScreenIndicatorHost(connection, options.showScreenIndicator)
+    : () => {};
   // A display added, removed or rescaled is told to the core (host/screen/displaysChanged).
   // Electron's `screen` exists only once the app is ready, and the host role is built before that.
   let stopDisplayReports = () => {};
@@ -126,22 +128,22 @@ export function createDesktopHost(options: DesktopHostOptions) {
   void import('electron')
     .then((electron) => electron.app?.whenReady?.())
     .then(() => {
-      if (!displayReportsOff && typeof screen?.on === 'function') stopDisplayReports = reportScreenDisplayChanges(connection, screen);
+      if (!displayReportsOff && typeof screen?.on === 'function')
+        stopDisplayReports = reportScreenDisplayChanges(connection, screen);
     })
     .catch(() => {});
   const humanOnly = registerHumanOnlyHolds(connection);
   const closeNotifications = registerNotificationHost(connection, options.notifications);
   // host/state/set is a request, host/window/closed a notification.
-  const windowHost =
-    options.windows
-      ? registerWindowHost(connection, {
-          ...options.windows,
-          report: (method, params) => {
-            if (method === WINDOW_HOST_METHOD.stateSet) void connection.request(method, params).catch(() => {});
-            else connection.notify(method, params);
-          },
-        })
-      : null;
+  const windowHost = options.windows
+    ? registerWindowHost(connection, {
+        ...options.windows,
+        report: (method, params) => {
+          if (method === WINDOW_HOST_METHOD.stateSet) void connection.request(method, params).catch(() => {});
+          else connection.notify(method, params);
+        },
+      })
+    : null;
   const reports = createHostReports(connection, options.updater, options.onUpdaterInstallFailed);
   let claimed = false;
   connection.onClose(() => {
@@ -191,6 +193,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
     streamedPageChanged: (sessionId: string): void => pageReport.changed(sessionId),
     /** Reports a browser host's surface reveals and hides as `host/browser/surface`; returns the detach (its window
      *  closed). Attached per browser host, since one is built for each window of this PC. */
-    reportBrowserSurfaces: (source: BrowserSurfaceSource): (() => void) => registerBrowserSurfaceReport(connection, source),
+    reportBrowserSurfaces: (source: BrowserSurfaceSource): (() => void) =>
+      registerBrowserSurfaceReport(connection, source),
   };
 }

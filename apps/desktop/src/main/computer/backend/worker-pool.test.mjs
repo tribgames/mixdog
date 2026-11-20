@@ -308,7 +308,9 @@ test('resident workers stay listed until their exit is observed', async (t) => {
 });
 
 test('a Windows worker launches the native helper with its own ledger, never PowerShell', windowsOnly, async (t) => {
-  const { pool, directory, workers, spawns } = await fakePool(t, { foregroundLock: { handle() {}, workerGone() {}, takeFacts: () => null } });
+  const { pool, directory, workers, spawns } = await fakePool(t, {
+    foregroundLock: { handle() {}, workerGone() {}, takeFacts: () => null },
+  });
   pool.ensurePowerShell('a');
   const [{ command, args, options }] = spawns;
   assert.equal(command, process.env.MIXDOG_COMPUTER_BIN);
@@ -361,9 +363,14 @@ function exitLauncher(code, messages = []) {
   return (launcher) =>
     setImmediate(() => {
       for (const message of messages) launcher.stdout.write(`${JSON.stringify(message)}\n`);
-      if (code === 1223) launcher.stdout.write(`${JSON.stringify({
-        kind: 'result', stopped: true, error: 'privileged_worker_cancelled: UAC consent was declined',
-      })}\n`);
+      if (code === 1223)
+        launcher.stdout.write(
+          `${JSON.stringify({
+            kind: 'result',
+            stopped: true,
+            error: 'privileged_worker_cancelled: UAC consent was declined',
+          })}\n`
+        );
       setImmediate(() => {
         launcher.exitCode = code === 1223 ? 1 : code;
         launcher.emit('exit', launcher.exitCode);
@@ -434,10 +441,13 @@ test('a verified-gone elevated worker releases its session and slots', windowsOn
   await assert.rejects(pool.callPowerShellElevated({ action: 'click', session_id: 'a' }), {
     message: 'privileged_worker_unavailable: elevated worker returned no response',
   });
-  assert.equal(await pool.releaseUnconfirmedElevated(async (got) => {
-    assert.deepEqual(got, identity);
-    return true;
-  }), true);
+  assert.equal(
+    await pool.releaseUnconfirmedElevated(async (got) => {
+      assert.deepEqual(got, identity);
+      return true;
+    }),
+    true
+  );
   assert.deepEqual(pool.elevatedSessionIds(), []);
   assert.ok(pool.ensurePowerShell('b'));
   assert.ok(pool.ensurePowerShell('c'));
@@ -488,7 +498,9 @@ test('a command awaiting its worker when its scope is revoked: its next request 
   await turn();
   assert.equal(scope.unfinished(), 0);
   // A release of what the worker holds is teardown: it still goes, counted.
-  const release = underEndpoint(scope.endpoint, () => pool.callPowerShell({ action: 'release_held_input', session_id: 'a' }));
+  const release = underEndpoint(scope.endpoint, () =>
+    pool.callPowerShell({ action: 'release_held_input', session_id: 'a' })
+  );
   const sent = sentRequest(child);
   assert.equal(sent.action, 'release_held_input');
   assert.equal(scope.unfinished(), 1);
@@ -523,7 +535,13 @@ test('a retiring worker is sent no request, even by a caller that still holds it
   const requests = createWorkerRequests();
   const child = fakeChild(7);
   requests.retire(child, new Error('computer bridge stopped'));
-  const traits = { sessionId: 'a', pointerFeedback: false, mode: 'background', input: true, backgroundPressRelease: false };
+  const traits = {
+    sessionId: 'a',
+    pointerFeedback: false,
+    mode: 'background',
+    input: true,
+    backgroundPressRelease: false,
+  };
   await assert.rejects(requests.dispatch(child, 1, '{"id":1}\n', traits, 1_000), /^Error: computer_worker_retiring:/);
   assert.equal(child.stdin.read(), null);
 });
@@ -531,7 +549,9 @@ test('a retiring worker is sent no request, even by a caller that still holds it
 test('a request answered while its worker is retired (an unconfirmed capture cleanup) stays counted until the worker exit is observed', async (t) => {
   const { pool, workers } = await fakePool(t);
   const scope = fakeEndpoint();
-  const capturing = underEndpoint(scope.endpoint, () => pool.callPowerShell({ action: 'window_capture', session_id: 'a', read_only: true }));
+  const capturing = underEndpoint(scope.endpoint, () =>
+    pool.callPowerShell({ action: 'window_capture', session_id: 'a', read_only: true })
+  );
   const child = workers[0];
   const sent = sentRequest(child);
   reply(child, { id: sent.id, ok: true, result: { capture_cleanup: { status: 'unconfirmed' } } });

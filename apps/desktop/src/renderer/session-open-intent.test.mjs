@@ -87,14 +87,20 @@ test('an abandoned core-direct intent only previews stored rows, and that previe
   answer.resolve({ sessionId, items });
   assert.equal(await preview, true);
   assert.deepEqual(calls, [['preview', sessionId]]);
-  assert.deepEqual(defaultSessionLaneStore.get(sessionId).items.map(({ id }) => id), items.map(({ id }) => id));
+  assert.deepEqual(
+    defaultSessionLaneStore.get(sessionId).items.map(({ id }) => id),
+    items.map(({ id }) => id)
+  );
   assert.equal(defaultSessionLaneStore.liveSessionIds().has(sessionId), false);
   defaultSessionLaneStore.apply({
     sessionId,
     frameSource: 'live',
     snapshot: { sessionId, items: items.slice(3) },
   });
-  assert.deepEqual(defaultSessionLaneStore.get(sessionId).items.map(({ id }) => id), ['u1', 'a1', 't1']);
+  assert.deepEqual(
+    defaultSessionLaneStore.get(sessionId).items.map(({ id }) => id),
+    ['u1', 'a1', 't1']
+  );
   assert.equal(defaultSessionLaneStore.liveSessionIds().has(sessionId), true);
 });
 

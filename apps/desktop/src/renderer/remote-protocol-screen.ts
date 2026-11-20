@@ -14,7 +14,8 @@ import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-prot
 /** `filterSessionIds`'s reading of each item (desktop-state.ts:82-93): the core drops what is not a session id. */
 const sessionIds = (value: unknown): string[] => (Array.isArray(value) ? value.map((item) => String(item || '')) : []);
 
-const report = (host: PhoneProtocolHost, params: UiScreenSessionsChangedParams): void => host.client().notify(SCREEN_SESSIONS_CHANGED, params);
+const report = (host: PhoneProtocolHost, params: UiScreenSessionsChangedParams): void =>
+  host.client().notify(SCREEN_SESSIONS_CHANGED, params);
 
 export const adapter: PhoneProtocolAdapter = {
   group: 'screen',
@@ -26,6 +27,7 @@ export const adapter: PhoneProtocolAdapter = {
     setVisualizePanels: ([ids], host) => report(host, { visualizeSessionIds: sessionIds(ids) }),
     remotePerfPaint: () => undefined,
     // Node's PC read `String(params[0] ?? '')`.
-    reportConnectionTimeline: ([text], host) => host.client().notify('remote/connectionTimeline', { text: String(text ?? '') }),
+    reportConnectionTimeline: ([text], host) =>
+      host.client().notify('remote/connectionTimeline', { text: String(text ?? '') }),
   },
 };

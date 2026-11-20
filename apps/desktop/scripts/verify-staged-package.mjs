@@ -27,7 +27,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { nativeBinaryRunsOn } from '../../../scripts/native-binary-arch.mjs';
 import { SERVER_PLATFORM_TARGETS } from '../src/main/ssh/server-manifest.mjs';
-import { desktopMixdogRoot, PACKAGE_DIR, UNPACKED_NODE_MODULES, verifyCoreInstall, verifyRemotePayload } from './core-layout.mjs';
+import {
+  desktopMixdogRoot,
+  PACKAGE_DIR,
+  UNPACKED_NODE_MODULES,
+  verifyCoreInstall,
+  verifyRemotePayload,
+} from './core-layout.mjs';
 
 /** The K1 deletion manifest. This committed file is the single authority for what the cut deletes (see its
  *  header); there is no filtered copy: `parseDeletionList` is the only place that decides which sections delete. */
@@ -50,36 +56,56 @@ export function parseDeletionList(text) {
 function packedPackageFiles({ resources, bundles }) {
   const found = new Map();
   const unpacked = join(resources, UNPACKED_NODE_MODULES, PACKAGE_DIR);
-  if (existsSync(unpacked)) found.set(unpacked, readdirSync(unpacked, { recursive: true }).map((path) => path.replaceAll('\\', '/')));
+  if (existsSync(unpacked))
+    found.set(
+      unpacked,
+      readdirSync(unpacked, { recursive: true }).map((path) => path.replaceAll('\\', '/'))
+    );
   for (const [bundle, entries] of bundles) {
     const prefix = `payload/js/pkg/node_modules/${PACKAGE_DIR}/`;
-    found.set(bundle, [...entries].filter((entry) => entry.startsWith(prefix)).map((entry) => entry.slice(prefix.length)));
+    found.set(
+      bundle,
+      [...entries].filter((entry) => entry.startsWith(prefix)).map((entry) => entry.slice(prefix.length))
+    );
   }
   return found;
 }
 
 /** Throws unless the resources are complete for `platform`/`arch` and pack no file of `deleted` (a Set of
  *  package-root-relative paths, `parseDeletionList`). */
-export function verifyStagedResources({ resources, platform, arch, hostOnly = false, deleted = parseDeletionList(readFileSync(DEFAULT_DELETION_LIST, 'utf8')) }) {
+export function verifyStagedResources({
+  resources,
+  platform,
+  arch,
+  hostOnly = false,
+  deleted = parseDeletionList(readFileSync(DEFAULT_DELETION_LIST, 'utf8')),
+}) {
   const exe = join(resources, 'core', platform === 'win32' ? 'mixdogd.exe' : 'mixdogd');
   if (!existsSync(exe) || !statSync(exe).isFile()) throw new Error(`the Rust core ${exe} is not in the package`);
   const askpass = join(resources, 'core', platform === 'win32' ? 'mixdog-askpass.exe' : 'mixdog-askpass');
-  if (!existsSync(askpass) || !statSync(askpass).isFile()) throw new Error(`the ssh askpass helper ${askpass} is not in the package`);
+  if (!existsSync(askpass) || !statSync(askpass).isFile())
+    throw new Error(`the ssh askpass helper ${askpass} is not in the package`);
   if (platform === 'win32') {
     const helper = join(resources, 'native-tools', 'mixdog-computer.exe');
-    if (!existsSync(helper) || !statSync(helper).isFile()) throw new Error(`the Computer Use helper ${helper} is not in the package`);
-    if (!nativeBinaryRunsOn(readFileSync(helper), arch)) throw new Error(`the Computer Use helper ${helper} does not run on win32-${arch}`);
+    if (!existsSync(helper) || !statSync(helper).isFile())
+      throw new Error(`the Computer Use helper ${helper} is not in the package`);
+    if (!nativeBinaryRunsOn(readFileSync(helper), arch))
+      throw new Error(`the Computer Use helper ${helper} does not run on win32-${arch}`);
   }
   // The Browser Use rules live only in this module: a package without it, or with one built for another architecture,
   // must fail here, at the build, and never reach a user.
   const mainNative = join(resources, 'native-tools', 'mixdog_main_native.node');
-  if (!existsSync(mainNative) || !statSync(mainNative).isFile()) throw new Error(`the main-process native module ${mainNative} is not in the package`);
-  if (!nativeBinaryRunsOn(readFileSync(mainNative), arch)) throw new Error(`the main-process native module ${mainNative} does not run on ${platform}-${arch}`);
+  if (!existsSync(mainNative) || !statSync(mainNative).isFile())
+    throw new Error(`the main-process native module ${mainNative} is not in the package`);
+  if (!nativeBinaryRunsOn(readFileSync(mainNative), arch))
+    throw new Error(`the main-process native module ${mainNative} does not run on ${platform}-${arch}`);
   const mixdogRoot = desktopMixdogRoot(resources);
   // The core's resources are real files under MIXDOG_ROOT, and no archive of the runtime is shipped: a package that
   // carries one has the root production tree packed for nothing (and a core resource only inside it would be unreadable).
   if (existsSync(join(resources, 'runtime.asar'))) {
-    throw new Error(`${join(resources, 'runtime.asar')} is shipped, but nothing opens it: the core reads the real files under ${mixdogRoot}`);
+    throw new Error(
+      `${join(resources, 'runtime.asar')} is shipped, but nothing opens it: the core reads the real files under ${mixdogRoot}`
+    );
   }
   verifyCoreInstall({ manifestDir: join(resources, 'core'), kind: 'desktop', platform, arch });
 
@@ -90,8 +116,11 @@ export function verifyStagedResources({ resources, platform, arch, hostOnly = fa
   const bundles = new Map();
   // Exactly the platforms the desktop ships `mixdogd` for: an empty or short manifest is not a package.
   const keys = Object.keys(manifest.binaries ?? {});
-  if (!hostOnly) for (const key of Object.keys(SERVER_PLATFORM_TARGETS)) if (!keys.includes(key)) problems.push(`servers.json lists no ${key} bundle`);
-  for (const key of keys) if (!(key in SERVER_PLATFORM_TARGETS)) problems.push(`servers.json lists ${key}, which is not a server platform`);
+  if (!hostOnly)
+    for (const key of Object.keys(SERVER_PLATFORM_TARGETS))
+      if (!keys.includes(key)) problems.push(`servers.json lists no ${key} bundle`);
+  for (const key of keys)
+    if (!(key in SERVER_PLATFORM_TARGETS)) problems.push(`servers.json lists ${key}, which is not a server platform`);
   for (const [key, entry] of Object.entries(manifest.binaries ?? {})) {
     if (!(key in SERVER_PLATFORM_TARGETS)) continue;
     const bundle = join(serversDir, key, entry.bundle.file);
@@ -113,13 +142,17 @@ export function verifyStagedResources({ resources, platform, arch, hostOnly = fa
       }
       const binary = join(unpacked, 'mixdogd');
       if (!existsSync(binary)) problems.push(`${key}: bundle.tgz holds no mixdogd`);
-      else if (entry.sha256 && createHash('sha256').update(readFileSync(binary)).digest('hex') !== entry.sha256) problems.push(`${key}: the bundle's mixdogd does not match servers.json`);
+      else if (entry.sha256 && createHash('sha256').update(readFileSync(binary)).digest('hex') !== entry.sha256)
+        problems.push(`${key}: the bundle's mixdogd does not match servers.json`);
       try {
         verifyRemotePayload({ key, payloadDir: join(unpacked, 'payload') });
       } catch (error) {
         problems.push(`${key}: ${error.message}`);
       }
-      bundles.set(bundle, new Set(readdirSync(unpacked, { recursive: true }).map((path) => path.replaceAll('\\', '/'))));
+      bundles.set(
+        bundle,
+        new Set(readdirSync(unpacked, { recursive: true }).map((path) => path.replaceAll('\\', '/')))
+      );
     } finally {
       rmSync(unpacked, { recursive: true, force: true });
     }
@@ -128,7 +161,10 @@ export function verifyStagedResources({ resources, platform, arch, hostOnly = fa
 
   for (const [where, files] of packedPackageFiles({ resources, bundles })) {
     const packed = files.filter((file) => deleted.has(file));
-    if (packed.length) problems.push(`${where} packs ${packed.length} file(s) the K1 cut deletes, e.g. ${packed.slice(0, 5).join(', ')}`);
+    if (packed.length)
+      problems.push(
+        `${where} packs ${packed.length} file(s) the K1 cut deletes, e.g. ${packed.slice(0, 5).join(', ')}`
+      );
   }
   if (problems.length) throw new Error(`the package holds deleted files:\n- ${problems.join('\n- ')}`);
   return Object.keys(manifest.binaries);
@@ -148,7 +184,9 @@ if (invokedPath === import.meta.url) {
       arch: argument('arch') ?? process.arch,
       hostOnly: process.argv.includes('--host-only'),
     });
-    console.log(`[verify-staged-package] ok: core, unpacked resource root, ONNX Runtime, extension host closure; bundles ${keys.join(', ')}`);
+    console.log(
+      `[verify-staged-package] ok: core, unpacked resource root, ONNX Runtime, extension host closure; bundles ${keys.join(', ')}`
+    );
   } catch (error) {
     console.error(`[verify-staged-package] failed: ${error.message}`);
     process.exitCode = 1;

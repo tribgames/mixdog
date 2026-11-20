@@ -8,7 +8,9 @@ const section = (name, value, revision) => ({ section: name, key: null, revision
 /** `capabilities.remote` as the core offers it (remote_flags.rs `remote_capabilities`): a flag is on when every call it opens names a
  *  method and nothing else waits; `nativePush` also needs native platforms, which this relay offers none of. */
 function remoteCapabilities(repo) {
-  const { flags } = JSON.parse(readFileSync(new URL('native/core/crates/mixdog-app-protocol/src/remote_flags.json', repo), 'utf8'));
+  const { flags } = JSON.parse(
+    readFileSync(new URL('native/core/crates/mixdog-app-protocol/src/remote_flags.json', repo), 'utf8')
+  );
   return Object.fromEntries(
     Object.entries(flags).map(([name, flag]) => {
       const on = !flag.unserved && Object.values(flag.calls).every((call) => call.method) && name !== 'nativePush';
@@ -35,7 +37,11 @@ export async function adapterWorld() {
       leg = current;
       frames.push(frame);
       // The core's answer to an ensure names the asking connection; the rest is the world's.
-      if (frame.method === 'terminal/ensure') return void current.toPhone({ id: frame.id, result: { id: frame.params.tabId ?? 't', replay: '', client: 'me', sizeOwner: null } });
+      if (frame.method === 'terminal/ensure')
+        return void current.toPhone({
+          id: frame.id,
+          result: { id: frame.params.tabId ?? 't', replay: '', client: 'me', sizeOwner: null },
+        });
       return base.onFrame(current, frame, log);
     },
   };
@@ -59,7 +65,10 @@ export async function adapterWorld() {
     push,
     /** A section change of the app feed, as the core publishes it. */
     setSection: async (name, value) => {
-      await push(`${name === 'terminalTabs' ? 'terminal/tabs' : 'terminal/activity'}/updated`, section(name, value, (revision += 1)));
+      await push(
+        `${name === 'terminalTabs' ? 'terminal/tabs' : 'terminal/activity'}/updated`,
+        section(name, value, (revision += 1))
+      );
       await world.advance(0);
     },
     settle: () => world.advance(0),

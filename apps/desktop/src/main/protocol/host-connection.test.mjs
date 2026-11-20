@@ -29,16 +29,27 @@ const turns = async (count = 20) => {
   for (let i = 0; i < count; i++) await new Promise((resolve) => setImmediate(resolve));
 };
 const command = (id, action) => ({ id, method: 'host/browser/command', params: { threadId: 't1', action, input: {} } });
-const resolved = (requestId) => ({ method: 'serverRequest/resolved', params: { threadId: '', requestId, resolution: { kind: 'cancelled', at: 1 } } });
+const resolved = (requestId) => ({
+  method: 'serverRequest/resolved',
+  params: { threadId: '', requestId, resolution: { kind: 'cancelled', at: 1 } },
+});
 
 /** The scripted core's side of the handshake (`instance` is its serverInstanceId) and the app subscription. */
 async function handshake(conn, instance = 's1') {
   for (;;) {
     const frame = JSON.parse(await within(conn.nextSent(), 'the handshake'));
-    if (frame.method === 'initialize') conn.serverSend({ id: frame.id, result: { ...options.initializeResult, serverInstanceId: instance } });
+    if (frame.method === 'initialize')
+      conn.serverSend({ id: frame.id, result: { ...options.initializeResult, serverInstanceId: instance } });
     if (frame.method === 'app/subscribe') {
-      conn.serverSend({ id: frame.id, result: { subscription: { id: 'as', mode: 'snapshot', epoch: `ae-${instance}`, startSeq: 2 } } });
-      conn.serverSend({ method: 'app/snapshot', params: { sections: [] }, feed: { id: 'app', epoch: `ae-${instance}`, seq: 1 } });
+      conn.serverSend({
+        id: frame.id,
+        result: { subscription: { id: 'as', mode: 'snapshot', epoch: `ae-${instance}`, startSeq: 2 } },
+      });
+      conn.serverSend({
+        method: 'app/snapshot',
+        params: { sections: [] },
+        feed: { id: 'app', epoch: `ae-${instance}`, seq: 1 },
+      });
       return;
     }
   }
@@ -150,7 +161,10 @@ test('an answer or request over the inbound frame limit is never sent: the answe
     assert.equal(answer.id, 'host-1');
     assert.equal(answer.result, undefined);
     assert.equal(answer.error.code, -32000);
-    assert.match(answer.error.message, /host\/browser\/command answer could not be sent: .*maxInboundFrameBytes 262144/);
+    assert.match(
+      answer.error.message,
+      /host\/browser\/command answer could not be sent: .*maxInboundFrameBytes 262144/
+    );
     assert.ok(JSON.stringify(answer).length < 1000);
 
     // An error answer is an answer too: one whose message does not fit is replaced by a small one, not dropped.
@@ -162,12 +176,18 @@ test('an answer or request over the inbound frame limit is never sent: the answe
     assert.ok(JSON.stringify(failed).length < 1000);
 
     await assert.rejects(
-      connection.call('host/state/set', { key: 'visualize', value: [{ sessionId: 's', tabs: [], pad: 'x'.repeat(300_000) }] }),
+      connection.call('host/state/set', {
+        key: 'visualize',
+        value: [{ sessionId: 's', tabs: [], pad: 'x'.repeat(300_000) }],
+      }),
       (error) => /maxInboundFrameBytes/.test(error.detail?.what ?? error.message)
     );
     assert.equal(connection.status, 'ready', 'the connection was not closed');
     conn.serverSend(command('host-2', 'snapshot'));
-    assert.deepEqual(JSON.parse(await within(conn.nextSent(), 'the next answer')), { id: 'host-2', result: { text: 'ok' } });
+    assert.deepEqual(JSON.parse(await within(conn.nextSent(), 'the next answer')), {
+      id: 'host-2',
+      result: { text: 'ok' },
+    });
   } finally {
     await connection.close();
   }
@@ -260,7 +280,9 @@ test('a handler that throws fails its own request, or is reported for a notifica
       throw new Error('The in-app browser is not open.');
     });
     host.handleRequest('host/browser/page/navigate', async () => {
-      throw new HostRpcError(-32015, 'only http(s) navigation is allowed (got file:)', { reason: 'only http(s) navigation is allowed (got file:)' });
+      throw new HostRpcError(-32015, 'only http(s) navigation is allowed (got file:)', {
+        reason: 'only http(s) navigation is allowed (got file:)',
+      });
     });
     const released = [];
     host.handleNotification('host/browser/lease/release', (params) => {
@@ -275,10 +297,13 @@ test('a handler that throws fails its own request, or is reported for a notifica
     });
 
     assert.doesNotThrow(() => conn.serverSend({ id: 'host-1', method: 'host/browser/pages/resolve', params: {} }));
-    assert.deepEqual(JSON.parse(await within(conn.nextSent(), 'the failure of a handler that threw before its promise')), {
-      id: 'host-1',
-      error: { code: -32000, message: 'The in-app browser is not open.' },
-    });
+    assert.deepEqual(
+      JSON.parse(await within(conn.nextSent(), 'the failure of a handler that threw before its promise')),
+      {
+        id: 'host-1',
+        error: { code: -32000, message: 'The in-app browser is not open.' },
+      }
+    );
     conn.serverSend({ id: 'host-2', method: 'host/browser/page/navigate', params: {} });
     assert.deepEqual(JSON.parse(await within(conn.nextSent(), 'the refusal')), {
       id: 'host-2',
@@ -288,7 +313,9 @@ test('a handler that throws fails its own request, or is reported for a notifica
         data: { reason: 'only http(s) navigation is allowed (got file:)' },
       },
     });
-    assert.doesNotThrow(() => conn.serverSend({ method: 'host/browser/lease/release', params: { pageId: 'p1', leaseId: 'l1' } }));
+    assert.doesNotThrow(() =>
+      conn.serverSend({ method: 'host/browser/lease/release', params: { pageId: 'p1', leaseId: 'l1' } })
+    );
     await turns();
     assert.deepEqual(faults, [['notification host/browser/lease/release', 'The in-app browser is not open.']]);
     // The client library delivers the notifications of a connection one after the other on one promise chain
@@ -302,7 +329,10 @@ test('a handler that throws fails its own request, or is reported for a notifica
     assert.equal(waiting.aborted, true, 'and the core still ends a command it gave up');
 
     conn.serverSend({ id: 'host-3', method: 'host/browser/pages/list', params: {} });
-    assert.deepEqual(JSON.parse(await within(conn.nextSent(), 'the next request')), { id: 'host-3', result: { pages: [] } });
+    assert.deepEqual(JSON.parse(await within(conn.nextSent(), 'the next request')), {
+      id: 'host-3',
+      result: { pages: [] },
+    });
     assert.equal(connection.status, 'ready', 'none of it ended the link');
   } finally {
     await connection.close();
@@ -332,14 +362,21 @@ test('a close listener that throws keeps neither the other listeners nor the nex
     assert.doesNotThrow(() => conn.serverClose(1006));
     assert.deepEqual(stopped, ['the listener after it']);
     assert.equal(wasReady, false, 'the connection listeners after the host connection heard the link end');
-    assert.equal(faults.length >= 1 && faults.every(([where, message]) => where === 'close listener' && message === 'a module failed to stop'), true);
+    assert.equal(
+      faults.length >= 1 &&
+        faults.every(([where, message]) => where === 'close listener' && message === 'a module failed to stop'),
+      true
+    );
 
     const next = await within(net.accept(), 'the client to reconnect');
     await handshake(next, 's2');
     await turns();
     assert.equal(claims, 1, 'the role is claimed again on the new link');
     next.serverSend({ id: 'host-1', method: 'host/browser/pages/list', params: {} });
-    assert.deepEqual(JSON.parse(await within(next.nextSent(), 'a request on the new link')), { id: 'host-1', result: { pages: [] } });
+    assert.deepEqual(JSON.parse(await within(next.nextSent(), 'a request on the new link')), {
+      id: 'host-1',
+      result: { pages: [] },
+    });
   } finally {
     await connection.close();
   }

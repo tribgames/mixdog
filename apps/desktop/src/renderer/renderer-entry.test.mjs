@@ -7,7 +7,9 @@ test('Electron installs direct core after language and reaches the app without l
   window.mixdogDesktopHost = {};
   const stages = [];
   t.mock.module('./i18n.ts', { namedExports: { initUiLanguage: () => stages.push('language') } });
-  t.mock.module('./core-direct/install.ts', { namedExports: { installDirectDesktopApi: () => stages.push('desktop') } });
+  t.mock.module('./core-direct/install.ts', {
+    namedExports: { installDirectDesktopApi: () => stages.push('desktop') },
+  });
   t.mock.module('./boot-session-read.ts', { namedExports: { startRestoredSessionReads() {} } });
   t.mock.module('./bootstrap.tsx', {});
 

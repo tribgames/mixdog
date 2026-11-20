@@ -58,12 +58,17 @@ export function CookieAutoImportGroup({
     const read = api.browserCookieAutoImportStatus;
     if (!active || !read) return undefined;
     let live = true;
-    const recovery = startSettingsReadRecovery(async (signal) => {
-      if (writing.current) return;
-      const stamp = version.current;
-      const next = await read();
-      if (live && !signal.aborted && stamp === version.current && !writing.current) setStatus(next);
-    }, 5_000, true, true);
+    const recovery = startSettingsReadRecovery(
+      async (signal) => {
+        if (writing.current) return;
+        const stamp = version.current;
+        const next = await read();
+        if (live && !signal.aborted && stamp === version.current && !writing.current) setStatus(next);
+      },
+      5_000,
+      true,
+      true
+    );
     refreshStatus.current = recovery.replace;
     const stopLink = followSettingsReadConnection(api, recovery);
     window.addEventListener('focus', recovery.replace);
@@ -80,10 +85,15 @@ export function CookieAutoImportGroup({
     const sources = api.browserProfileImportSources;
     if (!active || !sources || !api.browserCookieAutoImportStatus) return undefined;
     let live = true;
-    const recovery = startSettingsReadRecovery(async (signal) => {
-      const next = await sources();
-      if (live && !signal.aborted) setProfiles(next.find((source) => source.supports.cookies)?.profiles ?? []);
-    }, 30_000, true, true);
+    const recovery = startSettingsReadRecovery(
+      async (signal) => {
+        const next = await sources();
+        if (live && !signal.aborted) setProfiles(next.find((source) => source.supports.cookies)?.profiles ?? []);
+      },
+      30_000,
+      true,
+      true
+    );
     refreshProfiles.current = recovery.replace;
     const stopLink = followSettingsReadConnection(api, recovery);
     window.addEventListener('focus', recovery.replace);
@@ -113,7 +123,8 @@ export function CookieAutoImportGroup({
     version.current += 1;
     setBusy(true);
     setError('');
-    void Promise.resolve().then(work)
+    void Promise.resolve()
+      .then(work)
       .then((next) => {
         if (next) setStatus(next);
       })

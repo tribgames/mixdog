@@ -43,9 +43,15 @@ file('native/core/crates/alpha/src/lib.rs', tests(3));
 file('native/core/crates/alpha/tests/it.rs', tests(2));
 file('native/core/crates/beta/src/lib.rs', tests(1));
 file('native/core/crates/beta/tests/wire.rs', 'let p = root.join("benchmarks").join("recorded").join("wire.json");\n');
-file('native/core/crates/gamma/src/lib.rs', 'const RULES: &str = include_str!("../../../../../src/defaults/rules.json");\n');
+file(
+  'native/core/crates/gamma/src/lib.rs',
+  'const RULES: &str = include_str!("../../../../../src/defaults/rules.json");\n'
+);
 file('native/core/crates/delta/src/lib.rs', '#[tokio::test]\nasync fn d() {}\n');
-file('native/core/crates/delta/src/fixtures_tests.rs', 'let dir = base.join("fixtures/delta-set");\n#[test]\nfn f() {}\n');
+file(
+  'native/core/crates/delta/src/fixtures_tests.rs',
+  'let dir = base.join("fixtures/delta-set");\n#[test]\nfn f() {}\n'
+);
 file('native/core/crates/mixdog-workspace-hack/src/lib.rs', '');
 
 const select = (changed, extra = {}) => selectCore({ root, changed, metadata, ...extra });
@@ -68,17 +74,26 @@ test('test changes propagate because a tests path is not exclusive ownership pro
   assert.deepEqual(packages(select(['native/core/crates/delta/src/fixtures_tests.rs'])), ['delta']);
 });
 
-test('a crate\'s manifest is not a test-only file: it reaches the crates above', () => {
+test("a crate's manifest is not a test-only file: it reaches the crates above", () => {
   assert.deepEqual(packages(select(['native/core/crates/beta/Cargo.toml'])), ['beta', 'gamma']);
 });
 
 test('shared fixtures and product inputs select all even when a literal reader is known', () => {
-  for (const path of [`native/core/${'fixtures'}/delta-set/golden.json`, 'benchmarks/recorded/wire.json', 'src/defaults/rules.json'])
+  for (const path of [
+    `native/core/${'fixtures'}/delta-set/golden.json`,
+    'benchmarks/recorded/wire.json',
+    'src/defaults/rules.json',
+  ])
     assert.equal(select([path]).core_scope, 'all');
 });
 
 test('a fixture or product file no crate names selects the whole workspace, never nothing', () => {
-  for (const path of [`native/core/${'fixtures'}/orphan/x.json`, 'src/unread/file.mjs', 'packages/protocol/src/index.ts', 'apps/relay/server.mjs']) {
+  for (const path of [
+    `native/core/${'fixtures'}/orphan/x.json`,
+    'src/unread/file.mjs',
+    'packages/protocol/src/index.ts',
+    'apps/relay/server.mjs',
+  ]) {
     const result = select([path]);
     assert.equal(result.core_scope, 'all', path);
     assert.equal(result.core_archive_args, '--workspace');
@@ -87,7 +102,7 @@ test('a fixture or product file no crate names selects the whole workspace, neve
   }
 });
 
-test('the build\'s own inputs and the gate itself reach every crate', () => {
+test("the build's own inputs and the gate itself reach every crate", () => {
   for (const path of [
     'native/core/Cargo.lock',
     'native/core/Cargo.toml',
@@ -111,7 +126,13 @@ test('the standalone nextest config does not select workspace builds or tests', 
 });
 
 test('unowned and deleted inputs are conservatively whole-workspace until readers are proven', () => {
-  for (const path of ['docs/internal/plan.md', 'apps/desktop/src/renderer/app.tsx', '.github/workflows/mobile-ios.yml', 'CHANGELOG.md', 'removed-shared-input.json'])
+  for (const path of [
+    'docs/internal/plan.md',
+    'apps/desktop/src/renderer/app.tsx',
+    '.github/workflows/mobile-ios.yml',
+    'CHANGELOG.md',
+    'removed-shared-input.json',
+  ])
     assert.equal(select([path]).core_scope, 'all', path);
 });
 
@@ -121,7 +142,7 @@ test('a manual run, a push to main and the release gate select every crate whate
   assert.equal(result.core_tests, 3 + 2 + 1 + 1 + 1 + 0);
 });
 
-test('the standalone native tools are the core\'s crates of the same name', () => {
+test("the standalone native tools are the core's crates of the same name", () => {
   const withSpawn = {
     packages: [...metadata.packages, crate('mixdog-spawn'), crate('user', ['mixdog-spawn'])],
   };
@@ -129,22 +150,37 @@ test('the standalone native tools are the core\'s crates of the same name', () =
   file('native/core/crates/user/src/lib.rs', '');
   const result = selectCore({ root, changed: ['native/mixdog-spawn/src/lib.rs'], metadata: withSpawn });
   assert.deepEqual(packages(result), ['mixdog-spawn', 'user']);
-  assert.equal(selectCore({ root, changed: ['native/mixdog-spawn/tests/atomic_job.rs'], metadata: withSpawn }).core_scope, 'all');
+  assert.equal(
+    selectCore({ root, changed: ['native/mixdog-spawn/tests/atomic_job.rs'], metadata: withSpawn }).core_scope,
+    'all'
+  );
 });
 
-test('the relay\'s test-support feature is named only when the relay is built', () => {
+test("the relay's test-support feature is named only when the relay is built", () => {
   const withRelay = { packages: [...metadata.packages, crate('mixdog-relay')] };
   file('native/core/crates/mixdog-relay/src/lib.rs', '');
-  assert.equal(selectCore({ root, changed: ['native/core/crates/mixdog-relay/src/lib.rs'], metadata: withRelay }).core_features, 'mixdog-relay/test-support');
-  assert.equal(selectCore({ root, changed: ['native/core/crates/delta/src/lib.rs'], metadata: withRelay }).core_features, '');
-  assert.equal(selectCore({ root, changed: [], all: true, metadata: withRelay }).core_features, 'mixdog-relay/test-support');
+  assert.equal(
+    selectCore({ root, changed: ['native/core/crates/mixdog-relay/src/lib.rs'], metadata: withRelay }).core_features,
+    'mixdog-relay/test-support'
+  );
+  assert.equal(
+    selectCore({ root, changed: ['native/core/crates/delta/src/lib.rs'], metadata: withRelay }).core_features,
+    ''
+  );
+  assert.equal(
+    selectCore({ root, changed: [], all: true, metadata: withRelay }).core_features,
+    'mixdog-relay/test-support'
+  );
 });
 
 test('every system the product ships on gets a build and as many legs as the tests need', () => {
   const small = select(['native/core/crates/delta/src/lib.rs']);
   assert.equal(small.core_legs, 1);
   const build = JSON.parse(small.build_matrix).include;
-  assert.deepEqual(build.map((entry) => entry.os), SYSTEMS.map((system) => system.os));
+  assert.deepEqual(
+    build.map((entry) => entry.os),
+    SYSTEMS.map((system) => system.os)
+  );
   assert.ok(build.every((entry) => entry.tests && !entry.mixdogd));
   const legs = JSON.parse(small.test_matrix).include;
   assert.equal(legs.length, SYSTEMS.length);
@@ -156,7 +192,9 @@ test('every system the product ships on gets a build and as many legs as the tes
   file('native/core/crates/delta/src/more.rs', tests(TESTS_PER_LEG * 5));
   const big = select(['native/core/crates/delta/src/lib.rs']);
   assert.equal(big.core_legs, MAX_LEGS);
-  const parts = JSON.parse(big.test_matrix).include.filter((leg) => leg.os === 'linux').map((leg) => `${leg.part}/${leg.of}`);
+  const parts = JSON.parse(big.test_matrix)
+    .include.filter((leg) => leg.os === 'linux')
+    .map((leg) => `${leg.part}/${leg.of}`);
   assert.deepEqual(parts, ['1/4', '2/4', '3/4', '4/4']);
   rmSync(join(root, 'native/core/crates/delta/src/many.rs'));
   rmSync(join(root, 'native/core/crates/delta/src/more.rs'));
@@ -165,18 +203,31 @@ test('every system the product ships on gets a build and as many legs as the tes
 test('an empty diff still builds the Linux daemon needed by desktop replay', () => {
   const result = select([], { mixdogdDev: true });
   assert.equal(result.core, false);
-  assert.deepEqual(JSON.parse(result.build_matrix).include.map((entry) => [entry.os, entry.tests, entry.mixdogd]), [['linux', false, true]]);
+  assert.deepEqual(
+    JSON.parse(result.build_matrix).include.map((entry) => [entry.os, entry.tests, entry.mixdogd]),
+    [['linux', false, true]]
+  );
   assert.equal(JSON.parse(result.test_matrix).include.length, 0);
   const both = select(['native/core/crates/delta/src/lib.rs'], { mixdogdDev: true });
-  assert.deepEqual(JSON.parse(both.build_matrix).include.map((entry) => [entry.os, entry.tests, entry.mixdogd]),
-    [['linux', true, true], ['macos', true, false], ['windows', true, false]]);
+  assert.deepEqual(
+    JSON.parse(both.build_matrix).include.map((entry) => [entry.os, entry.tests, entry.mixdogd]),
+    [
+      ['linux', true, true],
+      ['macos', true, false],
+      ['windows', true, false],
+    ]
+  );
 });
 
 test('the Windows boot asks for the Windows dev daemon alone, beside the archive when there is one', () => {
-  const shape = (result) => JSON.parse(result.build_matrix).include.map((entry) => [entry.os, entry.tests, entry.mixdogd]);
+  const shape = (result) =>
+    JSON.parse(result.build_matrix).include.map((entry) => [entry.os, entry.tests, entry.mixdogd]);
   assert.deepEqual(shape(select([], { mixdogdWindows: true })), [['windows', false, true]]);
-  assert.deepEqual(shape(select(['native/core/crates/delta/src/lib.rs'], { mixdogdWindows: true })),
-    [['linux', true, false], ['macos', true, false], ['windows', true, true]]);
+  assert.deepEqual(shape(select(['native/core/crates/delta/src/lib.rs'], { mixdogdWindows: true })), [
+    ['linux', true, false],
+    ['macos', true, false],
+    ['windows', true, true],
+  ]);
 });
 
 test('an archive with the entry tests requests the Linux dev daemon without either slow Node lane', () => {
@@ -184,8 +235,14 @@ test('an archive with the entry tests requests the Linux dev daemon without eith
   const withEntry = { packages: [...metadata.packages, crate('mixdog-entry')] };
   const legs = (changed) => JSON.parse(select(changed, { metadata: withEntry }).build_matrix).include;
   const nextest = legs(['.github/actions/install-nextest/action.yml', 'native/.config/nextest-standalone.toml']);
-  assert.deepEqual(nextest.map(({ os, tests, mixdogd }) => [os, tests, mixdogd]),
-    [['linux', true, true], ['macos', true, false], ['windows', true, false]]);
+  assert.deepEqual(
+    nextest.map(({ os, tests, mixdogd }) => [os, tests, mixdogd]),
+    [
+      ['linux', true, true],
+      ['macos', true, false],
+      ['windows', true, false],
+    ]
+  );
   assert.ok(legs(['native/core/crates/delta/src/lib.rs']).every((leg) => !leg.mixdogd));
 });
 
@@ -199,14 +256,23 @@ test('the matrices are what the workflow reads: runner, nextest download name an
 test('a crate that includes another crate test module is selected without a Cargo dependency', () => {
   file('native/core/crates/delta/src/shared.rs', '#[path = "../../alpha/tests/it.rs"] mod shared;');
   assert.deepEqual(packages(select(['native/core/crates/alpha/tests/it.rs'])), ['alpha', 'beta', 'delta', 'gamma']);
-  assert.deepEqual(packages(select(['native/core/crates/alpha/tests/deleted.rs'])), ['alpha', 'beta', 'delta', 'gamma']);
+  assert.deepEqual(packages(select(['native/core/crates/alpha/tests/deleted.rs'])), [
+    'alpha',
+    'beta',
+    'delta',
+    'gamma',
+  ]);
 });
 
 test('gated target features and the real worker binary travel with the archive', () => {
   const worker = crate('mixdog-exthost-worker');
   worker.targets = [{ kind: ['bin'], 'required-features': ['test-support'] }];
   file('native/core/crates/mixdog-exthost-worker/src/lib.rs', '');
-  const result = selectCore({ root, changed: ['native/core/crates/gamma/src/lib.rs'], metadata: { packages: [...metadata.packages, worker] } });
+  const result = selectCore({
+    root,
+    changed: ['native/core/crates/gamma/src/lib.rs'],
+    metadata: { packages: [...metadata.packages, worker] },
+  });
   assert.ok(packages(result).includes('mixdog-exthost-worker'));
   assert.match(result.core_features, /mixdog-exthost-worker\/test-support/);
 });

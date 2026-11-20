@@ -70,7 +70,12 @@ function harness({ policy, freshPage, kind = 'agent', keepAlive } = {}) {
       },
     },
     taskLifecycle: { retain: (guest) => log.push(`retain ${guest.pageId}`) },
-    store: { pageId: (guest) => guest.pageId, redactText: (_guest, text) => text, invalidateInteraction: () => {}, for: () => ({ networkFailures: [] }) },
+    store: {
+      pageId: (guest) => guest.pageId,
+      redactText: (_guest, text) => text,
+      invalidateInteraction: () => {},
+      for: () => ({ networkFailures: [] }),
+    },
     leases: { acquire: (pageId, commandId, ttlMs) => (log.push(`lease ${pageId} ${commandId} ${ttlMs}`), 'lease-1') },
     page: {
       urls: {
@@ -100,7 +105,11 @@ test('resolve answers the visible page with its descriptor and the lease the com
   assert.equal(result.page.sessionId, 'sess');
   assert.equal(result.page.background, false);
   assert.equal(result.page.facts.pageId, 'p1');
-  assert.deepEqual([result.page.created, result.page.disposable], [false, false], 'a page the session already had is nobody to reclaim');
+  assert.deepEqual(
+    [result.page.created, result.page.disposable],
+    [false, false],
+    'a page the session already had is nobody to reclaim'
+  );
   assert.equal(result.leaseId, 'lease-1');
   assert.ok(h.log.includes('lease p1 c1 5000'));
   assert.ok(h.log.includes('agentPage p1'));
@@ -113,7 +122,10 @@ test('resolve with background:true makes the hidden page; a tab index is the vis
   assert.equal(hidden.page.tabId, 'bg');
   assert.equal(hidden.leaseId, undefined);
   await h.call('resolve', { sessionId: 'sess', tab: { index: 1 } });
-  assert.ok(h.log.includes('target undefined v1'), 'a command that did not say background leaves it unsaid, as the old runner did');
+  assert.ok(
+    h.log.includes('target undefined v1'),
+    'a command that did not say background leaves it unsaid, as the old runner did'
+  );
   await h.call('resolve', { sessionId: 'sess', background: false, tab: { index: 1 } });
   assert.ok(h.log.includes('target false v1'), 'an explicit background:false is told as it is');
 });
@@ -126,7 +138,10 @@ test('a hidden page an agent made is the turn to reclaim, one kept alive or the 
   const users = await harness({ kind: 'user' }).call('resolve', { sessionId: 'sess', background: true });
   assert.deepEqual([users.page.created, users.page.disposable], [true, false]);
   const listed = await harness().call('list', { sessionId: 'sess' });
-  assert.deepEqual(listed.pages.map((page) => [page.created, page.disposable]), [[false, false]]);
+  assert.deepEqual(
+    listed.pages.map((page) => [page.created, page.disposable]),
+    [[false, false]]
+  );
 });
 
 test('a page this call had to make for the command says so', async () => {
@@ -154,7 +169,11 @@ test('resolve with open.url loads the admitted url; a refused one is -32015 and 
     refused.call('resolve', { sessionId: 'sess', open: { url: 'http://10.0.0.1/' } }),
     (e) => e.code === -32015 && e.data.reason === 'blocked by policy'
   );
-  assert.equal(refused.log.some((l) => l.startsWith('discard')), false, 'the pane page was already known');
+  assert.equal(
+    refused.log.some((l) => l.startsWith('discard')),
+    false,
+    'the pane page was already known'
+  );
   const revealed = harness();
   const result = await revealed.call('resolve', { sessionId: 'sess', open: { reveal: true } });
   assert.equal(result.page.pageId, 'p1');
@@ -170,16 +189,26 @@ test('an open that would have to make its page refuses, tells the shell, and lea
   );
   assert.ok(h.log.includes('discard p9'));
   assert.ok(h.log.some((l) => l.startsWith('openFailure Could not show a page')));
-  assert.equal(h.log.some((l) => l.startsWith('reveal')), false);
+  assert.equal(
+    h.log.some((l) => l.startsWith('reveal')),
+    false
+  );
 });
 
 test('a failed open reports why to the shell with the page it was on; a hidden page open reports nothing', async () => {
   const h = harness({ policy: 'blocked by policy' });
-  await assert.rejects(h.call('resolve', { sessionId: 'sess', tab: { pageId: 'p1' }, open: { url: 'http://10.0.0.1/', reveal: true } }));
+  await assert.rejects(
+    h.call('resolve', { sessionId: 'sess', tab: { pageId: 'p1' }, open: { url: 'http://10.0.0.1/', reveal: true } })
+  );
   assert.ok(h.log.includes('openFailure blocked by policy p1'));
   const quiet = harness({ policy: 'blocked by policy' });
-  await assert.rejects(quiet.call('resolve', { sessionId: 'sess', background: true, open: { url: 'http://10.0.0.1/', reveal: true } }));
-  assert.equal(quiet.log.some((l) => l.startsWith('openFailure')), false);
+  await assert.rejects(
+    quiet.call('resolve', { sessionId: 'sess', background: true, open: { url: 'http://10.0.0.1/', reveal: true } })
+  );
+  assert.equal(
+    quiet.log.some((l) => l.startsWith('openFailure')),
+    false
+  );
 });
 
 test('list gives every page of the session and the active one', async () => {

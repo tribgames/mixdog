@@ -44,7 +44,8 @@ interface ScmClient {
 }
 
 /** The PC's platform, which decides what an absolute path is (Node checked on the PC). */
-const platformFamily = (host: PhoneProtocolHost): string | undefined => (host.client() as unknown as ScmClient).server?.platformFamily;
+const platformFamily = (host: PhoneProtocolHost): string | undefined =>
+  (host.client() as unknown as ScmClient).server?.platformFamily;
 
 /** The string `code`s Node's source-control errors carried onto the relay frame (remote-methods.ts `errorCode`): the contract
  *  code of a reset that needs the user's confirmation (git-mutations.ts GIT_RESET_DIRTY_CODE), the git runner's own deadline and
@@ -53,12 +54,17 @@ const NODE_CODE = /^(git-reset-dirty-worktree|EGITTIMEOUT|EMAXBUFFER|UNKNOWN|E[A
 
 /** The core names the same failures with codes of its own (mixdog-scm/src/error.rs); every other core code (`COMMAND_FAILED`,
  *  `NOT_A_REPOSITORY`, `IO_ERROR`, `NO_OPERATION`, ...) is bookkeeping where Node's error had no code, so it does not reach the page. */
-const CORE_CODE_AS_NODE: Readonly<Record<string, string>> = { GIT_TIMEOUT: 'EGITTIMEOUT', OUTPUT_TOO_LARGE: 'EMAXBUFFER' };
+const CORE_CODE_AS_NODE: Readonly<Record<string, string>> = {
+  GIT_TIMEOUT: 'EGITTIMEOUT',
+  OUTPUT_TOO_LARGE: 'EMAXBUFFER',
+};
 
 /** A program the core could not start (`capabilityUnavailable{capability}`), as Node's child spawn failed: `spawn git ENOENT`. */
 function spawnFailure(error: unknown): Error | undefined {
-  const data = (error as { detail?: { kind?: unknown; data?: { reason?: unknown; capability?: unknown } } } | null)?.detail;
-  if (data?.kind !== 'rpc' || data.data?.reason !== 'capabilityUnavailable' || typeof data.data.capability !== 'string') return undefined;
+  const data = (error as { detail?: { kind?: unknown; data?: { reason?: unknown; capability?: unknown } } } | null)
+    ?.detail;
+  if (data?.kind !== 'rpc' || data.data?.reason !== 'capabilityUnavailable' || typeof data.data.capability !== 'string')
+    return undefined;
   return Object.assign(new Error(`spawn ${data.data.capability} ENOENT`), { code: 'ENOENT' });
 }
 
@@ -110,152 +116,188 @@ const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
 const calls: Record<string, NodeCall> = {
-    // ── working tree and index ──
-    gitStatus: operation('gitStatus', ([cwd, options], os) => {
-      const hint = record(options);
-      return [requiredRepositoryCwd(cwd, os), { reuseLineStats: hint.reuseLineStats === true, skipLineStats: hint.skipLineStats === true }];
-    }),
-    gitDiff: operation('gitDiff', ([cwd, path, staged, worktreeOnly, untracked], os) => [
+  // ── working tree and index ──
+  gitStatus: operation('gitStatus', ([cwd, options], os) => {
+    const hint = record(options);
+    return [
       requiredRepositoryCwd(cwd, os),
-      requiredGitPath(path, os),
-      staged === true,
-      worktreeOnly === true,
-      untracked === true,
-    ]),
-    gitApplyPatch: operation('gitApplyPatch', ([cwd, path, patch, reverse], os) => {
-      if (reverse !== undefined && typeof reverse !== 'boolean') throw new TypeError('git patch direction is invalid.');
-      return [requiredRepositoryCwd(cwd, os), requiredGitPath(path, os), requiredGitPatch(patch), reverse === true];
-    }),
-    gitStage: operation('gitStage', ([cwd, paths], os) => [requiredRepositoryCwd(cwd, os), requiredGitPaths(paths, os)]),
-    gitUnstage: operation('gitUnstage', ([cwd, paths], os) => [requiredRepositoryCwd(cwd, os), requiredGitPaths(paths, os)]),
-    gitIgnore: operation('gitIgnore', ([cwd, path, scope], os) => [
-      requiredRepositoryCwd(cwd, os),
-      requiredGitPath(path, os),
-      requiredGitIgnoreScope(omitted(scope)),
-    ]),
-    gitCommit: operation('gitCommit', ([cwd, message], os) => [
-      requiredRepositoryCwd(cwd, os),
-      requiredString(message, 'commit message', 20_000),
-    ]),
-    gitCommitPaths: operation('gitCommitPaths', ([cwd, message, paths], os) => [
-      requiredRepositoryCwd(cwd, os),
-      requiredString(message, 'commit message', 20_000),
-      requiredGitPaths(paths, os),
-    ]),
-    gitAmend: operation('gitAmend', ([cwd, message], os) => [requiredRepositoryCwd(cwd, os), requiredGitOptionalMessage(message)]),
-    gitUndoLastCommit: cwdOnly('gitUndoLastCommit'),
-    gitRevert: operation('gitRevertFile', ([cwd, path, untracked, mode], os) => [
-      requiredRepositoryCwd(cwd, os),
-      requiredGitPath(path, os),
-      untracked === true,
-      requiredGitDiscardMode(omitted(mode)),
-    ]),
-    gitReview: operation('gitReview', ([cwd, source], os) => [requiredRepositoryCwd(cwd, os), requiredReviewSource(omitted(source))]),
-    gitReviewDiff: operation('gitReviewDiff', ([cwd, path, untracked, source], os) => [
-      requiredRepositoryCwd(cwd, os),
-      requiredGitPath(path, os),
-      untracked === true,
-      requiredReviewSource(omitted(source)),
-    ]),
-    gitReviewDiffs: operation('gitReviewDiffs', ([cwd, files, source], os) => [
-      requiredRepositoryCwd(cwd, os),
-      requiredReviewDiffFiles(files, os),
-      requiredReviewSource(omitted(source)),
-    ]),
-    gitStash: operation('gitStash', ([cwd, message], os) => [requiredRepositoryCwd(cwd, os), requiredGitOptionalMessage(message)]),
-    gitStashPop: cwdOnly('gitStashPop'),
-    gitStashList: cwdOnly('gitStashList'),
-    gitStashApply: operation('gitStashApply', ([cwd, ref], os) => [requiredRepositoryCwd(cwd, os), requiredString(ref, 'stash ref', 64)]),
-    gitStashDrop: operation('gitStashDrop', ([cwd, ref], os) => [requiredRepositoryCwd(cwd, os), requiredString(ref, 'stash ref', 64)]),
+      { reuseLineStats: hint.reuseLineStats === true, skipLineStats: hint.skipLineStats === true },
+    ];
+  }),
+  gitDiff: operation('gitDiff', ([cwd, path, staged, worktreeOnly, untracked], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredGitPath(path, os),
+    staged === true,
+    worktreeOnly === true,
+    untracked === true,
+  ]),
+  gitApplyPatch: operation('gitApplyPatch', ([cwd, path, patch, reverse], os) => {
+    if (reverse !== undefined && typeof reverse !== 'boolean') throw new TypeError('git patch direction is invalid.');
+    return [requiredRepositoryCwd(cwd, os), requiredGitPath(path, os), requiredGitPatch(patch), reverse === true];
+  }),
+  gitStage: operation('gitStage', ([cwd, paths], os) => [requiredRepositoryCwd(cwd, os), requiredGitPaths(paths, os)]),
+  gitUnstage: operation('gitUnstage', ([cwd, paths], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredGitPaths(paths, os),
+  ]),
+  gitIgnore: operation('gitIgnore', ([cwd, path, scope], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredGitPath(path, os),
+    requiredGitIgnoreScope(omitted(scope)),
+  ]),
+  gitCommit: operation('gitCommit', ([cwd, message], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredString(message, 'commit message', 20_000),
+  ]),
+  gitCommitPaths: operation('gitCommitPaths', ([cwd, message, paths], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredString(message, 'commit message', 20_000),
+    requiredGitPaths(paths, os),
+  ]),
+  gitAmend: operation('gitAmend', ([cwd, message], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredGitOptionalMessage(message),
+  ]),
+  gitUndoLastCommit: cwdOnly('gitUndoLastCommit'),
+  gitRevert: operation('gitRevertFile', ([cwd, path, untracked, mode], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredGitPath(path, os),
+    untracked === true,
+    requiredGitDiscardMode(omitted(mode)),
+  ]),
+  gitReview: operation('gitReview', ([cwd, source], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredReviewSource(omitted(source)),
+  ]),
+  gitReviewDiff: operation('gitReviewDiff', ([cwd, path, untracked, source], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredGitPath(path, os),
+    untracked === true,
+    requiredReviewSource(omitted(source)),
+  ]),
+  gitReviewDiffs: operation('gitReviewDiffs', ([cwd, files, source], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredReviewDiffFiles(files, os),
+    requiredReviewSource(omitted(source)),
+  ]),
+  gitStash: operation('gitStash', ([cwd, message], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredGitOptionalMessage(message),
+  ]),
+  gitStashPop: cwdOnly('gitStashPop'),
+  gitStashList: cwdOnly('gitStashList'),
+  gitStashApply: operation('gitStashApply', ([cwd, ref], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredString(ref, 'stash ref', 64),
+  ]),
+  gitStashDrop: operation('gitStashDrop', ([cwd, ref], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredString(ref, 'stash ref', 64),
+  ]),
 
-    // ── branches, tags, the remote ──
-    gitBranches: cwdOnly('gitBranches'),
-    gitRenameBranch: operation('gitRenameBranch', ([cwd, branch, nextBranch], os) => [
-      requiredRepositoryCwd(cwd, os),
-      requiredGitBranchName(branch),
-      requiredGitBranchName(nextBranch),
-    ]),
-    gitDeleteBranch: operation('gitDeleteBranch', ([cwd, branch], os) => [requiredRepositoryCwd(cwd, os), requiredGitBranchName(branch)]),
-    gitCreateTag: operation('gitCreateTag', ([cwd, tag, hash], os) => [
-      requiredRepositoryCwd(cwd, os),
-      requiredString(tag, 'git tag', 512),
-      requiredCommitHash(hash),
-    ]),
-    gitDeleteTag: operation('gitDeleteTag', ([cwd, tag], os) => [requiredRepositoryCwd(cwd, os), requiredString(tag, 'git tag', 512)]),
-    gitPush: cwdOnly('gitPush'),
-    gitFetch: cwdOnly('gitFetch'),
-    gitPull: cwdOnly('gitPull'),
-    gitSync: cwdOnly('gitSync'),
-    gitContinue: cwdOnly('gitContinue'),
-    gitAbortOperation: cwdOnly('gitAbortOperation'),
+  // ── branches, tags, the remote ──
+  gitBranches: cwdOnly('gitBranches'),
+  gitRenameBranch: operation('gitRenameBranch', ([cwd, branch, nextBranch], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredGitBranchName(branch),
+    requiredGitBranchName(nextBranch),
+  ]),
+  gitDeleteBranch: operation('gitDeleteBranch', ([cwd, branch], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredGitBranchName(branch),
+  ]),
+  gitCreateTag: operation('gitCreateTag', ([cwd, tag, hash], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredString(tag, 'git tag', 512),
+    requiredCommitHash(hash),
+  ]),
+  gitDeleteTag: operation('gitDeleteTag', ([cwd, tag], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredString(tag, 'git tag', 512),
+  ]),
+  gitPush: cwdOnly('gitPush'),
+  gitFetch: cwdOnly('gitFetch'),
+  gitPull: cwdOnly('gitPull'),
+  gitSync: cwdOnly('gitSync'),
+  gitContinue: cwdOnly('gitContinue'),
+  gitAbortOperation: cwdOnly('gitAbortOperation'),
 
-    // ── commit-addressed reads and moves, the global identity ──
-    gitLog: operation('gitLog', ([cwd, query, skip, limit], os) => [
-      requiredRepositoryCwd(cwd, os),
-      requiredGitLogQuery(query),
-      requiredGitLogOffset(skip),
-      requiredGitLogLimit(limit),
-    ]),
-    gitShow: operation('gitShow', ([cwd, hash], os) => [requiredRepositoryCwd(cwd, os), requiredCommitHash(hash)]),
-    gitShowDiff: operation('gitShowDiff', ([cwd, hash, path], os) => [
-      requiredRepositoryCwd(cwd, os),
-      requiredCommitHash(hash),
-      requiredGitPath(path, os),
-    ]),
-    gitRequestContext: operation('gitRequestContext', ([cwd, input], os) => [
-      requiredRepositoryCwd(cwd, os),
-      requiredGitRequestContextInput(input, os),
-    ]),
-    gitShowFile: operation('gitShowFile', ([cwd, rev, path], os) => [
-      requiredRepositoryCwd(cwd, os),
-      requiredGitRevision(rev),
-      requiredGitPath(path, os),
-    ]),
-    gitResetToCommit: operation('gitResetToCommit', ([cwd, hash, mode, confirmedDirty], os) => [
-      requiredRepositoryCwd(cwd, os),
-      requiredCommitHash(hash),
-      requiredGitResetMode(mode),
-      confirmedDirty === true,
-    ]),
-    gitRevertCommit: operation('gitRevertCommit', ([cwd, hash], os) => [requiredRepositoryCwd(cwd, os), requiredCommitHash(hash)]),
-    gitCherryPickCommit: operation('gitCherryPickCommit', ([cwd, hash], os) => [requiredRepositoryCwd(cwd, os), requiredCommitHash(hash)]),
-    gitGlobalConfig: operation('gitGlobalConfig'),
-    // Empty is a real value here: it UNSETS the key. Node then announced `notifySettingsChanged('git')` to the desktop's
-    // windows; the core does not (Rust gap, native/core/crates/mixdog-scm/src/desktop.rs git_global_config_write).
-    setGitGlobalConfig: operation('setGitGlobalConfig', ([key, value]) => {
-      if (typeof value !== 'string' || value.length > 500) {
-        throw new TypeError('value must be a string of at most 500 characters.');
-      }
-      return [requiredGitGlobalConfigKey(key), value];
-    }),
+  // ── commit-addressed reads and moves, the global identity ──
+  gitLog: operation('gitLog', ([cwd, query, skip, limit], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredGitLogQuery(query),
+    requiredGitLogOffset(skip),
+    requiredGitLogLimit(limit),
+  ]),
+  gitShow: operation('gitShow', ([cwd, hash], os) => [requiredRepositoryCwd(cwd, os), requiredCommitHash(hash)]),
+  gitShowDiff: operation('gitShowDiff', ([cwd, hash, path], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredCommitHash(hash),
+    requiredGitPath(path, os),
+  ]),
+  gitRequestContext: operation('gitRequestContext', ([cwd, input], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredGitRequestContextInput(input, os),
+  ]),
+  gitShowFile: operation('gitShowFile', ([cwd, rev, path], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredGitRevision(rev),
+    requiredGitPath(path, os),
+  ]),
+  gitResetToCommit: operation('gitResetToCommit', ([cwd, hash, mode, confirmedDirty], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredCommitHash(hash),
+    requiredGitResetMode(mode),
+    confirmedDirty === true,
+  ]),
+  gitRevertCommit: operation('gitRevertCommit', ([cwd, hash], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredCommitHash(hash),
+  ]),
+  gitCherryPickCommit: operation('gitCherryPickCommit', ([cwd, hash], os) => [
+    requiredRepositoryCwd(cwd, os),
+    requiredCommitHash(hash),
+  ]),
+  gitGlobalConfig: operation('gitGlobalConfig'),
+  // Empty is a real value here: it UNSETS the key. Node then announced `notifySettingsChanged('git')` to the desktop's
+  // windows; the core does not (Rust gap, native/core/crates/mixdog-scm/src/desktop.rs git_global_config_write).
+  setGitGlobalConfig: operation('setGitGlobalConfig', ([key, value]) => {
+    if (typeof value !== 'string' || value.length > 500) {
+      throw new TypeError('value must be a string of at most 500 characters.');
+    }
+    return [requiredGitGlobalConfigKey(key), value];
+  }),
 
-    // ── tooling: installers and GitHub ──
-    githubStarStatus: operation('githubStarStatus'),
-    starGithub: operation('starGithub'),
-    gitCliStatus: operation('gitCliStatus'),
-    installGitCli: operation('installGitCli'),
-    libreOfficeStatus: operation('libreOfficeStatus', ([refresh]) => [refresh === true]),
-    installLibreOffice: operation('installLibreOffice'),
-    githubCliStatus: operation('githubCliStatus'),
-    githubRequest: operation('githubRequest', ([cwd, input], os) => [requiredRepositoryCwd(cwd, os), validateGithubRequest(input)]),
-    installGithubCli: operation('installGithubCli'),
-    // A remote client opens the device page on its own browser, never the host's: the core's gh never opens one.
-    githubCliLoginStart: operation('githubCliLoginStart', () => [{ openBrowser: false }]),
-    githubCliLoginStatus: operation('githubCliLoginStatus', ([flowId]) => [requiredString(flowId, 'flowId', 200)]),
-    githubCliLoginOpenBrowser: operation('githubCliLoginOpenBrowser', ([flowId, options]) => [
-      requiredString(flowId, 'flowId', 200),
-      optionalGithubLoginOptions(options),
-    ]),
-    githubCliLoginCancel: operation('cancelGithubCliLogin', ([flowId]) => [requiredString(flowId, 'flowId', 200)]),
-    githubCliLogout: operation('githubCliLogout'),
-    githubCliAccount: operation('githubCliAccount'),
-    ghPrList: cwdOnly('ghPrList'),
-    ghPrDefaultBranch: cwdOnly('ghPrDefaultBranch'),
-    ghPrCreate: operation('ghPrCreate', ([cwd, input], os) => [requiredRepositoryCwd(cwd, os), input]),
-    ghPrView: operation('ghPrView', ([cwd, number], os) => [requiredRepositoryCwd(cwd, os), number]),
-    ghPrCheckout: operation('ghPrCheckout', ([cwd, number], os) => [requiredRepositoryCwd(cwd, os), number]),
-    ghPrMerge: operation('ghPrMerge', ([cwd, number, method], os) => [requiredRepositoryCwd(cwd, os), number, method]),
-    ghPrDiff: operation('ghPrDiff', ([cwd, number], os) => [requiredRepositoryCwd(cwd, os), number]),
+  // ── tooling: installers and GitHub ──
+  githubStarStatus: operation('githubStarStatus'),
+  starGithub: operation('starGithub'),
+  gitCliStatus: operation('gitCliStatus'),
+  installGitCli: operation('installGitCli'),
+  libreOfficeStatus: operation('libreOfficeStatus', ([refresh]) => [refresh === true]),
+  installLibreOffice: operation('installLibreOffice'),
+  githubCliStatus: operation('githubCliStatus'),
+  githubRequest: operation('githubRequest', ([cwd, input], os) => [
+    requiredRepositoryCwd(cwd, os),
+    validateGithubRequest(input),
+  ]),
+  installGithubCli: operation('installGithubCli'),
+  // A remote client opens the device page on its own browser, never the host's: the core's gh never opens one.
+  githubCliLoginStart: operation('githubCliLoginStart', () => [{ openBrowser: false }]),
+  githubCliLoginStatus: operation('githubCliLoginStatus', ([flowId]) => [requiredString(flowId, 'flowId', 200)]),
+  githubCliLoginOpenBrowser: operation('githubCliLoginOpenBrowser', ([flowId, options]) => [
+    requiredString(flowId, 'flowId', 200),
+    optionalGithubLoginOptions(options),
+  ]),
+  githubCliLoginCancel: operation('cancelGithubCliLogin', ([flowId]) => [requiredString(flowId, 'flowId', 200)]),
+  githubCliLogout: operation('githubCliLogout'),
+  githubCliAccount: operation('githubCliAccount'),
+  ghPrList: cwdOnly('ghPrList'),
+  ghPrDefaultBranch: cwdOnly('ghPrDefaultBranch'),
+  ghPrCreate: operation('ghPrCreate', ([cwd, input], os) => [requiredRepositoryCwd(cwd, os), input]),
+  ghPrView: operation('ghPrView', ([cwd, number], os) => [requiredRepositoryCwd(cwd, os), number]),
+  ghPrCheckout: operation('ghPrCheckout', ([cwd, number], os) => [requiredRepositoryCwd(cwd, os), number]),
+  ghPrMerge: operation('ghPrMerge', ([cwd, number, method], os) => [requiredRepositoryCwd(cwd, os), number, method]),
+  ghPrDiff: operation('ghPrDiff', ([cwd, number], os) => [requiredRepositoryCwd(cwd, os), number]),
 };
 
 // Ordering is the router's: every call of this group runs through the shared per-connection queue (remote-protocol-queue.ts runQueued).

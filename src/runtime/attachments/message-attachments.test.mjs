@@ -10,8 +10,6 @@ process.env.MIXDOG_DATA_DIR = dataDir;
 
 const { attachmentsForIntake, materializePromptSubmission } = await import('./store.mjs');
 
-
-
 const b64 = (text) => Buffer.from(text).toString('base64');
 
 /** What the desktop composer sends (use-composer-submission.ts), materialized. */

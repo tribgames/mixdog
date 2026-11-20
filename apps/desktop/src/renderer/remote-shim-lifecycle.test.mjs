@@ -9,7 +9,10 @@ test('connect, then a revoked pairing ends the connection for good', async () =>
   const { world } = await adapterWorld();
   const states = () => world.events.filter((e) => e.ev === 'state').map((e) => e.state);
   await world.until(() => states().includes('connected'));
-  assert.equal(world.events.some((e) => e.ev === 'pairing-invalid'), false);
+  assert.equal(
+    world.events.some((e) => e.ev === 'pairing-invalid'),
+    false
+  );
   assert.equal(world.sockets.length, 1);
 
   world.peerClose(world.sockets[0], 4003, 'revoked');

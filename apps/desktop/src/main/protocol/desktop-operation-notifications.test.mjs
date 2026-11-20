@@ -16,9 +16,35 @@ const NOW = 5_000;
 // Paired devices as Node lists them (DesktopRemoteClientInfo) and as the core's `remote` section carries them
 // (mixdog-remote ClientInfo: the same fields, camelCase).
 const clients = [
-  { id: 'phone', name: 'Pixel · Mixdog App', platform: 'Android', browser: 'Mixdog App', createdAt: 6_000, lastSeenAt: 6_500, online: true },
-  { id: 'older', name: 'Tab · Chrome', platform: 'Windows', browser: 'Chrome', createdAt: 100, lastSeenAt: 200, online: false, alias: 'Desk' },
-  { id: 'leaving', name: 'Old · Mixdog App', platform: 'iOS', browser: 'Mixdog App', createdAt: 7_000, lastSeenAt: 7_000, online: false, pendingRemoval: true },
+  {
+    id: 'phone',
+    name: 'Pixel · Mixdog App',
+    platform: 'Android',
+    browser: 'Mixdog App',
+    createdAt: 6_000,
+    lastSeenAt: 6_500,
+    online: true,
+  },
+  {
+    id: 'older',
+    name: 'Tab · Chrome',
+    platform: 'Windows',
+    browser: 'Chrome',
+    createdAt: 100,
+    lastSeenAt: 200,
+    online: false,
+    alias: 'Desk',
+  },
+  {
+    id: 'leaving',
+    name: 'Old · Mixdog App',
+    platform: 'iOS',
+    browser: 'Mixdog App',
+    createdAt: 7_000,
+    lastSeenAt: 7_000,
+    online: false,
+    pendingRemoval: true,
+  },
 ];
 const PC_NAME = 'Studio PC';
 
@@ -64,12 +90,21 @@ test('setNotificationPreferences answers the notification state Node answered fo
     const written = nodeCenter(dir());
     await written.store.ready();
     const info = deviceId === 'pc' ? { kind: 'pc' } : undefined;
-    await written.store.setDevice(deviceId, patch, info ?? (deviceId === 'phone' ? { kind: 'phone-app', pairedAt: 6_000 } : { kind: 'browser', pairedAt: 100 }));
+    await written.store.setDevice(
+      deviceId,
+      patch,
+      info ?? (deviceId === 'phone' ? { kind: 'phone-app', pairedAt: 6_000 } : { kind: 'browser', pairedAt: 100 })
+    );
     const after = document(written.file);
 
     let notifications = initial;
     const entries = () => [
-      { section: 'remote', key: null, revision: 1, value: { settings: { name: PC_NAME }, clients, pushRegistered: ['phone'] } },
+      {
+        section: 'remote',
+        key: null,
+        revision: 1,
+        value: { settings: { name: PC_NAME }, clients, pushRegistered: ['phone'] },
+      },
       { section: 'config', key: 'notifications', revision: 1, value: notifications },
     ];
     const calls = [];
@@ -93,12 +128,18 @@ test('setNotificationPreferences answers the notification state Node answered fo
 
 test('setNotificationPreferences for a device that is not paired is refused as Node refused it, and writes nothing', async () => {
   const node = nodeCenter(mkdtempSync(join(tmpdir(), 'notification-lane-')));
-  await assert.rejects(node.center.setPreferences('pc', true, 'stranger', {}), /That device is not paired with this PC/);
+  await assert.rejects(
+    node.center.setPreferences('pc', true, 'stranger', {}),
+    /That device is not paired with this PC/
+  );
   const calls = [];
   const lane = createOperationLane({
     protocol: {
       notify: () => {},
-      snapshot: () => ({ status: 'ready', entries: [{ section: 'remote', key: null, revision: 1, value: { clients } }] }),
+      snapshot: () => ({
+        status: 'ready',
+        entries: [{ section: 'remote', key: null, revision: 1, value: { clients } }],
+      }),
       call: async (method) => {
         calls.push(method);
         return {};
@@ -106,7 +147,10 @@ test('setNotificationPreferences for a device that is not paired is refused as N
     },
   });
   for (const id of ['stranger', 'leaving']) {
-    await assert.rejects(lane.invoke('setNotificationPreferences', ['pc', true, id, {}]), /That device is not paired with this PC/);
+    await assert.rejects(
+      lane.invoke('setNotificationPreferences', ['pc', true, id, {}]),
+      /That device is not paired with this PC/
+    );
   }
   assert.deepEqual(calls, []);
 });

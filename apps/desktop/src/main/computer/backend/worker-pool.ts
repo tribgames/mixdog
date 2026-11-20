@@ -141,7 +141,12 @@ export interface WorkerPoolHost {
 
 /** The mutations the desktop host may still send its Windows helper: each
  *  releases only input or session state that helper holds. */
-const HOST_RELEASE_ACTIONS = new Set(['release_held_input', 'release_sequence_holds', 'release_cursor_theme', 'release_session']);
+const HOST_RELEASE_ACTIONS = new Set([
+  'release_held_input',
+  'release_sequence_holds',
+  'release_cursor_theme',
+  'release_session',
+]);
 
 export function createWorkerPool(host: WorkerPoolHost) {
   const { dataDirectory, onSessionRetired } = host;
@@ -371,7 +376,8 @@ export function createWorkerPool(host: WorkerPoolHost) {
       for (const path of paths) ledgers.registry.forget(path);
     },
     callPowerShell,
-    callPowerShellElevated: (request: Record<string, unknown>) => fenced(request, () => ({ reply: elevated.call(request) })),
+    callPowerShellElevated: (request: Record<string, unknown>) =>
+      fenced(request, () => ({ reply: elevated.call(request) })),
     cancelElevatedSession: elevated.cancel,
     elevatedSessionIds: elevated.sessionIds,
   };

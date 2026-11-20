@@ -17,7 +17,13 @@ import { uploadBlob } from './browser-engine/blob-upload';
 import { COMPUTER_UNAVAILABLE } from './computer';
 import type { CommandEndpoint } from '../computer/host/command-fence';
 import type { ComputerScopes } from './computer-scope';
-import { HOST_COMMAND_FAILED, HOST_INVALID_PARAMS, HostRpcError, type HostConnection, objectParams } from './connection';
+import {
+  HOST_COMMAND_FAILED,
+  HOST_INVALID_PARAMS,
+  HostRpcError,
+  type HostConnection,
+  objectParams,
+} from './connection';
 
 export const HOST_COMPUTER_COMMAND = 'host/computer/command';
 /** The executor a relayed command runs in, as a scope's report names it. */
@@ -39,7 +45,11 @@ type CommandAnswer =
 /** The host while the desktop's PowerShell Windows host runs, else null. */
 export type ComputerCommandHostSource = () => ComputerCommandHost | null;
 
-export function registerComputerCommand(connection: HostConnection, source: ComputerCommandHostSource, scopes: ComputerScopes): void {
+export function registerComputerCommand(
+  connection: HostConnection,
+  source: ComputerCommandHostSource,
+  scopes: ComputerScopes
+): void {
   connection.handleRequest(HOST_COMPUTER_COMMAND, async (params, signal): Promise<HostComputerCommandResult> => {
     const { command } = objectParams<HostComputerCommandParams>(params, HOST_COMPUTER_COMMAND);
     const host = source();
@@ -71,7 +81,11 @@ export function registerComputerCommand(connection: HostConnection, source: Comp
     if (image) {
       const bytes = Buffer.from(image.data, 'base64');
       const blob = await uploadBlob(connection, bytes, image.mimeType);
-      result.imageBlob = { digest: blob.digest, byteLength: bytes.byteLength, mimeType: image.mimeType } as HostComputerCommandResult['imageBlob'];
+      result.imageBlob = {
+        digest: blob.digest,
+        byteLength: bytes.byteLength,
+        mimeType: image.mimeType,
+      } as HostComputerCommandResult['imageBlob'];
     }
     return result;
   });

@@ -133,7 +133,9 @@ export function startAutoUpdater(
       automaticAllowed,
       // The packaged app's own core (extraResources `core/`) reports the old core's exit.
       core: createCoreUpdateGate({
-        waitExit: ctlWaitExit(join(process.resourcesPath, 'core', process.platform === 'win32' ? 'mixdogd.exe' : 'mixdogd')),
+        waitExit: ctlWaitExit(
+          join(process.resourcesPath, 'core', process.platform === 'win32' ? 'mixdogd.exe' : 'mixdogd')
+        ),
       }),
       log(message, data) {
         console.info(`Mixdog ${message}`, data ?? '');

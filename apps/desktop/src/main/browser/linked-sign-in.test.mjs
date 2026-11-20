@@ -201,7 +201,12 @@ test('Google OIDC inside a site auth server: the state round trip records the ac
   await flush();
   // One sign-in, Google's: the auth server's wrapping round trip is no second one.
   assert.deepEqual(records(store), [
-    { site: 'chatgpt.com', redirectHost: 'auth.openai.com', provider: 'google.com', identity: 'sample.user1@gmail.com' },
+    {
+      site: 'chatgpt.com',
+      redirectHost: 'auth.openai.com',
+      provider: 'google.com',
+      identity: 'sample.user1@gmail.com',
+    },
   ]);
   const saved = [...store.links.values()];
   const line = 'Linked sign-in: chatgpt.com last signed in with Google as sample.user1@gmail.com';

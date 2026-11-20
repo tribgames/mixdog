@@ -9,7 +9,10 @@ import {
   desktopSessionState,
   sessionReducer,
 } from '../../../../../packages/protocol-client/src/index.ts';
-import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../packages/protocol-client/src/actions/action-overrides.mjs';
+import {
+  ACTION_OVERRIDES,
+  OVERRIDE_THREAD_SOURCE,
+} from '../../../../../packages/protocol-client/src/actions/action-overrides.mjs';
 import { resolveAction } from '../../../../../packages/protocol-client/src/actions/action-route.mjs';
 import { METHOD_ARGS } from '../../../../../packages/protocol-client/src/actions/method-args.generated.mjs';
 import type {
@@ -47,7 +50,11 @@ export interface CapabilityProtocol {
       | { readonly result: unknown }
       | { readonly error: { readonly code: number; readonly message: string; readonly data?: unknown } }
   ): void;
-  pendingServerRequests(): ReadonlyArray<{ readonly id: string | number; readonly method: string; readonly params: unknown }>;
+  pendingServerRequests(): ReadonlyArray<{
+    readonly id: string | number;
+    readonly method: string;
+    readonly params: unknown;
+  }>;
   /** The client open now (null while none is), as the connection wrappers expose it. The library holds a control thread its
    *  client started (`threadSubscription(id).held`) and subscribes it again after every redial, so the lane keeps the thread's id
    *  for as long as the current client holds it; a replaced client does not hold it. */
@@ -103,7 +110,11 @@ export const DESKTOP_OVERRIDES: Readonly<Record<string, Override>> = {
     params: defined({ scope: 'turn', path: file }, threadId),
   }),
   getTurnChanges: ([options], { threadId }) => {
-    const { checkpointId, patch, file } = (options ?? {}) as { checkpointId?: unknown; patch?: unknown; file?: unknown };
+    const { checkpointId, patch, file } = (options ?? {}) as {
+      checkpointId?: unknown;
+      patch?: unknown;
+      file?: unknown;
+    };
     return {
       method: 'review/diff/get',
       params: defined({ scope: 'turn', checkpointId, patch, path: file }, threadId),
@@ -114,7 +125,13 @@ export const DESKTOP_OVERRIDES: Readonly<Record<string, Override>> = {
   // (`archiveAs`, `recoverAgent`) are the TUI's.
   clear: ([options], { threadId }) => ({
     method: 'thread/clear',
-    params: defined({ rebuildPrompt: (options as { rebuildPrompt?: unknown } | null | undefined)?.rebuildPrompt === true ? true : undefined }, threadId),
+    params: defined(
+      {
+        rebuildPrompt:
+          (options as { rebuildPrompt?: unknown } | null | undefined)?.rebuildPrompt === true ? true : undefined,
+      },
+      threadId
+    ),
   }),
 };
 
@@ -206,9 +223,14 @@ const renamesSchedule = (entry: unknown): boolean => {
 /** Node's `scheduleRenameUncertainError(cause)` (`channels/lib/schedule-errors.mjs`), raised by its `renameSchedule` when the
  *  call to the scheduler went unanswered (`session-runtime/channel-config-api.mjs:63`). */
 const scheduleRenameUncertain = (cause: string): Error =>
-  Object.assign(new Error(`The rename may or may not have applied (the scheduler did not answer: ${cause}). Check the schedule list.`), {
-    code: SCHEDULE_RENAME_UNCERTAIN,
-  });
+  Object.assign(
+    new Error(
+      `The rename may or may not have applied (the scheduler did not answer: ${cause}). Check the schedule list.`
+    ),
+    {
+      code: SCHEDULE_RENAME_UNCERTAIN,
+    }
+  );
 
 /** Whether `capability(...args)` addresses the call's own session, from declared metadata only: the generated method table's
  *  `thread` flag (`METHOD_ARGS`) for an ordinary mapping, and for an override its declared source
@@ -243,11 +265,7 @@ const startedThreadId = (started: unknown): string => {
  *  `sessionReducer`/`desktopSessionState`, with the `hostShellJobs` section the core pushes): nothing is held between calls.
  *  The pending approvals are the ones the core asked this connection
  *  for (the server requests the library holds), joined by the library's own projection, so `toolApproval` is what Node's reply shows. */
-export function createCapabilityLane({
-  protocol,
-}: {
-  protocol: CapabilityProtocol;
-}): CapabilityLane {
+export function createCapabilityLane({ protocol }: { protocol: CapabilityProtocol }): CapabilityLane {
   const request = (method: string, params: unknown): Promise<unknown> =>
     protocol.call(method, params).catch((error: unknown) => {
       throw coreErrorForWindow(error);
@@ -281,7 +299,9 @@ export function createCapabilityLane({
       const mine = control;
       const id = await mine;
       // A client closed or replaced while waiting is answered by the check below, against the client current then.
-      await heldClient()?.whenHeldSettled?.(id).catch(() => undefined);
+      await heldClient()
+        ?.whenHeldSettled?.(id)
+        .catch(() => undefined);
       if (heldClient()?.threadSubscription?.(id).held ?? true) return id;
       if (control === mine) control = null;
     }
@@ -289,9 +309,11 @@ export function createCapabilityLane({
   /** A call of the control session (`invokeControlResult`, session-host-transport.ts): it names a control thread the client holds,
    *  whatever happened to the socket since the thread was started; one that fails is that call's failure and nothing more. */
   const send = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
-    if (sessionId || capability === 'noteUserInput' || !usesCallSession(capability, args)) return sendOnce(capability, args, sessionId);
+    if (sessionId || capability === 'noteUserInput' || !usesCallSession(capability, args))
+      return sendOnce(capability, args, sessionId);
     return sendOnce(capability, args, await controlThread());
-  };  const sendOnce = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
+  };
+  const sendOnce = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
     // `noteUserInput(at)` is the `client/activity {at}` notification (rate-limited by the connection), not a request; Node's
     // session-api wrapper answers it `{ ok: true }`.
     if (capability === 'noteUserInput') {
@@ -307,7 +329,9 @@ export function createCapabilityLane({
     if (capability === 'inheritFrom') {
       // The core answers a source thread it does not have with `threadNotFound`; Node's `inheritFrom` throws its own text.
       const forked = (await request(method, params).catch((error: unknown) => {
-        throw isThreadNotFound(error) ? new Error(`inheritFrom: session ${String(args[0]).trim()} was not found`) : error;
+        throw isThreadNotFound(error)
+          ? new Error(`inheritFrom: session ${String(args[0]).trim()} was not found`)
+          : error;
       })) as { thread: { id: string }; messages: number; provider: unknown; model: unknown };
       return {
         sessionId: forked.thread.id,
@@ -372,7 +396,9 @@ export function createCapabilityLane({
     const read = await request('thread/read', { threadId, window: { none: true } });
     const { entries } = protocol.snapshot();
     const hostShellJobs = entries.find((entry) => entry.section === 'hostShellJobs')?.value;
-    const remoteSession = entries.find((entry) => entry.section === 'hostState' && entry.key === 'remoteSession')?.value;
+    const remoteSession = entries.find(
+      (entry) => entry.section === 'hostState' && entry.key === 'remoteSession'
+    )?.value;
     // Node's host stamped every session snapshot it answered with the remote channel's session (`snapshotWithRemoteSession`).
     return withRemoteSession(
       desktopSessionState(
@@ -455,13 +481,19 @@ export function createCapabilityLane({
       const { device: _device, ...answer } = decision;
       // Answered once the core's thread took the decision or another one had: `accepted` is Node's serialized answer
       // (session-host-lifecycle.ts:1086), false for the card that lost.
-      const answered = await request('thread/approval/answer', { threadId: asked.params.threadId, approvalId: String(asked.id), result: answer });
+      const answered = await request('thread/approval/answer', {
+        threadId: asked.params.threadId,
+        approvalId: String(asked.id),
+        result: answer,
+      });
       return (answered as { accepted?: unknown } | null)?.accepted === true;
     },
     async getQuotaAutoResume() {
       // The core publishes each subtree of the `config` section as an entry of its own, keyed by the subtree's name; this
       // switch's subtree is the boolean itself. Reading the section's first entry reads another subtree.
-      const held = protocol.snapshot().entries.find((entry) => entry.section === 'config' && entry.key === 'quotaAutoResume');
+      const held = protocol
+        .snapshot()
+        .entries.find((entry) => entry.section === 'config' && entry.key === 'quotaAutoResume');
       return held?.value !== false;
     },
     async setQuotaAutoResume(enabled) {

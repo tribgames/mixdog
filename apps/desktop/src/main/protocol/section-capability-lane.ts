@@ -3,8 +3,19 @@
 // every reader of the service client on a core connection (the approval grants' `listAgents`, the SSH server logins'
 // `getProviderSetup`/`getProviderAccounts`, the window's `getOnboardingStatus`) gets the section's value. A section not
 // published yet is waited for; the Node host is not asked.
-import type { DesktopCapability, DesktopCapabilityReadRequest, DesktopCapabilityReadResult, DesktopCapabilityResult, SessionSnapshot } from '../../shared/contract';
-import { isSectionCapability, providerSetupRefresh, sectionOf, type SectionRef } from '../../shared/section-capabilities';
+import type {
+  DesktopCapability,
+  DesktopCapabilityReadRequest,
+  DesktopCapabilityReadResult,
+  DesktopCapabilityResult,
+  SessionSnapshot,
+} from '../../shared/contract';
+import {
+  isSectionCapability,
+  providerSetupRefresh,
+  sectionOf,
+  type SectionRef,
+} from '../../shared/section-capabilities';
 import type { CapabilityLane } from './capability-route';
 import type { ProtocolConnection } from './connection';
 
@@ -20,7 +31,8 @@ export async function readProtocolSection(protocol: SectionConnection, ref: Sect
     if (ref.section === 'providerAccounts' && entries.some((candidate) => candidate.section === 'providerAccounts')) {
       throw new Error('Unknown OAuth provider.');
     }
-    if (protocol.status === 'closed') throw new Error(`The ${ref.section} section is unavailable: the connection is closed.`);
+    if (protocol.status === 'closed')
+      throw new Error(`The ${ref.section} section is unavailable: the connection is closed.`);
     await new Promise<void>((resolve) => {
       let stop: (() => void) | undefined;
       let changed = false;

@@ -100,7 +100,10 @@ test('a tool or hook-ask card offers once, this conversation, always for every a
       ['Deny', ''],
     ]
   );
-  assert.equal(list[1].desc, "shell won't ask again in this conversation until you close, delete, or reset it, change its agent, or restart the app.");
+  assert.equal(
+    list[1].desc,
+    "shell won't ask again in this conversation until you close, delete, or reset it, change its agent, or restart the app."
+  );
   assert.equal(list[2].desc, "shell won't ask again for any agent, in any conversation");
   // Once only: no standing choice at all.
   assert.deepEqual(
@@ -129,7 +132,10 @@ test('every remembered choice names the tool, never the action category, whateve
       ['Deny', ''],
     ]
   );
-  assert.equal(send[1].desc, "send_email (gmail) won't ask again in this conversation until you close, delete, or reset it, change its agent, or restart the app.");
+  assert.equal(
+    send[1].desc,
+    "send_email (gmail) won't ask again in this conversation until you close, delete, or reset it, change its agent, or restart the app."
+  );
   assert.equal(send[2].desc, "send_email (gmail) won't ask again for Mailer, in any conversation");
   assert.equal(send[3].desc, "send_email (gmail) won't ask again for any agent, in any conversation");
   // A hook's ask on a plain tool names that tool.

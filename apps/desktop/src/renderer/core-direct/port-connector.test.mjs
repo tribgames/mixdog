@@ -3,17 +3,42 @@ import test from 'node:test';
 import { createPortConnector } from './port-connector.ts';
 
 function fakePort() {
-  const port = { onmessage: null, sent: [], closed: false, postMessage(d) { port.sent.push(d); }, close() { port.closed = true; } };
+  const port = {
+    onmessage: null,
+    sent: [],
+    closed: false,
+    postMessage(d) {
+      port.sent.push(d);
+    },
+    close() {
+      port.closed = true;
+    },
+  };
   return port;
 }
 function setup(timeoutMs = 50) {
   const listeners = [];
   const host = { addEventListener: (_t, l) => listeners.push(l) };
   let next = 1;
-  const bridge = { opened: [], async open(o) { bridge.opened.push(o); return { generation: next++ }; } };
+  const bridge = {
+    opened: [],
+    async open(o) {
+      bridge.opened.push(o);
+      return { generation: next++ };
+    },
+  };
   const deliver = (port, { generation, slot, source = host, type = 'mixdog-core-port' }) =>
     listeners.forEach((l) => l({ source, data: { type, generation, slot }, ports: [port] }));
-  const sink = { frames: [], closes: [], frame(t) { sink.frames.push(t); }, closed(c, r) { sink.closes.push([c, r]); } };
+  const sink = {
+    frames: [],
+    closes: [],
+    frame(t) {
+      sink.frames.push(t);
+    },
+    closed(c, r) {
+      sink.closes.push([c, r]);
+    },
+  };
   return { connector: createPortConnector(bridge, host, timeoutMs), bridge, deliver, sink };
 }
 const tick = () => new Promise((r) => setImmediate(r));
@@ -97,9 +122,16 @@ const claimed = (writer, text = '{"id":1}') => {
   writer.send(text, (promise) => (receipt = promise));
   return receipt;
 };
-const outcome = (promise) => Promise.race([promise.then(() => 'sent', () => 'refused'), tick().then(() => 'pending')]);
+const outcome = (promise) =>
+  Promise.race([
+    promise.then(
+      () => 'sent',
+      () => 'refused'
+    ),
+    tick().then(() => 'pending'),
+  ]);
 
-test('receipt: a claimed frame travels with a connection-local token and resolves only on main\'s success acknowledgement', async () => {
+test("receipt: a claimed frame travels with a connection-local token and resolves only on main's success acknowledgement", async () => {
   const { writer, port } = await opened();
   const receipt = claimed(writer);
   const note = port.sent.at(-1);
@@ -148,7 +180,7 @@ test('receipt: a closed port or a closed writer never resolves a pending write a
   assert.equal(await outcome(byClose), 'refused');
 });
 
-test('receipt: an old connection\'s acknowledgement cannot touch the new connection', async () => {
+test("receipt: an old connection's acknowledgement cannot touch the new connection", async () => {
   const { connector, deliver, sink } = setup();
   const open = async (generation) => {
     const port = fakePort();
@@ -164,13 +196,17 @@ test('receipt: an old connection\'s acknowledgement cannot touch the new connect
   const freshReceipt = claimed(fresh.writer);
   assert.equal(fresh.port.sent.at(-1).token, oldToken, 'tokens are only meaningful on their own port');
   old.port.onmessage({ data: { t: 'sent', token: oldToken, ok: true } });
-  assert.equal(await outcome(freshReceipt), 'pending', 'the old port\'s answer does not resolve the new connection\'s write');
+  assert.equal(
+    await outcome(freshReceipt),
+    'pending',
+    "the old port's answer does not resolve the new connection's write"
+  );
   fresh.port.onmessage({ data: { t: 'sent', token: oldToken, ok: true } });
   assert.equal(await outcome(freshReceipt), 'sent');
-  assert.equal(await outcome(oldReceipt), 'sent', 'the old connection\'s own write still reads its own answer');
+  assert.equal(await outcome(oldReceipt), 'sent', "the old connection's own write still reads its own answer");
 });
 
-test('settled: main\'s answer releases the barrier, a closed port releases it too, and neither is progress', async () => {
+test("settled: main's answer releases the barrier, a closed port releases it too, and neither is progress", async () => {
   const { writer, port, sink } = await opened();
   let progress = 0;
   sink.progress = () => progress++;
@@ -188,14 +224,17 @@ test('settled: main\'s answer releases the barrier, a closed port releases it to
   assert.equal(progress, 0, 'receipts and barriers are never progress');
 });
 
-test('main\'s explicit answer that the core ends the same way each time leaves the open pending, so the client ladder does not ask again; a rejection is always a failure, whatever its text says', async () => {
+test("main's explicit answer that the core ends the same way each time leaves the open pending, so the client ladder does not ask again; a rejection is always a failure, whatever its text says", async () => {
   const { connector, bridge, sink } = setup();
   bridge.open = async (o) => {
     bridge.opened.push(o);
     return { launchFailed: { message: 'the core ended', exitCode: 2, stderrPath: null } };
   };
   let settled = false;
-  connector.open({ id: 'core' }, sink).then(() => (settled = true), () => (settled = true));
+  connector.open({ id: 'core' }, sink).then(
+    () => (settled = true),
+    () => (settled = true)
+  );
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(settled, false, 'pending: no rejection for the ladder to retry');
   assert.equal(bridge.opened.length, 1);

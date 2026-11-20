@@ -62,6 +62,9 @@ test('quitting closes every server connection and leaves this PC out of it', asy
   await connections.attach({ id: 'a' });
   await connections.attach({ id: 'b' });
   await connections.closeAll();
-  assert.deepEqual(made.map((connection) => connection.disposed), [true, true]);
+  assert.deepEqual(
+    made.map((connection) => connection.disposed),
+    [true, true]
+  );
   assert.deepEqual(pool.list(), [local]);
 });

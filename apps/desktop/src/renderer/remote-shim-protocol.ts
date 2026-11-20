@@ -49,7 +49,12 @@ export class UnclaimedNodeMethodError extends Error {
 }
 
 /** Calls that must reach a running turn now: they do not wait for the first sync. */
-const UNGATED_CALLS = new Set(['abortSession', 'resolveToolApprovalForSession', 'answerApprovalNotification', 'provideSecretInput']);
+const UNGATED_CALLS = new Set([
+  'abortSession',
+  'resolveToolApprovalForSession',
+  'answerApprovalNotification',
+  'provideSecretInput',
+]);
 /** Calls that need only the app feed attached: the conversation list does not wait for the open threads' transcripts. */
 const APP_GATED_CALLS = new Set(['listSessions']);
 
@@ -133,7 +138,8 @@ export function createProtocolRouter(
     ];
     for (const name of new Set(names)) {
       const owner = owners.get(name);
-      if (owner !== undefined) throw new Error(`phone: Node method '${name}' is claimed by both '${owner}' and '${adapter.group}'`);
+      if (owner !== undefined)
+        throw new Error(`phone: Node method '${name}' is claimed by both '${owner}' and '${adapter.group}'`);
       owners.set(name, adapter.group);
     }
     for (const [name, handler] of Object.entries(adapter.calls ?? {})) calls.set(name, handler);
@@ -162,53 +168,53 @@ export function createProtocolRouter(
   };
 
   const dispatch = <T>(method: string, params: unknown[], gated: boolean, onGate?: () => void): Promise<T> => {
-      const handler = handlerOf(method, params);
-      if (!handler) return Promise.reject(new UnclaimedNodeMethodError(method));
-      return new Promise<T>((resolve, reject) => {
-        // What the queue and the adapter read is what Node's PC read: the arguments after the relay's JSON (a failure rejects the call).
-        const args = relayed(params);
-        // Node's send(): the call waits for the connection and the view sync first (remote-shim-calls.ts:298-303), and its deadline starts only
-        // when it is handed on (invoke, :239). A call held by the gate cannot time out, so one that timed out was always run.
-        let settle = (): void => undefined;
-        // The gate is the phone's (Node's send() waits before the frame leaves), the queue is the desktop's (remote-relay-client-calls.ts:481
-        // enqueues a frame on receipt): a call waiting for its gate holds no lane slot, so the ungated boot reads leave beside the sync.
-        (async () => {
-          if (!gated || UNGATED_CALLS.has(method)) await link.started();
-          else if (APP_GATED_CALLS.has(method)) await link.appSynced();
-          else await link.synced();
-          onGate?.();
-          const id = nextId++;
-          waiting.set(id, true);
-          // The deadline of this call alone; an overdue call first probes the connection.
-          const watch = armCallWatch(waiting, id, reject, link.probe, link.silentSince);
-          settle = (): void => {
-            watch.cancel();
-            waiting.delete(id);
-          };
-          // Node restarts the deadline and starts measuring silence when this call's own frame has left, not when the call began (:258-268):
-          // the client the handler reaches hands that frame to this call's claim. A call that fails before sending claims nothing.
-          const claim = firstFrame((sent) => void sent.then(watch.transmitted, () => undefined));
-          const transferProgress = (): void => {
-            if (!waiting.has(id)) throw remoteConnectionInterruptedError();
-            watch.progressed();
-          };
-          const host: PhoneProtocolHost = {
-            ...link.host,
-            client: () => scopeClient(link.host.client(), claim, transferProgress),
-            transferProgress,
-          };
-          return runQueued(link.host.ctx, method, args, () => handler(args, host));
-        })().then(
-          (value) => {
-            settle();
-            resolve(value as T);
-          },
-          (error: unknown) => {
-            settle();
-            reject(interrupted(error));
-          }
-        );
-      });
+    const handler = handlerOf(method, params);
+    if (!handler) return Promise.reject(new UnclaimedNodeMethodError(method));
+    return new Promise<T>((resolve, reject) => {
+      // What the queue and the adapter read is what Node's PC read: the arguments after the relay's JSON (a failure rejects the call).
+      const args = relayed(params);
+      // Node's send(): the call waits for the connection and the view sync first (remote-shim-calls.ts:298-303), and its deadline starts only
+      // when it is handed on (invoke, :239). A call held by the gate cannot time out, so one that timed out was always run.
+      let settle = (): void => undefined;
+      // The gate is the phone's (Node's send() waits before the frame leaves), the queue is the desktop's (remote-relay-client-calls.ts:481
+      // enqueues a frame on receipt): a call waiting for its gate holds no lane slot, so the ungated boot reads leave beside the sync.
+      (async () => {
+        if (!gated || UNGATED_CALLS.has(method)) await link.started();
+        else if (APP_GATED_CALLS.has(method)) await link.appSynced();
+        else await link.synced();
+        onGate?.();
+        const id = nextId++;
+        waiting.set(id, true);
+        // The deadline of this call alone; an overdue call first probes the connection.
+        const watch = armCallWatch(waiting, id, reject, link.probe, link.silentSince);
+        settle = (): void => {
+          watch.cancel();
+          waiting.delete(id);
+        };
+        // Node restarts the deadline and starts measuring silence when this call's own frame has left, not when the call began (:258-268):
+        // the client the handler reaches hands that frame to this call's claim. A call that fails before sending claims nothing.
+        const claim = firstFrame((sent) => void sent.then(watch.transmitted, () => undefined));
+        const transferProgress = (): void => {
+          if (!waiting.has(id)) throw remoteConnectionInterruptedError();
+          watch.progressed();
+        };
+        const host: PhoneProtocolHost = {
+          ...link.host,
+          client: () => scopeClient(link.host.client(), claim, transferProgress),
+          transferProgress,
+        };
+        return runQueued(link.host.ctx, method, args, () => handler(args, host));
+      })().then(
+        (value) => {
+          settle();
+          resolve(value as T);
+        },
+        (error: unknown) => {
+          settle();
+          reject(interrupted(error));
+        }
+      );
+    });
   };
 
   const queuedRead = <T>(key: string, method: string, params: unknown[]): Promise<T> => {
@@ -240,7 +246,9 @@ export function createProtocolRouter(
         const key = coalescedReadKey(method, params);
         if (!key || bootReads.has(key)) continue;
         // Everything but the sync-ordered reads leaves as soon as the client is up, beside the sync instead of behind it.
-        const read = SYNC_ORDERED_BOOT_READS.has(method) ? queuedRead(key, method, params) : dispatch(method, params, false);
+        const read = SYNC_ORDERED_BOOT_READS.has(method)
+          ? queuedRead(key, method, params)
+          : dispatch(method, params, false);
         read.catch(() => {
           if (bootReads.get(key) === read) bootReads.delete(key);
         });

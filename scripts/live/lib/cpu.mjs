@@ -10,7 +10,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /** Busy percentage between two readings of /proc/stat (idle + iowait count as idle), or null. */
 export function linuxLoad(before, after) {
   const fields = (text) => {
-    const line = String(text).split('\n').find((l) => l.startsWith('cpu '));
+    const line = String(text)
+      .split('\n')
+      .find((l) => l.startsWith('cpu '));
     return line ? line.trim().split(/\s+/).slice(1).map(Number) : null;
   };
   const a = fields(before);
@@ -25,7 +27,9 @@ export function linuxLoad(before, after) {
 
 /** Busy percentage from the last `CPU usage:` line of `top -l 2 -n 0` (the first is the since-boot average), or null. */
 export function macLoad(text) {
-  const lines = String(text).split('\n').filter((l) => /CPU usage:/.test(l));
+  const lines = String(text)
+    .split('\n')
+    .filter((l) => /CPU usage:/.test(l));
   const m = /([\d.]+)%\s*idle/.exec(lines.at(-1) ?? '');
   return m ? Math.round((100 - Number(m[1])) * 10) / 10 : null;
 }
@@ -36,7 +40,12 @@ export async function cpuLoad(platform = process.platform) {
     if (platform === 'win32') {
       const { stdout } = await exec(
         'powershell.exe',
-        ['-NoLogo', '-NoProfile', '-Command', '(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average'],
+        [
+          '-NoLogo',
+          '-NoProfile',
+          '-Command',
+          '(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average',
+        ],
         { windowsHide: true, timeout: 30_000 }
       );
       const value = Number(stdout.trim());

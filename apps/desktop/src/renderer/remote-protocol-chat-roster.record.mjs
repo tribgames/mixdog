@@ -16,7 +16,10 @@ const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const NODE_CHECKOUT = 'C:/Project/mixdog';
 
 // The export is exact only if every file of the commit's tree is in it: byte for byte (git blob ids), or, for a text file the archive\n// wrote with CRLF (* text=auto), the same bytes once CRLF is read as the LF the repository stores.
-const listing = execFileSync('git', ['-C', NODE_CHECKOUT, 'ls-tree', '-r', COMMIT], { maxBuffer: 1 << 28 }).toString().trim().split('\n');
+const listing = execFileSync('git', ['-C', NODE_CHECKOUT, 'ls-tree', '-r', COMMIT], { maxBuffer: 1 << 28 })
+  .toString()
+  .trim()
+  .split('\n');
 let checked = 0;
 let eolOnly = 0;
 const blobId = (b) => createHash('sha1').update(`blob ${b.length}\0`).update(b).digest('hex');
@@ -26,13 +29,21 @@ for (const line of listing) {
   const [mode, , sha] = meta.split(' ');
   if (mode === '160000' || mode === '120000') continue;
   let body;
-  try { body = readFileSync(join(exportDir, path)); } catch { mismatched.push(`${path} (missing)`); continue; }
+  try {
+    body = readFileSync(join(exportDir, path));
+  } catch {
+    mismatched.push(`${path} (missing)`);
+    continue;
+  }
   checked += 1;
   if (blobId(body) === sha) continue;
   if (blobId(Buffer.from(body.toString('latin1').replaceAll('\r\n', '\n'), 'latin1')) === sha) eolOnly += 1;
   else mismatched.push(path);
 }
-if (mismatched.length) throw new Error(`the export is not b6f10295a: ${mismatched.length} files differ, e.g. ${mismatched.slice(0, 3).join(', ')}`);
+if (mismatched.length)
+  throw new Error(
+    `the export is not b6f10295a: ${mismatched.length} files differ, e.g. ${mismatched.slice(0, 3).join(', ')}`
+  );
 
 const load = (path) => import(pathToFileURL(join(exportDir, 'apps/desktop/src', path)).href);
 const { registerAndSynchronizeRelayViews } = await load('main/remote-view-sync.ts');
@@ -41,7 +52,9 @@ const { createRelayCatalogs } = await load('main/remote-relay-catalog.ts');
 const { createKeyedListDeltaDecoder } = await load('shared/list-delta.ts');
 const { createRemoteRosterCache, readRosterStamp } = await load('shared/remote-roster-cache.ts');
 const { createRemoteCatalog } = await load('shared/remote-catalog.ts');
-const { byActivityThenId } = await import(pathToFileURL(join(exportDir, 'src/runtime/agent/orchestrator/session/catalog-db/schema.mjs')).href);
+const { byActivityThenId } = await import(
+  pathToFileURL(join(exportDir, 'src/runtime/agent/orchestrator/session/catalog-db/schema.mjs')).href
+);
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
@@ -65,11 +78,37 @@ const { createDeadline, latch } = await hload('deadline.mjs');
 const PINNED = ['env.mjs', 'fake-provider.mjs', 'deadline.mjs', 'scenarios.mjs'];
 const envPaths = isolatedPaths();
 rmSync(envPaths.envRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
-for (const d of [envPaths.dataDir, envPaths.runtimeRoot, envPaths.appData, envPaths.localAppData, envPaths.tmp, envPaths.workspace]) mkdirSync(d, { recursive: true });
+for (const d of [
+  envPaths.dataDir,
+  envPaths.runtimeRoot,
+  envPaths.appData,
+  envPaths.localAppData,
+  envPaths.tmp,
+  envPaths.workspace,
+])
+  mkdirSync(d, { recursive: true });
 const projects = { a: join(envPaths.workspace, 'a'), b: join(envPaths.workspace, 'b') };
 for (const p of Object.values(projects)) mkdirSync(p, { recursive: true });
 const provider = await startFakeProvider({ workspace: envPaths.workspace });
-writeFileSync(join(envPaths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
+writeFileSync(
+  join(envPaths.dataDir, 'mixdog-config.json'),
+  JSON.stringify({
+    agent: {
+      providers: {
+        'custom-harness': {
+          type: 'custom',
+          schemaVersion: 2,
+          name: 'harness',
+          protocol: 'openai-chat',
+          baseURL: provider.baseURL,
+          auth: 'none',
+          enabled: true,
+          modelOverrides: { 'harness-model': { manual: true } },
+        },
+      },
+    },
+  })
+);
 const route = { provider: 'custom-harness', model: 'harness-model' };
 for (const key of Object.keys(process.env)) if (/^MIXDOG_/i.test(key)) delete process.env[key];
 Object.assign(process.env, daemonEnv(envPaths));
@@ -77,8 +116,12 @@ Object.assign(process.env, daemonEnv(envPaths));
 process.execArgv = [];
 const { SessionHost } = await load('main/session-host.ts');
 const sessionClient = await import(pathToFileURL(join(exportDir, 'src/standalone/session-client.mjs')).href);
-const { createSessionProtocolClient } = await import(pathToFileURL(join(exportDir, 'src/standalone/session-protocol.mjs')).href);
-const { createDesktopRuntime } = await import(pathToFileURL(join(exportDir, 'src/standalone/daemon-desktop-runtime.mjs')).href);
+const { createSessionProtocolClient } = await import(
+  pathToFileURL(join(exportDir, 'src/standalone/session-protocol.mjs')).href
+);
+const { createDesktopRuntime } = await import(
+  pathToFileURL(join(exportDir, 'src/standalone/daemon-desktop-runtime.mjs')).href
+);
 
 // In production the host runs inside the daemon and reaches it through the daemon-local session bridge (daemon-local-session-bridge.mjs:30
 // calls `handleCall` with no revision), which the daemon reads as revision 0 (session-action.mjs:221): at revision 0 a read action such as
@@ -98,318 +141,507 @@ const { createDesktopRuntime } = await import(pathToFileURL(join(exportDir, 'src
   };
 }
 const deadline = createDeadline(300_000, () => 'node roster recording');
-const discovery = await deadline.race(sessionClient.ensureDaemon({ cwd: envPaths.workspace, attempts: 2, readyTimeoutMs: 60_000 }), 'the Node daemon');
+const discovery = await deadline.race(
+  sessionClient.ensureDaemon({ cwd: envPaths.workspace, attempts: 2, readyTimeoutMs: 60_000 }),
+  'the Node daemon'
+);
 // Everything after the daemon started is torn down on every path (the `finally` at the end): the host, the daemon, the model endpoint.
 let host;
 const originalWarn = console.warn;
 try {
-const turnsDone = new Map();
-const waiters = new Set();
-const wake = () => waiters.forEach((check) => check());
-const hasTurnDone = (v) => (Array.isArray(v) ? v.some(hasTurnDone) : v && typeof v === 'object' ? v.kind === 'turndone' || Object.values(v).some(hasTurnDone) : false);
-const runtime = {
-  ...createDesktopRuntime({ getLocalSessionBridge: () => null }),
-  attachSessionClient: async (options) => {
-    const attached = await sessionClient.attachSession({
-      discovery,
-      cwd: envPaths.workspace,
-      onFrame: (frame) => {
-        if (frame?.sessionId && hasTurnDone(frame)) turnsDone.set(frame.sessionId, (turnsDone.get(frame.sessionId) || 0) + 1);
-        options.onFrame(frame);
-        wake();
-      },
-      onFatal: options.onFatal,
-    });
-    return createSessionProtocolClient({ call: (name, args, callOptions) => attached.call(name, args, callOptions), close: (reason) => attached.close(reason) });
-  },
-};
-const userData = envPaths.appData;
-host = await SessionHost.create({ userDataPath: userData, resourcesPath: envPaths.workspace, appPath: envPaths.workspace, packaged: false }, runtime);
-/** Resolves when `ready()` holds, checked again at each frame and each catalog publication. */
-const until = (ready, what) => {
-  const done = latch();
-  const check = () => { if (ready()) { waiters.delete(check); done.resolve(); } };
-  waiters.add(check);
-  check();
-  return deadline.race(done.promise, what);
-};
-/** Resolves at the next frame or catalog publication. */
-const nextEvent = (what) => {
-  const done = latch();
-  const check = () => { waiters.delete(check); done.resolve(); };
-  waiters.add(check);
-  return deadline.race(done.promise, what);
-};
-// Every catalog publication of Node's host (session-host-catalog.ts:228-240 `publishCatalogs`) goes to the connected phone as it
-// happens, so the phone's roster sequence is the one Node's phone gets, not one publication per action.
-let relayPublication = null;
-host.subscribeSessions((rows) => {
-  relayPublication?.(plain(rows));
-  wake();
-});
-const listed = async () => plain(await host.listSessions());
-/** The rows are settled when `ok(rows)` holds; a catalog publication re-checks. */
-async function settled(ok, what) {
-  let rows = await listed();
-  while (!ok(rows)) {
-    await nextEvent(what);
-    rows = await listed();
-  }
-}
-const made = {};
-const notes = [];
-const retireWarned = latch();
-console.warn = (...args) => {
-  const text = args.map((a) => String(a?.stack ?? a)).join(' ');
-  if (/Could not archive the threads of removed agents/.test(text)) { notes.push(text.split('\n')[0]); retireWarned.resolve(); }
-  else originalWarn(...args);
-};
-const turn = async (id, count, send) => {
-  await send();
-  await until(() => turnsDone.get(id) >= count, `the turn ${count} of ${id}`);
-  await settled((rows) => { const row = rows.find((r) => r.id === id); return row && row.messageCount === count * 2 && row.activityAt === row.updatedAt; }, `the row of ${id}`);
-};
-const newTask = async (name, project) => {
-  await host.startProject(projects[project]);
-  const accepted = await host.submitNewTask(`hello ${name}`, { id: `sub-${name}` }, { projectPath: projects[project], route });
-  made[name] = accepted.sessionId;
-  await turn(made[name], 1, async () => {});
-};
-const turns = {};
-const second = async (name) => { turns[name] = (turns[name] || 1) + 1; await turn(made[name], turns[name], () => host.submitToSession(made[name], `again ${name}`, { id: `sub-${name}-${turns[name]}` })); };
-const saveBot = async (name) => (await host.invokeCapability('saveAgentDefinition', [{ kind: 'bot', name, description: `${name} bot`, body: `You are ${name}.`, route }])).value.id;
-
-const ACTIONS = [
-  ['created', async () => {
-    for (const [name, project] of [['sess_0', 'b'], ['sess_1', 'a'], ['sess_3', 'a'], ['sess_4', 'b']]) {
-      await newTask(name, project);
-      await host.renameSession(made[name], `Title ${name.slice(-1)}`);
-    }
-    made.sess_2 = (await host.inheritSession(made.sess_0, null)).sessionId;
-    await host.renameSession(made.sess_2, 'Title 2');
-    await host.setSessionFavorite(made.sess_2, true);
-    await host.markSessionRead(made.sess_1, 0, true);
-  }],
-  ['turns', async () => { for (const name of ['sess_1', 'sess_0']) await second(name); }],
-  ['archive', async () => { await host.setSessionArchived(made.sess_3, true); }],
-  ['unarchive', async () => { await host.setSessionArchived(made.sess_3, false); }],
-  ['archive-again', async () => { await host.setSessionArchived(made.sess_3, true); }],
-  ['delete', async () => {
-    await newTask('sess_5', 'a');
-    await host.renameSession(made.sess_5, 'Title 5');
-    await host.deleteSession(made.sess_5);
-  }],
-  // An agent's home thread: opened, then spoken in.
-  ['agent-home', async () => {
-    made.botOne = await saveBot('Bot One');
-    made.botTwo = await saveBot('Bot Two');
-    made.botOneHome = (await host.openAgentHome(made.botOne)).sessionId;
-    await turn(made.botOneHome, 1, () => host.submitToSession(made.botOneHome, 'hello Bot One', { id: 'sub-home' }));
-  }],
-  // A group room of both bots (its log is a stored session the catalog stamps with `agentRoom`).
-  ['room', async () => {
-    const created = await host.agentRoomAction('create', [{ name: 'Room One', members: [made.botOne, made.botTwo] }]);
-    made.room = created.roomId;
-    made.roomLog = created.sessionId;
-  }],
-  // The agent is deleted: the host proves it through `agentDefinitionPresence`, then archives the agent's home (agent-home-sessions.ts
-  // archiveDeleted), names it, and drops the bot from its rooms (agent-rooms.ts forgetMember). It runs after the delete's reply (`void
-  // retireAgentHomes`, session-host-lifecycle.ts:1171), so the action ends when the home row says it was retired.
-  ['agent-delete', async () => {
-    await host.invokeCapability('deleteAgentDefinition', [made.botOne]);
-    await settled((rows) => rows.find((row) => row.id === made.botOneHome)?.agentDeleted === true && !rows.find((row) => row.id === made.roomLog)?.agentRoom?.members.includes(made.botOne), 'the deleted agent\'s home to be retired and the bot to leave its room');
-  }],];
-const roster = () => listed();
-function desktop(rows) {
-  const listeners = new Set();
-  let gate = null;
-  let reached = null;
-  const host = {
-    rows,
-    listSessions: async () => {
-      if (gate) {
-        reached?.();
-        await gate;
+  const turnsDone = new Map();
+  const waiters = new Set();
+  const wake = () => waiters.forEach((check) => check());
+  const hasTurnDone = (v) =>
+    Array.isArray(v)
+      ? v.some(hasTurnDone)
+      : v && typeof v === 'object'
+        ? v.kind === 'turndone' || Object.values(v).some(hasTurnDone)
+        : false;
+  const runtime = {
+    ...createDesktopRuntime({ getLocalSessionBridge: () => null }),
+    attachSessionClient: async (options) => {
+      const attached = await sessionClient.attachSession({
+        discovery,
+        cwd: envPaths.workspace,
+        onFrame: (frame) => {
+          if (frame?.sessionId && hasTurnDone(frame))
+            turnsDone.set(frame.sessionId, (turnsDone.get(frame.sessionId) || 0) + 1);
+          options.onFrame(frame);
+          wake();
+        },
+        onFatal: options.onFatal,
+      });
+      return createSessionProtocolClient({
+        call: (name, args, callOptions) => attached.call(name, args, callOptions),
+        close: (reason) => attached.close(reason),
+      });
+    },
+  };
+  const userData = envPaths.appData;
+  host = await SessionHost.create(
+    { userDataPath: userData, resourcesPath: envPaths.workspace, appPath: envPaths.workspace, packaged: false },
+    runtime
+  );
+  /** Resolves when `ready()` holds, checked again at each frame and each catalog publication. */
+  const until = (ready, what) => {
+    const done = latch();
+    const check = () => {
+      if (ready()) {
+        waiters.delete(check);
+        done.resolve();
       }
-      return host.rows;
-    },
-    getSnapshot: () => ({ sessionId: null, status: 'idle', items: [], streamingTail: null }),
-    listAgentPool: async () => [],
-    subscribeSessions: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
-    subscribeAgentPool: () => () => {},
-    setVisibleSessionsForSource: async () => true,
-    replaySessionStates: async (_ids, deliver) => deliver([]),
+    };
+    waiters.add(check);
+    check();
+    return deadline.race(done.promise, what);
   };
-  const registry = createRelayClientRegistry({ host, sendEnvelope: () => {}, frameBudgetBytes: 1 << 20, onClientCountChanged: () => {}, onEmpty: () => {}, now: () => 0 });
-  const clients = new Map();
-  let deliver = null;
-  const catalogs = createRelayCatalogs({ host, clients, live: () => true, sendEncryptedFrame: async (_id, frame) => deliver?.(frame) });
-  let legs = 0;
-  return {
-    host,
-    /** A catalog change: the host's own listeners hear it, then the relay's live frame. */
-    publish(next) {
-      host.rows = next;
-      for (const listener of [...listeners]) listener(next);
-      catalogs.publishSessions(next);
-    },
-    /** Holds the host's roster read; rrived resolves when a read has reached the hold. */
-    hold() {
-      let release;
-      gate = new Promise((r) => (release = r));
-      const arrived = new Promise((r) => (reached = r));
-      return { arrived, release: () => { gate = null; release(); } };
-    },
-    connect(phone) {
-      const clientId = `client-${++legs}`;
-      const state = registry.open(clientId, {});
-      clearTimeout(state.handshakeTimer);
-      Object.assign(state, { channel: {}, viewSync: true, compactWire: true, listDelta: true, stateLane: null });
-      clients.clear();
-      clients.set(clientId, state);
-      deliver = (frame) => phone.apply(plain(frame));
-      return async (rosterParam) => {
-        const frames = [];
-        await registerAndSynchronizeRelayViews(host, clientId, state, [[], null, undefined, rosterParam], () => true, async (frame) => {
-          frames.push(plain(frame));
-          deliver(frame);
-        });
-        return frames;
-      };
-    },
+  /** Resolves at the next frame or catalog publication. */
+  const nextEvent = (what) => {
+    const done = latch();
+    const check = () => {
+      waiters.delete(check);
+      done.resolve();
+    };
+    waiters.add(check);
+    return deadline.race(done.promise, what);
   };
-}
-
-const storage = (() => {
-  let record;
-  const saved = [];
-  return {
-    load: async () => (record === undefined ? undefined : structuredClone(record)),
-    save: async (v) => {
-      record = structuredClone(v);
-      saved.splice(0).forEach((resolve) => resolve());
-    },
-    clear: async () => { record = undefined; },
-    /** Resolves when the phone's roster cache has persisted its next roster (the completion of its debounced save). */
-    nextSave: () => new Promise((resolve) => saved.push(resolve)),
+  // Every catalog publication of Node's host (session-host-catalog.ts:228-240 `publishCatalogs`) goes to the connected phone as it
+  // happens, so the phone's roster sequence is the one Node's phone gets, not one publication per action.
+  let relayPublication = null;
+  host.subscribeSessions((rows) => {
+    relayPublication?.(plain(rows));
+    wake();
+  });
+  const listed = async () => plain(await host.listSessions());
+  /** The rows are settled when `ok(rows)` holds; a catalog publication re-checks. */
+  async function settled(ok, what) {
+    let rows = await listed();
+    while (!ok(rows)) {
+      await nextEvent(what);
+      rows = await listed();
+    }
+  }
+  const made = {};
+  const notes = [];
+  const retireWarned = latch();
+  console.warn = (...args) => {
+    const text = args.map((a) => String(a?.stack ?? a)).join(' ');
+    if (/Could not archive the threads of removed agents/.test(text)) {
+      notes.push(text.split('\n')[0]);
+      retireWarned.resolve();
+    } else originalWarn(...args);
   };
-})();
-
-/** The phone as remote-shim-dispatch.ts runs it: a `sessions` frame decodes and publishes to the catalog. */
-function phone() {
-  const decoder = createKeyedListDeltaDecoder();
-  const cache = createRemoteRosterCache({ storage, scope: () => 'relay\ndevice\nkey\nsecret', decoder, saveDelayMs: 0, onMismatch: () => {} });
-  const catalog = createRemoteCatalog();
-  const published = [];
-  catalog.subscribe((rows) => published.push(plain(rows)));
-  return {
-    published,
-    claim: () => cache.claim(),
-    get rows() { return catalog.get(); },
-    apply(frame) {
-      if (frame.event !== 'sessions') return;
-      const decoded = decoder.decode(frame.payload);
-      if (!decoded.ok) throw new Error('a sessions frame did not apply');
-      catalog.publish(decoded.items);
-      cache.observe(frame.payload);
-    },
-    stamped: () => readRosterStamp,
+  const turn = async (id, count, send) => {
+    await send();
+    await until(() => turnsDone.get(id) >= count, `the turn ${count} of ${id}`);
+    await settled((rows) => {
+      const row = rows.find((r) => r.id === id);
+      return row && row.messageCount === count * 2 && row.activityAt === row.updatedAt;
+    }, `the row of ${id}`);
   };
-}
-const kind = (frames) => frames.filter((f) => f.event === 'sessions').map((f) => (f.payload.__listCatch ? 'catch-up' : f.payload.rows ? 'baseline' : 'delta'));
+  const newTask = async (name, project) => {
+    await host.startProject(projects[project]);
+    const accepted = await host.submitNewTask(
+      `hello ${name}`,
+      { id: `sub-${name}` },
+      { projectPath: projects[project], route }
+    );
+    made[name] = accepted.sessionId;
+    await turn(made[name], 1, async () => {});
+  };
+  const turns = {};
+  const second = async (name) => {
+    turns[name] = (turns[name] || 1) + 1;
+    await turn(made[name], turns[name], () =>
+      host.submitToSession(made[name], `again ${name}`, { id: `sub-${name}-${turns[name]}` })
+    );
+  };
+  const saveBot = async (name) =>
+    (
+      await host.invokeCapability('saveAgentDefinition', [
+        { kind: 'bot', name, description: `${name} bot`, body: `You are ${name}.`, route },
+      ])
+    ).value.id;
 
+  const ACTIONS = [
+    [
+      'created',
+      async () => {
+        for (const [name, project] of [
+          ['sess_0', 'b'],
+          ['sess_1', 'a'],
+          ['sess_3', 'a'],
+          ['sess_4', 'b'],
+        ]) {
+          await newTask(name, project);
+          await host.renameSession(made[name], `Title ${name.slice(-1)}`);
+        }
+        made.sess_2 = (await host.inheritSession(made.sess_0, null)).sessionId;
+        await host.renameSession(made.sess_2, 'Title 2');
+        await host.setSessionFavorite(made.sess_2, true);
+        await host.markSessionRead(made.sess_1, 0, true);
+      },
+    ],
+    [
+      'turns',
+      async () => {
+        for (const name of ['sess_1', 'sess_0']) await second(name);
+      },
+    ],
+    [
+      'archive',
+      async () => {
+        await host.setSessionArchived(made.sess_3, true);
+      },
+    ],
+    [
+      'unarchive',
+      async () => {
+        await host.setSessionArchived(made.sess_3, false);
+      },
+    ],
+    [
+      'archive-again',
+      async () => {
+        await host.setSessionArchived(made.sess_3, true);
+      },
+    ],
+    [
+      'delete',
+      async () => {
+        await newTask('sess_5', 'a');
+        await host.renameSession(made.sess_5, 'Title 5');
+        await host.deleteSession(made.sess_5);
+      },
+    ],
+    // An agent's home thread: opened, then spoken in.
+    [
+      'agent-home',
+      async () => {
+        made.botOne = await saveBot('Bot One');
+        made.botTwo = await saveBot('Bot Two');
+        made.botOneHome = (await host.openAgentHome(made.botOne)).sessionId;
+        await turn(made.botOneHome, 1, () =>
+          host.submitToSession(made.botOneHome, 'hello Bot One', { id: 'sub-home' })
+        );
+      },
+    ],
+    // A group room of both bots (its log is a stored session the catalog stamps with `agentRoom`).
+    [
+      'room',
+      async () => {
+        const created = await host.agentRoomAction('create', [
+          { name: 'Room One', members: [made.botOne, made.botTwo] },
+        ]);
+        made.room = created.roomId;
+        made.roomLog = created.sessionId;
+      },
+    ],
+    // The agent is deleted: the host proves it through `agentDefinitionPresence`, then archives the agent's home (agent-home-sessions.ts
+    // archiveDeleted), names it, and drops the bot from its rooms (agent-rooms.ts forgetMember). It runs after the delete's reply (`void
+    // retireAgentHomes`, session-host-lifecycle.ts:1171), so the action ends when the home row says it was retired.
+    [
+      'agent-delete',
+      async () => {
+        await host.invokeCapability('deleteAgentDefinition', [made.botOne]);
+        await settled(
+          (rows) =>
+            rows.find((row) => row.id === made.botOneHome)?.agentDeleted === true &&
+            !rows.find((row) => row.id === made.roomLog)?.agentRoom?.members.includes(made.botOne),
+          "the deleted agent's home to be retired and the bot to leave its room"
+        );
+      },
+    ],
+  ];
+  const roster = () => listed();
+  function desktop(rows) {
+    const listeners = new Set();
+    let gate = null;
+    let reached = null;
+    const host = {
+      rows,
+      listSessions: async () => {
+        if (gate) {
+          reached?.();
+          await gate;
+        }
+        return host.rows;
+      },
+      getSnapshot: () => ({ sessionId: null, status: 'idle', items: [], streamingTail: null }),
+      listAgentPool: async () => [],
+      subscribeSessions: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+      subscribeAgentPool: () => () => {},
+      setVisibleSessionsForSource: async () => true,
+      replaySessionStates: async (_ids, deliver) => deliver([]),
+    };
+    const registry = createRelayClientRegistry({
+      host,
+      sendEnvelope: () => {},
+      frameBudgetBytes: 1 << 20,
+      onClientCountChanged: () => {},
+      onEmpty: () => {},
+      now: () => 0,
+    });
+    const clients = new Map();
+    let deliver = null;
+    const catalogs = createRelayCatalogs({
+      host,
+      clients,
+      live: () => true,
+      sendEncryptedFrame: async (_id, frame) => deliver?.(frame),
+    });
+    let legs = 0;
+    return {
+      host,
+      /** A catalog change: the host's own listeners hear it, then the relay's live frame. */
+      publish(next) {
+        host.rows = next;
+        for (const listener of [...listeners]) listener(next);
+        catalogs.publishSessions(next);
+      },
+      /** Holds the host's roster read; rrived resolves when a read has reached the hold. */
+      hold() {
+        let release;
+        gate = new Promise((r) => (release = r));
+        const arrived = new Promise((r) => (reached = r));
+        return {
+          arrived,
+          release: () => {
+            gate = null;
+            release();
+          },
+        };
+      },
+      connect(phone) {
+        const clientId = `client-${++legs}`;
+        const state = registry.open(clientId, {});
+        clearTimeout(state.handshakeTimer);
+        Object.assign(state, { channel: {}, viewSync: true, compactWire: true, listDelta: true, stateLane: null });
+        clients.clear();
+        clients.set(clientId, state);
+        deliver = (frame) => phone.apply(plain(frame));
+        return async (rosterParam) => {
+          const frames = [];
+          await registerAndSynchronizeRelayViews(
+            host,
+            clientId,
+            state,
+            [[], null, undefined, rosterParam],
+            () => true,
+            async (frame) => {
+              frames.push(plain(frame));
+              deliver(frame);
+            }
+          );
+          return frames;
+        };
+      },
+    };
+  }
 
-const steps = [];
-const note = (name, p, frames, extra = {}) => steps.push({ name, ...extra, frames: frames ? kind(frames) : undefined, published: p.published.splice(0), roster: plain(p.rows) });
+  const storage = (() => {
+    let record;
+    const saved = [];
+    return {
+      load: async () => (record === undefined ? undefined : structuredClone(record)),
+      save: async (v) => {
+        record = structuredClone(v);
+        saved.splice(0).forEach((resolve) => resolve());
+      },
+      clear: async () => {
+        record = undefined;
+      },
+      /** Resolves when the phone's roster cache has persisted its next roster (the completion of its debounced save). */
+      nextSave: () => new Promise((resolve) => saved.push(resolve)),
+    };
+  })();
 
-// The desktop and phone that stay connected through every action: every publication of Node's host reaches the phone as it happens
-// (`relayPublication`); an action ends when the host's last publication is the roster its store lists.
-let live = desktop([]);
-let livePhone = phone();
-await live.connect(livePhone)(await livePhone.claim());
-livePhone.published.splice(0);
-let lastPublished = JSON.stringify([]);
-relayPublication = (rows) => {
-  lastPublished = JSON.stringify(rows);
-  live.publish(rows);
-};
-const rosters = [{ name: 'start', roster: [] }];
-for (const [name, act] of ACTIONS) {
-  await act();
-  const next = await roster();
-  rosters.push({ name, roster: next });
-  await until(() => lastPublished === JSON.stringify(next), `Node's host to publish the roster after ${name}`);
-  note(`action:${name}`, livePhone, undefined);
-}
-relayPublication = null;
+  /** The phone as remote-shim-dispatch.ts runs it: a `sessions` frame decodes and publishes to the catalog. */
+  function phone() {
+    const decoder = createKeyedListDeltaDecoder();
+    const cache = createRemoteRosterCache({
+      storage,
+      scope: () => 'relay\ndevice\nkey\nsecret',
+      decoder,
+      saveDelayMs: 0,
+      onMismatch: () => {},
+    });
+    const catalog = createRemoteCatalog();
+    const published = [];
+    catalog.subscribe((rows) => published.push(plain(rows)));
+    return {
+      published,
+      claim: () => cache.claim(),
+      get rows() {
+        return catalog.get();
+      },
+      apply(frame) {
+        if (frame.event !== 'sessions') return;
+        const decoded = decoder.decode(frame.payload);
+        if (!decoded.ok) throw new Error('a sessions frame did not apply');
+        catalog.publish(decoded.items);
+        cache.observe(frame.payload);
+      },
+      stamped: () => readRosterStamp,
+    };
+  }
+  const kind = (frames) =>
+    frames
+      .filter((f) => f.event === 'sessions')
+      .map((f) => (f.payload.__listCatch ? 'catch-up' : f.payload.rows ? 'baseline' : 'delta'));
 
-// Per state: a fresh phone's baseline, a phone that restarts into it holding the previous state's persisted roster, and a change that
-// arrives while the baseline's read is still held.
-const withRows = (name) => rosters.find((r) => r.name === name).roster;
-for (let i = 1; i < rosters.length; i += 1) {
-  const { name } = rosters[i];
-  const prev = rosters[i - 1];
-  await storage.clear();
-  let d = desktop(withRows(name));
-  let p = phone();
-  note(`attach:${name}`, p, await d.connect(p)(await p.claim()));
-  if (i === 1) continue;
-  // The desktop restarts into this state; the phone holds the roster it persisted from the previous one.
-  await storage.clear();
-  d = desktop(withRows(prev.name));
-  p = phone();
-  const persisted = storage.nextSave();
-  await d.connect(p)(await p.claim());
-  await deadline.race(persisted, `the phone to persist the roster of ${prev.name}`);
-  d = desktop(withRows(name));
-  p = phone();
-  note(`restart:${prev.name}>${name}`, p, await d.connect(p)(await p.claim()));
-  // A change between the baseline's subscribe and its list: the host publishes the next state while the read is held.
-  await storage.clear();
-  d = desktop(withRows(prev.name));
-  p = phone();
-  const { arrived, release } = d.hold();
-  const syncing = d.connect(p)(await p.claim());
-  await deadline.race(arrived, `the host's roster read for ${name} to reach the hold`);
-  d.publish(withRows(name));
-  release();
-  note(`between:${prev.name}>${name}`, p, await deadline.race(syncing, `the phone's baseline read of ${name} to finish`));
-}
+  const steps = [];
+  const note = (name, p, frames, extra = {}) =>
+    steps.push({
+      name,
+      ...extra,
+      frames: frames ? kind(frames) : undefined,
+      published: p.published.splice(0),
+      roster: plain(p.rows),
+    });
 
-// Publishing a roster the phone already has: Node's catalog skips an unchanged roster, so nothing reaches the phone.
-live.publish(rosters.at(-1).roster);
-note('unchanged:delete', livePhone, undefined);
+  // The desktop and phone that stay connected through every action: every publication of Node's host reaches the phone as it happens
+  // (`relayPublication`); an action ends when the host's last publication is the roster its store lists.
+  const live = desktop([]);
+  const livePhone = phone();
+  await live.connect(livePhone)(await livePhone.claim());
+  livePhone.published.splice(0);
+  let lastPublished = JSON.stringify([]);
+  relayPublication = (rows) => {
+    lastPublished = JSON.stringify(rows);
+    live.publish(rows);
+  };
+  const rosters = [{ name: 'start', roster: [] }];
+  for (const [name, act] of ACTIONS) {
+    await act();
+    const next = await roster();
+    rosters.push({ name, roster: next });
+    await until(() => lastPublished === JSON.stringify(next), `Node's host to publish the roster after ${name}`);
+    note(`action:${name}`, livePhone, undefined);
+  }
+  relayPublication = null;
 
-// Node's catalog order over ties, lastUsedAt over updatedAt, and rows with no activity at all (schema.mjs byActivityThenId): the rows are
-// Node store rows (inputs); `order` is what Node's own comparator gives.
-const tieRows = [
-  { id: 'sess_10', updatedAt: 500 }, { id: 'sess_11', updatedAt: 500 }, { id: 'sess_09', updatedAt: 500 }, { id: 'sess_13', updatedAt: 100, lastUsedAt: 900 },
-  { id: 'sess_14', updatedAt: 900 }, { id: 'sess_15', updatedAt: 0 }, { id: 'sess_A', updatedAt: 0 }, { id: 'sess_a', updatedAt: 0, lastUsedAt: 0 },
-].map((row) => ({ preview: '', title: row.id, messageCount: 0, cwd: PROJECT.a, classification: 'project', projectPath: PROJECT.a, ...row, activityAt: Number(row.lastUsedAt) || row.updatedAt }));
-steps.push({ name: 'order-ties', coreRows: plain(tieRows), order: [...tieRows].sort(byActivityThenId).map((r) => r.id) });
+  // Per state: a fresh phone's baseline, a phone that restarts into it holding the previous state's persisted roster, and a change that
+  // arrives while the baseline's read is still held.
+  const withRows = (name) => rosters.find((r) => r.name === name).roster;
+  for (let i = 1; i < rosters.length; i += 1) {
+    const { name } = rosters[i];
+    const prev = rosters[i - 1];
+    await storage.clear();
+    let d = desktop(withRows(name));
+    let p = phone();
+    note(`attach:${name}`, p, await d.connect(p)(await p.claim()));
+    if (i === 1) continue;
+    // The desktop restarts into this state; the phone holds the roster it persisted from the previous one.
+    await storage.clear();
+    d = desktop(withRows(prev.name));
+    p = phone();
+    const persisted = storage.nextSave();
+    await d.connect(p)(await p.claim());
+    await deadline.race(persisted, `the phone to persist the roster of ${prev.name}`);
+    d = desktop(withRows(name));
+    p = phone();
+    note(`restart:${prev.name}>${name}`, p, await d.connect(p)(await p.claim()));
+    // A change between the baseline's subscribe and its list: the host publishes the next state while the read is held.
+    await storage.clear();
+    d = desktop(withRows(prev.name));
+    p = phone();
+    const { arrived, release } = d.hold();
+    const syncing = d.connect(p)(await p.claim());
+    await deadline.race(arrived, `the host's roster read for ${name} to reach the hold`);
+    d.publish(withRows(name));
+    release();
+    note(
+      `between:${prev.name}>${name}`,
+      p,
+      await deadline.race(syncing, `the phone's baseline read of ${name} to finish`)
+    );
+  }
 
-// A prompt with no display text: the submission intake refuses it (submission.mjs `submission`, promptDisplayText), and the host answers
-// false / not accepted. Asked of the real host on a real session, so the phone's refusal is Node's own answer.
-const refusals = {};
-for (const prompt of ['', '   ']) {
-  refusals[`submitToSession ${JSON.stringify(prompt)}`] = await deadline.race(host.submitToSession(made.sess_1, prompt, { id: `sub-blank-${prompt.length}` }), `Node's host to answer a blank submitToSession (${prompt.length} chars)`);
-  refusals[`submitNewTask ${JSON.stringify(prompt)}`] = await deadline.race(host.submitNewTask(prompt, { id: `sub-new-blank-${prompt.length}` }, { projectPath: projects.a, route }), `Node's host to answer a blank submitNewTask (${prompt.length} chars)`);
-}
+  // Publishing a roster the phone already has: Node's catalog skips an unchanged roster, so nothing reaches the phone.
+  live.publish(rosters.at(-1).roster);
+  note('unchanged:delete', livePhone, undefined);
 
-const sha256 = (file) => sha('sha256').update(readFileSync(file)).digest('hex');
-const manifest = { exact: true, commit: COMMIT, tree: execFileSync('git', ['-C', NODE_CHECKOUT, 'rev-parse', `${COMMIT}^{tree}`]).toString().trim(), filesCompared: checked, crlfOnlyDifferences: eolOnly, source: 'git archive of the whole tree, every file compared with its git blob id; the Node daemon (session-client.mjs ensureDaemon) and session-host.ts run unchanged for the actions; remote-view-sync.ts, remote-relay-catalog.ts, view-synchronizer.ts, list-delta.ts, remote-roster-cache.ts run unchanged for the phone side', harness: Object.fromEntries(PINNED.map((name) => [`lib/${name}`, sha256(join(harness, 'lib', name))])), hostNotes: notes, actions: ACTIONS.map(([name]) => name) };
-writeFileSync(outFile, `${JSON.stringify({ manifest, made, projects, refusals, states: rosters, steps }, null, 2)}\n`);
-console.log(`recorded ${steps.length} steps over ${checked} verified files`);
+  // Node's catalog order over ties, lastUsedAt over updatedAt, and rows with no activity at all (schema.mjs byActivityThenId): the rows are
+  // Node store rows (inputs); `order` is what Node's own comparator gives.
+  const tieRows = [
+    { id: 'sess_10', updatedAt: 500 },
+    { id: 'sess_11', updatedAt: 500 },
+    { id: 'sess_09', updatedAt: 500 },
+    { id: 'sess_13', updatedAt: 100, lastUsedAt: 900 },
+    { id: 'sess_14', updatedAt: 900 },
+    { id: 'sess_15', updatedAt: 0 },
+    { id: 'sess_A', updatedAt: 0 },
+    { id: 'sess_a', updatedAt: 0, lastUsedAt: 0 },
+  ].map((row) => ({
+    preview: '',
+    title: row.id,
+    messageCount: 0,
+    cwd: PROJECT.a,
+    classification: 'project',
+    projectPath: PROJECT.a,
+    ...row,
+    activityAt: Number(row.lastUsedAt) || row.updatedAt,
+  }));
+  steps.push({
+    name: 'order-ties',
+    coreRows: plain(tieRows),
+    order: [...tieRows].sort(byActivityThenId).map((r) => r.id),
+  });
+
+  // A prompt with no display text: the submission intake refuses it (submission.mjs `submission`, promptDisplayText), and the host answers
+  // false / not accepted. Asked of the real host on a real session, so the phone's refusal is Node's own answer.
+  const refusals = {};
+  for (const prompt of ['', '   ']) {
+    refusals[`submitToSession ${JSON.stringify(prompt)}`] = await deadline.race(
+      host.submitToSession(made.sess_1, prompt, { id: `sub-blank-${prompt.length}` }),
+      `Node's host to answer a blank submitToSession (${prompt.length} chars)`
+    );
+    refusals[`submitNewTask ${JSON.stringify(prompt)}`] = await deadline.race(
+      host.submitNewTask(prompt, { id: `sub-new-blank-${prompt.length}` }, { projectPath: projects.a, route }),
+      `Node's host to answer a blank submitNewTask (${prompt.length} chars)`
+    );
+  }
+
+  const sha256 = (file) => sha('sha256').update(readFileSync(file)).digest('hex');
+  const manifest = {
+    exact: true,
+    commit: COMMIT,
+    tree: execFileSync('git', ['-C', NODE_CHECKOUT, 'rev-parse', `${COMMIT}^{tree}`])
+      .toString()
+      .trim(),
+    filesCompared: checked,
+    crlfOnlyDifferences: eolOnly,
+    source:
+      'git archive of the whole tree, every file compared with its git blob id; the Node daemon (session-client.mjs ensureDaemon) and session-host.ts run unchanged for the actions; remote-view-sync.ts, remote-relay-catalog.ts, view-synchronizer.ts, list-delta.ts, remote-roster-cache.ts run unchanged for the phone side',
+    harness: Object.fromEntries(PINNED.map((name) => [`lib/${name}`, sha256(join(harness, 'lib', name))])),
+    hostNotes: notes,
+    actions: ACTIONS.map(([name]) => name),
+  };
+  writeFileSync(
+    outFile,
+    `${JSON.stringify({ manifest, made, projects, refusals, states: rosters, steps }, null, 2)}\n`
+  );
+  console.log(`recorded ${steps.length} steps over ${checked} verified files`);
 } finally {
   deadline.clear();
   console.warn = originalWarn;
   // Each step of the teardown runs whatever the one before it did, under a deadline of its own; a failure is reported, not swallowed.
   const ended = createDeadline(90_000, () => `tearing down the roster recording (Node daemon pid ${discovery?.pid})`);
   const failures = [];
-  const step = async (what, run) => { try { await ended.race(run(), what); } catch (error) { failures.push(`${what}: ${error?.stack ?? error}`); } };
+  const step = async (what, run) => {
+    try {
+      await ended.race(run(), what);
+    } catch (error) {
+      failures.push(`${what}: ${error?.stack ?? error}`);
+    }
+  };
   try {
     if (host) await step('the session host to dispose', () => host.dispose());
-    await step('the Node daemon to exit', () => sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 30_000 }));
+    await step('the Node daemon to exit', () =>
+      sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 30_000 })
+    );
     await step('the model endpoint to close', () => provider.close());
   } finally {
     ended.clear();

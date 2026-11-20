@@ -141,7 +141,9 @@ export function toolRowRevision(item: TranscriptItem): string {
     item.remoteOutputTruncated ?? 0,
     item.completedAt ?? '',
     item.count ?? '',
-    ...(whole === null ? [textIdentity(item.result), textIdentity(item.rawResult), textIdentity(item.uiDiff)] : [whole]),
+    ...(whole === null
+      ? [textIdentity(item.result), textIdentity(item.rawResult), textIdentity(item.uiDiff)]
+      : [whole]),
     signature,
   ].join('|');
 }

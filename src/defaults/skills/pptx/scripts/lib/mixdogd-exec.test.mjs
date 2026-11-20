@@ -45,8 +45,21 @@ test('a run is one hidden `mixdogd exec` with the route, folder, usage log and t
   assert.equal(err, 'warn');
   assert.equal(calls[0].bin, '/bin/mixdogd');
   assert.deepEqual(calls[0].args, [
-    'exec', '--provider', 'p', '--model', 'm', '--effort', 'high', '--cwd', '/deck',
-    '--usage-log', '/deck/r.usage.json', '--tool-mode', 'readonly', '--', '--looks like a flag',
+    'exec',
+    '--provider',
+    'p',
+    '--model',
+    'm',
+    '--effort',
+    'high',
+    '--cwd',
+    '/deck',
+    '--usage-log',
+    '/deck/r.usage.json',
+    '--tool-mode',
+    'readonly',
+    '--',
+    '--looks like a flag',
   ]);
   assert.equal(calls[0].options.windowsHide, true);
 });

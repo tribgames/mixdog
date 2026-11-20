@@ -19,7 +19,13 @@ import {
   processForegroundLock,
 } from '../computer/backend/foreground-lock-host';
 import type { ComputerScopes } from './computer-scope';
-import { HOST_COMMAND_FAILED, HOST_INVALID_PARAMS, HostRpcError, type HostConnection, objectParams } from './connection';
+import {
+  HOST_COMMAND_FAILED,
+  HOST_INVALID_PARAMS,
+  HostRpcError,
+  type HostConnection,
+  objectParams,
+} from './connection';
 
 export const HOST_COMPUTER_FOREGROUND_LEASE = 'host/computer/foregroundLease';
 
@@ -47,7 +53,8 @@ function resultOf(
     .trim()
     .split(' ');
   if (Number(said_action) !== action || Number(said_seq) !== seq) return undefined;
-  if (kind === 'ack' && op === 'acquire') return { kind, answer: said, lease: Number(lease), deadlineAt: Number(deadline) };
+  if (kind === 'ack' && op === 'acquire')
+    return { kind, answer: said, lease: Number(lease), deadlineAt: Number(deadline) };
   if (kind === 'released' && op === 'release') return { kind, lease: Number(lease), outcome: said };
   return undefined;
 }
@@ -85,79 +92,82 @@ export function registerComputerLease(
       void closing?.dispose();
     }
   });
-  connection.handleRequest(HOST_COMPUTER_FOREGROUND_LEASE, async (params): Promise<HostComputerForegroundLeaseResult> => {
-    const ask = objectParams<HostComputerForegroundLeaseParams>(params, HOST_COMPUTER_FOREGROUND_LEASE);
-    const { instance: helper, op, action } = ask;
-    if (typeof helper !== 'string' || (op !== 'acquire' && op !== 'release' && op !== 'gone')) {
-      throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_FOREGROUND_LEASE} needs op, instance and action.`);
-    }
-    if (op !== 'gone') {
-      const numbers =
-        id(action, 1) &&
-        id(ask.seq, 1) &&
-        (op === 'release'
-          ? id(ask.lease, 0)
-          : Number.isSafeInteger(ask.holdMs) && typeof ask.answerBy === 'number' && Number.isFinite(ask.answerBy));
-      if (!numbers) {
-        throw new HostRpcError(
-          HOST_INVALID_PARAMS,
-          `${HOST_COMPUTER_FOREGROUND_LEASE} needs integer action, seq and ${op === 'release' ? 'lease' : 'holdMs, and a finite answerBy'}.`
-        );
+  connection.handleRequest(
+    HOST_COMPUTER_FOREGROUND_LEASE,
+    async (params): Promise<HostComputerForegroundLeaseResult> => {
+      const ask = objectParams<HostComputerForegroundLeaseParams>(params, HOST_COMPUTER_FOREGROUND_LEASE);
+      const { instance: helper, op, action } = ask;
+      if (typeof helper !== 'string' || (op !== 'acquire' && op !== 'release' && op !== 'gone')) {
+        throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_FOREGROUND_LEASE} needs op, instance and action.`);
       }
-    } else if (typeof action !== 'number') {
-      throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_FOREGROUND_LEASE} needs op, instance and action.`);
-    }
-    // Taking the foreground lock is an effect of the scope; a release, or a helper gone, only gives back what it held.
-    const acquiring = op === 'acquire' ? scopes.admit(params) : undefined;
-    const lock = lockOf();
-    if (!lock) return unavailable('no foreground lock on this platform');
-    let instance = instances.get(helper);
-    if (op === 'gone') {
-      if (instance !== undefined) lock.workerGone(instance);
-      instances.delete(helper);
-      return unavailable('gone');
-    }
-    if (instance === undefined) instances.set(helper, (instance = nextLeaseInstance()));
-    const number = instance;
-    const answering = new Promise<HostComputerForegroundLeaseResult | undefined>((resolve) => {
-      const timer = setTimeout(resolve, ANSWER_WAIT_MS, undefined);
-      lock.handle(
-        JSON.stringify({
-          op,
-          action,
-          seq: ask.seq,
-          hold_ms: ask.holdMs,
-          answer_by: ask.answerBy,
-          lease: ask.lease,
-        }),
-        {
-          instance: number,
-          pid: undefined,
-          // The core relays only the actions its helper has in flight.
-          owns: () => true,
-          write: (reply) => {
-            const answered = resultOf(reply, op, action as number, ask.seq as number);
-            if (!answered) return;
-            clearTimeout(timer);
-            resolve(answered);
-          },
+      if (op !== 'gone') {
+        const numbers =
+          id(action, 1) &&
+          id(ask.seq, 1) &&
+          (op === 'release'
+            ? id(ask.lease, 0)
+            : Number.isSafeInteger(ask.holdMs) && typeof ask.answerBy === 'number' && Number.isFinite(ask.answerBy));
+        if (!numbers) {
+          throw new HostRpcError(
+            HOST_INVALID_PARAMS,
+            `${HOST_COMPUTER_FOREGROUND_LEASE} needs integer action, seq and ${op === 'release' ? 'lease' : 'holdMs, and a finite answerBy'}.`
+          );
         }
-      );
-    });
-    // An acquire is counted under its scope until the lease owner answered.
-    acquiring?.track(answering);
-    const result = await answering;
-    if (!result) {
-      // A release nobody answered may leave a lease held: the core records it as unknown, never as nothing held.
-      if (op === 'release') throw new HostRpcError(HOST_COMMAND_FAILED, 'the lease owner did not answer the release');
-      return unavailable('the lease owner did not answer');
+      } else if (typeof action !== 'number') {
+        throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_FOREGROUND_LEASE} needs op, instance and action.`);
+      }
+      // Taking the foreground lock is an effect of the scope; a release, or a helper gone, only gives back what it held.
+      const acquiring = op === 'acquire' ? scopes.admit(params) : undefined;
+      const lock = lockOf();
+      if (!lock) return unavailable('no foreground lock on this platform');
+      let instance = instances.get(helper);
+      if (op === 'gone') {
+        if (instance !== undefined) lock.workerGone(instance);
+        instances.delete(helper);
+        return unavailable('gone');
+      }
+      if (instance === undefined) instances.set(helper, (instance = nextLeaseInstance()));
+      const number = instance;
+      const answering = new Promise<HostComputerForegroundLeaseResult | undefined>((resolve) => {
+        const timer = setTimeout(resolve, ANSWER_WAIT_MS, undefined);
+        lock.handle(
+          JSON.stringify({
+            op,
+            action,
+            seq: ask.seq,
+            hold_ms: ask.holdMs,
+            answer_by: ask.answerBy,
+            lease: ask.lease,
+          }),
+          {
+            instance: number,
+            pid: undefined,
+            // The core relays only the actions its helper has in flight.
+            owns: () => true,
+            write: (reply) => {
+              const answered = resultOf(reply, op, action as number, ask.seq as number);
+              if (!answered) return;
+              clearTimeout(timer);
+              resolve(answered);
+            },
+          }
+        );
+      });
+      // An acquire is counted under its scope until the lease owner answered.
+      acquiring?.track(answering);
+      const result = await answering;
+      if (!result) {
+        // A release nobody answered may leave a lease held: the core records it as unknown, never as nothing held.
+        if (op === 'release') throw new HostRpcError(HOST_COMMAND_FAILED, 'the lease owner did not answer the release');
+        return unavailable('the lease owner did not answer');
+      }
+      // The action's facts go back once it is over: with its release (after the release has updated them), or with an
+      // acquire that leased nothing. The core keeps the last per action and joins them to the helper's reply.
+      const done = op === 'release' || (result.kind === 'ack' && !result.lease);
+      const facts = done ? lock.takeFacts(number, action as number) : undefined;
+      return facts ? { ...result, facts: facts as HostComputerForegroundLeaseResult['facts'] } : result;
     }
-    // The action's facts go back once it is over: with its release (after the release has updated them), or with an
-    // acquire that leased nothing. The core keeps the last per action and joins them to the helper's reply.
-    const done = op === 'release' || (result.kind === 'ack' && !result.lease);
-    const facts = done ? lock.takeFacts(number, action as number) : undefined;
-    return facts ? { ...result, facts: facts as HostComputerForegroundLeaseResult['facts'] } : result;
-  });
+  );
 }
 
 /** The process owner's instances end with the connection that numbered them; nothing is started for that. */

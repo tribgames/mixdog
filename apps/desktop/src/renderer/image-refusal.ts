@@ -106,7 +106,12 @@ function gateOf(value: unknown): ImageGate | null {
   if (value.state !== 'repair' || !Array.isArray(value.images)) return null;
   const images: GateImage[] = [];
   for (const image of value.images) {
-    if (!isRecord(image) || typeof image.messageId !== 'string' || !(image.part === null || Number.isInteger(image.part))) return null;
+    if (
+      !isRecord(image) ||
+      typeof image.messageId !== 'string' ||
+      !(image.part === null || Number.isInteger(image.part))
+    )
+      return null;
     images.push({
       messageId: image.messageId,
       part: image.part as number | null,

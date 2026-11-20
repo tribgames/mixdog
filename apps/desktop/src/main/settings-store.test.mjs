@@ -9,10 +9,6 @@ import { DESKTOP_IPC } from '../shared/contract.ts';
 import { defaultBrowserPermissionPolicy } from '../shared/browser-permission-policy.ts';
 import { registerWindowSettingsIpc } from './ipc-window-settings.ts';
 
-
-
-
-
 test('desktop settings read the canonical agent section and desktop defaults', () => {
   assert.deepEqual(desktopSettingsFromConfig({}), {
     autoClear: true,
@@ -85,11 +81,6 @@ test('saved-login sign-in is on by default and an explicit off is kept', () => {
   assert.equal(requiredDesktopSettingKey('browserAutoSignIn'), 'browserAutoSignIn');
 });
 
-
-
-
-
-
 test('a control that is already on grandfathers its install marker', () => {
   const settings = desktopSettingsFromConfig({
     desktop: { browserControl: true, computerControl: true },
@@ -97,8 +88,6 @@ test('a control that is already on grandfathers its install marker', () => {
   assert.equal(settings.browserInstalled, true);
   assert.equal(settings.computerInstalled, true);
 });
-
-
 
 test('IPC accepts only the runtime-backed setting keys', () => {
   assert.equal(requiredDesktopSettingKey('autoClear'), 'autoClear');

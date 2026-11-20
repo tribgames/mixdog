@@ -4,7 +4,12 @@ import { test } from 'node:test';
 
 import { BrowserGuestStateStore } from '../../browser/host-state.ts';
 import { createBrowserCommandHost } from '../browser-command.ts';
-import { createBrowserEngine, ENGINE_NOTIFICATION_METHODS, ENGINE_REQUEST_METHODS, serveBrowserEngine } from './index.ts';
+import {
+  createBrowserEngine,
+  ENGINE_NOTIFICATION_METHODS,
+  ENGINE_REQUEST_METHODS,
+  serveBrowserEngine,
+} from './index.ts';
 import { createInterceptTable } from './session.ts';
 
 function harness() {
@@ -71,7 +76,17 @@ function harness() {
     traceDirectory: () => '/traces',
     processMemoryMb: () => undefined,
   };
-  return { connection, requests, notifications, sent, closers, ports, guests, bound: () => bound, unbound: () => unbound };
+  return {
+    connection,
+    requests,
+    notifications,
+    sent,
+    closers,
+    ports,
+    guests,
+    bound: () => bound,
+    unbound: () => unbound,
+  };
 }
 
 test('a lane registers exactly the methods the connection is told to serve', () => {
@@ -104,7 +119,10 @@ test('every method is served before the browser exists, and the lane is built by
 test('the lane ends with the link and a new link starts a new one', async () => {
   const h = harness();
   const served = serveBrowserEngine(h.connection, () => h.ports);
-  const call = () => h.requests.get('host/browser/snapshot')({ pageId: 'p9' }, new AbortController().signal).catch(() => {});
+  const call = () =>
+    h.requests
+      .get('host/browser/snapshot')({ pageId: 'p9' }, new AbortController().signal)
+      .catch(() => {});
   await call();
   const first = h.bound();
   for (const close of h.closers) close();
@@ -119,7 +137,14 @@ test('the lane volunteers nothing before the core uses it', async () => {
   const h = harness();
   createBrowserEngine(h.connection, h.ports);
   const { visibilityChanged } = h.bound();
-  const guest = { pageId: 'p1', isDestroyed: () => false, once: () => {}, on: () => {}, off: () => {}, removeListener: () => {} };
+  const guest = {
+    pageId: 'p1',
+    isDestroyed: () => false,
+    once: () => {},
+    on: () => {},
+    off: () => {},
+    removeListener: () => {},
+  };
   visibilityChanged(guest);
   assert.deepEqual(h.sent, []);
 });
@@ -207,7 +232,14 @@ test('a host console entry recorded for a page that already closed is dropped by
 
 test('a command of the core drives the page it leases through the host, and lets go with the lease', () => {
   const h = harness();
-  const guest = { pageId: 'p1', isDestroyed: () => false, once: () => {}, on: () => {}, off: () => {}, removeListener: () => {} };
+  const guest = {
+    pageId: 'p1',
+    isDestroyed: () => false,
+    once: () => {},
+    on: () => {},
+    off: () => {},
+    removeListener: () => {},
+  };
   h.guests.push(guest);
   const log = [];
   h.ports.drivePage = (driven) => {

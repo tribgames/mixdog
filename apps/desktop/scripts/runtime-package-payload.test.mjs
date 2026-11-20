@@ -16,10 +16,7 @@ async function fixture(context) {
   return {
     root,
     manifest: {
-      files: [
-        { path: 'package.json' },
-        { path: 'src/entry.mjs' },
-      ],
+      files: [{ path: 'package.json' }, { path: 'src/entry.mjs' }],
     },
   };
 }

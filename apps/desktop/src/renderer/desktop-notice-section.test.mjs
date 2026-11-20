@@ -28,7 +28,8 @@ test('a notice section entry shows as one toast until it is withdrawn and raised
   });
   const raised = [];
   dom.window.addEventListener('mixdog:desktop-toast', (event) => raised.push(event.detail));
-  const change = (next) => act(async () => push({ kind: 'sections', changes: [{ section: 'notice', key: 'secret-storage', entry: next }] }));
+  const change = (next) =>
+    act(async () => push({ kind: 'sections', changes: [{ section: 'notice', key: 'secret-storage', entry: next }] }));
   const { DesktopToastRegion } = await import('./desktop-toasts.tsx');
   const root = createRoot(document.getElementById('root'));
   try {

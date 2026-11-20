@@ -68,7 +68,8 @@ function fakeClient() {
     emit: (event) => {
       if (event.type === 'serverRequest') {
         if (isOfferedRequest(event.request.method)) pending.push(event.request);
-      } else if (event.type === 'serverRequestResolved') pending.splice(0, pending.length, ...pending.filter((r) => r.id !== event.params.requestId));
+      } else if (event.type === 'serverRequestResolved')
+        pending.splice(0, pending.length, ...pending.filter((r) => r.id !== event.params.requestId));
       else if (event.type === 'status' && event.status.state !== 'ready') pending.length = 0;
       handlers.forEach((h) => h(event));
     },
@@ -104,7 +105,9 @@ test('whenSynced settles with the connect handshake: after the app subscription,
 test('a call that arrives before the first connection is open waits for it, and fails with its error when it fails', async () => {
   const client = fakeClient();
   let finishOpen;
-  const connection = createProtocolConnection({ open: () => new Promise((resolve) => (finishOpen = () => resolve(client))) });
+  const connection = createProtocolConnection({
+    open: () => new Promise((resolve) => (finishOpen = () => resolve(client))),
+  });
   const starting = connection.start();
   const early = connection.call('model/list', { quick: true });
   const earlyWatch = connection.watchFiles({ push() {}, notification() {}, loginFeedLost() {} }, { watchId: 'w1' });
@@ -114,7 +117,10 @@ test('a call that arrives before the first connection is open waits for it, and 
   await starting;
   await early;
   await earlyWatch;
-  assert.deepEqual(client.calls.map((c) => c.method), ['model/list', 'fs/watch']);
+  assert.deepEqual(
+    client.calls.map((c) => c.method),
+    ['model/list', 'fs/watch']
+  );
 
   const failing = createProtocolConnection({
     open: async () => {
@@ -132,7 +138,9 @@ test('closing while the first connection is still opening ends what waited for i
   let closedUnused = false;
   client.close = async () => void (closedUnused = true);
   let finishOpen;
-  const connection = createProtocolConnection({ open: () => new Promise((resolve) => (finishOpen = () => resolve(client))) });
+  const connection = createProtocolConnection({
+    open: () => new Promise((resolve) => (finishOpen = () => resolve(client))),
+  });
   const window = { push() {}, notification() {}, loginFeedLost() {} };
   const starting = connection.start();
   const waiting = [
@@ -161,13 +169,20 @@ test('closing while the first connection is still opening ends what waited for i
 test('the snapshot holds every section of the open client with the epoch of its app feed', async () => {
   const client = fakeClient();
   const connection = createProtocolConnection({ open: async () => client });
-  assert.deepEqual(connection.snapshot(), { status: 'reconnecting', entries: [] }, 'nothing is held before the first open');
+  assert.deepEqual(
+    connection.snapshot(),
+    { status: 'reconnecting', entries: [] },
+    'nothing is held before the first open'
+  );
   await connection.start();
   client.store.set('config', null, 1, { a: 1 });
   client.store.set('usage', 'day', 2, { rows: 2 });
   const snapshot = connection.snapshot();
   assert.equal(snapshot.status, 'ready');
-  assert.deepEqual(snapshot.entries.map((e) => [e.section, e.key, e.revision]).sort(), [['config', null, 1], ['usage', 'day', 2]]);
+  assert.deepEqual(snapshot.entries.map((e) => [e.section, e.key, e.revision]).sort(), [
+    ['config', null, 1],
+    ['usage', 'day', 2],
+  ]);
   assert.equal(snapshot.epoch, 'core-1');
   client.store.epoch = 'core-2';
   assert.equal(connection.snapshot().epoch, 'core-2');
@@ -183,7 +198,10 @@ test('a watch is owned by its window: the notification reaches it, and detaching
   const window = { push() {}, notification: (method, params) => seen.push([method, params]), loginFeedLost() {} };
   const detach = connection.attach(window);
   await connection.watchFiles(window, { watchId: 'w1:x', path: '/p', recursive: true });
-  client.emit({ type: 'notification', notification: { method: 'fs/changed', params: { watchId: 'w1:x', changedPaths: ['/p/a'] } } });
+  client.emit({
+    type: 'notification',
+    notification: { method: 'fs/changed', params: { watchId: 'w1:x', changedPaths: ['/p/a'] } },
+  });
   assert.deepEqual(seen, [['fs/changed', { watchId: 'w1:x', changedPaths: ['/p/a'] }]]);
   detach();
   assert.equal(client.calls.at(-1).method, 'fs/unwatch', 'closing the window releases its watch');
@@ -249,15 +267,22 @@ test('past the follow cap only ended sign-ins are let go: a pending one keeps it
   let next = 0;
   const { client, connection, lost } = await loginWindow({});
   const answer = client.call;
-  client.call = async (method, params) => (method === 'mcp/beginMcpOAuthLogin' ? (client.calls.push({ method, params }), { flowId: flowIds[next++] }) : answer(method, params));
+  client.call = async (method, params) =>
+    method === 'mcp/beginMcpOAuthLogin'
+      ? (client.calls.push({ method, params }), { flowId: flowIds[next++] })
+      : answer(method, params);
   // The first flow ends before the cap is passed; every other stays pending.
   await connection.call('mcp/beginMcpOAuthLogin', {});
   client.emit(note('feed/snapshot', { feedId: 'login:f0', state: { flowId: 'f0', state: 'complete' } }));
   for (let index = 1; index < flowIds.length; index += 1) {
     await connection.call('mcp/beginMcpOAuthLogin', {});
-    client.emit(note('feed/snapshot', { feedId: `login:${flowIds[index]}`, state: { flowId: flowIds[index], state: 'pending' } }));
+    client.emit(
+      note('feed/snapshot', { feedId: `login:${flowIds[index]}`, state: { flowId: flowIds[index], state: 'pending' } })
+    );
   }
-  const unsubscribed = client.calls.filter((call) => call.method === 'feed/unsubscribe').map((call) => call.params.feedId);
+  const unsubscribed = client.calls
+    .filter((call) => call.method === 'feed/unsubscribe')
+    .map((call) => call.params.feedId);
   assert.deepEqual(unsubscribed, ['login:f0'], 'only the ended flow is let go');
   for (const flowId of flowIds.slice(1)) {
     assert.equal(connection.loginFeed(flowId).lost, false, `${flowId} is still followed`);
@@ -320,7 +345,10 @@ test('the connection logs an internal reconnect, a replacement and the feeds it 
   first.emit({ type: 'status', status: { state: 'reconnecting' } });
   first.emit({ type: 'status', status: { state: 'ready' } });
   await turn();
-  assert.deepEqual(lines.map((l) => l.event), ['core-scoped-feeds-restore-started', 'core-scoped-feeds-restore-settled']);
+  assert.deepEqual(
+    lines.map((l) => l.event),
+    ['core-scoped-feeds-restore-started', 'core-scoped-feeds-restore-settled']
+  );
   assert.deepEqual(lines[0].attempted, { fsWatches: 1, feeds: 0, ports: 0 });
 
   // A replacement is its own line, naming that a client was there.
@@ -329,13 +357,19 @@ test('the connection logs an internal reconnect, a replacement and the feeds it 
   await turn();
   assert.equal(lines[0].event, 'core-connection-replace');
   assert.equal(lines[0].hadClient, true);
-  assert.equal(lines.some((l) => l.event === 'core-scoped-feeds-restore-started'), true);
+  assert.equal(
+    lines.some((l) => l.event === 'core-scoped-feeds-restore-started'),
+    true
+  );
 });
 
 test('the restore line says what was attempted, and what each request then came to: restored, lost, or failed', async () => {
   const client = fakeClient();
   const lines = [];
-  const connection = createProtocolConnection({ open: async () => client, log: (event, fields) => lines.push({ event, ...fields }) });
+  const connection = createProtocolConnection({
+    open: async () => client,
+    log: (event, fields) => lines.push({ event, ...fields }),
+  });
   await connection.start();
   const window = { push() {}, notification() {}, loginFeedLost() {} };
   connection.attach(window);
@@ -351,7 +385,11 @@ test('the restore line says what was attempted, and what each request then came 
   client.emit({ type: 'status', status: { state: 'reconnecting' } });
   client.emit({ type: 'status', status: { state: 'ready' } });
   await turn();
-  assert.deepEqual(lines.map((l) => l.event), ['core-scoped-feeds-restore-started', 'core-scoped-feeds-restore-settled'], 'the attempt first, its outcome after');
+  assert.deepEqual(
+    lines.map((l) => l.event),
+    ['core-scoped-feeds-restore-started', 'core-scoped-feeds-restore-settled'],
+    'the attempt first, its outcome after'
+  );
   assert.deepEqual(lines[0].attempted, { fsWatches: 2, feeds: 0, ports: 1 });
   assert.equal('restored' in lines[0], false, 'the attempt carries no outcome');
   assert.deepEqual([lines[1].restored, lines[1].lost, lines[1].failed], [1, 1, 1]);
@@ -384,14 +422,20 @@ test('reopen replaces the client: the old one is closed and silenced, the snapsh
     { method: 'fs/watch', params: { watchId: 'w1:a', path: '/p', recursive: true } },
     { method: 'system/ports/subscribe', params: {} },
   ]);
-  assert.deepEqual(connection.snapshot().entries.map((e) => [e.section, e.revision]), [['config', 3]]);
+  assert.deepEqual(
+    connection.snapshot().entries.map((e) => [e.section, e.revision]),
+    [['config', 3]]
+  );
   await connection.call('x/y', {});
   assert.equal(second.calls.at(-1).method, 'x/y');
   // The old client no longer reaches the connection.
   first.store.set('config', null, 99, 'stale');
   first.emit({ type: 'status', status: { state: 'ready' } });
   assert.equal(connection.status, 'ready');
-  assert.deepEqual(connection.snapshot().entries.map((e) => [e.section, e.revision]), [['config', 3]]);
+  assert.deepEqual(
+    connection.snapshot().entries.map((e) => [e.section, e.revision]),
+    [['config', 3]]
+  );
 });
 
 test('a reopen whose handshake fails leaves nothing half-open: the next reopen starts clean and whenSynced follows it', async () => {
@@ -480,12 +524,20 @@ test('a reopen that begins while another is in flight supersedes it: the older c
   assert.equal(c.closed, 1, 'the superseded client was bound but unfinished: it is released');
   c.subscribe();
   await turn();
-  assert.equal(connection.status, 'reconnecting', 'the late answer of a superseded client does not make the connection ready');
+  assert.equal(
+    connection.status,
+    'reconnecting',
+    'the late answer of a superseded client does not make the connection ready'
+  );
   await connection.close();
   d.open();
   // A closed connection ends every reopen still in flight.
   await Promise.all([third, fourth]);
-  assert.deepEqual([first, a, b, c, d].map((gate) => gate.closed), [1, 1, 1, 1, 1], 'every client ends closed');
+  assert.deepEqual(
+    [first, a, b, c, d].map((gate) => gate.closed),
+    [1, 1, 1, 1, 1],
+    'every client ends closed'
+  );
 });
 
 test('a reopen superseded by close never leaves a client open', async () => {
@@ -520,7 +572,7 @@ test('a reopen drops the sign-in feeds it cannot carry: they are lost, and a fee
   await connection.reopen();
   assert.deepEqual(lost, ['f1'], 'told through the same path as a dropped link');
   assert.equal(connection.loginFeed('f1').lost, true);
-  assert.deepEqual(second.calls, [], 'nothing of the old client\'s feeds is sent to the new one');
+  assert.deepEqual(second.calls, [], "nothing of the old client's feeds is sent to the new one");
 });
 
 test('replaced listeners are told once the new client is attached, not for the first start', async () => {
@@ -541,7 +593,7 @@ test('ensureOpen leaves a client the automatic recovery restored alone: no secon
   let opened = 0;
   let closed = 0;
   first.close = async () => void (closed += 1);
-  const connection = createProtocolConnection({ open: async () => (opened += 1, clients.shift()) });
+  const connection = createProtocolConnection({ open: async () => ((opened += 1), clients.shift()) });
   await connection.start();
   const lost = [];
   connection.attach({ push() {}, notification() {}, loginFeedLost: (flowId) => lost.push(flowId) });
@@ -566,7 +618,7 @@ test('ensureOpen joins a reopen in flight and reopens a client that is not ready
   const first = fakeClient();
   const clients = [first, fakeClient(), fakeClient()];
   let opened = 0;
-  const connection = createProtocolConnection({ open: async () => (opened += 1, clients.shift()) });
+  const connection = createProtocolConnection({ open: async () => ((opened += 1), clients.shift()) });
   await connection.start();
   first.emit({ type: 'status', status: { state: 'reconnecting' } });
   await Promise.all([connection.ensureOpen(), connection.ensureOpen()]);
@@ -576,7 +628,7 @@ test('ensureOpen joins a reopen in flight and reopens a client that is not ready
   assert.equal(opened, before, 'ready now: nothing is opened');
 });
 
-test('an event of a client a listener has just replaced writes nothing: the reopen\'s status stands', async () => {
+test("an event of a client a listener has just replaced writes nothing: the reopen's status stands", async () => {
   const first = fakeClient();
   const clients = [first, fakeClient()];
   const connection = createProtocolConnection({ open: async () => clients.shift() });
@@ -606,7 +658,10 @@ test('a watch answered after its window closed is still released, and is not res
   detach();
   answers[0]({});
   await watching;
-  assert.deepEqual(client.calls.filter((c) => c.method === 'fs/unwatch').map((c) => c.params.watchId), [owned]);
+  assert.deepEqual(
+    client.calls.filter((c) => c.method === 'fs/unwatch').map((c) => c.params.watchId),
+    [owned]
+  );
 
   client.calls.length = 0;
   client.emit({ type: 'status', status: { state: 'reconnecting' } });
@@ -625,9 +680,15 @@ test('ports are sampled only while a window views them: first viewer subscribes,
   await connection.viewPorts(a, true);
   await connection.viewPorts(b, true);
   await connection.viewPorts(a, false);
-  assert.deepEqual(client.calls.map((c) => c.method), ['system/ports/subscribe']);
+  assert.deepEqual(
+    client.calls.map((c) => c.method),
+    ['system/ports/subscribe']
+  );
   await connection.viewPorts(b, false);
-  assert.deepEqual(client.calls.map((c) => c.method), ['system/ports/subscribe', 'system/ports/unsubscribe']);
+  assert.deepEqual(
+    client.calls.map((c) => c.method),
+    ['system/ports/subscribe', 'system/ports/unsubscribe']
+  );
 });
 
 test('host connection answers core requests, aborts abandoned ones and reports a drop to onClose', async () => {
@@ -649,7 +710,10 @@ test('host connection answers core requests, aborts abandoned ones and reports a
   client.emit({ type: 'serverRequest', request: { id: 7, method: 'host/systemProxy/resolve', params: {} } });
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(client.answers, [{ id: 7, answer: { result: { rules: 'DIRECT' } } }]);
-  client.emit({ type: 'serverRequest', request: { id: 8, method: 'host/systemProxy/resolve', params: { slow: true } } });
+  client.emit({
+    type: 'serverRequest',
+    request: { id: 8, method: 'host/systemProxy/resolve', params: { slow: true } },
+  });
   client.emit({ type: 'serverRequestResolved', params: { requestId: 8 } });
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(aborted, [true]);
@@ -675,15 +739,28 @@ test('a host request belongs to the client that asked it: a reopened connection 
     return done;
   });
   const settle = () => new Promise((r) => setImmediate(r));
-  first.emit({ type: 'serverRequest', request: { id: 'host-1', method: 'host/systemProxy/resolve', params: { n: 1 } } });
-  first.emit({ type: 'serverRequest', request: { id: 'host-2', method: 'host/systemProxy/resolve', params: { n: 2 } } });
+  first.emit({
+    type: 'serverRequest',
+    request: { id: 'host-1', method: 'host/systemProxy/resolve', params: { n: 1 } },
+  });
+  first.emit({
+    type: 'serverRequest',
+    request: { id: 'host-2', method: 'host/systemProxy/resolve', params: { n: 2 } },
+  });
   await connection.reopen();
-  assert.deepEqual(runs.map((run) => run.signal.aborted), [true, true], "the old client's requests end with it");
+  assert.deepEqual(
+    runs.map((run) => run.signal.aborted),
+    [true, true],
+    "the old client's requests end with it"
+  );
   runs[0].settle({ rules: 'old' });
   await settle();
   assert.deepEqual([first.answers, second.answers], [[], []], 'and are answered nowhere');
 
-  second.emit({ type: 'serverRequest', request: { id: 'host-2', method: 'host/systemProxy/resolve', params: { n: 3 } } });
+  second.emit({
+    type: 'serverRequest',
+    request: { id: 'host-2', method: 'host/systemProxy/resolve', params: { n: 3 } },
+  });
   assert.equal(runs[2].signal.aborted, false);
   runs[1].settle({ rules: 'old' });
   await settle();
@@ -694,7 +771,12 @@ test('a host request belongs to the client that asked it: a reopened connection 
 
 test('discovery names the rpc endpoint only while the core serves', () => {
   assert.deepEqual(
-    parseDiscovery(JSON.stringify({ endpoints: { session: { port: 1, token: 't' } }, core: { state: 'serving', rpc: { port: 4711 } } })),
+    parseDiscovery(
+      JSON.stringify({
+        endpoints: { session: { port: 1, token: 't' } },
+        core: { state: 'serving', rpc: { port: 4711 } },
+      })
+    ),
     { url: 'ws://127.0.0.1:4711/rpc', token: 't' }
   );
   assert.throws(
@@ -713,7 +795,11 @@ test('an approval is answered only on the client that asked it: a reopened conne
   const connection = createProtocolConnection({ open: async () => clients.shift() });
   await connection.start();
   const lane = createCapabilityLane({ protocol: connection });
-  const ask = { id: 7, method: 'item/tool/requestApproval', params: { threadId: 'pane-1', turnId: 't', itemId: 'i', order: 1, request: { name: 'shell' } } };
+  const ask = {
+    id: 7,
+    method: 'item/tool/requestApproval',
+    params: { threadId: 'pane-1', turnId: 't', itemId: 'i', order: 1, request: { name: 'shell' } },
+  };
   first.emit({ type: 'serverRequest', request: ask });
   await connection.reopen();
   // The new core asks again under the same id for another thread; the old card must not answer it.
@@ -722,7 +808,9 @@ test('an approval is answered only on the client that asked it: a reopened conne
   const answered = (client) => client.calls.filter((call) => call.method === 'thread/approval/answer');
   assert.deepEqual([answered(first), answered(second)], [[], []]);
   await lane.resolveToolApproval('pane-2', '7', { approved: true });
-  assert.deepEqual(answered(second), [{ method: 'thread/approval/answer', params: { threadId: 'pane-2', approvalId: '7', result: { approved: true } } }]);
+  assert.deepEqual(answered(second), [
+    { method: 'thread/approval/answer', params: { threadId: 'pane-2', approvalId: '7', result: { approved: true } } },
+  ]);
   assert.deepEqual(answered(first), []);
 });
 test('a first connection that failed is opened again by the next call; what attaches to the link is told it is ready, and the replacement is announced', async () => {
@@ -742,7 +830,11 @@ test('a first connection that failed is opened again by the next call; what atta
   await assert.rejects(connection.start(), /not serving yet/);
   assert.equal(connection.status, 'closed');
   const [a, b] = await Promise.all([connection.call('model/list', {}), connection.call('model/list', {})]);
-  assert.deepEqual([opens, client.calls.filter((c) => c.method === 'model/list').length], [2, 2], 'one reopen served both calls');
+  assert.deepEqual(
+    [opens, client.calls.filter((c) => c.method === 'model/list').length],
+    [2, 2],
+    'one reopen served both calls'
+  );
   assert.equal(connection.status, 'ready');
   assert.deepEqual(statuses, ['reconnecting', 'ready']);
   assert.equal(replaced, 1);

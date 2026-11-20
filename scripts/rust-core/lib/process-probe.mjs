@@ -12,20 +12,33 @@ const POWERSHELL = ['-NoProfile', '-NonInteractive', '-Command'];
 // `script` is fixed text. A value that came from outside (a path, a start time) travels in `values` as PROBE_<NAME>
 // environment variables and is read there as `$env:PROBE_<NAME>`: it is data to the script and never parsed as PowerShell.
 async function powershell(script, timeout, values = {}) {
-  const env = { ...process.env, ...Object.fromEntries(Object.entries(values).map(([name, value]) => [`PROBE_${name}`, String(value)])) };
+  const env = {
+    ...process.env,
+    ...Object.fromEntries(Object.entries(values).map(([name, value]) => [`PROBE_${name}`, String(value)])),
+  };
   try {
-    return (await run('powershell.exe', [...POWERSHELL, `$ProgressPreference = 'SilentlyContinue'; ${script}`], { timeout, windowsHide: true, env })).stdout.trim();
+    return (
+      await run('powershell.exe', [...POWERSHELL, `$ProgressPreference = 'SilentlyContinue'; ${script}`], {
+        timeout,
+        windowsHide: true,
+        env,
+      })
+    ).stdout.trim();
   } catch (error) {
     throw new Error(`process query failed: ${error.stderr?.trim() || error.message}`);
   }
 }
 
 // PowerShell: the process of `pid`, or exit 0 with no output when there is none (ArgumentException); any other failure is an error.
-const WIN_FIND = (pid) => `try { $p = [System.Diagnostics.Process]::GetProcessById(${Number(pid)}) } catch [System.ArgumentException] { exit 0 }`;
+const WIN_FIND = (pid) =>
+  `try { $p = [System.Diagnostics.Process]::GetProcessById(${Number(pid)}) } catch [System.ArgumentException] { exit 0 }`;
 
 const startTimeQuery = (pid) =>
   WINDOWS
-    ? ['powershell.exe', [...POWERSHELL, `$ProgressPreference = 'SilentlyContinue'; ${WIN_FIND(pid)}; $p.StartTime.ToFileTimeUtc()`]]
+    ? [
+        'powershell.exe',
+        [...POWERSHELL, `$ProgressPreference = 'SilentlyContinue'; ${WIN_FIND(pid)}; $p.StartTime.ToFileTimeUtc()`],
+      ]
     : ['ps', ['-o', 'lstart=', '-p', String(pid)]];
 
 /** The start time of the process with `pid` as an opaque string, or null when there is no such process. */
@@ -43,7 +56,14 @@ export async function startTimeOf(pid) {
 export function startTimeOfSync(pid) {
   const [file, args] = startTimeQuery(pid);
   try {
-    return execFileSync(file, args, { timeout: 60_000, windowsHide: true, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() || null;
+    return (
+      execFileSync(file, args, {
+        timeout: 60_000,
+        windowsHide: true,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim() || null
+    );
   } catch (error) {
     if (!WINDOWS && error.status === 1) return null;
     throw new Error(`process query failed: ${error.stderr?.trim() || error.message}`);
@@ -62,16 +82,24 @@ export async function assertTreeGone(members, deadlineMs = 30_000) {
     if (start === null) continue;
     if (WINDOWS) {
       const left = Math.max(1, stop - Date.now());
-      const answer = await powershell(`${WIN_FIND(pid)}; if ([string]$p.StartTime.ToFileTimeUtc() -ne $env:PROBE_START) { exit 0 }; if ($p.WaitForExit(${Math.trunc(left)})) { exit 0 } else { 'running' }`, left + 30_000, { START: start });
-      if (answer === 'running') throw new Error(`pid ${pid} (start ${start}) is still running ${deadlineMs}ms after its tree was ended`);
+      const answer = await powershell(
+        `${WIN_FIND(pid)}; if ([string]$p.StartTime.ToFileTimeUtc() -ne $env:PROBE_START) { exit 0 }; if ($p.WaitForExit(${Math.trunc(left)})) { exit 0 } else { 'running' }`,
+        left + 30_000,
+        { START: start }
+      );
+      if (answer === 'running')
+        throw new Error(`pid ${pid} (start ${start}) is still running ${deadlineMs}ms after its tree was ended`);
       continue;
     }
-    const { stdout } = await run('ps', ['-o', 'stat=,lstart=', '-p', String(pid)], { timeout: 60_000 }).catch((error) => {
-      if (error.code === 1) return { stdout: '' };
-      throw new Error(`process query failed: ${error.stderr?.trim() || error.message}`);
-    });
+    const { stdout } = await run('ps', ['-o', 'stat=,lstart=', '-p', String(pid)], { timeout: 60_000 }).catch(
+      (error) => {
+        if (error.code === 1) return { stdout: '' };
+        throw new Error(`process query failed: ${error.stderr?.trim() || error.message}`);
+      }
+    );
     const row = stdout.trim();
-    if (row && !row.startsWith('Z') && row.slice(row.indexOf(' ')).trim() === start) throw new Error(`pid ${pid} (start ${start}) is still running after its tree was ended`);
+    if (row && !row.startsWith('Z') && row.slice(row.indexOf(' ')).trim() === start)
+      throw new Error(`pid ${pid} (start ${start}) is still running after its tree was ended`);
   }
 }
 
@@ -88,19 +116,32 @@ export const leakGuard = (dir, lifeMs) =>
 export async function assertTreeEnded(dir, members) {
   await assertTreeGone(members);
   const fired = readdirSync(dir).filter((name) => name.startsWith('guard-'));
-  if (fired.length) throw new Error(`pid ${fired.map((name) => name.slice('guard-'.length)).join(', ')} ended by its own leak guard, not by the end of its tree`);
+  if (fired.length)
+    throw new Error(
+      `pid ${fired.map((name) => name.slice('guard-'.length)).join(', ')} ended by its own leak guard, not by the end of its tree`
+    );
 }
 
 /** The processes whose executable path (Windows) or command line (POSIX) lies inside `dir`: a read, nothing is signalled. */
 export async function processesInside(dir) {
   if (WINDOWS) {
     // WQL LIKE: the directory with a trailing separator, its backslash and quote escaped, its wildcards made literal.
-    const script = String.raw`$d = $env:PROBE_DIR.TrimEnd('\', '/') + '\'; $q = $d.Replace('\', '\\').Replace("'", "\'").Replace('%', '[%]').Replace('_', '[_]'); Get-CimInstance Win32_Process -Filter "ExecutablePath LIKE '$q%'" | ForEach-Object { "$($_.ProcessId)` + '`' + String.raw`t$($_.ExecutablePath)" }`;
+    const script =
+      String.raw`$d = $env:PROBE_DIR.TrimEnd('\', '/') + '\'; $q = $d.Replace('\', '\\').Replace("'", "\'").Replace('%', '[%]').Replace('_', '[_]'); Get-CimInstance Win32_Process -Filter "ExecutablePath LIKE '$q%'" | ForEach-Object { "$($_.ProcessId)` +
+      '`' +
+      String.raw`t$($_.ExecutablePath)" }`;
     const stdout = await powershell(script, 60_000, { DIR: dir });
-    return stdout.split(/\r?\n/).filter(Boolean).map((line) => ({ pid: Number(line.split('\t')[0]), what: line.split('\t')[1] }));
+    return stdout
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => ({ pid: Number(line.split('\t')[0]), what: line.split('\t')[1] }));
   }
   const { stdout } = await run('ps', ['-A', '-ww', '-o', 'pid=,args='], { timeout: 60_000 });
-  return stdout.split('\n').map((line) => line.trim().match(/^(\d+) (.*)$/)).filter((m) => m && m[2].includes(dir)).map((m) => ({ pid: Number(m[1]), what: m[2] }));
+  return stdout
+    .split('\n')
+    .map((line) => line.trim().match(/^(\d+) (.*)$/))
+    .filter((m) => m && m[2].includes(dir))
+    .map((m) => ({ pid: Number(m[1]), what: m[2] }));
 }
 
 /**
@@ -117,7 +158,9 @@ export async function assertNothingInside(dir) {
       await run(helperPath(), ['--end-inside', dir, String(pid)], { timeout: 60_000, windowsHide: true });
       notes.push(`pid ${pid} (${what}) was left running and has been ended`);
     } catch (error) {
-      notes.push(`pid ${pid} (${what}) is left running and was not ended (${error.code === 4 ? 'no verified handle on this system' : String(error.stderr).trim() || error.message})`);
+      notes.push(
+        `pid ${pid} (${what}) is left running and was not ended (${error.code === 4 ? 'no verified handle on this system' : String(error.stderr).trim() || error.message})`
+      );
     }
   }
   throw new Error(`processes of the run outlived it inside ${dir}: ${notes.join('; ')}`);
@@ -130,5 +173,9 @@ export async function pidsOfExecutable(path) {
     return stdout.split(/\r?\n/).filter(Boolean).map(Number);
   }
   const { stdout } = await run('ps', ['-A', '-o', 'pid=,args='], { timeout: 60_000 });
-  return stdout.split('\n').map((line) => line.trim().match(/^(\d+) (.*)$/)).filter((m) => m && (m[2] === path || m[2].startsWith(`${path} `))).map((m) => Number(m[1]));
+  return stdout
+    .split('\n')
+    .map((line) => line.trim().match(/^(\d+) (.*)$/))
+    .filter((m) => m && (m[2] === path || m[2].startsWith(`${path} `)))
+    .map((m) => Number(m[1]));
 }

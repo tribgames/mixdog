@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { adapter } from './remote-protocol-files.ts';
 
-test('a query holding a lone surrogate is answered by the core echoing it with U+FFFD', { timeout: 10_000 }, async () => {
+test('a query holding a lone surrogate is answered by the core echoing it with U+FFFD', {
+  timeout: 10_000,
+}, async () => {
   const listeners = new Set();
   const notify = (method, params) => {
     for (const listener of listeners) listener({ type: 'notification', notification: { method, params } });

@@ -14,7 +14,10 @@ export function createOperationLane({
   protocol,
   host,
   platform = process.platform as SharedOptions['platform'],
-}: Pick<SharedOptions, 'protocol'> & { host?: Partial<OperationHost>; platform?: SharedOptions['platform'] }): OperationLane {
+}: Pick<SharedOptions, 'protocol'> & {
+  host?: Partial<OperationHost>;
+  platform?: SharedOptions['platform'];
+}): OperationLane {
   return createSharedOperationLane({
     protocol,
     platform,

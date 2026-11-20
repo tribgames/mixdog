@@ -8,7 +8,8 @@ export function textHash(text: string): string {
   return (hash >>> 0).toString(36);
 }
 
-export const textIdentity = (value: unknown): string => (typeof value === 'string' ? `${value.length}.${textHash(value)}` : '0');
+export const textIdentity = (value: unknown): string =>
+  typeof value === 'string' ? `${value.length}.${textHash(value)}` : '0';
 
 /** What identifies the whole output and diff of a tool row (and of an aggregate's members): the host computes it over the uncut text
  *  and sends it on a cut row, so two revisions that differ only in the text the phone's copy leaves out do not look alike. */

@@ -24,26 +24,48 @@ function rig(answers = {}) {
       return (typeof answer === 'function' ? answer(params.input) : answer) ?? null;
     },
     store: {
-      section: (section, key) => (sections.has(`${section}:${key}`) ? { value: sections.get(`${section}:${key}`) } : undefined),
+      section: (section, key) =>
+        sections.has(`${section}:${key}`) ? { value: sections.get(`${section}:${key}`) } : undefined,
       subscribe: (listener) => (storeListeners.add(listener), () => storeListeners.delete(listener)),
       appLive: () => live,
     },
   };
   const fanned = [];
-  const ctx = { requestResync: () => resyncs++, visualizeListeners: {}, fanOut: (_set, value) => fanned.push(value), phone: { start: () => Promise.resolve() } };
-  const host = { ctx, client: () => client, declareLane() {}, onClient: (listener) => (listener(client), () => undefined) };
+  const ctx = {
+    requestResync: () => resyncs++,
+    visualizeListeners: {},
+    fanOut: (_set, value) => fanned.push(value),
+    phone: { start: () => Promise.resolve() },
+  };
+  const host = {
+    ctx,
+    client: () => client,
+    declareLane() {},
+    onClient: (listener) => (listener(client), () => undefined),
+  };
   const set = (value) => {
     sections.set('hostState:visualize', value);
     for (const listener of storeListeners) listener({ type: 'section', section: 'hostState', key: 'visualize' });
   };
   const notify = (params) => {
-    for (const listener of noteListeners) listener({ type: 'notification', notification: { method: 'visualize/changed', params } });
+    for (const listener of noteListeners)
+      listener({ type: 'notification', notification: { method: 'visualize/changed', params } });
   };
   const connection = (status) => {
     client.status = status;
     for (const listener of noteListeners) listener({ type: 'status', status });
   };
-  return { host, connection, requests, lanes, resyncs: () => resyncs, fanned, set, notify, setLive: (value) => (live = value) };
+  return {
+    host,
+    connection,
+    requests,
+    lanes,
+    resyncs: () => resyncs,
+    fanned,
+    set,
+    notify,
+    setLive: (value) => (live = value),
+  };
 }
 
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -53,8 +75,21 @@ const hostState = (extra = {}) => ({
   active: 't1',
   tabs: [
     {
-      id: 't1', label: 'A', remoteLabel: 'Chart', revision: 2, cwd: '/work/proj',
-      panes: [{ kind: 'inline', label: 'c', target: '/work/proj/x', path: '', remoteTarget: 'x', inline: { kind: 'chart', source: '{}' } }],
+      id: 't1',
+      label: 'A',
+      remoteLabel: 'Chart',
+      revision: 2,
+      cwd: '/work/proj',
+      panes: [
+        {
+          kind: 'inline',
+          label: 'c',
+          target: '/work/proj/x',
+          path: '',
+          remoteTarget: 'x',
+          inline: { kind: 'chart', source: '{}' },
+        },
+      ],
       ...extra,
     },
   ],
@@ -71,7 +106,7 @@ test('the state is read from the core and shaped path-free, with inline sources 
   assert.deepEqual(requests[0], ['visualize/command', { action: 'state', input: {} }]);
 });
 
-test('pane reads and commands are the core\'s visualize/command with the fields it checks', async () => {
+test("pane reads and commands are the core's visualize/command with the fields it checks", async () => {
   const { host, requests } = rig({ network: null, thumbnail: { thumbnail: 'data:image/png;base64,AAAA' } });
   const c = adapter.calls;
   await c.visualizePaneInline(['s1', 't1', 0], host);
@@ -79,14 +114,33 @@ test('pane reads and commands are the core\'s visualize/command with the fields 
   await c.visualizePaneRange(['s1', 't1', 'a.css', 0, 100], host);
   await c.visualizePaneRange(['s1', 't1', 'a.css', 5, 100, 1], host);
   await c.visualizePanePages(['s1', 't1', 2, { pages: [1], maxWidth: 800, extra: 1 }], host);
-  assert.deepEqual(await c.visualizeCommand([{ sessionId: 's1', tabId: 't1', action: 'thumbnail', version: 1 }], host), { thumbnail: 'data:image/png;base64,AAAA' });
-  assert.equal(await c.visualizeCommand([{ sessionId: 's1', tabId: 't1', action: 'close' }], host), null, 'nothing answered is null');
+  assert.deepEqual(
+    await c.visualizeCommand([{ sessionId: 's1', tabId: 't1', action: 'thumbnail', version: 1 }], host),
+    { thumbnail: 'data:image/png;base64,AAAA' }
+  );
+  assert.equal(
+    await c.visualizeCommand([{ sessionId: 's1', tabId: 't1', action: 'close' }], host),
+    null,
+    'nothing answered is null'
+  );
   assert.deepEqual(requests, [
     ['visualize/command', { action: 'paneInline', input: { sessionId: 's1', tabId: 't1', pane: 0 } }],
     ['visualize/command', { action: 'paneFile', input: { sessionId: 's1', tabId: 't1', pane: 1 } }],
-    ['visualize/command', { action: 'paneRange', input: { sessionId: 's1', tabId: 't1', rel: 'a.css', offset: 0, length: 100 } }],
-    ['visualize/command', { action: 'paneRange', input: { sessionId: 's1', tabId: 't1', rel: 'a.css', offset: 5, length: 100, pane: 1 } }],
-    ['visualize/command', { action: 'panePages', input: { sessionId: 's1', tabId: 't1', pane: 2, options: { pages: [1], maxWidth: 800, extra: 1 } } }],
+    [
+      'visualize/command',
+      { action: 'paneRange', input: { sessionId: 's1', tabId: 't1', rel: 'a.css', offset: 0, length: 100 } },
+    ],
+    [
+      'visualize/command',
+      { action: 'paneRange', input: { sessionId: 's1', tabId: 't1', rel: 'a.css', offset: 5, length: 100, pane: 1 } },
+    ],
+    [
+      'visualize/command',
+      {
+        action: 'panePages',
+        input: { sessionId: 's1', tabId: 't1', pane: 2, options: { pages: [1], maxWidth: 800, extra: 1 } },
+      },
+    ],
     ['visualize/command', { action: 'thumbnail', input: { sessionId: 's1', tabId: 't1', version: 1 } }],
     ['visualize/command', { action: 'close', input: { sessionId: 's1', tabId: 't1' } }],
   ]);
@@ -98,16 +152,21 @@ test('an export is a download source naming its render, and a bad one is refused
   assert.equal(exported.name, 'visualize.png');
   assert.deepEqual(exported.source.kind === 'export' && exported.source.sessionId, 's1');
   assert.equal(exported.source.exportId, 'visualize-export:{"tabId":"t1","format":"png","pane":0}');
-  assert.throws(() => adapter.calls.visualizeExport(['s1', 't1', 'project', 0], host), { message: 'export format is invalid.' });
+  assert.throws(() => adapter.calls.visualizeExport(['s1', 't1', 'project', 0], host), {
+    message: 'export format is invalid.',
+  });
   assert.deepEqual(requests, []);
 });
 
-test('a change of the desktop\'s tabs reaches the page whole, in order; a section change is not applied while the notifications flow', async () => {
+test("a change of the desktop's tabs reaches the page whole, in order; a section change is not applied while the notifications flow", async () => {
   const { host, requests, fanned, set, notify, setLive } = rig({ state: [hostState()] });
   const stop = adapter.install(host);
   notify({ sessionId: 's1', state: hostState(), reveal: true, tab: 't1', updated: 't1' });
   assert.equal(fanned.length, 1);
-  assert.deepEqual({ ...fanned[0], state: undefined }, { sessionId: 's1', state: undefined, reveal: true, tab: 't1', updated: 't1' });
+  assert.deepEqual(
+    { ...fanned[0], state: undefined },
+    { sessionId: 's1', state: undefined, reveal: true, tab: 't1', updated: 't1' }
+  );
   assert.ok(!JSON.stringify(fanned[0]).includes('/work/proj'));
   assert.deepEqual(requests, [], 'an event needs no read: it carries what it announces');
   // The lane is registered: the section (a snapshot, or no value when too large to hold) is the state alone, which the events said.
@@ -130,13 +189,23 @@ test('a repeated thumbnail is not sent again, a new one is', async () => {
   notify({ sessionId: 's1', state: hostState(picture('AAAA')) });
   notify({ sessionId: 's1', state: hostState(picture('BBBB')) });
   await settled();
-  assert.deepEqual(fanned.map((event) => event.state.tabs[0].thumbnail?.slice(-4)), ['AAAA', undefined, 'BBBB']);
+  assert.deepEqual(
+    fanned.map((event) => event.state.tabs[0].thumbnail?.slice(-4)),
+    ['AAAA', undefined, 'BBBB']
+  );
 });
 
 test('an event too large for one section value arrives as ordered parts and is applied whole; a sequence joined in the middle is dropped', () => {
   const { host, fanned, notify, resyncs } = rig();
   adapter.install(host);
-  const event = { sessionId: 's1', state: hostState({ label: 'x'.repeat(300_000) }), reveal: true, tab: 't1', held: true, heldSince: 7 };
+  const event = {
+    sessionId: 's1',
+    state: hostState({ label: 'x'.repeat(300_000) }),
+    reveal: true,
+    tab: 't1',
+    held: true,
+    heldSince: 7,
+  };
   const text = JSON.stringify(event);
   const slices = [];
   for (let at = 0; at < text.length; at += 40_000) slices.push(text.slice(at, at + 40_000));
@@ -169,17 +238,33 @@ function exportHost(answers) {
   return { sent, host: { ctx: {}, client: () => client, declareLane() {} } };
 }
 
-test('an export download round trips through the core\'s export transfer source: authorize, begin, range, finish', async () => {
-  const chunk = { transferId: TRANSFER, version: EXPORT_VERSION, offset: 0, length: 9, data: 'MTIzNDU2Nzg5', eof: true };
+test("an export download round trips through the core's export transfer source: authorize, begin, range, finish", async () => {
+  const chunk = {
+    transferId: TRANSFER,
+    version: EXPORT_VERSION,
+    offset: 0,
+    length: 9,
+    data: 'MTIzNDU2Nzg5',
+    eof: true,
+  };
   const { sent, host } = exportHost({
-    'transfer/authorizeRead': { grantId: GRANT, size: 9, name: 'visualize.png', mime: 'image/png', version: EXPORT_VERSION },
+    'transfer/authorizeRead': {
+      grantId: GRANT,
+      size: 9,
+      name: 'visualize.png',
+      mime: 'image/png',
+      version: EXPORT_VERSION,
+    },
     'transfer/redeemGrant': { transferId: TRANSFER, size: 9, version: EXPORT_VERSION },
     'transfer/readRange': chunk,
     'transfer/finishRead': { transferId: TRANSFER, size: 9, version: EXPORT_VERSION },
   });
   const exported = adapter.calls.visualizeExport(['s1', 't1', 'png', 0], host);
   const grant = await files.calls.fileDownloadAuthorize([{ source: exported.source, purpose: 'save' }], host);
-  assert.deepEqual(sent.map(([method]) => method), ['transfer/authorizeRead']);
+  assert.deepEqual(
+    sent.map(([method]) => method),
+    ['transfer/authorizeRead']
+  );
   assert.equal(sent[0][1].source.kind, 'export');
   assert.equal(sent[0][1].sessionId, 's1');
   assert.equal(grant.size, 9);
@@ -205,15 +290,28 @@ test('a release behind another publication stays a release: held is exactly as p
   // Another session publishes, then the release of s1 (the producer leaves `held` out).
   notify({ sessionId: 's2', state: { ...hostState(), sessionId: 's2' } });
   notify({ sessionId: 's1', state: hostState() });
-  assert.deepEqual(fanned.map((event) => [event.sessionId, event.held]), [['s1', true], ['s2', undefined], ['s1', undefined]]);
+  assert.deepEqual(
+    fanned.map((event) => [event.sessionId, event.held]),
+    [
+      ['s1', true],
+      ['s2', undefined],
+      ['s1', undefined],
+    ]
+  );
 });
 
-test('a reveal of one session is not dropped by another session\'s publication', () => {
+test("a reveal of one session is not dropped by another session's publication", () => {
   const { host, fanned, notify } = rig();
   adapter.install(host);
   notify({ sessionId: 'A', state: { ...hostState(), sessionId: 'A' }, reveal: true, tab: 't1' });
   notify({ sessionId: 'B', state: { ...hostState(), sessionId: 'B' } });
-  assert.deepEqual(fanned.map((event) => [event.sessionId, event.reveal, event.tab]), [['A', true, 't1'], ['B', undefined, undefined]]);
+  assert.deepEqual(
+    fanned.map((event) => [event.sessionId, event.reveal, event.tab]),
+    [
+      ['A', true, 't1'],
+      ['B', undefined, undefined],
+    ]
+  );
 });
 
 test('an empty state followed by a reopen reaches the page as a clear and then the reopened state, each with its own state', () => {
@@ -221,7 +319,10 @@ test('an empty state followed by a reopen reaches the page as a clear and then t
   adapter.install(host);
   notify({ sessionId: 's1', state: { sessionId: 's1', active: null, tabs: [] } });
   notify({ sessionId: 's1', state: hostState(), reveal: true, tab: 't1' });
-  assert.deepEqual(fanned.map((event) => event.state.tabs.length), [0, 1]);
+  assert.deepEqual(
+    fanned.map((event) => event.state.tabs.length),
+    [0, 1]
+  );
   assert.equal(fanned[1].reveal, true);
 });
 
@@ -270,7 +371,9 @@ test('the phone surfaces the core’s refusal to redeem an expired export grant'
     'transfer/authorizeRead': { grantId: GRANT, expiresAt: 10 },
     'transfer/redeemGrant': () => {
       throw Object.assign(new Error('RPC error'), {
-        detail: { data: { reason: 'domainError', code: 'file-download:expired', message: 'The download has expired.' } },
+        detail: {
+          data: { reason: 'domainError', code: 'file-download:expired', message: 'The download has expired.' },
+        },
       });
     },
   });
@@ -302,7 +405,12 @@ test('the lane is registered on every connection that becomes ready, and notific
 });
 
 test('a core that refuses the lane is followed through its section, which always holds the current state', async () => {
-  const refused = rig({ state: [hostState()], lane: () => { throw new Error('refused'); } });
+  const refused = rig({
+    state: [hostState()],
+    lane: () => {
+      throw new Error('refused');
+    },
+  });
   adapter.install(refused.host);
   await settled();
   const before = refused.resyncs();

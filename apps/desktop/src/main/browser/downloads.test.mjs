@@ -82,7 +82,10 @@ test('a long transfer stays active after the capped history forgets it', () => {
   const long = start();
   assert.equal(ledger.hasActiveDownload('s'), true);
   for (let i = 0; i < 25; i++) start().emit('done', {}, 'completed');
-  assert.equal(ledger.downloadsForSession('s').some((download) => download.state === 'in_progress'), false);
+  assert.equal(
+    ledger.downloadsForSession('s').some((download) => download.state === 'in_progress'),
+    false
+  );
   assert.equal(ledger.hasActiveDownload('s'), true, 'still counted though the history dropped it');
   long.emit('done', {}, 'completed');
   assert.equal(ledger.hasActiveDownload('s'), false);

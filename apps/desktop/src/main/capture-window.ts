@@ -82,11 +82,17 @@ const CAPTURE_UPDATER_STATE = { status: 'ready', version: '0.2.0' } as const;
  *  that a capture window has nothing behind: each answers what an empty profile answers, so the page paints its
  *  empty state and no invoke ends in "No handler registered". */
 const CAPTURE_EMPTY_HOST_REPLIES: ReadonlyArray<readonly [string, unknown]> = [
-  [DESKTOP_IPC.computerReadiness, { platform: process.platform, screen_capture: 'granted', accessibility: 'granted', input: 'granted' }],
+  [
+    DESKTOP_IPC.computerReadiness,
+    { platform: process.platform, screen_capture: 'granted', accessibility: 'granted', input: 'granted' },
+  ],
   [DESKTOP_IPC.listRemoteHosts, []],
   [DESKTOP_IPC.serverTrashInfo, { available: false, path: '' }],
   [DESKTOP_IPC.browserProfileImportSources, []],
-  [DESKTOP_IPC.browserCookieAutoImportStatus, { enabled: false, profileId: '', keySaved: false, keyStorageAvailable: false, running: false }],
+  [
+    DESKTOP_IPC.browserCookieAutoImportStatus,
+    { enabled: false, profileId: '', keySaved: false, keyStorageAvailable: false, running: false },
+  ],
   [DESKTOP_IPC.browserHistorySearch, []],
   [DESKTOP_IPC.browserCredentialSuggestions, []],
   [DESKTOP_IPC.browserSignedInSites, []],

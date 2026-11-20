@@ -39,7 +39,10 @@ export function useModelSelection(
   const selection = active?.selection || authoritative;
   // biome-ignore lint/correctness/useExhaustiveDependencies: position is the trigger: a publication that moves it may reach the mark.
   useEffect(() => {
-    if (pending && (pending.sessionId !== sessionId || (pending.mark && store.streamReached(sessionId, pending.mark)))) {
+    if (
+      pending &&
+      (pending.sessionId !== sessionId || (pending.mark && store.streamReached(sessionId, pending.mark)))
+    ) {
       setPending(null);
     }
   }, [pending, position, sessionId, store]);

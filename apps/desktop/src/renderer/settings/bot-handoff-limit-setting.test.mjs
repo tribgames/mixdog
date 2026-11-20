@@ -8,7 +8,10 @@ import { installTestDom } from '../test-support/test-dom.mjs';
 import { createSettingsApi } from '../core-direct/api-settings.ts';
 import { BotHandoffLimitRow } from './bot-handoff-limit-setting.tsx';
 
-const DOM = { rootId: 'root', expose: ['HTMLElement', 'Node', 'KeyboardEvent', 'Event', 'CustomEvent', 'HTMLInputElement'] };
+const DOM = {
+  rootId: 'root',
+  expose: ['HTMLElement', 'Node', 'KeyboardEvent', 'Event', 'CustomEvent', 'HTMLInputElement'],
+};
 const settle = () => act(async () => new Promise((done) => setTimeout(done, 0)));
 
 // `hold`: the first write waits for it. The core answers a connection's calls in the order sent, so later writes queue behind.
@@ -67,7 +70,11 @@ const type = (window, input, text) =>
     input.dispatchEvent(new window.Event('input', { bubbles: true }));
   });
 
-for (const [stored, shown] of [[undefined, '3'], [12, '12'], [99, '3']]) {
+for (const [stored, shown] of [
+  [undefined, '3'],
+  [12, '12'],
+  [99, '3'],
+]) {
   test(`the field shows ${shown} when the stored limit is ${stored}`, async (t) => {
     const { api } = fakeCore(stored);
     const window = await mount(t, api);
@@ -100,7 +107,10 @@ test('going back to the confirmed value while a save is still in flight is writt
   await type(window, input(), '3');
   await act(async () => input().dispatchEvent(new window.Event('focusout', { bubbles: true })));
   await settle();
-  assert.deepEqual(writes.map((write) => write.value), [7, 3]);
+  assert.deepEqual(
+    writes.map((write) => write.value),
+    [7, 3]
+  );
   assert.equal(input().value, '3');
   await act(async () => release());
   await settle();
@@ -121,7 +131,10 @@ test('an entry typed while a save is pending survives that save and is written w
   assert.equal(input().value, '12');
   await act(async () => input().dispatchEvent(new window.Event('focusout', { bubbles: true })));
   await settle();
-  assert.deepEqual(writes.map((write) => write.value), [7, 12]);
+  assert.deepEqual(
+    writes.map((write) => write.value),
+    [7, 12]
+  );
   assert.equal(config.desktop.botHandoffLimit, 12);
 });
 

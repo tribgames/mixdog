@@ -29,8 +29,14 @@ const connection = () => ({
 });
 
 const hostOf = (extra = {}) => {
-  const host = { enableAllowAllActions: async () => ({}), observeSignIn() {}, invokePcQuotaCapability: async () => ({}), readPcQuotaCapabilities: async () => [] };
-  for (const group of Object.values(HOST_KEYS)) for (const key of group) host[key] = () => Promise.resolve(`host:${key}`);
+  const host = {
+    enableAllowAllActions: async () => ({}),
+    observeSignIn() {},
+    invokePcQuotaCapability: async () => ({}),
+    readPcQuotaCapabilities: async () => [],
+  };
+  for (const group of Object.values(HOST_KEYS))
+    for (const key of group) host[key] = () => Promise.resolve(`host:${key}`);
   return Object.assign(host, extra);
 };
 
@@ -41,7 +47,10 @@ const install = async (extra) => {
 };
 
 test('all_keys_present', async () => {
-  const { mixdogDesktop: api } = await install({ bootContext: { kind: 'x' }, connection: { id: 'local', kind: 'local', name: 'pc' } });
+  const { mixdogDesktop: api } = await install({
+    bootContext: { kind: 'x' },
+    connection: { id: 'local', kind: 'local', name: 'pc' },
+  });
   for (const group of Object.values(DIRECT_KEYS)) for (const key of group) assert.ok(key in api, `direct ${key}`);
   for (const group of Object.values(HOST_KEYS)) for (const key of group) assert.ok(key in api, `host ${key}`);
   assert.equal(api.connection.kind, 'local');
@@ -61,9 +70,15 @@ test('server_gates', async () => {
   const { mixdogDesktop: api } = await install({ connection: { id: 'h1', kind: 'ssh', name: 'srv' } });
   for (const key of THIS_PC_FEATURE_KEYS) {
     if (typeof api[key] !== 'function') continue;
-    await assert.rejects(() => api[key](), (error) => error.message === thisPcFeatureRefusal(key));
+    await assert.rejects(
+      () => api[key](),
+      (error) => error.message === thisPcFeatureRefusal(key)
+    );
   }
-  await assert.rejects(() => api.openFilePath(), /^Error: ssh-unsupported: Opening server files with this PC's apps is not available in a server window\. Use "Download to this PC and open" instead\.$/);
+  await assert.rejects(
+    () => api.openFilePath(),
+    /^Error: ssh-unsupported: Opening server files with this PC's apps is not available in a server window\. Use "Download to this PC and open" instead\.$/
+  );
   assert.equal(await api.chooseProject(), 'host:chooseProject');
   const local = (await install({ connection: { id: 'local', kind: 'local', name: 'pc' } })).mixdogDesktop;
   assert.equal(await local.openFilePath(), 'host:openFilePath');
@@ -73,7 +88,7 @@ test('connection_methods_are_the_core_requests_not_the_host_bridge', async () =>
   const { mixdogDesktop: api } = await install({ connection: { id: 'local', kind: 'local', name: 'pc' } });
   // With no core client open the core API refuses as itself; the host bridge would answer 'host:sshListHosts'.
   await assert.rejects(() => api.sshListHosts(), /This window has no connection to the core\./);
-  assert.equal(await api.previewProjectFile(), 'host:previewProjectFile', 'a streamed preview is the host\'s');
+  assert.equal(await api.previewProjectFile(), 'host:previewProjectFile', "a streamed preview is the host's");
 });
 
 test('api_installed_before_the_connection_opens_and_an_early_call_waits_for_it', async () => {
@@ -106,7 +121,11 @@ test('api_installed_before_the_connection_opens_and_an_early_call_waits_for_it',
   assert.equal(opens, 1, 'the open was started');
   assert.equal(live.client(), null);
   assert.equal(pcCoreClient(), null, 'local startup does not open a separate PC client');
-  assert.deepEqual((await api.sections.snapshot()).entries, [], 'a snapshot read before the open is empty, not a refusal');
+  assert.deepEqual(
+    (await api.sections.snapshot()).entries,
+    [],
+    'a snapshot read before the open is empty, not a refusal'
+  );
   let listed = null;
   const early = api.listSessions().then((rows) => (listed = rows));
   for (let turn = 0; turn < 5; turn++) await new Promise((r) => setImmediate(r));
@@ -129,7 +148,9 @@ test('a reloaded SSH window reads lost status and retries on the PC while its pr
   const host = { addEventListener: (...args) => events.addEventListener(...args) };
   globalThis.window = host;
   let finishPrimary;
-  const primary = new Promise((resolve) => { finishPrimary = resolve; });
+  const primary = new Promise((resolve) => {
+    finishPrimary = resolve;
+  });
   t.after(async () => {
     finishPrimary();
     await pcCoreClient()?.close();
@@ -160,14 +181,25 @@ test('a reloaded SSH window reads lost status and retries on the PC while its pr
             queueMicrotask(() => port.onmessage({ data: { t: 'closed', code: 1006, reason: 'PC core unavailable' } }));
             return;
           }
-          const result = method === 'initialize'
-            ? { serverInstanceId: 'pc', coreState: 'ready', limits: {}, capabilities: {}, connection: { origin: 'app', device: 'd', window: { role: 'server:h1' } } }
-            : method === 'connections/link/get' ? lost : {};
+          const result =
+            method === 'initialize'
+              ? {
+                  serverInstanceId: 'pc',
+                  coreState: 'ready',
+                  limits: {},
+                  capabilities: {},
+                  connection: { origin: 'app', device: 'd', window: { role: 'server:h1' } },
+                }
+              : method === 'connections/link/get'
+                ? lost
+                : {};
           queueMicrotask(() => port.onmessage({ data: JSON.stringify({ id: msg.id, result }) }));
         },
       };
       const event = Object.assign(new Event('message'), {
-        source: host, data: { type: 'mixdog-core-port', generation, slot }, ports: [port],
+        source: host,
+        data: { type: 'mixdog-core-port', generation, slot },
+        ports: [port],
       });
       queueMicrotask(() => events.dispatchEvent(event));
       return { generation };
@@ -183,9 +215,12 @@ test('a reloaded SSH window reads lost status and retries on the PC while its pr
 
   assert.deepEqual(await host.mixdogDesktop.getConnectionLink(), lost);
   await host.mixdogDesktop.retryConnection();
-  assert.deepEqual(requests.filter(([method]) => method.startsWith('connections/')), [
-    ['connections/link/get', { connectionId: 'h1' }],
-    ['connections/link/retry', { connectionId: 'h1' }],
-  ]);
+  assert.deepEqual(
+    requests.filter(([method]) => method.startsWith('connections/')),
+    [
+      ['connections/link/get', { connectionId: 'h1' }],
+      ['connections/link/retry', { connectionId: 'h1' }],
+    ]
+  );
   assert.deepEqual(opens, ['pc', 'pc'], 'one failed dial and one successful management port');
 });

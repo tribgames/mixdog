@@ -361,7 +361,10 @@ function usePersistDraftOnHide(
     const save = (event: Event): void => {
       if (event.type === 'visibilitychange' && document.visibilityState !== 'hidden') return;
       const element = textarea.current;
-      stashComposerDraft(identityScope, document.activeElement === element && element ? element.value : draftRef.current);
+      stashComposerDraft(
+        identityScope,
+        document.activeElement === element && element ? element.value : draftRef.current
+      );
       persistComposerDrafts();
     };
     document.addEventListener('visibilitychange', save);
@@ -589,7 +592,14 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     showComposerNotice,
     history.navigation,
   ]);
-  useComposerPromptRestore({ promptRestore, sessionId: sessionId || '', setDraft, draftRef, textarea, onQueuedRestored });
+  useComposerPromptRestore({
+    promptRestore,
+    sessionId: sessionId || '',
+    setDraft,
+    draftRef,
+    textarea,
+    onQueuedRestored,
+  });
   const selector = useComposerMessageSelector({
     userMessages,
     restoring,

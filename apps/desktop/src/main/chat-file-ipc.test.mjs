@@ -21,7 +21,12 @@ function fakeGrants() {
       for (const path of paths) {
         const absolutePath = resolve(path);
         const info = await stat(absolutePath);
-        const row = { absolutePath, name: basename(absolutePath), dir: info.isDirectory(), size: Number(info.size) || 0 };
+        const row = {
+          absolutePath,
+          name: basename(absolutePath),
+          dir: info.isDirectory(),
+          size: Number(info.size) || 0,
+        };
         if (!row.dir) {
           row.projectPath = dirname(absolutePath);
           row.relPath = basename(absolutePath);
@@ -36,8 +41,13 @@ function fakeGrants() {
     },
     async requireGrant(token, projectPath, relPath) {
       const file = granted.get(token);
-      if (!file) throw new LocalAccessDeniedError('The selected-file permission is unavailable.', SELECTED_FILE_GRANT_UNAVAILABLE);
-      if (resolve(projectPath, relPath) !== file) throw new LocalAccessDeniedError('The selected-file permission does not match this path.');
+      if (!file)
+        throw new LocalAccessDeniedError(
+          'The selected-file permission is unavailable.',
+          SELECTED_FILE_GRANT_UNAVAILABLE
+        );
+      if (resolve(projectPath, relPath) !== file)
+        throw new LocalAccessDeniedError('The selected-file permission does not match this path.');
       return { root: dirname(file), rel: basename(file), absolute: file };
     },
   };

@@ -83,7 +83,10 @@ test('Retry resyncs after an acknowledged read when only provisional paint is pr
   const id = 'preview-retry';
   const recovered = [];
   fixture(t, async () => true);
-  defaultSessionLaneStore.seedPreview(id, { sessionId: id, items: [{ id: 'preview', kind: 'user', text: 'Stored preview' }] });
+  defaultSessionLaneStore.seedPreview(id, {
+    sessionId: id,
+    items: [{ id: 'preview', kind: 'user', text: 'Stored preview' }],
+  });
   window.mixdogDesktop.resyncSessionState = (sessionId) => {
     recovered.push(sessionId);
     defaultSessionLaneStore.apply({

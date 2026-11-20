@@ -45,6 +45,6 @@ test('an asset is accepted only when the bytes that arrive have the manifest sha
   await verifyAssetDownloads({ a: { url: 'https://x/a', sha256: sha('payload') } }, { fetchImpl, attempts: 1 });
   await assert.rejects(
     verifyAssetDownloads({ a: { url: 'https://x/a', sha256: sha('other') } }, { fetchImpl, attempts: 1 }),
-    /a: verification failed after 1 attempts: sha256 mismatch/,
+    /a: verification failed after 1 attempts: sha256 mismatch/
   );
 });

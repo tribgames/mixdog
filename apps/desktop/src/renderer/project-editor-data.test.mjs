@@ -156,7 +156,10 @@ test('move readback keeps Common out of markerless projects and retains independ
   const before = await read([commonTwin, selected, sourceTwin]);
   assert.equal(before.has('markerless'), false);
   assert.equal(before.get('folder-a').projectId, 'alpha');
-  assert.deepEqual(before.get('folder-a').entries.map((row) => row.element), ['Selected', 'Source twin']);
+  assert.deepEqual(
+    before.get('folder-a').entries.map((row) => row.element),
+    ['Selected', 'Source twin']
+  );
 
   const after = await read([
     { ...commonTwin, index_revision: 'common-v2' },
@@ -172,9 +175,10 @@ test('move readback keeps Common out of markerless projects and retains independ
       [3, 'Concurrent entry', summary],
     ]
   );
-  assert.deepEqual(after.get('folder-a').entries.map((row) => [row.id, row.element, row.summary]), [
-    [1, 'Source twin', summary],
-  ]);
+  assert.deepEqual(
+    after.get('folder-a').entries.map((row) => [row.id, row.element, row.summary]),
+    [[1, 'Source twin', summary]]
+  );
   assert.equal(after.has('markerless'), false);
 });
 

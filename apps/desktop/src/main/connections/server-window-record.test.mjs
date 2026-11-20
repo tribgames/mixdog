@@ -29,13 +29,20 @@ test('a record asks this PC’s core where its server listens, every time', asyn
 });
 
 test('an endpoint answer without a url or token is an error, not a dial', async () => {
-  const record = createServerWindowRecord({ id: 'srv', kind: 'ssh', name: 'Box' }, fakeCore({ 'connections/endpoint': { url: '', token: 't' } }));
+  const record = createServerWindowRecord(
+    { id: 'srv', kind: 'ssh', name: 'Box' },
+    fakeCore({ 'connections/endpoint': { url: '', token: 't' } })
+  );
   await assert.rejects(record.endpoint(), /no endpoint/);
 });
 
 function windowsFixture(options = {}) {
   const core = fakeCore({
-    'connections/endpoint': options.remoteEndpoint ?? { url: 'ws://server/', token: 'server-token', serverInstanceId: 'i' },
+    'connections/endpoint': options.remoteEndpoint ?? {
+      url: 'ws://server/',
+      token: 'server-token',
+      serverInstanceId: 'i',
+    },
   });
   const shown = [];
   const windows = createServerWindows({
@@ -71,13 +78,25 @@ test('a server window gets the server’s core as primary and this PC’s as pc,
   const { windows } = windowsFixture();
   await windows.open({ connectionId: 'srv', kind: 'ssh', name: 'Box' });
   assert.deepEqual(await windows.endpointFor('srv', 'primary'), {
-    slot: 'primary', url: 'ws://server/', token: 'server-token', target: 'server', role: 'server:srv',
+    slot: 'primary',
+    url: 'ws://server/',
+    token: 'server-token',
+    target: 'server',
+    role: 'server:srv',
   });
   assert.deepEqual(await windows.endpointFor('srv', 'pc'), {
-    slot: 'pc', url: 'ws://local/', token: 'local-token', target: 'local', role: 'server:srv',
+    slot: 'pc',
+    url: 'ws://local/',
+    token: 'local-token',
+    target: 'local',
+    role: 'server:srv',
   });
   assert.deepEqual(await windows.endpointFor('local', 'primary'), {
-    slot: 'primary', url: 'ws://local/', token: 'local-token', target: 'local', role: 'main',
+    slot: 'primary',
+    url: 'ws://local/',
+    token: 'local-token',
+    target: 'local',
+    role: 'main',
   });
   assert.equal(await windows.endpointFor('local', 'pc'), undefined);
   await assert.rejects(windows.endpointFor('other', 'pc'), /not open/);
@@ -97,7 +116,9 @@ test('MIXDOG_SSH_TARGET opens the target through the core and reports a refusal 
   const ok = fakeCore({ 'connections/ssh/openEphemeral': { ok: true, host: {} } });
   await openEnvSshTarget(ok, 'root@box');
   assert.deepEqual(ok.calls, [['connections/ssh/openEphemeral', { target: 'root@box', name: 'root@box' }]]);
-  const refused = fakeCore({ 'connections/ssh/openEphemeral': { ok: false, failure: { kind: 'auth', code: 'auth-failed' } } });
+  const refused = fakeCore({
+    'connections/ssh/openEphemeral': { ok: false, failure: { kind: 'auth', code: 'auth-failed' } },
+  });
   await assert.rejects(openEnvSshTarget(refused, 'root@box'), /root@box could not be opened: auth-failed/);
   const unreachable = fakeCore({ 'connections/ssh/openEphemeral': new Error('core down') });
   await assert.rejects(openEnvSshTarget(unreachable, 'root@box'), /core down/);

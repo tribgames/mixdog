@@ -117,12 +117,20 @@ test('navigate to a url the policy refuses is -32015 with the reason, and nothin
     h.call('navigate', { pageId: 'p1', kind: 'url', url: 'http://10.0.0.1/', expect: { documentId: DOC } }),
     (e) => e.code === -32015 && e.data.reason === 'navigation to private address is blocked'
   );
-  assert.equal(h.log.some((l) => l.startsWith('load')), false);
+  assert.equal(
+    h.log.some((l) => l.startsWith('load')),
+    false
+  );
 });
 
 test('navigate loads the admitted url once the expect still holds, and invalidates the refs', async () => {
   const h = harness();
-  const result = await h.call('navigate', { pageId: 'p1', kind: 'url', url: 'example.org', expect: { documentId: DOC } });
+  const result = await h.call('navigate', {
+    pageId: 'p1',
+    kind: 'url',
+    url: 'example.org',
+    expect: { documentId: DOC },
+  });
   assert.deepEqual(
     h.log.filter((l) => l !== 'flush p1'),
     ['admit example.org', 'invalidate', 'load https://example.org/']
@@ -140,7 +148,10 @@ test('navigate whose expect moved between the admission and the load is -32010 a
     h.call('navigate', { pageId: 'p1', kind: 'url', url: 'example.org', expect: { documentId: DOC } }),
     (e) => e.code === -32010 && e.data.reason === 'document'
   );
-  assert.equal(h.log.some((l) => l.startsWith('load')), false);
+  assert.equal(
+    h.log.some((l) => l.startsWith('load')),
+    false
+  );
 });
 
 test('a mail link is handed to the policy as a link of its own host', async () => {
@@ -192,14 +203,22 @@ test('stop stops a loading page', async () => {
 test('eval sends Runtime.evaluate guarded by expect and returns the value', async () => {
   const h = harness();
   h.ctx.replies['Runtime.evaluate'] = () => ({ result: { value: 7 } });
-  const result = await h.call('eval', { pageId: 'p1', expression: '3+4', timeoutMs: 1000, expect: { documentId: DOC } });
+  const result = await h.call('eval', {
+    pageId: 'p1',
+    expression: '3+4',
+    timeoutMs: 1000,
+    expect: { documentId: DOC },
+  });
   assert.equal(result.value, 7);
   const [sent] = h.sent;
   assert.equal(sent.method, 'Runtime.evaluate');
   assert.equal(sent.params.returnByValue, true);
   assert.equal(typeof sent.options.beforeDispatch, 'function');
   h.state.documentGeneration += 1;
-  assert.throws(() => sent.options.beforeDispatch(), (e) => e.code === -32010);
+  assert.throws(
+    () => sent.options.beforeDispatch(),
+    (e) => e.code === -32010
+  );
 });
 
 test('an exception of the script is answered as exception details; the engine drops the refs', async () => {
@@ -220,7 +239,12 @@ test('a successful eval answers `unchanged` only when asked, true only when the 
 
   const changed = harness();
   changed.ctx.replies['Runtime.evaluate'] = () => ({ result: { value: 1 } });
-  const moved = await changed.call('eval', { pageId: 'p1', expression: 'document.body.append("x")', timeoutMs: 1000, checkUnchanged: true });
+  const moved = await changed.call('eval', {
+    pageId: 'p1',
+    expression: 'document.body.append("x")',
+    timeoutMs: 1000,
+    checkUnchanged: true,
+  });
   assert.equal(moved.unchanged, false, 'the revision moved');
 
   const same = harness();
@@ -276,7 +300,11 @@ test('read answers text, a selector, a frame, documents and frames', async () =>
   assert.deepEqual([first.payload.text, first.payload.offset, first.truncated], ['el', 1, true]);
   const last = await h.call('read', { pageId: 'p1', kind: 'text', options: { maxChars: 4, offset: 3 } });
   assert.deepEqual([last.payload.text, last.truncated], ['lo', false]);
-  const tail = await h.call('read', { pageId: 'p1', kind: 'text', options: { frame: { sessionId: 's1' }, maxChars: 10, offset: 2 } });
+  const tail = await h.call('read', {
+    pageId: 'p1',
+    kind: 'text',
+    options: { frame: { sessionId: 's1' }, maxChars: 10, offset: 2 },
+  });
   assert.deepEqual([tail.payload.text, tail.payload.offset, tail.truncated], ['ner', 2, false]);
   const rows = await h.call('read', { pageId: 'p1', kind: 'text', options: { selector: 'a' } });
   assert.equal(rows.payload.total, 3);
@@ -302,7 +330,11 @@ test('read answers text, a selector, a frame, documents and frames', async () =>
 test('a selector read brings back the attributes the command names, up to twelve, and takes the limit', async () => {
   const h = harness();
   const names = Array.from({ length: 15 }, (_, index) => `data-a${index}`);
-  await h.call('read', { pageId: 'p1', kind: 'text', options: { selector: 'a', attributes: [...names, 3, ' '], limit: 7 } });
+  await h.call('read', {
+    pageId: 'p1',
+    kind: 'text',
+    options: { selector: 'a', attributes: [...names, 3, ' '], limit: 7 },
+  });
   assert.deepEqual(h.extracted[0], ['a', names.slice(0, 12), 7]);
   await h.call('read', { pageId: 'p1', kind: 'text', options: { selector: 'a' } });
   assert.deepEqual(h.extracted[1][1], ['href', 'src', 'alt', 'title', 'name', 'value']);
@@ -320,7 +352,10 @@ test('renderCheckpoint and domQuiet answer with the facts', async () => {
 
 test('dialog/answer answers through the dialog report; with no dialog it answers false', async () => {
   const none = harness();
-  assert.equal((await none.call('dialog/answer', { pageId: 'p1', accept: true, expect: { documentId: DOC } })).answered, false);
+  assert.equal(
+    (await none.call('dialog/answer', { pageId: 'p1', accept: true, expect: { documentId: DOC } })).answered,
+    false
+  );
   const h = harness({ dialog: { type: 'prompt', message: 'm', openedAt: 1 } });
   const result = await h.call('dialog/answer', {
     pageId: 'p1',

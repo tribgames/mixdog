@@ -14,7 +14,13 @@ import {
 } from './native-release-status.mjs';
 
 const graph = NATIVE_RELEASE_TOOLS.find((tool) => tool.kind === 'graph');
-const other = Object.freeze({ kind: 'other', dir: 'native/mixdog-other', manifestPath: 'src/runtime/agent/orchestrator/tools/other-manifest.json', tagPrefix: 'other-v', binaryName: `mixdog-other${process.platform === 'win32' ? '.exe' : ''}` });
+const other = Object.freeze({
+  kind: 'other',
+  dir: 'native/mixdog-other',
+  manifestPath: 'src/runtime/agent/orchestrator/tools/other-manifest.json',
+  tagPrefix: 'other-v',
+  binaryName: `mixdog-other${process.platform === 'win32' ? '.exe' : ''}`,
+});
 
 function git(root, ...args) {
   return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: root, encoding: 'utf8' });
@@ -162,14 +168,16 @@ test('a local release binary older than its sources is stale, warned about and r
   }
 });
 
-
 test('the release plan tracks graph while retained patch and spawn source changes are core changes', () => {
   const root = fixture();
   try {
     write(root, 'native/mixdog-patch/src/lib.rs', '// embedded library');
     write(root, 'native/mixdog-spawn/src/lib.rs', '// embedded library');
     const result = nativeReleaseStatuses(root);
-    assert.deepEqual(result.map(({ kind }) => kind), ['graph']);
+    assert.deepEqual(
+      result.map(({ kind }) => kind),
+      ['graph']
+    );
     assert.deepEqual(unreleasedProblems(result), []);
   } finally {
     rmSync(root, { recursive: true, force: true });

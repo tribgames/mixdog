@@ -538,8 +538,13 @@ test('leaving a screen reports the start that left, before an offer and after it
   h.viewer.dispose(true);
   const { signal: _, ...left } = h.signals('close').at(-1);
   assert.deepEqual(parseRemoteWebrtcClientSignal(left), {
-    v: 1, source: screenSource, type: 'close', reason: 'viewer-left', viewerAttempt: second,
-    connectionId: id(1), generation: 1,
+    v: 1,
+    source: screenSource,
+    type: 'close',
+    reason: 'viewer-left',
+    viewerAttempt: second,
+    connectionId: id(1),
+    generation: 1,
   });
 });
 

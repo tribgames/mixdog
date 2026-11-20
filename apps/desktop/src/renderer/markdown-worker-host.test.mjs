@@ -110,8 +110,9 @@ test('client boots one resident parser, shares concurrent parses and preserves f
       }
     },
   });
-  const { parseStreamingMarkdownAst, preloadSyncMarkdownParser, syncMarkdownParserLoad } =
-    await import('./markdown-worker-client.ts');
+  const { parseStreamingMarkdownAst, preloadSyncMarkdownParser, syncMarkdownParserLoad } = await import(
+    './markdown-worker-client.ts'
+  );
   const { _runIdleReclaimForTest } = await import('./idle-reclaim.ts');
   try {
     assert.equal(workers.length, 0, 'loading the client for an empty conversation needs no parser worker');

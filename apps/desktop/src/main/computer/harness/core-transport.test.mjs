@@ -36,7 +36,11 @@ test('an image comes back as base64 read from the blob a page at a time', async 
   calls.length = 0;
   const bytes = Buffer.alloc(768 * 1024 + 5, 9);
   const run = transport({
-    'dev/computer/run': { ok: true, text: 'shot', imageBlob: { digest: 'sha256:ab', byteLength: bytes.length, mimeType: 'image/jpeg' } },
+    'dev/computer/run': {
+      ok: true,
+      text: 'shot',
+      imageBlob: { digest: 'sha256:ab', byteLength: bytes.length, mimeType: 'image/jpeg' },
+    },
     'blob/read': ({ offset, length }) => ({ bytesB64: bytes.subarray(offset, offset + length).toString('base64') }),
   });
   const result = await run.runCommand({ action: 'capture' }, 's');

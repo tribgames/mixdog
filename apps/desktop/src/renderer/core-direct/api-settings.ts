@@ -53,7 +53,8 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
     platform: hostPlatform(),
     host: { hostName: () => '' },
   });
-  const op = <T>(name: string, args: unknown[] = []): Promise<T> => withDirectErrors(lane.invoke(name, args) as Promise<T>);
+  const op = <T>(name: string, args: unknown[] = []): Promise<T> =>
+    withDirectErrors(lane.invoke(name, args) as Promise<T>);
 
   /** The held value of `(section, key)`, or undefined while the core holds none. */
   const held = (section: string, key: string | null): unknown =>
@@ -214,7 +215,10 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
           const pc = ctx.pcClient();
           const onServer = pc ? windowOfReply(pc.server)?.role?.startsWith('server:') === true : false;
           const reply = onServer
-            ? await (pc as unknown as { call(method: string, params: unknown): Promise<unknown> }).call('desktop/fonts/list', {})
+            ? await (pc as unknown as { call(method: string, params: unknown): Promise<unknown> }).call(
+                'desktop/fonts/list',
+                {}
+              )
             : await ctx.call('desktop/fonts/list', {});
           return (reply as { families: string[] }).families;
         })()

@@ -174,7 +174,10 @@ test('a window without a route or connection is refused, never served by this PC
 
   f.server.webContents.emit('destroyed');
   assert.equal(f.routes.connectionIdFor(2), undefined);
-  await assert.rejects(f.invoke(f.server.webContents, DESKTOP_IPC.listServerDirectories, '/'), /connection-route-missing/);
+  await assert.rejects(
+    f.invoke(f.server.webContents, DESKTOP_IPC.listServerDirectories, '/'),
+    /connection-route-missing/
+  );
   assert.deepEqual(f.local.service.calls, [], 'the local connection never answers for another window');
   assert.deepEqual(f.server.service.calls, []);
   assert.throws(() => resolveWindowConnection(f.routes, f.pool, 99), /connection-route-missing/);
@@ -219,7 +222,11 @@ test('a server window refuses the features that act on this PC', async (t) => {
   }
   // Phone access is the renderer's own member (renderer/core-direct/server-gates.ts refuses it in a server window); the
   // channel gate still names it.
-  for (const channel of [DESKTOP_IPC.remoteAccessInfo, DESKTOP_IPC.remotePairCode, DESKTOP_IPC.setRemoteAccessEnabled]) {
+  for (const channel of [
+    DESKTOP_IPC.remoteAccessInfo,
+    DESKTOP_IPC.remotePairCode,
+    DESKTOP_IPC.setRemoteAccessEnabled,
+  ]) {
     assert.ok(SSH_UNSUPPORTED_CHANNELS.has(channel), channel);
   }
   await assert.rejects(f.invoke(f.server.webContents, DESKTOP_IPC.chooseProject), /remote-picker-required/);

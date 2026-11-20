@@ -352,7 +352,10 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
 
   const thumbnails = createThumbnails(ctx);
   const publish = createPublish(ctx);
-  const withHold = <T extends { sessionId: string }>(sessionId: string, state: T): T => ({ ...state, ...publishedHold(ctx, sessionId) });
+  const withHold = <T extends { sessionId: string }>(sessionId: string, state: T): T => ({
+    ...state,
+    ...publishedHold(ctx, sessionId),
+  });
   const problems = createProblemTracker(ctx);
   const leases = createLeaseGuard((lease, kind, message) => {
     const found = problems.paneOfUrl([lease]);

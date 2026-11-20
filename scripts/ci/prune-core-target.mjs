@@ -58,13 +58,20 @@ export function pruneTarget({ target, profile, packages, cacheRoot }) {
   checked(target, target);
   const plans = [];
   const planned = new Set();
-  const remove = (path, removed) => { if (!planned.has(path)) { planned.add(path); plans.push(deletionPlan(path, target)); removed.entries += 1; } };
+  const remove = (path, removed) => {
+    if (!planned.has(path)) {
+      planned.add(path);
+      plans.push(deletionPlan(path, target));
+      removed.entries += 1;
+    }
+  };
   const names = new Set(packages.map(underscored));
   const removed = { bytes: 0, entries: 0 };
   const dir = join(target, profile);
   const list = (path) => {
     try {
-      checked(path, target); return readdirSync(path);
+      checked(path, target);
+      return readdirSync(path);
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
       return [];
@@ -79,7 +86,10 @@ export function pruneTarget({ target, profile, packages, cacheRoot }) {
     if (extension === '.exe' || extension === '') {
       executables.add(entry.slice(0, dot > 0 ? dot : undefined));
       remove(join(dir, 'deps', entry), removed);
-    } else if (names.has(underscored(stem.replace(HASH, ''))) || names.has(underscored(entry.slice(0, dot).replace(HASH, '')))) {
+    } else if (
+      names.has(underscored(stem.replace(HASH, ''))) ||
+      names.has(underscored(entry.slice(0, dot).replace(HASH, '')))
+    ) {
       remove(join(dir, 'deps', entry), removed);
     }
   }
@@ -102,17 +112,26 @@ export function pruneTarget({ target, profile, packages, cacheRoot }) {
   if (list(target).includes('nextest')) remove(join(target, 'nextest'), removed);
   // Validate *every* candidate before deleting any; repeat identity/link checks
   // just before each non-recursive operation. Junction targets are never entered.
-  for (const plan of plans) for (const entry of plan) {
-    checked(entry.path, target);
-    if (entry.directory) rmdirSync(entry.path); else unlinkSync(entry.path);
-    removed.bytes += entry.bytes;
-  }
+  for (const plan of plans)
+    for (const entry of plan) {
+      checked(entry.path, target);
+      if (entry.directory) rmdirSync(entry.path);
+      else unlinkSync(entry.path);
+      removed.bytes += entry.bytes;
+    }
   return removed;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const args = Object.fromEntries(process.argv.slice(2).reduce((pairs, arg, i, all) => (arg.startsWith('--') ? [...pairs, [arg.slice(2), all[i + 1]]] : pairs), []));
-  if (!args.target || !args.profile || !(args.packages || args['manifest-path'])) throw new Error('usage: --target <dir> --profile <debug|release> (--packages "<names>" | --manifest-path <Cargo.toml>)');
+  const args = Object.fromEntries(
+    process.argv
+      .slice(2)
+      .reduce((pairs, arg, i, all) => (arg.startsWith('--') ? [...pairs, [arg.slice(2), all[i + 1]]] : pairs), [])
+  );
+  if (!args.target || !args.profile || !(args.packages || args['manifest-path']))
+    throw new Error(
+      'usage: --target <dir> --profile <debug|release> (--packages "<names>" | --manifest-path <Cargo.toml>)'
+    );
   if (process.env.GITHUB_ACTIONS !== 'true' || !process.env.GITHUB_WORKSPACE)
     throw new Error('cache pruning is restricted to GitHub Actions workspaces');
   const cacheRoot = resolve(process.env.GITHUB_WORKSPACE, 'native/core/target');
@@ -120,12 +139,27 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const packages = args.packages
     ? packageNames(args.packages)
     : JSON.parse(
-        execFileSync('cargo', ['metadata', '--locked', '--offline', '--no-deps', '--format-version', '1', '--manifest-path', resolve(args['manifest-path'])], {
-          cwd: resolve(args['manifest-path'], '..'),
-          encoding: 'utf8',
-          maxBuffer: 1 << 28,
-        }),
+        execFileSync(
+          'cargo',
+          [
+            'metadata',
+            '--locked',
+            '--offline',
+            '--no-deps',
+            '--format-version',
+            '1',
+            '--manifest-path',
+            resolve(args['manifest-path']),
+          ],
+          {
+            cwd: resolve(args['manifest-path'], '..'),
+            encoding: 'utf8',
+            maxBuffer: 1 << 28,
+          }
+        )
       ).packages.map((pkg) => pkg.name);
   const removed = pruneTarget({ target: args.target, profile: args.profile, packages, cacheRoot });
-  console.log(`[prune-core-target] removed ${removed.entries} entries, ${(removed.bytes / 1048576).toFixed(0)} MiB, from ${args.target}/${args.profile}`);
+  console.log(
+    `[prune-core-target] removed ${removed.entries} entries, ${(removed.bytes / 1048576).toFixed(0)} MiB, from ${args.target}/${args.profile}`
+  );
 }

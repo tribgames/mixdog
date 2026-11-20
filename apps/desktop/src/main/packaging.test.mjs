@@ -168,12 +168,12 @@ test('the capture harness stays out of the production entry and the package', as
 test('runtime preparation reads back the architecture of every native artifact it packages', async () => {
   const preparation = await text('../../scripts/prepare-runtime.mjs');
   assert.match(preparation, /assertTargetArchitecture\(destination,\s*`Native tool \$\{kind\}`\)/);
-  assert.match(preparation, /assertTargetArchitecture\(source,\s*`Runtime addon \$\{/);
+  assert.match(preparation, /assertTargetArchitecture\(\s*source,\s*`Runtime addon \$\{/);
 });
 
 // Nothing in the app opens an archive of the root package's runtime (the core reads real files through
 // js-runtime.json and MIXDOG_ROOT: local-core.ts); the package ships the real-file tree only.
-test('the package ships the core\'s dependency closure as real files and no runtime archive', async () => {
+test("the package ships the core's dependency closure as real files and no runtime archive", async () => {
   const builder = await text('../../electron-builder.yml');
   assert.doesNotMatch(builder, /runtime\.asar\s*$/m);
   assert.doesNotMatch(builder, /from:\s*\.runtime\/runtime\.asar\s/);

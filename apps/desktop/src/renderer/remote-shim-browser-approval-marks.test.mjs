@@ -15,7 +15,7 @@ test('a late subscriber gets the PC list at once, then changes and the clearing'
     const client = {
       store: {
         appFeed: () => ({ id: 'app', epoch: 'e1', seq: 1 }),
-        section: (_section, key) => sections.has(key) ? { value: sections.get(key) } : undefined,
+        section: (_section, key) => (sections.has(key) ? { value: sections.get(key) } : undefined),
         subscribe: (listener) => ((fold = listener), () => {}),
       },
       on: () => () => {},

@@ -24,7 +24,11 @@ const sessions = listing
   .filter((s) => s.closed !== true)
   // `agent`: the row Node's sidebar leaves out (desktop-state.ts desktopSessionSummaries: `agentSession`, hidden by the sidebar).
   .map((s) => ({
-    id: s.id, cwd: s.cwd, title: s.title, messageCount: s.messageCount, desktop: Boolean(s.desktopSession),
+    id: s.id,
+    cwd: s.cwd,
+    title: s.title,
+    messageCount: s.messageCount,
+    desktop: Boolean(s.desktopSession),
     agent: s.visibility === 'agent-only' || (s.owner === 'agent' && s.agent !== 'lead'),
   }));
 const baseline = {

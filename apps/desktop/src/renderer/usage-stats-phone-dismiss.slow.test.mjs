@@ -47,9 +47,7 @@ test('the usage dialog closes by its button and by an outside tap on a phone', a
           import { createRoot } from "react-dom/client";
           import { CommandSurface } from "./CommandSurface";
 
-          const period = ${JSON.stringify(
-            resolveUsageStatsPeriod({ view: 'hour', now: USAGE_STATS_FIXTURE_NOW })
-          )};
+          const period = ${JSON.stringify(resolveUsageStatsPeriod({ view: 'hour', now: USAGE_STATS_FIXTURE_NOW }))};
           const route = {
             turns: 3, sessions: 1, input: 1000, output: 200, tokens: 1200, cacheRead: 0, cacheWrite: 0,
             cacheTokens: 0, costUsd: 0, costCoverage: 1, share: 1,

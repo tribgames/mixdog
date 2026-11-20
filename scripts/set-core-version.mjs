@@ -27,7 +27,10 @@ export async function setCoreVersion(version, root = DEFAULT_ROOT) {
   await writeFile(manifestPath, manifest.replace(section, `$1${version}$2`));
 
   // A workspace crate has no `source` line; a registry crate that happens to carry the same version has one.
-  const entry = new RegExp(`(\\[\\[package\\]\\]\\r?\\nname = "[^"]+"\\r?\\nversion = ")${escape(from)}("\\r?\\n)(?!source = )`, 'g');
+  const entry = new RegExp(
+    `(\\[\\[package\\]\\]\\r?\\nname = "[^"]+"\\r?\\nversion = ")${escape(from)}("\\r?\\n)(?!source = )`,
+    'g'
+  );
   let lockEntries = 0;
   const lock = (await readFile(lockPath, 'utf8')).replace(entry, (_, head, tail) => {
     lockEntries += 1;

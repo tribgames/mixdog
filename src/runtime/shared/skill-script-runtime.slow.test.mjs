@@ -18,9 +18,6 @@ import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-
-
-
 import { displayShellCommand, POWERSHELL_UTF8_PREFIX } from './shell-display.mjs';
 import {
   archiveRootOf,
@@ -332,8 +329,6 @@ const PS_ARGS = [
   'trailing\\',
 ];
 
-
-
 test('the argument hand-over survives every argument shape', () => {
   assert.equal(decodeSkillArgv(undefined), null);
   assert.equal(decodeSkillArgv('other'), null);
@@ -435,7 +430,6 @@ for (const shell of powerShells()) {
     }
   });
 }
-
 
 test('a Windows launcher whose runtime path is not ASCII still starts it', {
   skip: process.platform !== 'win32' && 'cmd code pages are Windows-only',

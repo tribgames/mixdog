@@ -388,11 +388,7 @@ export function AgentTypingRow({
       <div
         className="message assistant mx-chat-typing"
         role="status"
-        aria-label={
-          deciding
-            ? t('Choosing who speaks next…')
-            : t('{{name}} is typing…', { name: member.name })
-        }
+        aria-label={deciding ? t('Choosing who speaks next…') : t('{{name}} is typing…', { name: member.name })}
       >
         <div className="message-body">
           <span className="mx-chat-dots" aria-hidden="true">
@@ -453,7 +449,11 @@ export function AgentChatRow({
         {lead && <RoomMemberFace member={member} className="mx-chat-face" state={faceState} />}
         <div className="mx-chat-column">
           {lead && (
-            <div className="mx-chat-name" data-band={band ? 'true' : undefined} title={band && member.name ? member.name : undefined}>
+            <div
+              className="mx-chat-name"
+              data-band={band ? 'true' : undefined}
+              title={band && member.name ? member.name : undefined}
+            >
               {member.name}
               {place?.bot && <span className="mx-chat-bot-tag">{t('Bot message')}</span>}
             </div>

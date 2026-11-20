@@ -13,7 +13,8 @@ import { cleanIncomingTail } from '../incoming-tail';
 
 type ThreadRow = Record<string, unknown>;
 
-const finite = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
+const finite = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
 export function summariesOfThreadRows(
   rows: ReadonlyArray<ThreadRow>,
@@ -24,7 +25,8 @@ export function summariesOfThreadRows(
   const raw = rows.map((row) => {
     const { classification, projectPath, forkedFromId, ...rest } = row;
     // The core names the inherit source `forkedFromId`; the projection reads Node's `inheritedFromSessionId`.
-    const named = typeof forkedFromId === 'string' && forkedFromId ? { ...rest, inheritedFromSessionId: forkedFromId } : rest;
+    const named =
+      typeof forkedFromId === 'string' && forkedFromId ? { ...rest, inheritedFromSessionId: forkedFromId } : rest;
     return typeof classification === 'string'
       ? { ...named, desktopSession: { classification, projectPath: projectPath ?? null } }
       : named;
@@ -37,7 +39,14 @@ export function summariesOfThreadRows(
     const readRevision = finite(core.readRevision);
     const incomingTail = cleanIncomingTail(core.incomingTail);
     // The core's row says compactCount: 0 for a thread never compacted; Node's summary has no such field until the first compaction (>= 1).
-    const { working: _w, leadWorking: _l, agentWorking: _a, compactCount, incomingTail: _t, ...rest } = summary as DesktopSessionSummary & Record<string, unknown>;
+    const {
+      working: _w,
+      leadWorking: _l,
+      agentWorking: _a,
+      compactCount,
+      incomingTail: _t,
+      ...rest
+    } = summary as DesktopSessionSummary & Record<string, unknown>;
     return {
       ...rest,
       ...(typeof compactCount === 'number' && compactCount > 0 ? { compactCount } : {}),

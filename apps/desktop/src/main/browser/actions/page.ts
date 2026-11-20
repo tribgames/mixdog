@@ -5,7 +5,13 @@
  */
 import type { WebContents } from 'electron';
 
-import { boundedInteger, browserCharLimit, EVALUATE_DEFAULT_CHARS, MAX_EVALUATE_SCRIPT_CHARS, READ_MAX_CHARS } from '../host-types';
+import {
+  boundedInteger,
+  browserCharLimit,
+  EVALUATE_DEFAULT_CHARS,
+  MAX_EVALUATE_SCRIPT_CHARS,
+  READ_MAX_CHARS,
+} from '../host-types';
 import { type BrowserActionServices, defineBrowserActions } from './types';
 
 /** Post-action options that ask for the fresh snapshot itself. */

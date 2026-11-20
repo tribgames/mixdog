@@ -17,7 +17,10 @@ const dom = (t) =>
     rootId: 'root',
   });
 const spacerHeight = (scope) =>
-  [...scope.querySelectorAll('[data-scm-spacer]')].reduce((sum, spacer) => sum + Number.parseFloat(spacer.style.height), 0);
+  [...scope.querySelectorAll('[data-scm-spacer]')].reduce(
+    (sum, spacer) => sum + Number.parseFloat(spacer.style.height),
+    0
+  );
 
 // ── The composer chip's files menu ──────────────────────────────────────
 

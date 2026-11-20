@@ -252,10 +252,7 @@ function terminalView(key: string): TerminalView {
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
-  const writer = new TerminalWritePump(
-    (data, complete) => term.write(data, complete),
-    acknowledgeTerminalOutput
-  );
+  const writer = new TerminalWritePump((data, complete) => term.write(data, complete), acknowledgeTerminalOutput);
   // Relay-served browsers pay a full round trip per echoed keystroke; the
   // predictor paints validated keystrokes immediately (user: RTT 때문에
   // 터미널 타이핑이 답답함). Electron's local PTY needs none of it.

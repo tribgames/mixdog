@@ -266,97 +266,98 @@ export function createScreenInputHost(options: ScreenInputHostOptions): ScreenIn
       swept = true;
       sweepPowerShellScreenHostFiles(options.powerShellHostDirectory);
     }
-    const launch = (): Promise<void> => new Promise<void>((resolve, reject) => {
-      if (stopping) {
-        reject(new ScreenHostError('start_failed'));
-        return;
-      }
-      let binary: string;
-      try {
-        binary = (options.binary ?? computerNativeBinary)();
-      } catch {
-        reject(new ScreenHostError('start_failed'));
-        return;
-      }
-      const process_ = options.spawn(binary, [SCREEN_INPUT_MODE], {
-        windowsHide: true,
-        env: { ...process.env, MIXDOG_SCREEN_INPUT_MARKER: String(marker) },
-      }) as ChildProcessWithoutNullStreams;
-      child = process_;
-      let ready = false;
-      // The helper says `released` once it let go of what it held on `q` or end of stdin.
-      let released = false;
-      const timer = setTimeout(() => {
-        if (ready) return;
-        reject(new ScreenHostError('start_timeout'));
-        retire(process_);
-      }, START_TIMEOUT_MS);
-      timer.unref?.();
-      const receive = createComputerLineDecoder((line: string) => {
-        if (line === 'released') {
-          released = true;
-          return;
-        }
-        const readyLine = /^ready(?: (\d+))?$/u.exec(line);
-        if (readyLine) {
-          session = readyLine[1] === undefined ? null : Number(readyLine[1]);
-          ready = true;
-          clearTimeout(timer);
-          resolve();
-          return;
-        }
-        if (line.startsWith('desktop ')) {
-          const desktop = parseScreenDesktopLine(line.slice('desktop '.length));
-          if (!desktop) return;
-          current = desktop;
-          for (const listener of desktopListeners) listener(desktop);
-          return;
-        }
-        const reply = /^(ok|err) (\d+)(?: (.*))?$/u.exec(line);
-        if (!reply) return;
-        const entry = pending.get(Number(reply[2]));
-        if (!entry) return;
-        pending.delete(Number(reply[2]));
-        clearTimeout(entry.timer);
-        if (reply[1] === 'ok') entry.resolve(reply[3] ? reply[3].split(' ') : []);
-        else entry.reject(new ScreenHostError(reply[3] || 'input_failed'));
-      }, MAX_LINE_BYTES);
-      process_.stdout.setEncoding('utf8');
-      process_.stdout.on('data', (chunk: string) => {
-        try {
-          receive(chunk);
-        } catch {
-          retire(process_);
-        }
-      });
-      process_.stderr.on('data', () => {
-        /* start and runtime errors surface as a missing `ready` or `err` lines */
-      });
-      process_.stdin.on('error', () => {
-        /* the exit below settles everything */
-      });
-      process_.once('error', () => {
-        clearTimeout(timer);
-        if (!ready) reject(new ScreenHostError('start_failed'));
-      });
-      process_.once('exit', () => {
-        exited.add(process_);
-        clearTimeout(timer);
-        if (child === process_) child = null;
-        starting = null;
-        current = null;
-        session = null;
-        failPending('host_exited');
-        if (!ready) {
+    const launch = (): Promise<void> =>
+      new Promise<void>((resolve, reject) => {
+        if (stopping) {
           reject(new ScreenHostError('start_failed'));
           return;
         }
-        // Gone without saying it released (a crash, or killed from outside): the
-        // abort cleanup lifts what it held, as after a kill.
-        if (!released && !retired.has(process_)) retire(process_);
-        if (!stopping) for (const listener of exitListeners) listener();
+        let binary: string;
+        try {
+          binary = (options.binary ?? computerNativeBinary)();
+        } catch {
+          reject(new ScreenHostError('start_failed'));
+          return;
+        }
+        const process_ = options.spawn(binary, [SCREEN_INPUT_MODE], {
+          windowsHide: true,
+          env: { ...process.env, MIXDOG_SCREEN_INPUT_MARKER: String(marker) },
+        }) as ChildProcessWithoutNullStreams;
+        child = process_;
+        let ready = false;
+        // The helper says `released` once it let go of what it held on `q` or end of stdin.
+        let released = false;
+        const timer = setTimeout(() => {
+          if (ready) return;
+          reject(new ScreenHostError('start_timeout'));
+          retire(process_);
+        }, START_TIMEOUT_MS);
+        timer.unref?.();
+        const receive = createComputerLineDecoder((line: string) => {
+          if (line === 'released') {
+            released = true;
+            return;
+          }
+          const readyLine = /^ready(?: (\d+))?$/u.exec(line);
+          if (readyLine) {
+            session = readyLine[1] === undefined ? null : Number(readyLine[1]);
+            ready = true;
+            clearTimeout(timer);
+            resolve();
+            return;
+          }
+          if (line.startsWith('desktop ')) {
+            const desktop = parseScreenDesktopLine(line.slice('desktop '.length));
+            if (!desktop) return;
+            current = desktop;
+            for (const listener of desktopListeners) listener(desktop);
+            return;
+          }
+          const reply = /^(ok|err) (\d+)(?: (.*))?$/u.exec(line);
+          if (!reply) return;
+          const entry = pending.get(Number(reply[2]));
+          if (!entry) return;
+          pending.delete(Number(reply[2]));
+          clearTimeout(entry.timer);
+          if (reply[1] === 'ok') entry.resolve(reply[3] ? reply[3].split(' ') : []);
+          else entry.reject(new ScreenHostError(reply[3] || 'input_failed'));
+        }, MAX_LINE_BYTES);
+        process_.stdout.setEncoding('utf8');
+        process_.stdout.on('data', (chunk: string) => {
+          try {
+            receive(chunk);
+          } catch {
+            retire(process_);
+          }
+        });
+        process_.stderr.on('data', () => {
+          /* start and runtime errors surface as a missing `ready` or `err` lines */
+        });
+        process_.stdin.on('error', () => {
+          /* the exit below settles everything */
+        });
+        process_.once('error', () => {
+          clearTimeout(timer);
+          if (!ready) reject(new ScreenHostError('start_failed'));
+        });
+        process_.once('exit', () => {
+          exited.add(process_);
+          clearTimeout(timer);
+          if (child === process_) child = null;
+          starting = null;
+          current = null;
+          session = null;
+          failPending('host_exited');
+          if (!ready) {
+            reject(new ScreenHostError('start_failed'));
+            return;
+          }
+          // Gone without saying it released (a crash, or killed from outside): the
+          // abort cleanup lifts what it held, as after a kill.
+          if (!released && !retired.has(process_)) retire(process_);
+          if (!stopping) for (const listener of exitListeners) listener();
+        });
       });
-    });
     // A new helper runs under the same marker and receipt: the cleanups of the
     // one before it finish first, so they cannot lift what the new one holds.
     starting = cleanups.size ? Promise.all([...cleanups]).then(launch) : launch();

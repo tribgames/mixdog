@@ -615,7 +615,9 @@ test('Chromium keeps a bounded amount of response bodies per page and per frame 
   await waitUntil(() => f.calls.filter((call) => call.method === 'Network.enable').length >= 2);
   for (const call of f.calls.filter((entry) => entry.method === 'Network.enable')) {
     assert.ok(call.params.maxTotalBufferSize > 0 && call.params.maxTotalBufferSize <= 20_000_000);
-    assert.ok(call.params.maxResourceBufferSize > 0 && call.params.maxResourceBufferSize <= call.params.maxTotalBufferSize);
+    assert.ok(
+      call.params.maxResourceBufferSize > 0 && call.params.maxResourceBufferSize <= call.params.maxTotalBufferSize
+    );
   }
   await f.cdp.detach(f.guest);
 });

@@ -448,7 +448,12 @@ function clampFree(s: PetContext, point: Point, workArea: PetRect, scale = s.pre
 
 /** Where the window opens on `display`: its saved spot there, else the default corner. */
 function positionOn(s: PetContext, display: PetDisplay): Promise<Point> {
-  return resolvePoint(s, { op: 'positionOn', display: placementDisplay(display), prefs: s.prefs, scale: s.prefs.scale });
+  return resolvePoint(s, {
+    op: 'positionOn',
+    display: placementDisplay(display),
+    prefs: s.prefs,
+    scale: s.prefs.scale,
+  });
 }
 
 /** The window's real top-left on screen. */
@@ -968,7 +973,12 @@ async function setScale(s: PetContext, scale: number): Promise<DesktopPetConfig>
   const next: Partial<DesktopPetPrefs> = { scale };
   if (wasLive && !s.prefs.pinned) {
     const display = await displayFor(s, at, shape.window);
-    const spot = await clampFree(s, { x: at.x, y: at.y + before.height - shape.window.height }, display.workArea, scale);
+    const spot = await clampFree(
+      s,
+      { x: at.x, y: at.y + before.height - shape.window.height },
+      display.workArea,
+      scale
+    );
     next.positions = { ...s.prefs.positions, [String(display.id)]: spot };
     if (s.prefs.pinnedHere) next.hereAnchor = await anchorAt(s, spot, shape);
   }

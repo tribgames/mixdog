@@ -114,32 +114,45 @@ test('a check step is one authorized worker request whose response comes back un
   const reply = await createCommandRouter(host).runCommand(step('check'));
   assert.deepEqual(reply, { text: '', saved_login_response: response });
   assert.deepEqual(
-    requests.map((request) => [request.action, request.field, request.text, request.observed_input_monitor_id, request.observed_input_user_sequence]),
+    requests.map((request) => [
+      request.action,
+      request.field,
+      request.text,
+      request.observed_input_monitor_id,
+      request.observed_input_user_sequence,
+    ]),
     [['saved_login_check', 'password', null, 'monitor-1', 7]]
   );
   assert.deepEqual(vaultAsks, []);
 });
 
-test('a type step writes the core value once after the last Auto login check, and a worker failure is returned, not thrown', WINDOWS, async () => {
-  const failed = { ok: false, error: 'the field changed' };
-  const { host, requests, vaultAsks } = routerHost({ answers: { saved_login_type: failed } });
-  const router = createCommandRouter(host);
-  const command = step('type', { saved_login_text: PASSWORD, saved_login_expected: TARGET });
-  const startedAt = performance.now();
-  const reply = await router.runCommand(command);
-  assert.deepEqual(reply, { text: '', saved_login_response: failed });
-  assert.deepEqual(
-    requests.map((request) => [request.action, request.field, request.text, request.expected]),
-    [['saved_login_type', 'password', PASSWORD, TARGET]]
-  );
-  assert.deepEqual(vaultAsks, []);
-  // Nothing the host logs about the command or its reply holds the value.
-  assert.equal(JSON.stringify([computerRunRecord(command, startedAt, reply), reply]).includes('Pa55'), false);
-});
+test(
+  'a type step writes the core value once after the last Auto login check, and a worker failure is returned, not thrown',
+  WINDOWS,
+  async () => {
+    const failed = { ok: false, error: 'the field changed' };
+    const { host, requests, vaultAsks } = routerHost({ answers: { saved_login_type: failed } });
+    const router = createCommandRouter(host);
+    const command = step('type', { saved_login_text: PASSWORD, saved_login_expected: TARGET });
+    const startedAt = performance.now();
+    const reply = await router.runCommand(command);
+    assert.deepEqual(reply, { text: '', saved_login_response: failed });
+    assert.deepEqual(
+      requests.map((request) => [request.action, request.field, request.text, request.expected]),
+      [['saved_login_type', 'password', PASSWORD, TARGET]]
+    );
+    assert.deepEqual(vaultAsks, []);
+    // Nothing the host logs about the command or its reply holds the value.
+    assert.equal(JSON.stringify([computerRunRecord(command, startedAt, reply), reply]).includes('Pa55'), false);
+  }
+);
 
 test('Auto login switched off sends nothing, before the check and right before the write', WINDOWS, async () => {
   const off = routerHost({ enabled: () => false });
-  await assert.rejects(createCommandRouter(off.host).runCommand(step('check')), /saved_login_unavailable: Auto login is off/);
+  await assert.rejects(
+    createCommandRouter(off.host).runCommand(step('check')),
+    /saved_login_unavailable: Auto login is off/
+  );
   assert.deepEqual(off.requests, []);
   let on = true;
   const late = routerHost({ enabled: () => on });
@@ -149,7 +162,9 @@ test('Auto login switched off sends nothing, before the check and right before t
     return false;
   };
   await assert.rejects(
-    createCommandRouter(late.host).runCommand(step('type', { saved_login_text: PASSWORD, saved_login_expected: TARGET })),
+    createCommandRouter(late.host).runCommand(
+      step('type', { saved_login_text: PASSWORD, saved_login_expected: TARGET })
+    ),
     /Auto login is off/
   );
   assert.deepEqual(late.requests, [], 'the value was never sent');

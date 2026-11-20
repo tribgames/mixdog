@@ -193,7 +193,12 @@ test('a cancel returns without waiting for a chunk whose reply never comes, and 
   const aborts = [];
   let releaseHeld;
   const api = {
-    serverUploadBegin: async () => ({ uploadId: 'u1', chunkBytes: 4, maxBytes: SERVER_UPLOAD_MAX_BYTES, inFlightChunks: 3 }),
+    serverUploadBegin: async () => ({
+      uploadId: 'u1',
+      chunkBytes: 4,
+      maxBytes: SERVER_UPLOAD_MAX_BYTES,
+      inFlightChunks: 3,
+    }),
     serverUploadChunk: (_id, offset, bytes) =>
       new Promise((resolve) => {
         releaseHeld = () => resolve({ received: offset + bytes.length });

@@ -6,7 +6,10 @@ import { registerHooks } from 'node:module';
 registerHooks({
   resolve: (specifier, context, next) =>
     specifier === 'electron'
-      ? { url: 'data:text/javascript,export class BaseWindow{};export class BrowserWindow{};export class WebContentsView{}', shortCircuit: true }
+      ? {
+          url: 'data:text/javascript,export class BaseWindow{};export class BrowserWindow{};export class WebContentsView{}',
+          shortCircuit: true,
+        }
       : next(specifier, context),
 });
 
@@ -14,11 +17,15 @@ const { createBrowserSessionRestore } = await import('./guest-session-restore.ts
 
 const guest = (url) => ({
   url,
-  getURL() { return this.url; },
+  getURL() {
+    return this.url;
+  },
   getZoomFactor: () => 1,
   setZoomFactor() {},
   isDestroyed: () => false,
-  loadURL: async function (next) { this.url = next; },
+  loadURL: async function (next) {
+    this.url = next;
+  },
 });
 
 function harness(pages) {
@@ -85,7 +92,10 @@ test('a restored page takes the id its unloaded page had, with no alias kept', a
   // Unloaded and restored again: the same ids.
   h.restore.releaseSession('x', true);
   await h.restore.restoreSession('x');
-  assert.deepEqual(h.live.get('x').map((g) => h.ids.get(g)), ['p3', 'p7']);
+  assert.deepEqual(
+    h.live.get('x').map((g) => h.ids.get(g)),
+    ['p3', 'p7']
+  );
 });
 
 test('a blank tab a person made returns, the blank stand-in does not', async () => {
@@ -98,7 +108,10 @@ test('a blank tab a person made returns, the blank stand-in does not', async () 
   h.live.set('x', [standIn, mine]);
   h.restore.releaseSession('x', true);
   await h.restore.restoreSession('x');
-  assert.deepEqual(h.live.get('x').map((g) => [h.ids.get(g), g.url]), [['p2', 'about:blank']]);
+  assert.deepEqual(
+    h.live.get('x').map((g) => [h.ids.get(g), g.url]),
+    [['p2', 'about:blank']]
+  );
 });
 
 test('a restored primary is claimed again, so a later unload keeps it', async () => {

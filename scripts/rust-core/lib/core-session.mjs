@@ -55,7 +55,15 @@ export function isolatedEnv(paths, extra = {}, parent = process.env) {
 
 /** Lays out the profile and the workspace, and stages `bin` with the `js-runtime.json` the core reads beside itself. */
 export function stageProfile(paths, { bin, config = {}, packageRoot = REPO_ROOT }) {
-  for (const dir of [paths.dataDir, paths.runtimeRoot, paths.appData, paths.localAppData, paths.tmp, paths.workspace, paths.bin]) {
+  for (const dir of [
+    paths.dataDir,
+    paths.runtimeRoot,
+    paths.appData,
+    paths.localAppData,
+    paths.tmp,
+    paths.workspace,
+    paths.bin,
+  ]) {
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(join(paths.dataDir, 'mixdog-config.json'), `${JSON.stringify(config, null, 2)}\n`);
@@ -100,8 +108,8 @@ async function loadLibraries() {
     const target = pathToFileURL(join(REPO_ROOT, 'packages', 'protocol', 'src', 'index.ts')).href;
     register(
       `data:text/javascript,${encodeURIComponent(
-        `export async function resolve(s, c, next) { return s === '@mixdog/protocol' ? { url: ${JSON.stringify(target)}, shortCircuit: true } : next(s, c); }`,
-      )}`,
+        `export async function resolve(s, c, next) { return s === '@mixdog/protocol' ? { url: ${JSON.stringify(target)}, shortCircuit: true } : next(s, c); }`
+      )}`
     );
     const { default: WebSocket } = await import('ws');
     const client = await import(pathToFileURL(join(REPO_ROOT, 'packages', 'protocol-client', 'src', 'index.ts')).href);
@@ -112,8 +120,12 @@ async function loadLibraries() {
 
 /** Optional window identity for an explicitly owned isolated acceptance run; ordinary test clients remain TUI clients. */
 export function coreConnectionHeaders(token, mainWindowId) {
-  if (mainWindowId !== undefined && !/^[A-Za-z0-9_.:-]{1,128}$/.test(mainWindowId)) throw new Error('invalid isolated main window id');
-  return { Authorization: `Bearer ${token}`, ...(mainWindowId === undefined ? {} : { 'Mixdog-Window': mainWindowId, 'Mixdog-Window-Role': 'main' }) };
+  if (mainWindowId !== undefined && !/^[A-Za-z0-9_.:-]{1,128}$/.test(mainWindowId))
+    throw new Error('invalid isolated main window id');
+  return {
+    Authorization: `Bearer ${token}`,
+    ...(mainWindowId === undefined ? {} : { 'Mixdog-Window': mainWindowId, 'Mixdog-Window-Role': 'main' }),
+  };
 }
 
 function connectorFor(WebSocket, doc, mainWindowId) {
@@ -121,7 +133,10 @@ function connectorFor(WebSocket, doc, mainWindowId) {
   const token = doc.endpoints.session.token;
   return {
     async open(_target, sink) {
-      const socket = new WebSocket(`ws://127.0.0.1:${port}/rpc`, { headers: coreConnectionHeaders(token, mainWindowId), perMessageDeflate: false });
+      const socket = new WebSocket(`ws://127.0.0.1:${port}/rpc`, {
+        headers: coreConnectionHeaders(token, mainWindowId),
+        perMessageDeflate: false,
+      });
       const writer = { send: (text) => socket.send(text), close: (code, reason) => socket.close(code, reason) };
       return new Promise((resolveWriter, reject) => {
         let opened = false;
@@ -154,7 +169,12 @@ async function connectTo(doc, clientName, mainWindowId) {
   return lib.connect({
     target: { id: 'local' },
     connector: connectorFor(WebSocket, doc, mainWindowId),
-    clientInfo: { name: clientName, title: clientName, version: String(version), kind: mainWindowId === undefined ? 'tui' : 'desktop' },
+    clientInfo: {
+      name: clientName,
+      title: clientName,
+      version: String(version),
+      kind: mainWindowId === undefined ? 'tui' : 'desktop',
+    },
     capabilities: {},
     threadReducer: lib.sessionReducer,
     clock: { sleep: (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)) },
@@ -217,11 +237,21 @@ export async function startCore({ bin, root, config, prepare, extraEnv = {}, rea
   const tail = [];
   // The process-start instant: the boot budget runs from here, not from the staging copy above.
   const spawnedAt = performance.now();
-  const child = spawnTree(exe, ['serve'], { env: isolatedEnv(paths, extraEnv), cwd: paths.root, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  const child = spawnTree(exe, ['serve'], {
+    env: isolatedEnv(paths, extraEnv),
+    cwd: paths.root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
   for (const stream of ['stdout', 'stderr']) {
     child[stream].setEncoding('utf8');
     child[stream].on('data', (chunk) => {
-      tail.push(...chunk.split(/\r?\n/).filter(Boolean).map((line) => `[${stream}] ${line}`));
+      tail.push(
+        ...chunk
+          .split(/\r?\n/)
+          .filter(Boolean)
+          .map((line) => `[${stream}] ${line}`)
+      );
       tail.splice(0, Math.max(0, tail.length - 40));
     });
   }
@@ -267,9 +297,12 @@ export async function startCore({ bin, root, config, prepare, extraEnv = {}, rea
           return await within(exited, timeoutMs, 'the core exiting after /mgmt/stop');
         } catch (error) {
           await endChild(child, exited);
-          throw new Error(`stopping the core failed: ${error.message}\n${tail.join('\n') || '(no output)'}`, { cause: error });
+          throw new Error(`stopping the core failed: ${error.message}\n${tail.join('\n') || '(no output)'}`, {
+            cause: error,
+          });
         }
-      },    };
+      },
+    };
   } catch (error) {
     await within(client?.close() ?? Promise.resolve(), 15_000, 'closing the protocol connection').catch(() => {});
     await endChild(child, exited);

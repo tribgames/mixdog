@@ -96,7 +96,10 @@ test('a file slice comes from the settled result while a re-read is still runnin
   await reread;
   assert.equal(await standalone, '', 'a standalone file joins the refresh rather than showing the old list revision');
   assert.ok(sessionDiffRevision('cache-slice') > before);
-  assert.equal((await fetchSessionDiffFilePatchResult('cache-slice', { id: 'src/owned.ts', path: 'src/owned.ts' })).patch, '');
+  assert.equal(
+    (await fetchSessionDiffFilePatchResult('cache-slice', { id: 'src/owned.ts', path: 'src/owned.ts' })).patch,
+    ''
+  );
   releaseSessionDiff('cache-slice');
 });
 
@@ -323,7 +326,11 @@ test('a raw patch that fits alone is not cached if its parsed representations ex
   globalThis.window = { mixdogDesktop: { invokeCapability: async () => ({ value: result }) } };
   try {
     assert.equal(await fetchSessionDiff('large-parsed'), result);
-    assert.equal(peekSessionDiff('large-parsed'), null, 'the raw reply, its hunks and the rewritten display patch do not fit together');
+    assert.equal(
+      peekSessionDiff('large-parsed'),
+      null,
+      'the raw reply, its hunks and the rewritten display patch do not fit together'
+    );
     primeSessionDiff('large-parsed', { ...result });
     assert.equal(peekSessionDiff('large-parsed'), null, 'priming follows the same budget');
   } finally {

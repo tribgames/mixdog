@@ -33,8 +33,11 @@ export function viewIsStale(
     // from their shared final reply, not from a later row across an unseen gap.
     const isReply = (row: TranscriptRowLike) => row?.kind === 'assistant' && row.id === first.finalAssistantId;
     const at = rows.findIndex(isReply);
-    if (at >= 0 && !rows.slice(at + 1).some(isReply) &&
-        rows.slice(at + 1).some((row) => row?.kind === 'turndone' && row.finalAssistantId === first.finalAssistantId)) {
+    if (
+      at >= 0 &&
+      !rows.slice(at + 1).some(isReply) &&
+      rows.slice(at + 1).some((row) => row?.kind === 'turndone' && row.finalAssistantId === first.finalAssistantId)
+    ) {
       from = at;
     }
   }

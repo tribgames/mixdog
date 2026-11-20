@@ -11,7 +11,7 @@ interface DesktopFilePreviewType {
 
 // Which image extensions a browser previews is the generated table's `browserDraws`; the media types are its own.
 const IMAGE_PREVIEW_TYPES: Readonly<Record<string, DesktopFilePreviewType>> = Object.fromEntries(
-  IMAGE_TYPES.filter((type) => type.browserDraws).map((type) => [type.extension, { kind: 'image', mime: type.mime }]),
+  IMAGE_TYPES.filter((type) => type.browserDraws).map((type) => [type.extension, { kind: 'image', mime: type.mime }])
 ) as Record<string, DesktopFilePreviewType>;
 
 const FILE_PREVIEW_TYPES: Readonly<Record<string, DesktopFilePreviewType>> = Object.freeze({

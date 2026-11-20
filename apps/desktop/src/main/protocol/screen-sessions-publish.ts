@@ -14,10 +14,7 @@ export interface ScreenSessionsWindow extends ScreenWindow {
 
 /** Calls `listener` each time the link becomes ready: a reconnect is a new attach, and the core treats a detached UI
  *  as the empty set. Returns the stop. */
-export function onProtocolAttached(
-  protocol: Pick<ProtocolConnection, 'onEvent'>,
-  listener: () => void
-): () => void {
+export function onProtocolAttached(protocol: Pick<ProtocolConnection, 'onEvent'>, listener: () => void): () => void {
   let ready = false;
   return protocol.onEvent((event) => {
     if (event.type !== 'status') return;

@@ -16,7 +16,6 @@ export interface WsTarget {
   readonly id: string;
 }
 
-
 /** Large enough for a full app snapshot (`maxSnapshotBytes`); the core's own caps are the real limit. */
 const MAX_INBOUND_BYTES = 16 * 1024 * 1024;
 
@@ -45,7 +44,10 @@ export function createWsConnector(
           );
         });
       } catch (error) {
-        log('core-socket-open-failed', { dial, message: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+        log('core-socket-open-failed', {
+          dial,
+          message: (error instanceof Error ? error.message : String(error)).slice(0, 200),
+        });
         throw error;
       }
       const openedAt = Date.now();
@@ -74,7 +76,9 @@ export function createWsConnector(
           ...(socketError ? { error: socketError } : {}),
         });
         // Why the link went is known here and nowhere after: every request it carried only says `connectionLost`.
-        console.error(`[mixdog] core socket closed code=${code} reason=${JSON.stringify(reason.toString('utf8').slice(0, 300))}`);
+        console.error(
+          `[mixdog] core socket closed code=${code} reason=${JSON.stringify(reason.toString('utf8').slice(0, 300))}`
+        );
         sink.closed(code, reason.toString('utf8'));
       });
       // An error always precedes a close event that carries the code; the library reconnects on `closed` only.

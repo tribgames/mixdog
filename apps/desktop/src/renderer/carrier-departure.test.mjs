@@ -7,7 +7,9 @@ import test from 'node:test';
 import { connect } from '../../../../packages/protocol-client/src/client.ts';
 import { CarrierDeparture } from './remote-transport-peer.ts';
 
-const options = JSON.parse(readFileSync(new URL('../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8'));
+const options = JSON.parse(
+  readFileSync(new URL('../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8')
+);
 const INTERVAL = 10_000;
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -42,7 +44,11 @@ function rig() {
   const timers = new Timers();
   // The carrier: bytes queued in front-to-back order; \`leave\` lets bytes out of the front.
   const buffer = { queued: 0, closed: null, texts: [] };
-  const departure = new CarrierDeparture(() => buffer.queued, () => buffer.closed === null, { setTimeout: timers.set, clearTimeout: timers.clear });
+  const departure = new CarrierDeparture(
+    () => buffer.queued,
+    () => buffer.closed === null,
+    { setTimeout: timers.set, clearTimeout: timers.clear }
+  );
   let sink;
   const connector = {
     async open(_target, given) {
@@ -55,7 +61,11 @@ function rig() {
           if (sent) sent(departure.since(departure.position()));
           const frame = JSON.parse(text);
           if (frame.method === 'initialize') {
-            queueMicrotask(() => sink.frame(JSON.stringify({ id: frame.id, result: { ...options.initializeResult, serverInstanceId: 'i1' } })));
+            queueMicrotask(() =>
+              sink.frame(
+                JSON.stringify({ id: frame.id, result: { ...options.initializeResult, serverInstanceId: 'i1' } })
+              )
+            );
           }
         },
         close(code, reason) {
@@ -73,7 +83,14 @@ function rig() {
       clock: { sleep: () => Promise.resolve() },
       random: () => options.jitterUnit,
       ladder: options.ladder,
-      health: { intervalMs: INTERVAL, windowMs: INTERVAL, gapMs: 20_000, now: () => timers.now, setTimer: timers.set, clearTimer: timers.clear },
+      health: {
+        intervalMs: INTERVAL,
+        windowMs: INTERVAL,
+        gapMs: 20_000,
+        now: () => timers.now,
+        setTimer: timers.set,
+        clearTimer: timers.clear,
+      },
     });
     const client = await connecting;
     buffer.queued = 0; // the handshake has gone
@@ -88,7 +105,7 @@ function rig() {
   return { timers, buffer, departure, start, traffic };
 }
 
-test('a probe that has left opens its window although later traffic keeps the carrier\'s buffer above zero; a silent core is dropped', async () => {
+test("a probe that has left opens its window although later traffic keeps the carrier's buffer above zero; a silent core is dropped", async () => {
   const r = rig();
   const client = await r.start();
   void client.call('thread/read', { threadId: 't1', window: { lastItems: 1 } }).catch(() => undefined);

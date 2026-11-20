@@ -85,7 +85,10 @@ test('a retained merged worktree is called kept only when the list reports no cl
   assert.equal(worktreeRowState({ ...row, cleanupReason: undefined }, settings).text, 'Merged');
   assert.equal(worktreeRowState({ ...row, cleanupReason: 'age' }, settings).text, 'Merged · cleanup candidate');
   assert.equal(worktreeRowState({ ...row, ownerArchived: true }, settings).text, 'Merged · cleanup candidate');
-  assert.equal(worktreeRowState({ ...row, retained: false, removable: true }, settings).text, 'Merged · cleanup candidate');
+  assert.equal(
+    worktreeRowState({ ...row, retained: false, removable: true }, settings).text,
+    'Merged · cleanup candidate'
+  );
 });
 
 test('a cancelled delete reads nothing again; a confirmed one reloads the list once', async () => {
@@ -127,7 +130,10 @@ test('an external Git change refreshes the list and a failed read keeps the last
     await act(async () => read.resolve());
     assert.equal(deleteButton()?.disabled, true, 'a failed read cannot make the list current');
     assert.match(document.querySelector('.worktree-session-link')?.textContent ?? '', /Login fix/);
-    assert.match(document.querySelector('.worktree-list [role="status"]')?.textContent ?? '', /could not read worktrees/);
+    assert.match(
+      document.querySelector('.worktree-list [role="status"]')?.textContent ?? '',
+      /could not read worktrees/
+    );
   } finally {
     listRead = undefined;
     listFailure = undefined;

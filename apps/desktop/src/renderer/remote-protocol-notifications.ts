@@ -44,13 +44,19 @@ export const adapter: PhoneProtocolAdapter = {
     // The PC-signed Web Push fallback (remote-push-methods.ts at 0bf8fe0457): the core mints the key, this browser subscribes with it and
     // hands its endpoint back over the encrypted channel. The core's `remoteAccess` methods hold Node's argument checks and sentences.
     pushPublicKey: (_params, host) => rpc(host, 'remoteAccess/pushPublicKey', {}),
-    registerPushSubscription: ([input], host) => rpc(host, 'remoteAccess/registerPushSubscription', { input: input ?? null }),
-    removePushSubscription: ([endpoint], host) => rpc(host, 'remoteAccess/removePushSubscription', { endpoint: requiredString(endpoint, 'endpoint') }),
+    registerPushSubscription: ([input], host) =>
+      rpc(host, 'remoteAccess/registerPushSubscription', { input: input ?? null }),
+    removePushSubscription: ([endpoint], host) =>
+      rpc(host, 'remoteAccess/removePushSubscription', { endpoint: requiredString(endpoint, 'endpoint') }),
     registerNativePush: ([input], host) => rpc(host, 'remoteAccess/registerNativePush', { input: input ?? null }),
     // A notification's Allow / Deny (native-push-bridge.ts `answerApproval`). Which Allow is taken, and with which decision, is the
     // core's rule (`thread/approval/answerNotification`, remote-session-methods.ts:200-215), never the phone's.
     answerApprovalNotification: async ([sessionId, approvalId, action], host) =>
-      ((await rpc(host, 'thread/approval/answerNotification', { threadId: sessionId, approvalId, action })) as { outcome: string }).outcome,
+      (
+        (await rpc(host, 'thread/approval/answerNotification', { threadId: sessionId, approvalId, action })) as {
+          outcome: string;
+        }
+      ).outcome,
     removeNativePush: ([token], host) => {
       // remote-push-methods.ts:59
       if (token !== undefined && typeof token !== 'string') throw new Error('token must be a string.');

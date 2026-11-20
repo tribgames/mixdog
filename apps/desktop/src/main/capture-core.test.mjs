@@ -4,8 +4,19 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { CAPTURE_PROJECT_FILES, CAPTURE_SETTINGS_VALUES, captureAgentConfig, captureShowcaseAnswers } from './capture-host.ts';
-import { captureCoreEnvironment, captureFixtures, captureProfile, createCaptureRelay, startCaptureCore } from './capture-core.ts';
+import {
+  CAPTURE_PROJECT_FILES,
+  CAPTURE_SETTINGS_VALUES,
+  captureAgentConfig,
+  captureShowcaseAnswers,
+} from './capture-host.ts';
+import {
+  captureCoreEnvironment,
+  captureFixtures,
+  captureProfile,
+  createCaptureRelay,
+  startCaptureCore,
+} from './capture-core.ts';
 
 const scratch = () => mkdtempSync(join(import.meta.dirname, '.capture-core-test-'));
 
@@ -44,7 +55,11 @@ test('the core environment moves every store into the profile and drops the pare
 });
 
 test('the agent config carries the fixture settings, the Lead route and a finished onboarding', () => {
-  const config = captureAgentConfig({ p: { type: 'custom' } }, { provider: 'p', model: 'm' }, new Date('2026-01-02T03:04:05Z'));
+  const config = captureAgentConfig(
+    { p: { type: 'custom' } },
+    { provider: 'p', model: 'm' },
+    new Date('2026-01-02T03:04:05Z')
+  );
   assert.deepEqual(config.agents, { lead: { provider: 'p', model: 'm' } });
   assert.equal(config.heartbeat, CAPTURE_SETTINGS_VALUES.getHeartbeatSettings.heartbeat);
   assert.equal(config.heartbeatIntervalMinutes, 60);
@@ -157,7 +172,11 @@ test('the capture relay opens the window port to the capture core under the main
   const opened = [];
   const posted = [];
   const socket = Object.assign(new EventEmitter(), { send() {}, close() {}, terminate() {} });
-  const port = Object.assign(new EventEmitter(), { postMessage: (message) => posted.push(message), start() {}, close() {} });
+  const port = Object.assign(new EventEmitter(), {
+    postMessage: (message) => posted.push(message),
+    start() {},
+    close() {},
+  });
   const relay = createCaptureRelay(
     { endpoint: { url: 'ws://127.0.0.1:9/rpc', token: 'tok' }, windowScope: () => 3 },
     {

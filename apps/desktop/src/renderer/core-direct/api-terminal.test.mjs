@@ -21,8 +21,13 @@ function setup({ answers = {}, sections = {} } = {}) {
     onStoreChange: (l) => (storeListeners.add(l), () => storeListeners.delete(l)),
     notify: (method, params) => notes.push({ method, params }),
     whenSynced: async () => undefined,
-    snapshot: () => ({ status: 'ready', entries: Object.entries(sections).map(([section, value]) => ({ section, key: null, revision: 1, value })) }),
-    protocolClient: () => ({ store: { section: (name) => (name in sections ? { value: sections[name] } : undefined) } }),
+    snapshot: () => ({
+      status: 'ready',
+      entries: Object.entries(sections).map(([section, value]) => ({ section, key: null, revision: 1, value })),
+    }),
+    protocolClient: () => ({
+      store: { section: (name) => (name in sections ? { value: sections[name] } : undefined) },
+    }),
   };
   const ctx = {
     connection,
@@ -46,7 +51,11 @@ function setup({ answers = {}, sections = {} } = {}) {
 }
 const delta = (tab, text, seq = 1) => ({
   type: 'notification',
-  notification: { method: 'process/outputDelta', params: { processHandle: tab, bytesB64: b64(text) }, feed: { id: `process:${tab}`, epoch: 'e1', seq } },
+  notification: {
+    method: 'process/outputDelta',
+    params: { processHandle: tab, bytesB64: b64(text) },
+    feed: { id: `process:${tab}`, epoch: 'e1', seq },
+  },
 });
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -56,7 +65,12 @@ test('every key of the terminal group is a member', () => {
 });
 
 test('the requests equal the ones main sent for the same IPC calls', async () => {
-  const { api, calls, notes } = setup({ answers: { 'terminal/ensure': { id: 't1', replay: 'r', sizeOwner: null }, 'terminal/attach': { id: 't1', replay: 'r', subscription: { mode: 'snapshot', epoch: 'e1', startSeq: 1 } } } });
+  const { api, calls, notes } = setup({
+    answers: {
+      'terminal/ensure': { id: 't1', replay: 'r', sizeOwner: null },
+      'terminal/attach': { id: 't1', replay: 'r', subscription: { mode: 'snapshot', epoch: 'e1', startSeq: 1 } },
+    },
+  });
   await api.termEnsure('t1', '/r', 'bash');
   await api.termEnsure('', '', '');
   await api.termAttach('t2');
@@ -67,15 +81,18 @@ test('the requests equal the ones main sent for the same IPC calls', async () =>
   api.termWrite('t1', 'ls\r');
   api.termWrite(undefined, undefined);
   api.termResize('t1', 80, 24);
-  assert.deepEqual(calls.map((c) => [c.method, c.params]), [
-    ['terminal/ensure', { tabId: 't1', options: { cwd: '/r', profile: 'bash' } }],
-    ['terminal/attach', { tabId: 't1' }],
-    ['terminal/ensure', { options: {} }],
-    ['terminal/attach', { tabId: 't2' }],
-    ['terminal/profiles', {}],
-    ['terminal/focus', { tabId: 't1', focused: true }],
-    ['terminal/dispose', { tabId: 't1' }],
-  ]);
+  assert.deepEqual(
+    calls.map((c) => [c.method, c.params]),
+    [
+      ['terminal/ensure', { tabId: 't1', options: { cwd: '/r', profile: 'bash' } }],
+      ['terminal/attach', { tabId: 't1' }],
+      ['terminal/ensure', { options: {} }],
+      ['terminal/attach', { tabId: 't2' }],
+      ['terminal/profiles', {}],
+      ['terminal/focus', { tabId: 't1', focused: true }],
+      ['terminal/dispose', { tabId: 't1' }],
+    ]
+  );
   assert.deepEqual(notes, [
     { method: 'terminal/input', params: { tabId: 't1', data: 'ls\r' } },
     { method: 'terminal/input', params: { tabId: '', data: '' } },
@@ -88,13 +105,31 @@ test('ensure and attach answer {id, replay} and a size owner that is never this 
   const { api } = setup({
     answers: {
       'terminal/ensure': { id: 't1', replay: 'r', sizeOwner: null },
-      'terminal/attach': ({ tabId }) => (tabId === 'gone' ? null : { id: tabId, replay: 'x', replayLeadUnit: 0xdc00, sizeOwner: owner, client: 'c1', subscription: { mode: 'snapshot', epoch: 'e1', startSeq: 4 } }),
+      'terminal/attach': ({ tabId }) =>
+        tabId === 'gone'
+          ? null
+          : {
+              id: tabId,
+              replay: 'x',
+              replayLeadUnit: 0xdc00,
+              sizeOwner: owner,
+              client: 'c1',
+              subscription: { mode: 'snapshot', epoch: 'e1', startSeq: 4 },
+            },
     },
   });
-  assert.deepEqual(await api.termAttach('t9'), { id: 't9', replay: '\udc00x', sizeOwner: { cols: 100, rows: 30, own: false } });
+  assert.deepEqual(await api.termAttach('t9'), {
+    id: 't9',
+    replay: '\udc00x',
+    sizeOwner: { cols: 100, rows: 30, own: false },
+  });
   assert.equal(await api.termAttach('gone'), null);
   // The ensure answers the attach's session, as the host did.
-  assert.deepEqual(await api.termEnsure('t1', null, null), { id: 't1', replay: '\udc00x', sizeOwner: { cols: 100, rows: 30, own: false } });
+  assert.deepEqual(await api.termEnsure('t1', null, null), {
+    id: 't1',
+    replay: '\udc00x',
+    sizeOwner: { cols: 100, rows: 30, own: false },
+  });
 });
 
 test('an ensure the core answered with no session fails with the host text; a failed attach leaves the ensure answered', async () => {
@@ -112,13 +147,24 @@ test('an ensure the core answered with no session fails with the host text; a fa
 });
 
 test('output of an attached tab reaches the page coalesced, other feeds and disposed tabs do not', async () => {
-  const rig = setup({ answers: { 'terminal/attach': { id: 't1', replay: '', subscription: { mode: 'snapshot', epoch: 'e1', startSeq: 1 } } } });
+  const rig = setup({
+    answers: {
+      'terminal/attach': { id: 't1', replay: '', subscription: { mode: 'snapshot', epoch: 'e1', startSeq: 1 } },
+    },
+  });
   const seen = [];
   rig.api.subscribeTermData((event) => seen.push(event));
   await rig.api.termAttach('t1');
   rig.emit(delta('t1', 'one', 1));
   rig.emit(delta('t2', 'other', 1));
-  rig.emit({ type: 'notification', notification: { method: 'process/outputDelta', params: { processHandle: 't1', bytesB64: b64('relay') }, feed: { id: 'process:relay', epoch: 'e', seq: 1 } } });
+  rig.emit({
+    type: 'notification',
+    notification: {
+      method: 'process/outputDelta',
+      params: { processHandle: 't1', bytesB64: b64('relay') },
+      feed: { id: 'process:relay', epoch: 'e', seq: 1 },
+    },
+  });
   await wait(30);
   assert.deepEqual(seen, [{ id: 't1', data: 'one' }]);
   await rig.api.termDispose('t1');
@@ -128,22 +174,38 @@ test('output of an attached tab reaches the page coalesced, other feeds and disp
 });
 
 test('flow control: 256 KiB unacknowledged pauses the core, under 32 KiB resumes it', async () => {
-  const rig = setup({ answers: { 'terminal/attach': { id: 't1', replay: '', subscription: { mode: 'snapshot', epoch: 'e1', startSeq: 1 } } } });
+  const rig = setup({
+    answers: {
+      'terminal/attach': { id: 't1', replay: '', subscription: { mode: 'snapshot', epoch: 'e1', startSeq: 1 } },
+    },
+  });
   const seen = [];
   rig.api.subscribeTermData((event) => seen.push(event));
   await rig.api.termAttach('t1');
   rig.emit(delta('t1', 'a'.repeat(300 * 1024), 1));
   await wait(30);
-  const flow = () => rig.calls.filter((c) => c.method === 'terminal/pause' || c.method === 'terminal/resume').map((c) => [c.method, c.params]);
+  const flow = () =>
+    rig.calls
+      .filter((c) => c.method === 'terminal/pause' || c.method === 'terminal/resume')
+      .map((c) => [c.method, c.params]);
   assert.deepEqual(flow(), [['terminal/pause', { tabId: 't1' }]]);
-  assert.equal(seen.reduce((sum, e) => sum + e.data.length, 0), 256 * 1024);
+  assert.equal(
+    seen.reduce((sum, e) => sum + e.data.length, 0),
+    256 * 1024
+  );
   rig.api.termAcknowledge('t1', 256 * 1024);
   await wait(30);
   // The 44 KiB still unacknowledged is above the low mark.
-  assert.equal(seen.reduce((sum, e) => sum + e.data.length, 0), 300 * 1024);
+  assert.equal(
+    seen.reduce((sum, e) => sum + e.data.length, 0),
+    300 * 1024
+  );
   assert.equal(flow().length, 1);
   rig.api.termAcknowledge('t1', 44 * 1024);
-  assert.deepEqual(flow(), [['terminal/pause', { tabId: 't1' }], ['terminal/resume', { tabId: 't1' }]]);
+  assert.deepEqual(flow(), [
+    ['terminal/pause', { tabId: 't1' }],
+    ['terminal/resume', { tabId: 't1' }],
+  ]);
 });
 
 test('a new link attaches the tab again from its position and asks for the pause again; its replay is no redraw', async () => {
@@ -161,10 +223,13 @@ test('a new link attaches the tab again from its position and asks for the pause
   const before = seen.length;
   rig.replace();
   await wait(30);
-  assert.deepEqual(rig.calls.map((c) => [c.method, c.params]), [
-    ['terminal/attach', { tabId: 't1', resumeFrom: { epoch: 'e1', seq: 7 } }],
-    ['terminal/pause', { tabId: 't1' }],
-  ]);
+  assert.deepEqual(
+    rig.calls.map((c) => [c.method, c.params]),
+    [
+      ['terminal/attach', { tabId: 't1', resumeFrom: { epoch: 'e1', seq: 7 } }],
+      ['terminal/pause', { tabId: 't1' }],
+    ]
+  );
   assert.equal(seen.length, before);
 });
 
@@ -183,7 +248,11 @@ test('a snapshot answered to a new link is drawn anew, as a reset', async () => 
 });
 
 test('a status that turns ready attaches the tabs again, once', async () => {
-  const rig = setup({ answers: { 'terminal/attach': { id: 't1', replay: '', subscription: { mode: 'replay', epoch: 'e1', startSeq: 1 } } } });
+  const rig = setup({
+    answers: {
+      'terminal/attach': { id: 't1', replay: '', subscription: { mode: 'replay', epoch: 'e1', startSeq: 1 } },
+    },
+  });
   await rig.api.termAttach('t1');
   rig.calls.length = 0;
   const status = (state) => rig.emit({ type: 'status', status: { state } });
@@ -196,9 +265,20 @@ test('a status that turns ready attaches the tabs again, once', async () => {
 });
 
 test('an exited shell is no longer read', async () => {
-  const rig = setup({ answers: { 'terminal/attach': { id: 't1', replay: '', subscription: { mode: 'snapshot', epoch: 'e1', startSeq: 1 } } } });
+  const rig = setup({
+    answers: {
+      'terminal/attach': { id: 't1', replay: '', subscription: { mode: 'snapshot', epoch: 'e1', startSeq: 1 } },
+    },
+  });
   await rig.api.termAttach('t1');
-  rig.emit({ type: 'notification', notification: { method: 'process/exited', params: { processHandle: 't1' }, feed: { id: 'process:t1', epoch: 'e1', seq: 2 } } });
+  rig.emit({
+    type: 'notification',
+    notification: {
+      method: 'process/exited',
+      params: { processHandle: 't1' },
+      feed: { id: 'process:t1', epoch: 'e1', seq: 2 },
+    },
+  });
   rig.calls.length = 0;
   rig.replace();
   await wait(10);
@@ -206,7 +286,12 @@ test('an exited shell is no longer read', async () => {
 });
 
 test('activity and size owner follow the sections, termActivity reads the held rows', async () => {
-  const rig = setup({ sections: { terminalActivity: { t1: 'running' }, terminalTabs: [{ id: 't1', sizeOwner: { cols: 90, rows: 20, owner: 'phone' } }] } });
+  const rig = setup({
+    sections: {
+      terminalActivity: { t1: 'running' },
+      terminalTabs: [{ id: 't1', sizeOwner: { cols: 90, rows: 20, owner: 'phone' } }],
+    },
+  });
   const activity = [];
   const owners = [];
   rig.api.subscribeTermActivity((e) => activity.push(e));
@@ -221,7 +306,10 @@ test('activity and size owner follow the sections, termActivity reads the held r
   assert.deepEqual(activity.at(-1), { id: 't1', state: null });
   assert.deepEqual(owners.at(-1), { id: 't1', cols: 0, rows: 0, own: false });
   rig.sections.terminalActivity = { t2: 'finished', t3: 'bogus' };
-  assert.deepEqual(await rig.api.termActivity(), [{ id: 't2', state: 'finished' }, { id: 't3', state: null }]);
+  assert.deepEqual(await rig.api.termActivity(), [
+    { id: 't2', state: 'finished' },
+    { id: 't3', state: null },
+  ]);
 });
 
 test('termActivity without the section fails as the operation lane did', async () => {
@@ -246,7 +334,12 @@ test('a terminal run reveal reaches the page without its kind; the claim goes to
 test('claimTerminalRun with no open core link resolves false and sends nothing; a bad id still rejects', async () => {
   const rig = setup();
   rig.api = createTerminalApi({
-    connection: { ...rig.connection, notify: () => { throw new Error('The core connection is not open.'); } },
+    connection: {
+      ...rig.connection,
+      notify: () => {
+        throw new Error('The core connection is not open.');
+      },
+    },
     call: async () => ({}),
   });
   assert.equal(await rig.api.claimTerminalRun('run-1'), false);

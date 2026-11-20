@@ -6,7 +6,9 @@ export async function cdpConnect(wsUrl) {
   const ws = new WebSocket(wsUrl);
   await new Promise((resolve, reject) => {
     ws.addEventListener('open', resolve, { once: true });
-    ws.addEventListener('error', (e) => reject(new Error(`cdp connect failed: ${e.message ?? 'error'}`)), { once: true });
+    ws.addEventListener('error', (e) => reject(new Error(`cdp connect failed: ${e.message ?? 'error'}`)), {
+      once: true,
+    });
   });
   let seq = 0;
   const pending = new Map();
@@ -43,7 +45,11 @@ export async function cdpConnect(wsUrl) {
     });
   /** Runtime.evaluate returning the value (JSON-serializable) or throwing the page's exception text. */
   const evaluate = async (expression, { awaitPromise = true, timeoutMs } = {}) => {
-    const r = await send('Runtime.evaluate', { expression, awaitPromise, returnByValue: true, allowUnsafeEvalBlockedByCSP: true }, timeoutMs);
+    const r = await send(
+      'Runtime.evaluate',
+      { expression, awaitPromise, returnByValue: true, allowUnsafeEvalBlockedByCSP: true },
+      timeoutMs
+    );
     if (r.exceptionDetails) {
       const d = r.exceptionDetails;
       throw new Error(`evaluate threw: ${d.exception?.description ?? d.text}`);
@@ -58,7 +64,9 @@ export async function connectMain(port, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     try {
-      const list = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(2000) }).then((r) => r.json());
+      const list = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(2000) }).then((r) =>
+        r.json()
+      );
       const target = list.find((t) => t.webSocketDebuggerUrl) ?? null;
       if (target) return { target, cdp: await cdpConnect(target.webSocketDebuggerUrl) };
     } catch {}
@@ -71,7 +79,8 @@ export async function connectMain(port, timeoutMs = 120_000) {
 export async function connectRenderer(cdpPort, rendererPort) {
   const list = await fetch(`http://127.0.0.1:${cdpPort}/json/list`).then((r) => r.json());
   const target = list.find((t) => t.type === 'page' && t.url.startsWith(`http://127.0.0.1:${rendererPort}/`));
-  if (!target) throw new Error(`no renderer page on CDP ${cdpPort}: ${list.map((t) => `${t.type} ${t.url}`).join(', ')}`);
+  if (!target)
+    throw new Error(`no renderer page on CDP ${cdpPort}: ${list.map((t) => `${t.type} ${t.url}`).join(', ')}`);
   return { target, cdp: await cdpConnect(target.webSocketDebuggerUrl), targets: list };
 }
 
@@ -156,7 +165,14 @@ export function profileShares(profile) {
     total += dt;
   }
   const pct = (v) => (total ? Math.round((v / total) * 1000) / 10 : 0);
-  return { totalMs: Math.round(total / 1000), idlePct: pct(totals.idle), programPct: pct(totals.program), gcPct: pct(totals.gc), jsPct: pct(totals.js), busyPct: pct(total - totals.idle) };
+  return {
+    totalMs: Math.round(total / 1000),
+    idlePct: pct(totals.idle),
+    programPct: pct(totals.program),
+    gcPct: pct(totals.gc),
+    jsPct: pct(totals.js),
+    busyPct: pct(total - totals.idle),
+  };
 }
 
 /** Top `n` functions by self time of a CDP Profiler profile (the meta nodes left out; see profileShares). */
@@ -183,5 +199,9 @@ export function topFunctions(profile, n = 10) {
   return [...agg.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, n)
-    .map(([fn, us]) => ({ fn, selfMs: Math.round(us / 10) / 100, pct: total ? Math.round((us / total) * 10000) / 100 : 0 }));
+    .map(([fn, us]) => ({
+      fn,
+      selfMs: Math.round(us / 10) / 100,
+      pct: total ? Math.round((us / total) * 10000) / 100 : 0,
+    }));
 }

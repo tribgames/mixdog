@@ -30,7 +30,8 @@ function resolveDependency(packages, from, name) {
 }
 
 export function lockSubset({ lock, manifest, names }) {
-  if (lock.lockfileVersion !== 3) throw new Error(`lockfileVersion ${lock.lockfileVersion} is not supported (3 expected)`);
+  if (lock.lockfileVersion !== 3)
+    throw new Error(`lockfileVersion ${lock.lockfileVersion} is not supported (3 expected)`);
   const rootDependencies = {};
   for (const name of names) {
     const spec = manifest.dependencies?.[name] ?? manifest.devDependencies?.[name];
@@ -50,7 +51,8 @@ export function lockSubset({ lock, manifest, names }) {
         if (next) walk(next);
         // An optional dependency (a platform binary) may be absent; a required one, a peer included, may not.
         else if (field === 'dependencies') throw new Error(`${key} needs ${name}, which the lockfile does not hold`);
-        else if (field === 'peerDependencies' && !entry.peerDependenciesMeta?.[name]?.optional) throw new Error(`${key} has the required peer ${name}, which the lockfile does not hold`);
+        else if (field === 'peerDependencies' && !entry.peerDependenciesMeta?.[name]?.optional)
+          throw new Error(`${key} has the required peer ${name}, which the lockfile does not hold`);
       }
     }
   };
@@ -60,7 +62,13 @@ export function lockSubset({ lock, manifest, names }) {
     walk(key);
   }
   return {
-    manifest: { name: 'ci-subset', version: '0.0.0', private: true, dependencies: rootDependencies, ...(manifest.overrides && { overrides: manifest.overrides }) },
+    manifest: {
+      name: 'ci-subset',
+      version: '0.0.0',
+      private: true,
+      dependencies: rootDependencies,
+      ...(manifest.overrides && { overrides: manifest.overrides }),
+    },
     lock: { name: 'ci-subset', version: '0.0.0', lockfileVersion: 3, requires: true, packages },
   };
 }
@@ -69,7 +77,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const [out, ...rest] = process.argv.slice(2);
   const from = rest[0] === '--from' ? rest[1] : '';
   const names = rest[0] === '--from' ? rest.slice(2) : rest;
-  if (!out || names.length === 0) throw new Error('usage: lock-subset.mjs <output folder> [--from <package folder>] <package>...');
+  if (!out || names.length === 0)
+    throw new Error('usage: lock-subset.mjs <output folder> [--from <package folder>] <package>...');
   const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
   const read = (name) => JSON.parse(readFileSync(join(root, from, name), 'utf8'));
   const result = lockSubset({ lock: read('package-lock.json'), manifest: read('package.json'), names });

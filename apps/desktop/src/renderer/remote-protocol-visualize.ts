@@ -20,7 +20,8 @@ import type { NodeCall, PhoneProtocolAdapter, PhoneProtocolHost } from './remote
 
 type Client = ProtocolClient<SessionFold>;
 
-const record = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' ? (value as Record<string, unknown>) : {});
+const record = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 
 const read = (host: PhoneProtocolHost, action: string, input: Record<string, unknown> = {}): Promise<any> =>
   rpc(host, 'visualize/command', { action, input });
@@ -47,11 +48,16 @@ function thumbnailRule() {
 
 const hostState = (value: unknown): VisualizeHostState | null => {
   const state = record(value);
-  return typeof state.sessionId === 'string' && state.sessionId && Array.isArray(state.tabs) ? (state as unknown as VisualizeHostState) : null;
+  return typeof state.sessionId === 'string' && state.sessionId && Array.isArray(state.tabs)
+    ? (state as unknown as VisualizeHostState)
+    : null;
 };
 
 /** `mirror.apply`: one change of the desktop's, as the client-safe event (null when it names no session and no URL to open). */
-export function remoteVisualizeEvent(value: unknown, withoutRepeatedThumbnails: (state: VisualizeSessionState) => VisualizeSessionState): DesktopVisualizeEvent | null {
+export function remoteVisualizeEvent(
+  value: unknown,
+  withoutRepeatedThumbnails: (state: VisualizeSessionState) => VisualizeSessionState
+): DesktopVisualizeEvent | null {
   const event = record(value) as Partial<VisualizeHostEvent>;
   const sessionId = typeof event.sessionId === 'string' ? event.sessionId : '';
   if (!sessionId) return null;
@@ -71,10 +77,19 @@ export function remoteVisualizeEvent(value: unknown, withoutRepeatedThumbnails: 
 }
 
 /** `visualizeExport`'s argument checks (`requiredVisualizeTabCommand` for an export): png or pdf, the pane optional. */
-function exportRequest(tabId: unknown, format: unknown, pane: unknown): { tabId: string; format: 'png' | 'pdf'; pane?: number } {
+function exportRequest(
+  tabId: unknown,
+  format: unknown,
+  pane: unknown
+): { tabId: string; format: 'png' | 'pdf'; pane?: number } {
   if (format !== 'png' && format !== 'pdf') throw new TypeError('export format is invalid.');
-  if (typeof tabId !== 'string' || !tabId.trim() || tabId.trim().length > 64) throw new TypeError('visualize tab id is invalid.');
-  if (pane !== undefined && pane !== null && (typeof pane !== 'number' || !Number.isInteger(pane) || pane < 0 || pane > 15)) {
+  if (typeof tabId !== 'string' || !tabId.trim() || tabId.trim().length > 64)
+    throw new TypeError('visualize tab id is invalid.');
+  if (
+    pane !== undefined &&
+    pane !== null &&
+    (typeof pane !== 'number' || !Number.isInteger(pane) || pane < 0 || pane > 15)
+  ) {
     throw new TypeError('visualize pane index is invalid.');
   }
   return { tabId: tabId.trim(), format, ...(typeof pane === 'number' ? { pane } : {}) };
@@ -93,14 +108,26 @@ const calls: Record<string, NodeCall> = {
   },
   visualizePaneFile: ([sessionId, tabId, index], host) => read(host, 'paneFile', { sessionId, tabId, pane: index }),
   visualizePaneRange: ([sessionId, tabId, rel, offset, length, index], host) =>
-    read(host, 'paneRange', { sessionId, tabId, rel, offset, length, ...(index === undefined || index === null ? {} : { pane: index }) }),
-  visualizePanePages: ([sessionId, tabId, index, options], host) => read(host, 'panePages', { sessionId, tabId, pane: index, options: record(options) }),
+    read(host, 'paneRange', {
+      sessionId,
+      tabId,
+      rel,
+      offset,
+      length,
+      ...(index === undefined || index === null ? {} : { pane: index }),
+    }),
+  visualizePanePages: ([sessionId, tabId, index, options], host) =>
+    read(host, 'panePages', { sessionId, tabId, pane: index, options: record(options) }),
   // PNG / PDF of displayed pane `pane`, rendered on the PC and offered as a download of this device: the source names the render and the
   // core's `export` transfer source draws it when the download is authorized (remote-protocol-files.ts `authorizeDownload`).
   visualizeExport: ([sessionId, tabId, format, pane]): VisualizeRemoteExport => {
     const request = exportRequest(tabId, format, pane);
     return {
-      source: { kind: 'export', sessionId: String(sessionId), exportId: `${VISUALIZE_EXPORT_ID_PREFIX}${JSON.stringify(request)}` },
+      source: {
+        kind: 'export',
+        sessionId: String(sessionId),
+        exportId: `${VISUALIZE_EXPORT_ID_PREFIX}${JSON.stringify(request)}`,
+      },
       name: `visualize.${request.format}`,
     };
   },
@@ -144,7 +171,13 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
       if (incoming.status.state === 'ready') register();
     });
     const offStore = client.store.subscribe((change) => {
-      if (change.type !== 'section' || change.section !== ('hostState' as never) || change.key !== 'visualize' || !client.store.appLive()) return;
+      if (
+        change.type !== 'section' ||
+        change.section !== ('hostState' as never) ||
+        change.key !== 'visualize' ||
+        !client.store.appLive()
+      )
+        return;
       if (!notifications) resync();
     });
     // An event is a `visualize/changed` notification, queued to this connection in order and never merged (a section key keeps only
@@ -194,7 +227,11 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
     };
   };
   const off = host.onClient?.(wire);
-  if (!off) void ctx.phone.start().then(() => wire(host.client()), () => undefined);
+  if (!off)
+    void ctx.phone.start().then(
+      () => wire(host.client()),
+      () => undefined
+    );
   return () => {
     off?.();
     unwire?.();

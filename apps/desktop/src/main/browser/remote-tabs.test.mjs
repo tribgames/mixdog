@@ -62,10 +62,14 @@ test('page events publish changed lists only, with no polling, and stop when unw
   };
   pages.set('main-browser-a', page('A', 'https://a.test/'));
   tabs.observe(events);
-  assert.deepEqual(
-    [...listeners.keys()].sort(),
-    ['destroyed', 'did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading', 'page-title-updated']
-  );
+  assert.deepEqual([...listeners.keys()].sort(), [
+    'destroyed',
+    'did-navigate',
+    'did-navigate-in-page',
+    'did-start-loading',
+    'did-stop-loading',
+    'page-title-updated',
+  ]);
   assert.equal(published.length, 0, 'nothing is pushed before a client watches');
   assert.equal(tabs.watch(true).length, 1);
   listeners.get('did-stop-loading')();

@@ -133,7 +133,10 @@ function useLifecycle(workspace) {
         const layout = filterPaneLayoutSessions(prev.layout, keep);
         if (layout === prev.layout || !layout) return prev;
         const leaves = paneLeaves(layout);
-        return { layout, focusedLeafId: leaves.some((node) => node.id === prev.focusedLeafId) ? prev.focusedLeafId : leaves[0].id };
+        return {
+          layout,
+          focusedLeafId: leaves.some((node) => node.id === prev.focusedLeafId) ? prev.focusedLeafId : leaves[0].id,
+        };
       }),
   });
 }
@@ -274,13 +277,24 @@ test('edits made before a late pool survive it, and both stored copies hold the 
 
 test('a pool that never arrives keeps worker tabs in place, gates nothing, and persists them with edits', async (t) => {
   const { api, calls } = bridge({ catalog: LEAD, sections: true });
-  const { current, pageHide, unmount } = await mount(t, { desktop: api, local: workerStored(session('w1'), session('gone')) });
+  const { current, pageHide, unmount } = await mount(t, {
+    desktop: api,
+    local: workerStored(session('w1'), session('gone')),
+  });
   assert.equal(current().restorePending, false);
-  assert.deepEqual(shape(current().state.layout), ['row', ['session:s1', 'file:/p:a.ts'], ['session:w1', 'session:gone']]);
+  assert.deepEqual(shape(current().state.layout), [
+    'row',
+    ['session:s1', 'file:/p:a.ts'],
+    ['session:w1', 'session:gone'],
+  ]);
   await editLeft(current);
   await pageHide();
   assert.equal(persisted(), JSON.stringify(current().state));
-  assert.deepEqual(shape(JSON.parse(persisted()).layout), ['row', ['session:s1', 'file:/p:b.ts'], ['session:w1', 'session:gone']]);
+  assert.deepEqual(shape(JSON.parse(persisted()).layout), [
+    'row',
+    ['session:s1', 'file:/p:b.ts'],
+    ['session:w1', 'session:gone'],
+  ]);
   assert.equal(calls.fileWrites.at(-1), persisted());
   assert.deepEqual([calls.sessionReads, calls.poolReads], [1, 0]);
   await unmount();
@@ -288,7 +302,11 @@ test('a pool that never arrives keeps worker tabs in place, gates nothing, and p
   // No sections support proves nothing either; and an unreadable catalog with a known pool is unknown too.
   for (const desktop of [bridge({ catalog: LEAD }), bridge({ catalog: null, sections: true, pool: [] })]) {
     const view = await mount(t, { desktop: desktop.api, local: workerStored(session('w1'), session('gone')) });
-    assert.deepEqual(shape(view.current().state.layout), ['row', ['session:s1', 'file:/p:a.ts'], ['session:w1', 'session:gone']]);
+    assert.deepEqual(shape(view.current().state.layout), [
+      'row',
+      ['session:s1', 'file:/p:a.ts'],
+      ['session:w1', 'session:gone'],
+    ]);
     assert.deepEqual([desktop.calls.sessionReads, desktop.calls.poolReads], [1, 0]);
     await view.unmount();
   }
@@ -308,14 +326,21 @@ test('a session push that beats the mount read governs over the read’s older r
   });
   await act(async () => answer(LEAD));
   await pause();
-  assert.deepEqual(shape(current().state.layout), ['row', ['session:s1', 'file:/p:a.ts'], ['session:w1', 'session:kept']]);
+  assert.deepEqual(shape(current().state.layout), [
+    'row',
+    ['session:s1', 'file:/p:a.ts'],
+    ['session:w1', 'session:kept'],
+  ]);
   assert.deepEqual([calls.sessionReads, calls.poolReads], [1, 0]);
 });
 
 // Bootstrap validation happens once, when the catalog and the pool are first both known; after it, tabs close only through the
 // session lifecycle's own rules. An agent home keeps its fixed id for good and is never judged by absence.
 const HOME = 'sess_home_lead';
-const leafTabs = (current, id) => paneLeaves(current().state.layout).find((node) => node.id === id)?.tabs.map((tab) => navigationKey(tab));
+const leafTabs = (current, id) =>
+  paneLeaves(current().state.layout)
+    .find((node) => node.id === id)
+    ?.tabs.map((tab) => navigationKey(tab));
 const addToLeft = (current, ...tabs) =>
   act(async () =>
     current().setState((prev) => {
@@ -350,7 +375,7 @@ test('a home absent from the first catalog and a published empty pool survives b
   assert.deepEqual([calls.sessionReads, calls.poolReads], [1, 0]);
 });
 
-test("a pool whose first publication excludes a restored worker removes that worker alone", async (t) => {
+test('a pool whose first publication excludes a restored worker removes that worker alone', async (t) => {
   const { api, calls } = bridge({ catalog: LEAD, sections: true });
   const { current } = await mount(t, { desktop: api, local: workerStored(session('w1'), session('w2')) });
   // Edits while the pool is unknown; focus stays on the right leaf.
@@ -367,7 +392,11 @@ test("a pool whose first publication excludes a restored worker removes that wor
   await api.publishPool([{ sessionId: 'w2', ownerSessionId: 's1' }]);
   assert.deepEqual(shape(current().state.layout), ['row', ['session:s1', 'file:/p:b.ts'], ['session:w2']]);
   assert.equal(current().state.layout.ratio, 0.3);
-  assert.equal(current().state.layout.second.activeKey, 'session:w2', 'the removed tab’s selection moves to what remains');
+  assert.equal(
+    current().state.layout.second.activeKey,
+    'session:w2',
+    'the removed tab’s selection moves to what remains'
+  );
   assert.equal(current().state.focusedLeafId, 'right');
   await pause(300);
   assert.equal(persisted(), JSON.stringify(current().state));
@@ -389,14 +418,26 @@ test('after bootstrap a non-empty catalog dropping a listed session closes its t
   const { api, calls } = bridge({ catalog: ['s1', 's2', 's3'].map(row), sections: true, pool: [] });
   const { current } = await mount(t, { desktop: api, local: workerStored(session('s2')), lifecycle: true });
   await addToLeft(current, session('s3'));
-  assert.deepEqual(shape(current().state.layout), ['row', ['session:s1', 'file:/p:a.ts', 'session:s3'], ['session:s2']]);
+  assert.deepEqual(shape(current().state.layout), [
+    'row',
+    ['session:s1', 'file:/p:a.ts', 'session:s3'],
+    ['session:s2'],
+  ]);
   api.catalog = [row('s1')];
   await api.pushSessions();
-  assert.deepEqual(shape(current().state.layout), ['session:s1', 'file:/p:a.ts'], 'the restored s2 and the later s3 close');
+  assert.deepEqual(
+    shape(current().state.layout),
+    ['session:s1', 'file:/p:a.ts'],
+    'the restored s2 and the later s3 close'
+  );
   await addToLeft(current, session('s4'));
   api.catalog = [];
   await api.pushSessions();
-  assert.deepEqual(shape(current().state.layout), ['session:s1', 'file:/p:a.ts', 'session:s4'], 'an empty catalog closes nothing');
+  assert.deepEqual(
+    shape(current().state.layout),
+    ['session:s1', 'file:/p:a.ts', 'session:s4'],
+    'an empty catalog closes nothing'
+  );
   assert.equal(calls.poolReads, 0);
 });
 

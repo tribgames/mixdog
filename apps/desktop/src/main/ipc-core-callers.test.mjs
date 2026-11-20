@@ -63,7 +63,9 @@ test('a chat link asks the core and hands only an answered file or folder to the
   answer = { result: 'editor' };
   assert.equal(await invoke(DESKTOP_IPC.openLocalFileLink, '/p', 'a.ts'), 'editor');
   answer = { confirmationPath: '/p/setup.exe' };
-  assert.deepEqual(await invoke(DESKTOP_IPC.openLocalFileLink, '/p', 'setup.exe'), { confirmationPath: '/p/setup.exe' });
+  assert.deepEqual(await invoke(DESKTOP_IPC.openLocalFileLink, '/p', 'setup.exe'), {
+    confirmationPath: '/p/setup.exe',
+  });
   assert.equal(opened.length, 2, 'an editor answer and a confirmation request launch nothing');
 });
 
@@ -75,10 +77,15 @@ test('a chat link reports the operating system failure and the core refusal, and
   await assert.rejects(failing.invoke(DESKTOP_IPC.openLocalFileLink, '/p', 'a.zip'), {
     message: 'Unable to open file: No application is associated with this file.',
   });
-  const refused = projectIpc(fakeCore({ 'desktop/localLink/open': new Error('The file path escapes the project directory.') }));
+  const refused = projectIpc(
+    fakeCore({ 'desktop/localLink/open': new Error('The file path escapes the project directory.') })
+  );
   await assert.rejects(refused.invoke(DESKTOP_IPC.openLocalFileLink, '/p', '../'), /escapes the project directory/);
   assert.deepEqual(refused.opened, []);
-  await assert.rejects(projectIpc(null).invoke(DESKTOP_IPC.openLocalFileLink, '/p', 'a'), /core connection is not available/);
+  await assert.rejects(
+    projectIpc(null).invoke(DESKTOP_IPC.openLocalFileLink, '/p', 'a'),
+    /core connection is not available/
+  );
 });
 
 function fileDialogIpc(core) {
@@ -135,7 +142,10 @@ function sourceControlIpc(core, openPath = async () => '') {
 }
 
 test('an attachment is written by the core (the data URL as a blob) and opened or staged from the path it answers', async () => {
-  const core = fakeCore({ ...blobAnswers, 'desktop/attachment/write': { path: '/tmp/mixdog-attachments/report-1.pdf' } });
+  const core = fakeCore({
+    ...blobAnswers,
+    'desktop/attachment/write': { path: '/tmp/mixdog-attachments/report-1.pdf' },
+  });
   const { invoke, opened } = sourceControlIpc(core);
   await invoke(DESKTOP_IPC.openAttachmentFile, 'data:application/pdf;base64,JVBERg==', 'report.pdf');
   assert.deepEqual(opened, ['/tmp/mixdog-attachments/report-1.pdf']);
@@ -145,9 +155,12 @@ test('an attachment is written by the core (the data URL as a blob) and opened o
     'desktop/attachment/write',
     { dataUrl: { $blobRef: put.digest, as: 'text' }, name: 'report.pdf' },
   ]);
-  assert.deepEqual(await invoke(DESKTOP_IPC.stageAttachmentFile, 'data:application/pdf;base64,JVBERg==', 'report.pdf'), {
-    absolutePath: '/tmp/mixdog-attachments/report-1.pdf',
-  });
+  assert.deepEqual(
+    await invoke(DESKTOP_IPC.stageAttachmentFile, 'data:application/pdf;base64,JVBERg==', 'report.pdf'),
+    {
+      absolutePath: '/tmp/mixdog-attachments/report-1.pdf',
+    }
+  );
   assert.equal(opened.length, 1, 'staging opens nothing');
 });
 
@@ -155,7 +168,10 @@ test('an attachment the core refuses is not opened, and without a core nothing i
   const refusing = sourceControlIpc(
     fakeCore({ ...blobAnswers, 'desktop/attachment/write': new Error('This attachment type cannot be opened.') })
   );
-  await assert.rejects(refusing.invoke(DESKTOP_IPC.openAttachmentFile, 'data:text/x-sh;base64,AA==', 'run.sh'), /cannot be opened/);
+  await assert.rejects(
+    refusing.invoke(DESKTOP_IPC.openAttachmentFile, 'data:text/x-sh;base64,AA==', 'run.sh'),
+    /cannot be opened/
+  );
   assert.deepEqual(refusing.opened, []);
   await assert.rejects(
     sourceControlIpc(null).invoke(DESKTOP_IPC.openAttachmentFile, 'data:text/plain;base64,AA==', 'a.txt'),
@@ -166,9 +182,19 @@ test('an attachment the core refuses is not opened, and without a core nothing i
 test('an attachment thumbnail is the core data URL for the content hash', async () => {
   const ref = 'a'.repeat(64);
   const core = fakeCore({ 'desktop/attachment/thumbnail': { dataUrl: 'data:image/jpeg;base64,AAAA' } });
-  const invoke = register(registerSessionIpc, { host: {}, invokeDesktopOperation: async () => null, browserHost: null, core });
+  const invoke = register(registerSessionIpc, {
+    host: {},
+    invokeDesktopOperation: async () => null,
+    browserHost: null,
+    core,
+  });
   assert.equal(await invoke(DESKTOP_IPC.readAttachmentThumbnail, ref), 'data:image/jpeg;base64,AAAA');
   assert.deepEqual(core.calls, [['desktop/attachment/thumbnail', { attachmentRef: ref }]]);
-  const none = register(registerSessionIpc, { host: {}, invokeDesktopOperation: async () => null, browserHost: null, core: null });
+  const none = register(registerSessionIpc, {
+    host: {},
+    invokeDesktopOperation: async () => null,
+    browserHost: null,
+    core: null,
+  });
   await assert.rejects(none(DESKTOP_IPC.readAttachmentThumbnail, ref), /core connection is not available/);
 });

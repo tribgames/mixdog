@@ -25,7 +25,8 @@ const FIXTURE = `${PROTOCOL_DIR}/src/boundary/validate/fixtures/clients-accepted
 const CLIENTS = ['tui', 'phone', 'protocol-client', 'desktop'];
 
 /** Sender files per client: [directory or file, file-name filter]. Tests, recorders and fixtures are not senders. */
-const NOT_SENDER = /(\.test\.|\.record\.|\.scenario\.|[/\\]tests?[/\\]|[/\\]fixtures?[/\\]|[/\\]mock\.|\.d\.m?ts$|\.generated\.)/;
+const NOT_SENDER =
+  /(\.test\.|\.record\.|\.scenario\.|[/\\]tests?[/\\]|[/\\]fixtures?[/\\]|[/\\]mock\.|\.d\.m?ts$|\.generated\.)/;
 const SENDERS = {
   tui: [
     ['native/core/crates/mixdog-cli/src', /\.rs$/],
@@ -72,7 +73,10 @@ const notificationSchema = readJson(`${PROTOCOL_DIR}/schema/client_notification.
 
 /** method -> { kind: 'request'|'notification', defs, params: schema | null } */
 const METHODS = new Map();
-for (const [kind, doc] of [['request', requestSchema], ['notification', notificationSchema]]) {
+for (const [kind, doc] of [
+  ['request', requestSchema],
+  ['notification', notificationSchema],
+]) {
   for (const o of doc.oneOf) {
     const method = o.properties.method.enum[0];
     METHODS.set(method, { kind, defs: doc.definitions, params: o.properties.params ?? null });
@@ -99,27 +103,36 @@ function validate(defs, schema, v, at = '$') {
   const branches = schema.anyOf ?? schema.oneOf;
   if (branches) {
     const fails = branches.map((b) => validate(defs, b, v, at));
-    return fails.some((f) => f.length === 0) ? [] : [`${at}: matches no branch (${fails.map((f) => f[0]).join(' | ')})`];
+    return fails.some((f) => f.length === 0)
+      ? []
+      : [`${at}: matches no branch (${fails.map((f) => f[0]).join(' | ')})`];
   }
-  if (schema.enum) return schema.enum.includes(v) ? [] : [`${at}: ${JSON.stringify(v)} is not one of ${schema.enum.join(',')}`];
+  if (schema.enum)
+    return schema.enum.includes(v) ? [] : [`${at}: ${JSON.stringify(v)} is not one of ${schema.enum.join(',')}`];
   const types = typesOf(schema);
   if (v === null) return types.length === 0 || types.includes('null') ? [] : [`${at}: null`];
   if (types.length === 0) return [];
   const t = Array.isArray(v) ? 'array' : typeof v;
-  const okType = types.some((x) => x === t || (x === 'integer' && Number.isInteger(v)) || (x === 'number' && t === 'number'));
+  const okType = types.some(
+    (x) => x === t || (x === 'integer' && Number.isInteger(v)) || (x === 'number' && t === 'number')
+  );
   if (!okType) return [`${at}: ${t} where ${types.join('|')}`];
   const errs = [];
   if (typeof v === 'number' && schema.minimum !== undefined && v < schema.minimum) errs.push(`${at}: below minimum`);
   if (t === 'array') {
-    if (schema.minItems !== undefined && v.length < schema.minItems) errs.push(`${at}: fewer than ${schema.minItems} items`);
-    if (schema.maxItems !== undefined && v.length > schema.maxItems) errs.push(`${at}: more than ${schema.maxItems} items`);
+    if (schema.minItems !== undefined && v.length < schema.minItems)
+      errs.push(`${at}: fewer than ${schema.minItems} items`);
+    if (schema.maxItems !== undefined && v.length > schema.maxItems)
+      errs.push(`${at}: more than ${schema.maxItems} items`);
     v.forEach((x, i) => errs.push(...validate(defs, schema.items, x, `${at}[${i}]`)));
   } else if (t === 'object') {
     for (const k of schema.required ?? []) if (!(k in v)) errs.push(`${at}.${k}: required`);
     for (const [k, x] of Object.entries(v)) {
-      if (schema.properties && k in schema.properties) errs.push(...validate(defs, schema.properties[k], x, `${at}.${k}`));
+      if (schema.properties && k in schema.properties)
+        errs.push(...validate(defs, schema.properties[k], x, `${at}.${k}`));
       else if (schema.additionalProperties === false) errs.push(`${at}.${k}: not allowed`);
-      else if (schema.additionalProperties && schema.additionalProperties !== true) errs.push(...validate(defs, schema.additionalProperties, x, `${at}.${k}`));
+      else if (schema.additionalProperties && schema.additionalProperties !== true)
+        errs.push(...validate(defs, schema.additionalProperties, x, `${at}.${k}`));
     }
   }
   return errs;
@@ -240,11 +253,17 @@ const SAMPLE_ARGS = {
 };
 
 async function sessionActionRows() {
-  const { SESSION_ACTIONS, resolveAction } = await import(pathToFileURL(path.join(ROOT, ACTION_ROUTE, 'action-route.mjs')).href);
+  const { SESSION_ACTIONS, resolveAction } = await import(
+    pathToFileURL(path.join(ROOT, ACTION_ROUTE, 'action-route.mjs')).href
+  );
   const { ACTION_OVERRIDES } = await import(pathToFileURL(path.join(ROOT, ACTION_ROUTE, 'action-overrides.mjs')).href);
   const { METHOD_ARGS } = await import(pathToFileURL(path.join(ROOT, ACTION_ROUTE, 'method-args.generated.mjs')).href);
-  const { ACTION_NAMESPACES } = await import(pathToFileURL(path.join(ROOT, ACTION_ROUTE, 'action-namespaces.mjs')).href);
-  const namespaceOf = new Map(Object.entries(ACTION_NAMESPACES).flatMap(([ns, actions]) => actions.map((a) => [a, ns])));
+  const { ACTION_NAMESPACES } = await import(
+    pathToFileURL(path.join(ROOT, ACTION_ROUTE, 'action-namespaces.mjs')).href
+  );
+  const namespaceOf = new Map(
+    Object.entries(ACTION_NAMESPACES).flatMap(([ns, actions]) => actions.map((a) => [a, ns]))
+  );
   const ctx = { threadId: 'thread-1' };
   const out = [];
   const problems = [];
@@ -295,9 +314,15 @@ async function sessionActionRows() {
 const QUOTE = '[\'"`]';
 function literalsIn(text) {
   const found = new Set();
-  for (const m of text.matchAll(new RegExp(`${QUOTE}([a-z][A-Za-z0-9]*(?:/[A-Za-z0-9]+)+)${QUOTE}`, 'g'))) if (METHODS.has(m[1])) found.add(m[1]);
+  for (const m of text.matchAll(new RegExp(`${QUOTE}([a-z][A-Za-z0-9]*(?:/[A-Za-z0-9]+)+)${QUOTE}`, 'g')))
+    if (METHODS.has(m[1])) found.add(m[1]);
   // a method without a namespace (`initialize`, `initialized`) only where it is the method of a call
-  for (const m of text.matchAll(new RegExp(`(?:rpc|rpc_inline|call|run|request|notify|send)[A-Za-z_]*\\(\\s*\\{?\\s*(?:method:\\s*)?${QUOTE}([a-z][A-Za-z0-9]*)${QUOTE}|method\\s*[:=]\\s*${QUOTE}([a-z][A-Za-z0-9]*)${QUOTE}`, 'g'))) {
+  for (const m of text.matchAll(
+    new RegExp(
+      `(?:rpc|rpc_inline|call|run|request|notify|send)[A-Za-z_]*\\(\\s*\\{?\\s*(?:method:\\s*)?${QUOTE}([a-z][A-Za-z0-9]*)${QUOTE}|method\\s*[:=]\\s*${QUOTE}([a-z][A-Za-z0-9]*)${QUOTE}`,
+      'g'
+    )
+  )) {
     const name = m[1] ?? m[2];
     if (METHODS.has(name)) found.add(name);
   }
@@ -310,7 +335,8 @@ function derivedSenders() {
   for (const client of CLIENTS) {
     for (const spec of SENDERS[client]) {
       for (const file of filesOf(spec)) {
-        for (const method of literalsIn(read(file))) if (!out[client].has(method)) out[client].set(method, `${file}:${method}`);
+        for (const method of literalsIn(read(file)))
+          if (!out[client].has(method)) out[client].set(method, `${file}:${method}`);
       }
     }
   }
@@ -322,7 +348,11 @@ function derivedSenders() {
 const LONG_PROMPT = `${'Refactor the module and explain every step. '.repeat(5600)}END`.slice(0, 250_000);
 const PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const TURN = { threadId: 'thread-1', opId: OP_ID(900) };
-const UNICODE_PROMPT = '안녕하세요, 이 파일을 고쳐 주세요 \u{1F680}\u{1F468}\u200D\u{1F469}\u200D\u{1F467} é ñ \u202Eabc\u202C \u0000'.replace('\u0000', '\u00a0');
+const UNICODE_PROMPT =
+  '안녕하세요, 이 파일을 고쳐 주세요 \u{1F680}\u{1F468}\u200D\u{1F469}\u200D\u{1F467} é ñ \u202Eabc\u202C \u0000'.replace(
+    '\u0000',
+    '\u00a0'
+  );
 
 const EDGES = [
   // turn/start: the prompt in each form the TUI, the phone composer and the desktop composer send
@@ -331,65 +361,163 @@ const EDGES = [
   ['phone', 'turn/start', 'options empty', { ...TURN, input: { prompt: 'hello', options: {} } }],
   ['phone', 'turn/start', 'unicode prompt', { ...TURN, input: { prompt: UNICODE_PROMPT } }],
   ['desktop', 'turn/start', 'prompt at the inbound frame limit', { ...TURN, input: { prompt: LONG_PROMPT } }],
-  ['desktop', 'turn/start', 'multi-line prompt', { ...TURN, input: { prompt: 'line one\r\nline two\n\n\tindented\n' } }],
-  ['phone', 'turn/start', 'parts: text, image, file', {
-    ...TURN,
-    input: {
-      prompt: [
-        { type: 'text', text: 'what is in this picture and file?' },
-        { type: 'image', mimeType: 'image/png', data: PNG_1PX, filename: 'shot.png', sizeBytes: 70 },
-        { type: 'file', mimeType: 'text/plain', data: 'aGVsbG8=', filename: 'a.txt', sizeBytes: 5 },
-      ],
-    },
-  }],
-  ['desktop', 'turn/start', 'parts: stored attachments by reference', {
-    ...TURN,
-    input: {
-      prompt: [
-        { type: 'text', attachmentRef: 'att-1', textKind: 'paste', filename: 'paste.txt', mimeType: 'text/plain', sizeBytes: 90000 },
-        { type: 'image', attachmentRef: 'att-2', mimeType: 'image/jpeg', data: null },
-        { type: 'text', text: null },
-      ],
-    },
-  }],
-  ['desktop', 'turn/start', 'submit options', {
-    ...TURN,
-    input: {
-      prompt: 'queued follow-up',
-      options: {
-        clientSubmissionId: 'sub-1', displayText: 'queued follow-up', goalCommand: null, kickoff: false, priority: 'next',
-        retryFailedTurn: true, retryTurnId: 'turn-9', retryAttemptId: 'att-9', submittedAt: 1_760_000_000_000,
-        pastedTexts: { '[Pasted text #1]': { id: 1, text: 'pasted', chars: 6, source: 'clipboard' } },
-        pastedImages: { '[Image #1]': { id: 1, type: 'image', mediaType: 'image/png', filename: null, content: PNG_1PX } },
+  [
+    'desktop',
+    'turn/start',
+    'multi-line prompt',
+    { ...TURN, input: { prompt: 'line one\r\nline two\n\n\tindented\n' } },
+  ],
+  [
+    'phone',
+    'turn/start',
+    'parts: text, image, file',
+    {
+      ...TURN,
+      input: {
+        prompt: [
+          { type: 'text', text: 'what is in this picture and file?' },
+          { type: 'image', mimeType: 'image/png', data: PNG_1PX, filename: 'shot.png', sizeBytes: 70 },
+          { type: 'file', mimeType: 'text/plain', data: 'aGVsbG8=', filename: 'a.txt', sizeBytes: 5 },
+        ],
       },
     },
-  }],
-  ['tui', 'turn/start', 'priority now', { ...TURN, input: { prompt: 'stop and do this', options: { priority: 'now' } } }],
+  ],
+  [
+    'desktop',
+    'turn/start',
+    'parts: stored attachments by reference',
+    {
+      ...TURN,
+      input: {
+        prompt: [
+          {
+            type: 'text',
+            attachmentRef: 'att-1',
+            textKind: 'paste',
+            filename: 'paste.txt',
+            mimeType: 'text/plain',
+            sizeBytes: 90000,
+          },
+          { type: 'image', attachmentRef: 'att-2', mimeType: 'image/jpeg', data: null },
+          { type: 'text', text: null },
+        ],
+      },
+    },
+  ],
+  [
+    'desktop',
+    'turn/start',
+    'submit options',
+    {
+      ...TURN,
+      input: {
+        prompt: 'queued follow-up',
+        options: {
+          clientSubmissionId: 'sub-1',
+          displayText: 'queued follow-up',
+          goalCommand: null,
+          kickoff: false,
+          priority: 'next',
+          retryFailedTurn: true,
+          retryTurnId: 'turn-9',
+          retryAttemptId: 'att-9',
+          submittedAt: 1_760_000_000_000,
+          pastedTexts: { '[Pasted text #1]': { id: 1, text: 'pasted', chars: 6, source: 'clipboard' } },
+          pastedImages: {
+            '[Image #1]': { id: 1, type: 'image', mediaType: 'image/png', filename: null, content: PNG_1PX },
+          },
+        },
+      },
+    },
+  ],
+  [
+    'tui',
+    'turn/start',
+    'priority now',
+    { ...TURN, input: { prompt: 'stop and do this', options: { priority: 'now' } } },
+  ],
   ['tui', 'turn/start', 'priority later', { ...TURN, input: { prompt: 'when idle', options: { priority: 'later' } } }],
   // thread/start
-  ...['project', 'projectTask', 'task', 'control'].map((kind) => ['desktop', 'thread/start', `kind ${kind}`, { kind, opId: OP_ID(910) }]),
+  ...['project', 'projectTask', 'task', 'control'].map((kind) => [
+    'desktop',
+    'thread/start',
+    `kind ${kind}`,
+    { kind, opId: OP_ID(910) },
+  ]),
   ['phone', 'thread/start', 'project path null', { kind: 'task', projectPath: null, opId: OP_ID(911) }],
-  ['phone', 'thread/start', 'initial input null', { kind: 'task', initialInput: null, draft: null, session: null, opId: OP_ID(912) }],
-  ['desktop', 'thread/start', 'initial input and project path', {
-    kind: 'projectTask', projectPath: 'C:\\Users\\dev\\project', opId: OP_ID(913),
-    initialInput: { prompt: '프로젝트 구조를 설명해 줘' },
-  }],
-  ['tui', 'thread/start', 'headless exec session', {
-    kind: 'task', opId: OP_ID(914),
-    session: { approvalMode: 'implicit', toolMode: 'readonly', toolProfile: 'headless', autoWakeCompletions: false, disallowDelegation: true, memory: false, webSearch: false },
-  }],
-  ['tui', 'thread/start', 'headless exec, every option null', {
-    kind: 'task', opId: OP_ID(915),
-    session: { approvalMode: null, toolMode: null, toolProfile: null, autoWakeCompletions: null, disallowDelegation: null, memory: null, webSearch: null },
-  }],
+  [
+    'phone',
+    'thread/start',
+    'initial input null',
+    { kind: 'task', initialInput: null, draft: null, session: null, opId: OP_ID(912) },
+  ],
+  [
+    'desktop',
+    'thread/start',
+    'initial input and project path',
+    {
+      kind: 'projectTask',
+      projectPath: 'C:\\Users\\dev\\project',
+      opId: OP_ID(913),
+      initialInput: { prompt: '프로젝트 구조를 설명해 줘' },
+    },
+  ],
+  [
+    'tui',
+    'thread/start',
+    'headless exec session',
+    {
+      kind: 'task',
+      opId: OP_ID(914),
+      session: {
+        approvalMode: 'implicit',
+        toolMode: 'readonly',
+        toolProfile: 'headless',
+        autoWakeCompletions: false,
+        disallowDelegation: true,
+        memory: false,
+        webSearch: false,
+      },
+    },
+  ],
+  [
+    'tui',
+    'thread/start',
+    'headless exec, every option null',
+    {
+      kind: 'task',
+      opId: OP_ID(915),
+      session: {
+        approvalMode: null,
+        toolMode: null,
+        toolProfile: null,
+        autoWakeCompletions: null,
+        disallowDelegation: null,
+        memory: null,
+        webSearch: null,
+      },
+    },
+  ],
   // thread/resume windows
   ['protocol-client', 'thread/resume', 'window lastItems max', { threadId: 'thread-1', window: { lastItems: 512 } }],
   ['protocol-client', 'thread/resume', 'window lastTurns', { threadId: 'thread-1', window: { lastTurns: 8 } }],
   ['phone', 'thread/resume', 'window none', { threadId: 'thread-1', window: { none: true } }],
-  ['protocol-client', 'thread/resume', 'resume from position', {
-    threadId: 'thread-1', window: { lastItems: 64 }, resumeFrom: { epoch: 'e-1', seq: 0, window: { lastItems: 64 } },
-  }],
-  ['protocol-client', 'thread/resume', 'resumeFrom null', { threadId: 'thread-1', window: { lastTurns: 2 }, resumeFrom: null }],
+  [
+    'protocol-client',
+    'thread/resume',
+    'resume from position',
+    {
+      threadId: 'thread-1',
+      window: { lastItems: 64 },
+      resumeFrom: { epoch: 'e-1', seq: 0, window: { lastItems: 64 } },
+    },
+  ],
+  [
+    'protocol-client',
+    'thread/resume',
+    'resumeFrom null',
+    { threadId: 'thread-1', window: { lastTurns: 2 }, resumeFrom: null },
+  ],
   // feeds
   ['protocol-client', 'app/subscribe', 'no resume position', {}],
   ['protocol-client', 'app/subscribe', 'resumeFrom null', { resumeFrom: null }],
@@ -398,24 +526,74 @@ const EDGES = [
   ['phone', 'feed/subscribe', 'resume position', { feedId: 'media:job-1', resumeFrom: { epoch: 'e-2', seq: 0 } }],
   // op status and blobs
   ['protocol-client', 'op/status', 'no ids, no fence', { scope: 'thread:thread-1', opIds: [], fence: false }],
-  ['protocol-client', 'op/status', 'several ids, fenced', { scope: 'domain:config', opIds: [OP_ID(920), OP_ID(921)], fence: true }],
+  [
+    'protocol-client',
+    'op/status',
+    'several ids, fenced',
+    { scope: 'domain:config', opIds: [OP_ID(920), OP_ID(921)], fence: true },
+  ],
   ['protocol-client', 'blob/read', 'offset and length null', { digest: DIGEST, offset: null, length: null }],
   ['protocol-client', 'blob/read', 'page at an offset', { digest: DIGEST, offset: 262144, length: 65536 }],
   ['protocol-client', 'blob/put', 'first chunk', { digest: DIGEST, offset: 0, bytesB64: 'AAAA' }],
   ['protocol-client', 'blob/put', 'empty last chunk', { digest: DIGEST, offset: 3, bytesB64: '' }],
   // initialize: every client kind, capabilities absent against null
   ['tui', 'initialize', 'tui, no capabilities', { clientInfo: { kind: 'tui', name: 'mixdog-tui', version: '0.0.0' } }],
-  ['tui', 'initialize', 'cli, capabilities null', { clientInfo: { kind: 'cli', name: 'mixdog-exec', version: '0.0.0', title: null, build: null }, capabilities: null }],
-  ['phone', 'initialize', 'phone', {
-    clientInfo: { kind: 'phone', name: 'mixdog-phone', title: 'Phone', version: '0.0.0', build: '1' },
-    capabilities: { approvalsInbox: true, feedRanges: true, optOutNotificationMethods: ['thread/tokenUsage/updated'] },
-  }],
-  ['phone', 'initialize', 'remote desktop', { clientInfo: { kind: 'remoteDesktop', name: 'mixdog-desktop', version: '0.0.0' }, capabilities: { optOutNotificationMethods: [] } }],
-  ['desktop', 'initialize', 'desktop, every capability null', {
-    clientInfo: { kind: 'desktop', name: 'mixdog-desktop', version: '0.0.0' },
-    capabilities: { approvalsInbox: null, experimentalApi: null, feedRanges: null, host: null, modelProxy: null, optOutNotificationMethods: null },
-  }],
-  ['protocol-client', 'initialize', 'channel bridge', { clientInfo: { kind: 'channelBridge', name: 'bridge', version: '0.0.0' }, capabilities: { modelProxy: true, experimentalApi: false } }],
+  [
+    'tui',
+    'initialize',
+    'cli, capabilities null',
+    {
+      clientInfo: { kind: 'cli', name: 'mixdog-exec', version: '0.0.0', title: null, build: null },
+      capabilities: null,
+    },
+  ],
+  [
+    'phone',
+    'initialize',
+    'phone',
+    {
+      clientInfo: { kind: 'phone', name: 'mixdog-phone', title: 'Phone', version: '0.0.0', build: '1' },
+      capabilities: {
+        approvalsInbox: true,
+        feedRanges: true,
+        optOutNotificationMethods: ['thread/tokenUsage/updated'],
+      },
+    },
+  ],
+  [
+    'phone',
+    'initialize',
+    'remote desktop',
+    {
+      clientInfo: { kind: 'remoteDesktop', name: 'mixdog-desktop', version: '0.0.0' },
+      capabilities: { optOutNotificationMethods: [] },
+    },
+  ],
+  [
+    'desktop',
+    'initialize',
+    'desktop, every capability null',
+    {
+      clientInfo: { kind: 'desktop', name: 'mixdog-desktop', version: '0.0.0' },
+      capabilities: {
+        approvalsInbox: null,
+        experimentalApi: null,
+        feedRanges: null,
+        host: null,
+        modelProxy: null,
+        optOutNotificationMethods: null,
+      },
+    },
+  ],
+  [
+    'protocol-client',
+    'initialize',
+    'channel bridge',
+    {
+      clientInfo: { kind: 'channelBridge', name: 'bridge', version: '0.0.0' },
+      capabilities: { modelProxy: true, experimentalApi: false },
+    },
+  ],
 ];
 
 // ── the fixture ──
@@ -491,7 +669,9 @@ async function main() {
     }
     fs.mkdirSync(path.dirname(path.join(ROOT, FIXTURE)), { recursive: true });
     fs.writeFileSync(path.join(ROOT, FIXTURE), `${JSON.stringify(rows, null, 2)}\n`);
-    console.log(`wrote ${rows.length} rows to ${FIXTURE}; ${unrouted.length} session actions have no protocol method (the client rejects them before sending)`);
+    console.log(
+      `wrote ${rows.length} rows to ${FIXTURE}; ${unrouted.length} session actions have no protocol method (the client rejects them before sending)`
+    );
     return;
   }
   const rows = readJson(FIXTURE);
@@ -500,9 +680,14 @@ async function main() {
   const { rows: actionRows, problems } = await sessionActionRows();
   const have = new Set(rows.map((r) => `${r.client}\0${r.method}`));
   const missing = [];
-  for (const client of CLIENTS) for (const method of derived[client].keys()) if (!have.has(`${client}\0${method}`)) missing.push(`${client} ${method}`);
-  for (const r of actionRows) if (!have.has(`${r.client}\0${r.method}`)) missing.push(`${r.client} ${r.method} (session action)`);
-  const perClient = CLIENTS.map((c) => `${c} ${new Set(rows.filter((r) => r.client === c).map((r) => r.method)).size}`).join(', ');
+  for (const client of CLIENTS)
+    for (const method of derived[client].keys())
+      if (!have.has(`${client}\0${method}`)) missing.push(`${client} ${method}`);
+  for (const r of actionRows)
+    if (!have.has(`${r.client}\0${r.method}`)) missing.push(`${r.client} ${r.method} (session action)`);
+  const perClient = CLIENTS.map(
+    (c) => `${c} ${new Set(rows.filter((r) => r.client === c).map((r) => r.method)).size}`
+  ).join(', ');
   console.log(`rows: ${rows.length}; methods per client: ${perClient}`);
   for (const line of [...problems, ...errors, ...missing.map((m) => `missing: ${m}`)]) console.error(line);
   console.log(`${missing.length} missing, ${errors.length + problems.length} invalid`);

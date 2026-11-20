@@ -16,7 +16,8 @@ function fixture(files) {
 }
 
 const TREE = {
-  'apps/desktop/src/main/index.ts': "import { a } from '../../../../src/runtime/a.mjs';\nconst b = await import('../../../../src/runtime/b.mjs');\n",
+  'apps/desktop/src/main/index.ts':
+    "import { a } from '../../../../src/runtime/a.mjs';\nconst b = await import('../../../../src/runtime/b.mjs');\n",
   'packages/client/src/index.ts': "import x from 'strip-ansi';\nexport * from '../../../src/runtime/c.cjs';\n",
   'src/skill-script-entry.mjs': "await import('./runtime/skill.mjs');\n",
   'src/runtime/a.mjs': "import './a-helper.mjs';\n",
@@ -63,7 +64,16 @@ test('entry points are computed from the tree and a file only a test imports is 
     assert.ok([...production].map((f) => f.split(sep).join('/')).some((f) => f.endsWith('skill-script-entry.mjs')));
     assert.ok([...tests].map((f) => f.split(sep).join('/')).some((f) => f.endsWith('only-tests.test.mjs')));
     const report = check(root);
-    assert.deepEqual(report.srcReached, ['src/runtime/a-helper.mjs', 'src/runtime/a.mjs', 'src/runtime/b-data.mjs', 'src/runtime/b.mjs', 'src/runtime/c.cjs', 'src/runtime/d.cjs', 'src/runtime/skill.mjs', 'src/skill-script-entry.mjs']);
+    assert.deepEqual(report.srcReached, [
+      'src/runtime/a-helper.mjs',
+      'src/runtime/a.mjs',
+      'src/runtime/b-data.mjs',
+      'src/runtime/b.mjs',
+      'src/runtime/c.cjs',
+      'src/runtime/d.cjs',
+      'src/runtime/skill.mjs',
+      'src/skill-script-entry.mjs',
+    ]);
     assert.deepEqual(report.srcTestsOnly, ['src/runtime/only-tests.mjs']);
     assert.deepEqual(report.srcNoImporter, ['src/runtime/nothing.mjs', 'src/tui/old.mjs']);
     assert.deepEqual(report.productionPackages, ['strip-ansi']);
@@ -73,10 +83,16 @@ test('entry points are computed from the tree and a file only a test imports is 
 });
 
 test('a remaining non-test file importing a file of src that is gone fails; a test fixture string does not', () => {
-  const root = fixture({ ...TREE, 'src/runtime/skill.mjs': "import './removed.mjs';\n", 'scripts/x.test.mjs': "writeFile('t.mjs', \"import './fixture-only.mjs'\")\nimport './fixture-only.mjs';\n" });
+  const root = fixture({
+    ...TREE,
+    'src/runtime/skill.mjs': "import './removed.mjs';\n",
+    'scripts/x.test.mjs': "writeFile('t.mjs', \"import './fixture-only.mjs'\")\nimport './fixture-only.mjs';\n",
+  });
   try {
     const report = check(root);
-    assert.deepEqual(report.missing, [{ from: 'src/runtime/skill.mjs', spec: './removed.mjs', resolved: 'src/runtime/removed.mjs' }]);
+    assert.deepEqual(report.missing, [
+      { from: 'src/runtime/skill.mjs', spec: './removed.mjs', resolved: 'src/runtime/removed.mjs' },
+    ]);
     assert.ok(report.unresolved.some((m) => m.from === 'scripts/x.test.mjs'));
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -89,7 +105,10 @@ test('a delete entry that a remaining entry reaches is reported with its importe
     const reached = check(root, ['src/runtime/a-helper.mjs']);
     assert.deepEqual(reached.reachedDeletes, [{ file: 'src/runtime/a-helper.mjs', importers: ['src/runtime/a.mjs'] }]);
     const folder = check(root, ['src/runtime/']);
-    assert.deepEqual(folder.reachedDeletes.map((h) => h.file), ['src/runtime/a.mjs', 'src/runtime/b.mjs', 'src/runtime/c.cjs', 'src/runtime/skill.mjs']);
+    assert.deepEqual(
+      folder.reachedDeletes.map((h) => h.file),
+      ['src/runtime/a.mjs', 'src/runtime/b.mjs', 'src/runtime/c.cjs', 'src/runtime/skill.mjs']
+    );
     const clean = check(root, ['src/tui/', 'src/runtime/nothing.mjs']);
     assert.deepEqual(clean.reachedDeletes, []);
   } finally {

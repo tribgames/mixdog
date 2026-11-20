@@ -7,10 +7,7 @@ import type {
 import { cleanIncomingTail } from './incoming-tail';
 import { isTaskWorkspaceFolder } from './task-workspace';
 import { compactedSessionTitle, generatedSessionTitle, normalizeSessionTitle } from './session-title.mjs';
-import {
-  agentHomeSessionId,
-  agentIdOfHomeSession,
-} from './core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentHomeSessionId, agentIdOfHomeSession } from './core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { normalizeRoutineProvenance } from './core-src/runtime/agent/orchestrator/session/routine-result.mjs';
 
 // A user prompt plus an assistant reply: the smallest persisted conversation.

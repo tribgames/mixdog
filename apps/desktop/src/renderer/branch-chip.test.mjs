@@ -516,11 +516,22 @@ test('a closed branch menu never asks the runtime for the cleanup preview once i
   menuReply = menuFor();
   const { trigger } = await mount(t, {}, { handlers: { previewWorktreeCleanup: () => ({ hasCandidates: true }) } });
   await settle();
-  assert.ok(calls.some((call) => call.capability === 'getBranchMenu'), 'the menu itself was read');
-  assert.equal(calls.filter((call) => call.capability === 'previewWorktreeCleanup').length, 0, 'closed: no preview read');
+  assert.ok(
+    calls.some((call) => call.capability === 'getBranchMenu'),
+    'the menu itself was read'
+  );
+  assert.equal(
+    calls.filter((call) => call.capability === 'previewWorktreeCleanup').length,
+    0,
+    'closed: no preview read'
+  );
   await openMenu(trigger);
   await settle();
-  assert.equal(calls.filter((call) => call.capability === 'previewWorktreeCleanup').length > 0, true, 'opened: the preview is read');
+  assert.equal(
+    calls.filter((call) => call.capability === 'previewWorktreeCleanup').length > 0,
+    true,
+    'opened: the preview is read'
+  );
 });
 
 test('menus of one repository that ask for the cleanup preview together share one round trip', async () => {

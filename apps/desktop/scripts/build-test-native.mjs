@@ -21,7 +21,9 @@ const sourceRoots = [
   join(root, 'native', 'core', 'vendor', 'icu_collator'),
 ];
 const sourceFiles = [join(root, 'native', 'core', 'Cargo.toml')];
-const libraryFile = { win32: 'mixdog_main_native.dll', darwin: 'libmixdog_main_native.dylib' }[process.platform] ?? 'libmixdog_main_native.so';
+const libraryFile =
+  { win32: 'mixdog_main_native.dll', darwin: 'libmixdog_main_native.dylib' }[process.platform] ??
+  'libmixdog_main_native.so';
 const library = join(process.env.CARGO_TARGET_DIR ?? join(crate, 'target'), 'release', libraryFile);
 
 /** The newest modification time under `directory`, build output and dependencies left out. */
@@ -42,6 +44,8 @@ console.log(`[build-test-native] building ${libraryFile} (cargo build --release 
 // The crate's own folder is the working directory: its .cargo/config.toml sets the Windows linker and static CRT.
 const built = spawnSync('cargo', ['build', '--locked', '--release'], { cwd: crate, stdio: 'inherit' });
 if (built.error || built.status !== 0) {
-  console.error(`[build-test-native] The native module could not be built: ${built.error?.message ?? `cargo exited ${built.status}`}.`);
+  console.error(
+    `[build-test-native] The native module could not be built: ${built.error?.message ?? `cargo exited ${built.status}`}.`
+  );
   process.exit(1);
 }

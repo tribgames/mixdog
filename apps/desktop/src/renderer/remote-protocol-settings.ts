@@ -67,7 +67,9 @@ const refused = (text: string): Error => new Error(text);
 async function updatePins(pins: unknown, host: PhoneProtocolHost): Promise<ActivityRailPinsState> {
   // settings-store.ts:274-275: the list is checked before anything is written.
   if (!normalizeActivityRailPins(pins)) throw refused('Activity rail pins must be an array of supported destinations.');
-  const reply = record(await host.client().call('config/value/write', { path: 'desktop.activityRailPins', value: pins } as never));
+  const reply = record(
+    await host.client().call('config/value/write', { path: 'desktop.activityRailPins', value: pins } as never)
+  );
   const values = reply.values;
   const state = storedPinsState(Array.isArray(values) ? values[0] : undefined);
   if (!state) throw refused('The config write did not return valid activity rail pins.');
@@ -112,7 +114,13 @@ function followPins(host: PhoneProtocolHost, client: Client): () => void {
   const off = client.store.subscribe((change) => {
     // A snapshot announces every section it holds: it is where the pins stand, not a change.
     if (change.type === 'appSnapshot') check(false);
-    else if (change.type === 'section' && change.section === 'config' && change.key === 'desktop' && !announcingSnapshot(client)) check(true);
+    else if (
+      change.type === 'section' &&
+      change.section === 'config' &&
+      change.key === 'desktop' &&
+      !announcingSnapshot(client)
+    )
+      check(true);
   });
   return () => {
     closed = true;
@@ -120,8 +128,13 @@ function followPins(host: PhoneProtocolHost, client: Client): () => void {
   };
 }
 const isWindowGone = (error: unknown): boolean => {
-  const failure = (error as { detail?: { kind?: unknown; data?: { reason?: unknown; capability?: unknown } } } | null)?.detail;
-  return failure?.kind === 'rpc' && failure.data?.reason === 'capabilityUnavailable' && failure.data.capability === 'desktopHost';
+  const failure = (error as { detail?: { kind?: unknown; data?: { reason?: unknown; capability?: unknown } } } | null)
+    ?.detail;
+  return (
+    failure?.kind === 'rpc' &&
+    failure.data?.reason === 'capabilityUnavailable' &&
+    failure.data.capability === 'desktopHost'
+  );
 };
 
 /** One core request; a failure is the error Node's relay frame carried. */
@@ -177,7 +190,8 @@ const calls: Record<string, NodeCall> = {
     const saved = await request(host, 'config/value/write', { path, value: enabled, announce: 'desktop' });
     return desktopSettingsFromConfig(record(saved).config);
   }),
-  readActivityRailPins: async (_params, host) => storedPinsState(record(await configTree(host, 'desktop')).activityRailPins),
+  readActivityRailPins: async (_params, host) =>
+    storedPinsState(record(await configTree(host, 'desktop')).activityRailPins),
   // remote-methods.ts:915: a phone's update never initializes; only its first argument reaches the store.
   updateActivityRailPins: ([pins], host) => updatePins(pins, host),
 
@@ -229,8 +243,13 @@ const calls: Record<string, NodeCall> = {
   ),
   // Node answered the overrides in force after the write: the stored list the write answers.
   setConversationNotification: call(async ([target, setting], host) => {
-    const value = { target: requiredNotificationTarget(target), setting: requiredConversationNotificationSetting(setting) };
-    const saved = record(await request(host, 'config/value/write', { path: 'notifications.overrides', value, mode: 'setConversation' }));
+    const value = {
+      target: requiredNotificationTarget(target),
+      setting: requiredConversationNotificationSetting(setting),
+    };
+    const saved = record(
+      await request(host, 'config/value/write', { path: 'notifications.overrides', value, mode: 'setConversation' })
+    );
     return Array.isArray(saved.values) ? saved.values[0] : null;
   }),
 };
@@ -255,7 +274,10 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
           toldMode = mode;
           // Initialization only records the mode. A live change is published when it differs from the mode told; when none was told
           // yet because the initial read was superseded, it is compared with what the fold held at wiring (unknown for a stub).
-          const changed = previous !== undefined ? mode !== previous : announce && (initialMode === undefined || mode !== initialMode);
+          const changed =
+            previous !== undefined
+              ? mode !== previous
+              : announce && (initialMode === undefined || mode !== initialMode);
           if (changed) ctx.fanOut(ctx.orchestrationModeListeners, { mode });
         },
         () => undefined
@@ -268,20 +290,25 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
     const offStore = client.store.subscribe((change) => {
       if (
         change.type === 'appSnapshot' ||
-        (change.type === 'section' && change.section === 'config' && change.key === 'agent' && !announcingSnapshot(client))
+        (change.type === 'section' &&
+          change.section === 'config' &&
+          change.key === 'agent' &&
+          !announcingSnapshot(client))
       ) {
         followMode(change.type === 'section');
       }
       if (change.type !== 'section' || change.section !== 'update') return;
       const state = client.store.section('update' as never, null)?.value as { status?: unknown } | undefined;
-      if (state && typeof state === 'object' && typeof state.status === 'string') ctx.fanOut(ctx.updaterListeners, state as never);
+      if (state && typeof state === 'object' && typeof state.status === 'string')
+        ctx.fanOut(ctx.updaterListeners, state as never);
     });
     const offEvents = client.on((event) => {
       if (event.type !== 'notification') return;
       const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
       const announced = announcedEvent(method, params);
       if (!announced) return;
-      if (announced.name === SETTINGS_CHANGED_EVENT) ctx.fanOut(ctx.settingsChangedListeners, announced.value as SettingsChange);
+      if (announced.name === SETTINGS_CHANGED_EVENT)
+        ctx.fanOut(ctx.settingsChangedListeners, announced.value as SettingsChange);
       else ctx.fanOut(ctx.providerModelsListeners, announced.value as ProviderModelsChange);
     });
     const offPins = followPins(host, client);
@@ -294,7 +321,11 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
   };
   const off = host.onClient?.(wire);
   const offReset = host.onPairingReset?.(() => unwire?.());
-  if (!off) void ctx.phone.start().then(() => wire(host.client()), () => undefined);
+  if (!off)
+    void ctx.phone.start().then(
+      () => wire(host.client()),
+      () => undefined
+    );
   return () => {
     off?.();
     offReset?.();

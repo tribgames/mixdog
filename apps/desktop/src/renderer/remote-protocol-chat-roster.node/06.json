@@ -7,10 +7,10 @@
     "crlfOnlyDifferences": 747,
     "source": "git archive of the whole tree, every file compared with its git blob id; the Node daemon (session-client.mjs ensureDaemon) and session-host.ts run unchanged for the actions; remote-view-sync.ts, remote-relay-catalog.ts, view-synchronizer.ts, list-delta.ts, remote-roster-cache.ts run unchanged for the phone side",
     "harness": {
-      "lib/env.mjs": "358840d97f5df0ec1649b0c66d55be23ea31e1498cc9f5274505cb0767ead715",
-      "lib/fake-provider.mjs": "53d200f2b45e147baa971086bb87462e4399f15ac0c80d170d39ae93b391f699",
+      "lib/env.mjs": "1bcdf5944008d05e3a63e6152ea5a738056027bc88edcfe82bc4591aadbee3ee",
+      "lib/fake-provider.mjs": "36ee1b6ae07ae493cc4157499549e4d9b6d49fcff04b40b86b10f96e43760497",
       "lib/deadline.mjs": "d89fb8c88b96bcb122df03c55964d2fa40d7cd0bbe36325d6ab8aa7878073539",
-      "lib/scenarios.mjs": "e8c34cc876cf300d803a533f3ae5aa0e08553fff2f20ba3db7e6a5906e5c37d8"
+      "lib/scenarios.mjs": "75d46bacf4228ead41af47ef5cbd27b21e06db6ef17de7ef7e85d7f20b42e527"
     },
     "hostNotes": [],
     "actions": [

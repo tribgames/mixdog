@@ -71,12 +71,7 @@ export function createBrowserSessionRestore(host: {
   isStandIn(sessionId: string, guest: WebContents): boolean;
   /** Make room for `adding` background pages of the session, or throw why not. */
   admitBackgroundPages(sessionId: string, adding: number): void;
-  restoreBackgroundPage(
-    sessionId: string,
-    name: string,
-    kind: BackgroundPage['kind'],
-    pageId: string
-  ): BackgroundPage;
+  restoreBackgroundPage(sessionId: string, name: string, kind: BackgroundPage['kind'], pageId: string): BackgroundPage;
   /** Close every page of the session. */
   closeSessionPages(sessionId: string): void;
 }) {

@@ -23,7 +23,10 @@ export async function inlinePageUrl(
   observe: (contents: WebContents) => void
 ): Promise<string> {
   if (contents) observe(contents);
-  return coreLocalPages().virtual(await inlinePageFiles(content), { owner: contents, ownerId: contents && windowIdFor(contents) });
+  return coreLocalPages().virtual(await inlinePageFiles(content), {
+    owner: contents,
+    ownerId: contents && windowIdFor(contents),
+  });
 }
 
 /** The preview URL of one pane file, contained in its root (the cwd, an
@@ -56,7 +59,9 @@ export async function panePreviewUrl(
       };
     const converted = await convert();
     // The core's cache evicts by count: a read that finds the PDF gone converts the source again.
-    const preview = registerFilePreview(converted.path, `${converted.mtimeMs}:${converted.size}`, { regenerate: convert });
+    const preview = registerFilePreview(converted.path, `${converted.mtimeMs}:${converted.size}`, {
+      regenerate: convert,
+    });
     if (!preview) throw new Error(`the converted preview of ${target.target} is unavailable`);
     return preview.url;
   }

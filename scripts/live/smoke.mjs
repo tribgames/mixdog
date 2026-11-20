@@ -16,7 +16,10 @@ import { resolveLivePaths } from './lib/paths.mjs';
 const identity = {
   name: 'core identity',
   run: async ({ env }) => {
-    if (!env.coreCheck?.ours) throw new Error(`the serving core (pid ${env.coreCheck?.pid}, ${env.coreCheck?.executablePath}) is not the binary this run staged`);
+    if (!env.coreCheck?.ours)
+      throw new Error(
+        `the serving core (pid ${env.coreCheck?.pid}, ${env.coreCheck?.executablePath}) is not the binary this run staged`
+      );
     return `pid ${env.coreCheck.pid} ${env.coreCheck.executablePath}`;
   },
 };
@@ -49,7 +52,10 @@ let failure = null;
 const env = await openEnvironment(paths);
 try {
   results = await runChecks({ env });
-  writeFileSync(join(out, 'summary.json'), `${JSON.stringify({ conditions: conditions(env), checks: results }, null, 2)}\n`);
+  writeFileSync(
+    join(out, 'summary.json'),
+    `${JSON.stringify({ conditions: conditions(env), checks: results }, null, 2)}\n`
+  );
 } catch (error) {
   failure = error;
 } finally {

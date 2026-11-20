@@ -5,8 +5,26 @@ import { randomBytes } from 'node:crypto';
 import { dirname, extname, isAbsolute, relative, sep } from 'node:path';
 
 const WEB_ASSETS = new Set([
-  'html', 'htm', 'css', 'js', 'mjs', 'map', 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'woff2', 'woff', 'ttf', 'otf', 'mp4',
-  'webm', 'mp3', 'wav',
+  'html',
+  'htm',
+  'css',
+  'js',
+  'mjs',
+  'map',
+  'svg',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'woff2',
+  'woff',
+  'ttf',
+  'otf',
+  'mp4',
+  'webm',
+  'mp3',
+  'wav',
 ]);
 const DATA_ASSETS = new Set(['json', 'csv', 'txt', 'md', 'xml', 'pdf', 'bin']);
 
@@ -20,7 +38,12 @@ export function pageAssetType(root: string, file: string, dataRoot: string = roo
   if (!within(root, file)) return '';
   let base = dataRoot;
   while (!within(base, file) && base !== root) base = dirname(base);
-  if (relative(base, file).split(sep).some((part) => part.startsWith('.'))) return '';
+  if (
+    relative(base, file)
+      .split(sep)
+      .some((part) => part.startsWith('.'))
+  )
+    return '';
   const extension = extname(file).slice(1).toLowerCase();
   return WEB_ASSETS.has(extension) || (DATA_ASSETS.has(extension) && within(dataRoot, file))
     ? `application/x-${extension}`

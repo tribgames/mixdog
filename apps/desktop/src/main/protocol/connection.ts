@@ -54,7 +54,11 @@ export interface ConnectionClient {
   /** The server requests this client holds, the ones its core offers every eligible connection (the library's
    *  `isOfferedRequest`): added when it asks, removed when it resolves the ask, all dropped with the socket. A capability's
    *  request (`host/*`, `model/proxy/execute`) is not held: its handler's answer ends it. */
-  pendingServerRequests(): ReadonlyArray<{ readonly id: string | number; readonly method: string; readonly params: unknown }>;
+  pendingServerRequests(): ReadonlyArray<{
+    readonly id: string | number;
+    readonly method: string;
+    readonly params: unknown;
+  }>;
   /** One binary X17 frame; present when the library's transport supports the host media lane. */
   sendBinary?(frame: Uint8Array): void;
   on(listener: (event: ConnectionClientEvent) => void): () => void;
@@ -69,9 +73,16 @@ export type ConnectionClientEvent =
   | { readonly type: 'status'; readonly status: { readonly state: string } }
   | {
       readonly type: 'notification';
-      readonly notification: { readonly method: string; readonly params?: unknown; readonly feed?: { readonly id: string } };
+      readonly notification: {
+        readonly method: string;
+        readonly params?: unknown;
+        readonly feed?: { readonly id: string };
+      };
     }
-  | { readonly type: 'serverRequest'; readonly request: { readonly id: string | number; readonly method: string; readonly params: unknown } }
+  | {
+      readonly type: 'serverRequest';
+      readonly request: { readonly id: string | number; readonly method: string; readonly params: unknown };
+    }
   | { readonly type: 'serverRequestResolved'; readonly params: { readonly requestId?: string | number } }
   | { readonly type: string };
 
@@ -189,7 +200,7 @@ const isAbsentFeed = (error: unknown): boolean => {
   return detail?.kind === 'rpc' && detail.data?.reason === 'invalidParams';
 };
 
-const toStatus =(state: string): DesktopProtocolStatus =>
+const toStatus = (state: string): DesktopProtocolStatus =>
   state === 'ready' ? 'ready' : state === 'closed' ? 'closed' : 'reconnecting';
 
 export function createProtocolConnection({ open, log }: ProtocolConnectionOptions): ProtocolConnection {
@@ -200,7 +211,10 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
   const eventListeners = new Set<(event: ConnectionClientEvent) => void>();
   const storeListeners = new Set<(change: ConnectionStoreChange) => void>();
   const sectionWatchers = new Map<string, Set<(entry: DesktopSectionEntry | undefined) => void>>();
-  const fsWatches = new Map<string, { window: ProtocolWindow; params: { watchId: string } & Record<string, unknown> }>();
+  const fsWatches = new Map<
+    string,
+    { window: ProtocolWindow; params: { watchId: string } & Record<string, unknown> }
+  >();
   // Scoped feeds that carry sections, by feed id: who watches them and the sections each holds.
   const feedWatches = new Map<string, ScopedFeedRoute>();
   let unsubscribeStore: (() => void) | null = null;
@@ -286,7 +300,12 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
       );
     }
     if (portViewers.size > 0) {
-      tally.push(restored.call('system/ports/subscribe', {}).then(() => void (settled.restored += 1), () => void (settled.failed += 1)));
+      tally.push(
+        restored.call('system/ports/subscribe', {}).then(
+          () => void (settled.restored += 1),
+          () => void (settled.failed += 1)
+        )
+      );
     }
     for (const feedId of [...feedWatches.keys()]) {
       tally.push(
@@ -297,12 +316,15 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
             if (isAbsentFeed(error)) return void ((settled.lost += 1), dropFeed(feedId));
             settled.failed += 1;
             const message = error instanceof Error ? error.message : String(error);
-            for (const window of [...(feedWatches.get(feedId)?.windows ?? [])]) window.push({ kind: 'feedError', feedId, message });
+            for (const window of [...(feedWatches.get(feedId)?.windows ?? [])])
+              window.push({ kind: 'feedError', feedId, message });
           }
         )
       );
     }
-    void Promise.allSettled(tally).then(() => note('core-scoped-feeds-restore-settled', { epoch: owner, attempted, ...settled }));
+    void Promise.allSettled(tally).then(() =>
+      note('core-scoped-feeds-restore-settled', { epoch: owner, attempted, ...settled })
+    );
   };
   const removalsOf = (route: ScopedFeedRoute): DesktopSectionChange[] =>
     [...route.held.values()].map(({ section, key }) => ({ section, key, entry: null }));

@@ -16,8 +16,7 @@ type FailedRead = { status: 'failed'; at: number; manual: boolean };
 type SettledReadState = FailedRead | { status: 'done'; output: LoadedToolOutput };
 type ReadState =
   /** `background`: a prefetch nobody asked to see; the row shows nothing of it. */
-  | { status: 'loading'; background: boolean }
-  | SettledReadState;
+  { status: 'loading'; background: boolean } | SettledReadState;
 const FULL_TOOL_OUTPUT_LIMIT = 64;
 const FULL_TOOL_OUTPUT_MAX_CHARS = 8 * 1024 * 1024;
 /** Backoff for unattended prefetch failures; an observed failure takes an explicit Retry. */
@@ -379,7 +378,14 @@ export function useFullToolOutput(sessionId: string, item: TranscriptItem, wante
   useEffect(() => {
     if (autoLoad) loadRef.current?.();
   }, [autoLoad, key]);
-  return { item: merged, outputCut, copyPending: outputCut && !loaded, loading: status === 'loading', failed: status === 'failed', load };
+  return {
+    item: merged,
+    outputCut,
+    copyPending: outputCut && !loaded,
+    loading: status === 'loading',
+    failed: status === 'failed',
+    load,
+  };
 }
 
 /** "Show full output" under a cut row; "Loading…" while it reads; "Retry"

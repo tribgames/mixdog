@@ -18,7 +18,7 @@ import { readLocalDiscovery } from '../../protocol/discovery';
 import { createHostConnection } from '../../protocol/host-connection';
 import { openCore } from '../../protocol/open-core';
 import { readyBrowserFrame } from '../harness-frame';
-import { type BrowserHost } from '../host-types';
+import type { BrowserHost } from '../host-types';
 import { createBrowserHost } from '../host';
 import { disposableProfile } from './disposable-profile';
 
@@ -96,7 +96,9 @@ export async function startCoreHarness({ engine }: { engine: CoreHarnessEngine }
       requestApproval: async () => true,
     });
     browserHost = created;
-    await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent('<!doctype html><title>Harness shell</title>')}`);
+    await window.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent('<!doctype html><title>Harness shell</title>')}`
+    );
     const frame = await readyBrowserFrame(created, HARNESS_SESSION);
     const guest = webContents.fromId(frame.webContentsId);
     if (!guest) throw new Error('The browser host created no page for the harness session.');
@@ -109,7 +111,10 @@ export async function startCoreHarness({ engine }: { engine: CoreHarnessEngine }
       hostId: HARNESS_HOST_ID,
       browser: () => created.hostRole(),
       // The engine lane's development transcript, as the app records it (index.ts): MIXDOG_BROWSER_TRANSCRIPT names the directory.
-      browserEngineTranscript: createTranscriptTap({ dir: process.env.MIXDOG_BROWSER_TRANSCRIPT, devBuild: !app.isPackaged }),
+      browserEngineTranscript: createTranscriptTap({
+        dir: process.env.MIXDOG_BROWSER_TRANSCRIPT,
+        devBuild: !app.isPackaged,
+      }),
       visualize: () => {
         throw new Error('The browser harness has no visualize service.');
       },

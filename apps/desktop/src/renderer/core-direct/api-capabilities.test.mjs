@@ -13,7 +13,12 @@ function fakeClient(answer) {
   return {
     calls,
     status: { state: 'ready' },
-    store: { sections: () => [], section: () => undefined, appFeed: () => ({ epoch: 'e1' }), subscribe: () => () => undefined },
+    store: {
+      sections: () => [],
+      section: () => undefined,
+      appFeed: () => ({ epoch: 'e1' }),
+      subscribe: () => () => undefined,
+    },
     async call(method, params) {
       calls.push({ method, params });
       return answer(method, params);
@@ -27,7 +32,11 @@ function fakeClient(answer) {
   };
 }
 
-async function setup({ role, answer = async (method) => (method === 'thread/read' ? { thread: { id: 's1' }, items: [] } : { ok: true }), hostOverrides = {} } = {}) {
+async function setup({
+  role,
+  answer = async (method) => (method === 'thread/read' ? { thread: { id: 's1' }, items: [] } : { ok: true }),
+  hostOverrides = {},
+} = {}) {
   const client = fakeClient(answer);
   const connection = createRendererConnection({ open: async () => client });
   await connection.start();
@@ -106,9 +115,16 @@ test('server_window_read_merges_positionally', async () => {
   const { client, api } = await setup({
     role: 'server:c1',
     answer: async () => ({ ok: true, value: 'core' }),
-    hostOverrides: { readPcQuotaCapabilities: async (requests) => requests.map((r) => (r.capability === 'getUsageDashboard' ? { ok: true, value: 'pc' } : null)) },
+    hostOverrides: {
+      readPcQuotaCapabilities: async (requests) =>
+        requests.map((r) => (r.capability === 'getUsageDashboard' ? { ok: true, value: 'pc' } : null)),
+    },
   });
-  const out = await api.readCapabilities([{ capability: 'getUsageDashboard' }, { capability: 'contextStatus', sessionId: 's1' }, { capability: 'getUsageDashboard' }]);
+  const out = await api.readCapabilities([
+    { capability: 'getUsageDashboard' },
+    { capability: 'contextStatus', sessionId: 's1' },
+    { capability: 'getUsageDashboard' },
+  ]);
   assert.equal(out.length, 3);
   assert.equal(out[0].value, 'pc');
   assert.equal(out[2].value, 'pc');
@@ -124,7 +140,17 @@ test('main_window_read_does_not_ask_the_host', async () => {
 });
 
 test('failure_is_mapped_as_the_ipc_path_returned_it', async () => {
-  const rpc = Object.assign(new Error('x'), { detail: { kind: 'rpc', code: -32602, data: { reason: 'invalidParams', path: 'p', expected: 'path must be a string' } } });
-  const { api } = await setup({ answer: async () => { throw rpc; } });
+  const rpc = Object.assign(new Error('x'), {
+    detail: {
+      kind: 'rpc',
+      code: -32602,
+      data: { reason: 'invalidParams', path: 'p', expected: 'path must be a string' },
+    },
+  });
+  const { api } = await setup({
+    answer: async () => {
+      throw rpc;
+    },
+  });
   await assert.rejects(api.invokeCapability({ capability: 'setModel', args: ['a', 'b'], sessionId: 's1' }), TypeError);
 });

@@ -83,7 +83,9 @@ test('Off between an accepted key down and its character: the character is refus
     reached.resolve();
     return down.promise;
   };
-  const pressing = runRendererInput(contents, endpoint, ({ send }) => createKeyboardInput(send, { allowClipboard: true }).pressKey(contents, 'enter'));
+  const pressing = runRendererInput(contents, endpoint, ({ send }) =>
+    createKeyboardInput(send, { allowClipboard: true }).pressKey(contents, 'enter')
+  );
   await reached.promise;
   assert.deepEqual(types(contents), ['rawKeyDown']);
   endpoint.revoke();
@@ -98,7 +100,8 @@ test('Off between an accepted key down and its character: the character is refus
 test('a press whose reply is lost stays owned: its release goes out at the press point, then the failure stands', async () => {
   const contents = renderer();
   const endpoint = scope();
-  contents.reply = (_method, params) => (params.type === 'mousePressed' ? Promise.reject(new Error('reply lost')) : Promise.resolve());
+  contents.reply = (_method, params) =>
+    params.type === 'mousePressed' ? Promise.reject(new Error('reply lost')) : Promise.resolve();
   await assert.rejects(
     runRendererInput(contents, endpoint, ({ send }) => createMouseInput(send).clickAt(contents, 10, 20)),
     /reply lost/
@@ -112,13 +115,24 @@ test('Off during a drag: the next motion is refused and the button is let go at 
   const endpoint = scope();
   let release;
   await runRendererInput(contents, endpoint, async ({ send }) => {
-    await send(contents, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: 1, y: 1, button: 'left', clickCount: 1, modifiers: 0 });
+    await send(contents, 'Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: 1,
+      y: 1,
+      button: 'left',
+      clickCount: 1,
+      modifiers: 0,
+    });
     await send(contents, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 6, button: 'left' });
     endpoint.revoke();
-    await assert.rejects(send(contents, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: 9, y: 9, button: 'left' }));
+    await assert.rejects(
+      send(contents, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: 9, y: 9, button: 'left' })
+    );
     // The operation's own release after the cleanup sends nothing again; one carrying another point never moves anything.
     release = await send(contents, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: 50, y: 50, button: 'left' });
-    await assert.rejects(send(contents, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: 50, y: 50, button: 'left' }));
+    await assert.rejects(
+      send(contents, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: 50, y: 50, button: 'left' })
+    );
   });
   assert.equal(release, 'completed');
   assert.deepEqual(types(contents), ['mousePressed', 'mouseMoved', 'mouseReleased']);
@@ -129,7 +143,12 @@ test('after Off a release without a receipt, a key up of another key, text and n
   const contents = renderer();
   const endpoint = scope();
   await runRendererInput(contents, endpoint, async ({ send, insertText }) => {
-    await send(contents, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65 });
+    await send(contents, 'Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'a',
+      code: 'KeyA',
+      windowsVirtualKeyCode: 65,
+    });
     endpoint.revoke();
     for (const params of [
       { type: 'keyUp', key: 'b', code: 'KeyB', windowsVirtualKeyCode: 66 },
@@ -138,7 +157,9 @@ test('after Off a release without a receipt, a key up of another key, text and n
     ]) {
       await assert.rejects(send(contents, 'Input.dispatchKeyEvent', params));
     }
-    await assert.rejects(send(contents, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: 1, y: 1, button: 'right' }));
+    await assert.rejects(
+      send(contents, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: 1, y: 1, button: 'right' })
+    );
     await assert.rejects(insertText('x'));
     await assert.rejects(send(contents, 'Runtime.evaluate', { expression: '1' }), /does not offer/);
   });
@@ -157,14 +178,21 @@ test('an operation queued behind a held one is refused once Off came, and stays 
     await held.promise;
   });
   await started.promise;
-  const queued = runRendererInput(contents, old, ({ send }) => send(contents, 'Input.dispatchMouseEvent', { type: 'mouseWheel', x: 2, y: 2, deltaX: 0, deltaY: 1 }));
+  const queued = runRendererInput(contents, old, ({ send }) =>
+    send(contents, 'Input.dispatchMouseEvent', { type: 'mouseWheel', x: 2, y: 2, deltaX: 0, deltaY: 1 })
+  );
   old.revoke();
   const fresh = scope();
   held.resolve();
   await first;
   await assert.rejects(queued, /computer_scope_revoked/);
-  await runRendererInput(contents, fresh, ({ send }) => send(contents, 'Input.dispatchMouseEvent', { type: 'mouseWheel', x: 3, y: 3, deltaX: 0, deltaY: 1 }));
-  assert.deepEqual(contents.sent.map((entry) => entry.x), [1, 3]);
+  await runRendererInput(contents, fresh, ({ send }) =>
+    send(contents, 'Input.dispatchMouseEvent', { type: 'mouseWheel', x: 3, y: 3, deltaX: 0, deltaY: 1 })
+  );
+  assert.deepEqual(
+    contents.sent.map((entry) => entry.x),
+    [1, 3]
+  );
 });
 
 test('a revoked scope nested inside a live one refuses alone', async () => {
@@ -218,7 +246,12 @@ test('a press still held when the operation ends is let go of at its exit, and n
   const endpoint = scope();
   await assert.rejects(
     runRendererInput(contents, endpoint, async ({ send }) => {
-      await send(contents, 'Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Shift', code: 'ShiftLeft', windowsVirtualKeyCode: 16 });
+      await send(contents, 'Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'Shift',
+        code: 'ShiftLeft',
+        windowsVirtualKeyCode: 16,
+      });
       throw new Error('the operation failed between steps');
     }),
     /between steps/
@@ -234,7 +267,11 @@ test("the desktop host's endpoint latches: one kept across Off and On refuses, a
   off = true;
   assert.throws(() => kept.scope.commit(), /computer use is unavailable/);
   off = false;
-  assert.throws(() => kept.scope.commit(), /computer use is unavailable/, 'the latch is read before the endpoint, which admits again');
+  assert.throws(
+    () => kept.scope.commit(),
+    /computer use is unavailable/,
+    'the latch is read before the endpoint, which admits again'
+  );
   const contents = renderer();
   await assert.rejects(runRendererInput(contents, kept.scope, ({ insertText }) => insertText('old')));
   const fresh = rendererScope(command, 'type', () => {});

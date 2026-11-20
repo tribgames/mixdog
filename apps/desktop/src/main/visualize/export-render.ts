@@ -282,7 +282,9 @@ function offscreen(session: typeof import('electron').session): OffscreenRenderi
     }
     callback({ responseHeaders });
   });
-  shared.webRequest.onCompleted({ urls: ['<all_urls>'] }, (details) => renderOf(details.webContentsId)?.settled(details));
+  shared.webRequest.onCompleted({ urls: ['<all_urls>'] }, (details) =>
+    renderOf(details.webContentsId)?.settled(details)
+  );
   shared.webRequest.onErrorOccurred({ urls: ['<all_urls>'] }, (details) =>
     renderOf(details.webContentsId)?.settled(details)
   );

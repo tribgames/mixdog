@@ -21,7 +21,9 @@ function rig() {
     login: { sync: (sessionId, login) => calls.push(['login', sessionId, login]) },
     loginOf: (snapshot) => {
       const takeover = snapshot?.toolApproval?.takeover;
-      return takeover?.purpose === 'login' ? { id: snapshot.toolApproval.id, url: takeover.url, tab: takeover.tab ?? '' } : null;
+      return takeover?.purpose === 'login'
+        ? { id: snapshot.toolApproval.id, url: takeover.url, tab: takeover.tab ?? '' }
+        : null;
     },
     browser: () => browser,
     capture: (sessionId, id, tab) => {
@@ -30,7 +32,8 @@ function rig() {
     },
   });
   const feed = createTakeoverFeed(handle);
-  const request = (id, params) => feed({ type: 'serverRequest', request: { id, method: 'item/tool/requestApproval', params } });
+  const request = (id, params) =>
+    feed({ type: 'serverRequest', request: { id, method: 'item/tool/requestApproval', params } });
   const resolved = (id, threadId, resolution = { kind: 'timedOut', at: 1 }) =>
     feed({ type: 'serverRequestResolved', params: { requestId: id, threadId, resolution } });
   const held = (sessionId) => {
@@ -44,7 +47,13 @@ function rig() {
   return { gate, calls, request, resolved, held, dispose: () => gate.dispose() };
 }
 
-const takeover = (extra = {}) => ({ kind: 'takeover', threadId: 'T', turnId: 'r1', takeover: { surface: 'browser', instructions: 'sign in', tab: 'p1', ...extra }, expiresAt: Date.now() + 900_000 });
+const takeover = (extra = {}) => ({
+  kind: 'takeover',
+  threadId: 'T',
+  turnId: 'r1',
+  takeover: { surface: 'browser', instructions: 'sign in', tab: 'p1', ...extra },
+  expiresAt: Date.now() + 900_000,
+});
 
 test('a takeover card the core times out ends the page it handed over and frees the session', async () => {
   const { calls, request, resolved, held, dispose } = rig();
@@ -52,11 +61,23 @@ test('a takeover card the core times out ends the page it handed over and frees 
   assert.equal(held('T'), true);
   assert.equal(held('U'), false, 'another session keeps working');
   await sleep(5);
-  assert.deepEqual(calls, [['login', 'T', null], ['end', 'T', 'a1'], ['capture', 'T', 'a1', 'p1'], ['open', 'T', 'a1']]);
+  assert.deepEqual(calls, [
+    ['login', 'T', null],
+    ['end', 'T', 'a1'],
+    ['capture', 'T', 'a1', 'p1'],
+    ['open', 'T', 'a1'],
+  ]);
   calls.length = 0;
   // The core's 15-minute deadline passed: `serverRequest/resolved` with the timedOut resolution.
   resolved('a1', 'T');
-  assert.deepEqual(calls, [['login', 'T', null], ['end', 'T', '']], 'the handed-over page is ended');
+  assert.deepEqual(
+    calls,
+    [
+      ['login', 'T', null],
+      ['end', 'T', ''],
+    ],
+    'the handed-over page is ended'
+  );
   assert.equal(held('T'), false);
   dispose();
 });
@@ -76,11 +97,21 @@ test('a login takeover starts and ends its sign-in window with the card', async 
   const { calls, request, resolved, dispose } = rig();
   request('l1', takeover({ purpose: 'login', url: 'https://login.example.com/' }));
   await sleep(5);
-  assert.deepEqual(calls.find((call) => call[0] === 'login'), ['login', 'T', { id: 'l1', url: 'https://login.example.com/', tab: 'p1' }]);
-  assert.equal(calls.some((call) => call[0] === 'open'), false, 'a login takeover never reveals the panel');
+  assert.deepEqual(
+    calls.find((call) => call[0] === 'login'),
+    ['login', 'T', { id: 'l1', url: 'https://login.example.com/', tab: 'p1' }]
+  );
+  assert.equal(
+    calls.some((call) => call[0] === 'open'),
+    false,
+    'a login takeover never reveals the panel'
+  );
   calls.length = 0;
   resolved('l1', 'T', { kind: 'decided' });
-  assert.deepEqual(calls, [['login', 'T', null], ['end', 'T', '']]);
+  assert.deepEqual(calls, [
+    ['login', 'T', null],
+    ['end', 'T', ''],
+  ]);
   dispose();
 });
 

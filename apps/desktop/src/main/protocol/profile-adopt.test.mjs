@@ -71,11 +71,17 @@ test('a failing status or adopt is logged and not thrown', async () => {
   const logged = [];
   console.error = (line) => logged.push(line);
   try {
-    const status = fake({ 'migrate/profile/status': () => { throw new Error('no method'); } });
+    const status = fake({
+      'migrate/profile/status': () => {
+        throw new Error('no method');
+      },
+    });
     assert.deepEqual(await adoptProfileIfBehind(status, 'p'), { adopted: false, moved: [] });
     const adopt = fake({
       'migrate/profile/status': () => ({ generation: 1 }),
-      'migrate/profile/adopt': () => { throw new Error('refused'); },
+      'migrate/profile/adopt': () => {
+        throw new Error('refused');
+      },
     });
     assert.deepEqual(await adoptProfileIfBehind(adopt, 'p'), { adopted: false, moved: [] });
   } finally {

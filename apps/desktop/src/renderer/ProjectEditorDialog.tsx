@@ -414,11 +414,7 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
     const memoryScope = editTarget && memoryCatalog?.get(editTarget.path);
     const memories = memoryScope?.entries ?? [];
     const readMemories = (control: MemoryControl, refresh = false) =>
-      memoriesCache.read(
-        projectPathsKey,
-        () => readProjectMemories(JSON.parse(projectPathsKey), control),
-        refresh
-      );
+      memoriesCache.read(projectPathsKey, () => readProjectMemories(JSON.parse(projectPathsKey), control), refresh);
     const refreshMemories = async (afterWrite = false) => {
       if (!onMemoryControl) return;
       const requestId = ++editOpenRequestRef.current;

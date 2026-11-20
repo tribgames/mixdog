@@ -11,7 +11,8 @@ import { withPhoneApi } from './test-support/phone-api-rig.mjs';
 const withScreen = (run) =>
   withPhoneApi({}, async (rig) => {
     const reports = [];
-    rig.ctx.phone.refreshScreen = () => reports.push({ sessions: [...rig.ctx.lastScreenSessionIds], panels: [...rig.ctx.visualizePanelIds] });
+    rig.ctx.phone.refreshScreen = () =>
+      reports.push({ sessions: [...rig.ctx.lastScreenSessionIds], panels: [...rig.ctx.visualizePanelIds] });
     await run({ ...rig, reports });
   });
 

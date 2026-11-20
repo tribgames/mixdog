@@ -222,8 +222,13 @@ test('a terminal start reply stays available when the dialog closes before the s
     const host = await mount(dialog, {
       rows: [row('a')],
       calls: [],
-      api: { listProjects: () => new Promise((resolve) => { releaseProjects = resolve; }) },
-      invoke: (capability) => capability === 'startConversationImport' ? completed : undefined,
+      api: {
+        listProjects: () =>
+          new Promise((resolve) => {
+            releaseProjects = resolve;
+          }),
+      },
+      invoke: (capability) => (capability === 'startConversationImport' ? completed : undefined),
     });
     await click(host.querySelector('.settings-import-item > input'));
     await click(primary(host));

@@ -39,13 +39,7 @@ function HopList({ hops }: { hops: DesktopSshHopKey[] }) {
 }
 
 /** The input and button that replace the changed key, once the server name is typed in full. */
-function ReplaceKeyForm({
-  host,
-  onReplace,
-}: {
-  host: string;
-  onReplace(typedName: string): void;
-}) {
+function ReplaceKeyForm({ host, onReplace }: { host: string; onReplace(typedName: string): void }) {
   const [typed, setTyped] = useState('');
   const matches = typed.trim().toLowerCase() === host.toLowerCase();
   return (

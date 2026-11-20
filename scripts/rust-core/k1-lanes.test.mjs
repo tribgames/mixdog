@@ -3,7 +3,16 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { BACKEND_INSTALLERS, LANES, commandOf, installersIn, isInstalledBy, parseArgs, testBinariesOf, testsOfList } from './k1-lanes.mjs';
+import {
+  BACKEND_INSTALLERS,
+  LANES,
+  commandOf,
+  installersIn,
+  isInstalledBy,
+  parseArgs,
+  testBinariesOf,
+  testsOfList,
+} from './k1-lanes.mjs';
 
 // The pure parts of the lane runner. Whether a lane filter still selects a test is decided from the compiled test list, not
 // here: scripts/ci/check-lane-filters.mjs, run by release-gate.yml `core-tests` over the archive core-build makes.
@@ -18,16 +27,27 @@ test('every lane names a package and a list of filters, and a filter is a plain 
 });
 
 test('commands name the lane package and one filter, and the command line parses', () => {
-  assert.deepEqual(commandOf('compact', 'cargo test', 'compact_fresh'), { program: 'cargo', args: ['test', '-p', 'mixdog-agent', '--locked', 'compact_fresh'] });
+  assert.deepEqual(commandOf('compact', 'cargo test', 'compact_fresh'), {
+    program: 'cargo',
+    args: ['test', '-p', 'mixdog-agent', '--locked', 'compact_fresh'],
+  });
   assert.deepEqual(commandOf('provider-contract'), { program: 'cargo', args: ['test', '-p', 'mixdog-ai', '--locked'] });
-  assert.deepEqual(parseArgs(['--dry-run', 'compact']), { runner: 'cargo test', list: false, dryRun: true, names: ['compact'] });
+  assert.deepEqual(parseArgs(['--dry-run', 'compact']), {
+    runner: 'cargo test',
+    list: false,
+    dryRun: true,
+    names: ['compact'],
+  });
   assert.throws(() => parseArgs(['--nope']), /unknown option/);
 });
 
 test('libtest listings drop the #[ignore]d tests the run skips', () => {
   const list = 'a::one: test\na::two: test\nb::three: test\n\n3 tests, 0 benchmarks\n';
   const ignored = 'a::two: test\n';
-  assert.deepEqual(testsOfList(list, ignored, '/x/src/lib.rs').map((entry) => entry.name), ['a::one', 'b::three']);
+  assert.deepEqual(
+    testsOfList(list, ignored, '/x/src/lib.rs').map((entry) => entry.name),
+    ['a::one', 'b::three']
+  );
 });
 
 test('only compiler artifacts that are test binaries are taken from a build', () => {
@@ -37,7 +57,10 @@ test('only compiler artifacts that are test binaries are taken from a build', ()
     JSON.stringify({ reason: 'build-finished' }),
     'not json',
   ].join('\n');
-  assert.deepEqual(testBinariesOf(lines).map((binary) => binary.executable), ['/t/a']);
+  assert.deepEqual(
+    testBinariesOf(lines).map((binary) => binary.executable),
+    ['/t/a']
+  );
 });
 
 test('a test of an executor-backend installer is recognised by the binary that holds it', () => {

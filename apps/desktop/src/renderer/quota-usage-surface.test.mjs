@@ -380,7 +380,9 @@ test('subscription usage lists Fast calls as a second model row marked Fast', as
 test('quota rows, series and a slot tooltip distinguish all three speeds of one model', async (context) => {
   const render = harness(context);
   const models = ['standard', 'fast', 'ultrafast'].map((speedTier) => ({
-    model: 'model-a', speedTier, consumed: 1,
+    model: 'model-a',
+    speedTier,
+    consumed: 1,
   }));
   const domain = { fromMs: opened, toMs: resetAt };
   const answer = {
@@ -390,10 +392,18 @@ test('quota rows, series and a slot tooltip distinguish all three speeds of one 
     subscriptions: [{ provider: 'anthropic-oauth', account: 'default', windows: ['5H'] }],
     period: domain,
     domain,
-    points: [[opened, 0, 1], [now, 3, 1]],
+    points: [
+      [opened, 0, 1],
+      [now, 3, 1],
+    ],
     models,
     modelSeries: models.map(({ model, speedTier }) => ({
-      key: model, speedTier, points: [[opened, 0], [now, 1]],
+      key: model,
+      speedTier,
+      points: [
+        [opened, 0],
+        [now, 1],
+      ],
     })),
     slots: [{ ...domain, models, startPct: 0, endPct: 3 }],
   };

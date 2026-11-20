@@ -29,15 +29,27 @@ function routerSeeing() {
   };
   const ready = Promise.resolve();
   const host = { ctx: {}, client: () => ({}), declareLane() {} };
-  const router = createProtocolRouter([adapter], { host, started: () => ready, synced: () => ready, probe() {}, silentSince: () => false });
+  const router = createProtocolRouter([adapter], {
+    host,
+    started: () => ready,
+    synced: () => ready,
+    probe() {},
+    silentSince: () => false,
+  });
   const nextFire = () => new Promise((resolve) => (firedNext = resolve));
   return { router, seen, fired, nextFire };
 }
 
 // What the page passes when the app leaves things out or hands over values JSON cannot keep as they are.
-const pageArguments = () => ['/repo', undefined, { kept: 1, gone: undefined, when: new Date(0), nested: [undefined, Number.NaN] }, -0, () => 1];
+const pageArguments = () => [
+  '/repo',
+  undefined,
+  { kept: 1, gone: undefined, when: new Date(0), nested: [undefined, Number.NaN] },
+  -0,
+  () => 1,
+];
 
-test('a call reaches its adapter with the arguments as the relay\'s JSON carried them', async () => {
+test("a call reaches its adapter with the arguments as the relay's JSON carried them", async () => {
   const { router, seen } = routerSeeing();
   await router.call('echo', pageArguments());
   assert.deepEqual(seen, [JSON.parse(JSON.stringify(pageArguments()))]);
@@ -46,7 +58,7 @@ test('a call reaches its adapter with the arguments as the relay\'s JSON carried
   assert.equal(Object.hasOwn(seen[0][2], 'gone'), false);
 });
 
-test('a fire reaches its adapter with the arguments as the relay\'s JSON carried them', async () => {
+test("a fire reaches its adapter with the arguments as the relay's JSON carried them", async () => {
   const { router, fired, nextFire } = routerSeeing();
   const reached = nextFire();
   router.fire('ping', pageArguments());
@@ -61,7 +73,7 @@ test('a call whose arguments JSON cannot write fails without reaching its adapte
   assert.deepEqual([seen, fired], [[], []]);
 });
 
-test('identical coalesced reads still share one request: the read key is the same before and after the relay\'s JSON', async () => {
+test("identical coalesced reads still share one request: the read key is the same before and after the relay's JSON", async () => {
   const { router, seen } = routerSeeing();
   // Node's key was JSON.stringify of the page's arguments (remote-shim-calls.ts coalescedReadKey): `[undefined]` and `[null]` are one key.
   const first = router.call('readSettings', [undefined]);

@@ -55,7 +55,11 @@ export async function uploadFileToServer(
   const refusal = serverUploadRefusal(file);
   if (refusal) throw new Error(refusal);
   if (signal?.aborted) throw new ServerTransferCancelledError();
-  const { uploadId, chunkBytes, inFlightChunks } = await api.serverUploadBegin(file.name || 'attachment', file.size, scope);
+  const { uploadId, chunkBytes, inFlightChunks } = await api.serverUploadBegin(
+    file.name || 'attachment',
+    file.size,
+    scope
+  );
   // Up to `inFlightChunks` chunks are submitted and not yet answered (one chunk of memory each); main applies the server's
   // window across every upload of the connection and the server applies the chunks in order, so the acknowledged byte count
   // only grows and the commit follows the last acknowledgement.
@@ -94,7 +98,8 @@ export async function uploadFileToServer(
         const bytes = new Uint8Array(await file.slice(sent, sent + chunkBytes).arrayBuffer());
         // The read took time: a cancel or a failed chunk may have come in meanwhile.
         stopIfCancelledOrFailed();
-        if (!bytes.length) throw new Error(t('{{name}}: the file changed while it was uploading.', { name: file.name }));
+        if (!bytes.length)
+          throw new Error(t('{{name}}: the file changed while it was uploading.', { name: file.name }));
         const flight: Promise<void> = api.serverUploadChunk(uploadId, sent, bytes).then(
           ({ received }) => {
             inFlight.delete(flight);

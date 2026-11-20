@@ -43,7 +43,11 @@ function replayConnectors(state, editor) {
               const at = next++;
               const expected = calls[at];
               assert.ok(expected, `connector call #${at} was not recorded: ${capability}`);
-              assert.deepEqual([capability, args], [expected.capability, expected.args], `connector call #${at} is out of order`);
+              assert.deepEqual(
+                [capability, args],
+                [expected.capability, expected.args],
+                `connector call #${at} is out of order`
+              );
               for (const update of expected.updates) {
                 assert.deepEqual(editor.getAgentConnectorPolicy(update.id), update.current);
                 state.policy = update.after;

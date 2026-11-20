@@ -59,7 +59,10 @@ export function checkPrecondition(expect: Precondition, page: EnginePage, facts:
     const chooser = state.pendingFileChooser;
     if (!chooser || receiverKeyOf(chooser) !== expect.receiverKey) throw preconditionFailed('receiver', facts());
   }
-  if (expect.snapshotId !== undefined && (state.accessibilityRefs?.snapshotId ?? state.refSet?.snapshotId) !== expect.snapshotId) {
+  if (
+    expect.snapshotId !== undefined &&
+    (state.accessibilityRefs?.snapshotId ?? state.refSet?.snapshotId) !== expect.snapshotId
+  ) {
     throw preconditionFailed('snapshot', facts());
   }
 }

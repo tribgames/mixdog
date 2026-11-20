@@ -46,21 +46,22 @@ export function visualizeWireState(state: VisualizeHostState): VisualizeHostStat
         restoreAssets: _restoreAssets,
         ...tab
       }) => ({
-      ...tab,
-      panes: tab.panes.map((pane) =>
-        pane.inline
-          ? {
-              ...pane,
-              inline: {
-                kind: pane.inline.kind,
-                source: '',
-                ...(pane.inline.title ? { title: pane.inline.title } : {}),
-                deferred: true as const,
-              },
-            }
-          : pane
-      ),
-    })),
+        ...tab,
+        panes: tab.panes.map((pane) =>
+          pane.inline
+            ? {
+                ...pane,
+                inline: {
+                  kind: pane.inline.kind,
+                  source: '',
+                  ...(pane.inline.title ? { title: pane.inline.title } : {}),
+                  deferred: true as const,
+                },
+              }
+            : pane
+        ),
+      })
+    ),
   };
 }
 

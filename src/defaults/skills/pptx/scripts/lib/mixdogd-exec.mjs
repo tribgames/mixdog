@@ -12,7 +12,16 @@ export function mixdogdBin(env = process.env) {
 }
 
 /** The `mixdogd exec` arguments for one run. */
-export function mixdogdExecArgs({ message, provider, model, effort, cwd, webSearch = false, usageLogPath, toolMode = 'full' }) {
+export function mixdogdExecArgs({
+  message,
+  provider,
+  model,
+  effort,
+  cwd,
+  webSearch = false,
+  usageLogPath,
+  toolMode = 'full',
+}) {
   const args = ['exec', '--provider', provider, '--model', model];
   if (effort) args.push('--effort', effort);
   if (cwd) args.push('--cwd', cwd);

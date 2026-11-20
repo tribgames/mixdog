@@ -369,29 +369,26 @@ export function createBrowserHost(
   // the live document holds is in use (see reclaimIdleUserSessions).
   // The agents' background pages ride the same timer: it lives and dies with this
   // browser, not with the bridge connection that used to start and stop it.
-  const userReclaimTimer = setInterval(
-    () => {
-      lifecycle.reclaimIdleBackgroundPages();
-      reclaimIdleUserSessions({
-        sessions,
-        power: display.power,
-        isBackgroundBusy: base.isBackgroundBusy,
-        holdsPage: (guest) => {
-          const record = state.peek(guest);
-          return Boolean(
-            record?.typedInput ||
-              record?.pendingDialog ||
-              record?.pendingFileChooser ||
-              record?.sensitiveValues?.size ||
-              guest.isCurrentlyAudible()
-          );
-        },
-        downloading: (sessionId) => base.partition.downloadLedger.hasActiveDownload(sessionId),
-        unload: (sessionId) => browserHost.releaseSession(sessionId, { restore: true }),
-      });
-    },
-    BACKGROUND_RECLAIM_INTERVAL_MS
-  );
+  const userReclaimTimer = setInterval(() => {
+    lifecycle.reclaimIdleBackgroundPages();
+    reclaimIdleUserSessions({
+      sessions,
+      power: display.power,
+      isBackgroundBusy: base.isBackgroundBusy,
+      holdsPage: (guest) => {
+        const record = state.peek(guest);
+        return Boolean(
+          record?.typedInput ||
+            record?.pendingDialog ||
+            record?.pendingFileChooser ||
+            record?.sensitiveValues?.size ||
+            guest.isCurrentlyAudible()
+        );
+      },
+      downloading: (sessionId) => base.partition.downloadLedger.hasActiveDownload(sessionId),
+      unload: (sessionId) => browserHost.releaseSession(sessionId, { restore: true }),
+    });
+  }, BACKGROUND_RECLAIM_INTERVAL_MS);
   userReclaimTimer.unref?.();
 
   // The page a takeover hands over, never merely the panel's selected tab.

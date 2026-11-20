@@ -228,7 +228,11 @@ test('no off-screen request carries or sets a cookie, and frames of other origin
   await twoLive(({ a, origin, shared }) => {
     let sent;
     shared.listeners.sendHeaders(
-      { url: 'https://cdn.example.test/x.js', webContentsId: a.webContents.id, requestHeaders: { Cookie: 'k=1', Accept: '*/*' } },
+      {
+        url: 'https://cdn.example.test/x.js',
+        webContentsId: a.webContents.id,
+        requestHeaders: { Cookie: 'k=1', Accept: '*/*' },
+      },
       (answer) => (sent = answer.requestHeaders)
     );
     assert.deepEqual(sent, { Accept: '*/*' });
@@ -240,15 +244,24 @@ test('no off-screen request carries or sets a cookie, and frames of other origin
       );
       return headers;
     };
-    assert.deepEqual(received('https://cdn.example.test/x.js', 'script', { 'set-cookie': ['k=1'], 'Content-Type': ['text/javascript'] }), {
-      'Content-Type': ['text/javascript'],
-    });
-    assert.deepEqual(received('https://embed.example.test/', 'subFrame', { 'content-security-policy': ["default-src 'self'"] }), {
-      'content-security-policy': [
-        "default-src 'self'",
-        'sandbox allow-scripts allow-forms allow-modals allow-pointer-lock allow-presentation',
-      ],
-    });
+    assert.deepEqual(
+      received('https://cdn.example.test/x.js', 'script', {
+        'set-cookie': ['k=1'],
+        'Content-Type': ['text/javascript'],
+      }),
+      {
+        'Content-Type': ['text/javascript'],
+      }
+    );
+    assert.deepEqual(
+      received('https://embed.example.test/', 'subFrame', { 'content-security-policy': ["default-src 'self'"] }),
+      {
+        'content-security-policy': [
+          "default-src 'self'",
+          'sandbox allow-scripts allow-forms allow-modals allow-pointer-lock allow-presentation',
+        ],
+      }
+    );
     // The render's own frames keep its origin (and their script cookies).
     assert.deepEqual(received(`${origin(a)}/a/inner.html`, 'subFrame', {}), {});
   });

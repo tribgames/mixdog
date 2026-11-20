@@ -16,7 +16,9 @@ import { createBootTimeline } from '../boot-timeline.ts';
 import { createDesktopDiagnostics } from '../desktop-diagnostics.ts';
 import { reportDefaultsSeparation } from './defaults-separation.ts';
 
-const recorded = JSON.parse(readFileSync(new URL('../../shared/test-recorded/defaults-separation.node-boot.json', import.meta.url), 'utf8'));
+const recorded = JSON.parse(
+  readFileSync(new URL('../../shared/test-recorded/defaults-separation.node-boot.json', import.meta.url), 'utf8')
+);
 const { inputs } = recorded;
 const failed = { defaultsSeparation: { ok: false, message: inputs.error.message } };
 const COMPARED = [inputs.early[0].event, 'desktop-start', 'defaults-separation-failed'];
@@ -62,9 +64,15 @@ test('the recording is an exact run of the pinned Node boot', () => {
   assert.equal(recorded.exact, true);
   assert.equal(recorded.source.commit, NODE_COMMIT);
   assert.equal(recorded.source.tree, NODE_TREE);
-  assert.deepEqual(recorded.source.functions.map((f) => f.name), ['reportDaemonServiceStart', 'startDesktopDiagnostics']);
+  assert.deepEqual(
+    recorded.source.functions.map((f) => f.name),
+    ['reportDaemonServiceStart', 'startDesktopDiagnostics']
+  );
   assert.equal(recorded.lines.join('\n') + '\n', recorded.jsonl);
-  assert.deepEqual(recorded.lines.map((l) => JSON.parse(l).event), ['process-entry', 'app-ready', 'daemon-service-start', ...COMPARED]);
+  assert.deepEqual(
+    recorded.lines.map((l) => JSON.parse(l).event),
+    ['process-entry', 'app-ready', 'daemon-service-start', ...COMPARED]
+  );
 });
 
 for (const replyAt of ['before-open', 'after-open']) {

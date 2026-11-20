@@ -516,7 +516,13 @@ test('late data and a late error of a socket given up in its handshake do not re
   pipes[1].sendToClient(honestServerAuth(decodeNonce(pipes[1].received[0].message.clientNonce)));
   await settle();
   pipes[1].sendToClient(
-    encodeControl({ type: 'server-hello', protocol: PROTOCOL_VERSION, version: '0.1.0', session: 4, desktop: 'Winlogon' })
+    encodeControl({
+      type: 'server-hello',
+      protocol: PROTOCOL_VERSION,
+      version: '0.1.0',
+      session: 4,
+      desktop: 'Winlogon',
+    })
   );
   const hello = await second;
   assert.equal(hello.session, 4);

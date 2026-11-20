@@ -38,9 +38,9 @@ test('rows unmounted while no ResizeObserver delivers leave the element cache', 
     return React.createElement(
       'div',
       null,
-      keys.slice(from, to).map((key, offset) =>
-        React.createElement('div', { key, 'data-index': from + offset, ref: measureRow }, key)
-      )
+      keys
+        .slice(from, to)
+        .map((key, offset) => React.createElement('div', { key, 'data-index': from + offset, ref: measureRow }, key))
     );
   };
   const host = document.getElementById('root');
@@ -52,11 +52,7 @@ test('rows unmounted while no ResizeObserver delivers leave the element cache', 
   await act(async () => {});
   const cached = [...virtualizer.elementsCache.values()];
   assert.equal(cached.filter((element) => !element.isConnected).length, 0);
-  assert.deepEqual(
-    [...virtualizer.elementsCache.keys()].sort(),
-    keys.slice(30).sort(),
-    'mounted rows stay registered'
-  );
+  assert.deepEqual([...virtualizer.elementsCache.keys()].sort(), keys.slice(30).sort(), 'mounted rows stay registered');
   await act(async () => root.unmount());
 });
 
@@ -107,7 +103,11 @@ test('the sweep in a mounted scroller keeps measurements, scroll and replaced ro
   const virtualizerRef = { current: virtualizer };
   let measureRow;
   const List = ({ from, to, generation }) => {
-    ({ measureRow } = useTranscriptRowRegistration({ spacer: { current: null }, content: { current: null }, virtualizerRef }));
+    ({ measureRow } = useTranscriptRowRegistration({
+      spacer: { current: null },
+      content: { current: null },
+      virtualizerRef,
+    }));
     return React.createElement(
       React.Fragment,
       null,
@@ -177,7 +177,10 @@ test('the sweep in a mounted scroller keeps measurements, scroll and replaced ro
   );
   const allRows = new Set([...firstRows, ...Array.from({ length: 11 }, (_, offset) => 19 + offset)]);
   assert.deepEqual(layout(), expectedLayout(allRows), 'measurements survive the sweep');
-  assert.equal(virtualizer.getTotalSize(), expectedLayout(allRows).reduce((total, [, , size]) => total + size, 0));
+  assert.equal(
+    virtualizer.getTotalSize(),
+    expectedLayout(allRows).reduce((total, [, , size]) => total + size, 0)
+  );
   assert.deepEqual(scrolls.slice(scrollsAfterMount), [], 'the sweep never scrolls');
   assert.equal(virtualizer.scrollOffset, OFFSET, 'the scroll position holds');
 

@@ -70,7 +70,9 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
   // The core's search sessions are shared by every connection (a second `search/start` of an id in use is refused, a
   // consumer's search supersedes that consumer's others): this window's searches carry a key of their own, as main's
   // `mention:<webContents id>` was.
-  const searchKey = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
+  const searchKey = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join(
+    ''
+  );
 
   // A path that is not a registered Project but is an existing folder answers every file call as its own root. A Project
   // always keeps the first route; only when it refuses does the core classify the path. A server window never gets this:
@@ -101,7 +103,10 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
    *  joined. The first window reads the file once and names that read (`readId`); the windows after it come from the same read, so the
    *  join is one version of the file. */
   const readWindows = async (target: FileTarget): Promise<Record<string, unknown>> => {
-    let answer = (await ctx.call('projectFs/readText', { ...target, maxChars: READ_WINDOW_CHARS })) as Record<string, unknown>;
+    let answer = (await ctx.call('projectFs/readText', { ...target, maxChars: READ_WINDOW_CHARS })) as Record<
+      string,
+      unknown
+    >;
     let content = String(answer.content);
     while (typeof answer.nextChar === 'number') {
       answer = (await ctx.call('projectFs/readText', {
@@ -119,7 +124,11 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
   const fileTarget = async (project: string, rel: string, accessToken: unknown): Promise<FileTarget> =>
     hasToken(accessToken) ? { root: project, rel, accessToken } : { root: await projectRoot(project), rel };
   /** The folder and name a document conversion runs in: a granted file's own folder, else the Project's. */
-  const documentPlace = async (project: string, rel: string, accessToken: unknown): Promise<{ root: string; rel: string }> => {
+  const documentPlace = async (
+    project: string,
+    rel: string,
+    accessToken: unknown
+  ): Promise<{ root: string; rel: string }> => {
     if (!hasToken(accessToken)) return { root: await projectRoot(project), rel };
     const { path } = (await ctx.call('projectFs/entryPath', { root: project, rel, accessToken })) as { path: string };
     const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
@@ -146,7 +155,8 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
       if (push.kind !== 'sections') return;
       for (const { section, entry } of push.changes) {
         if (!entry) continue;
-        const listeners = section === 'lspDiagnostics' ? diagnosticListeners : section === 'lspStatus' ? statusListeners : null;
+        const listeners =
+          section === 'lspDiagnostics' ? diagnosticListeners : section === 'lspStatus' ? statusListeners : null;
         if (listeners) for (const listener of [...listeners]) listener(entry.value as never);
       }
     },
@@ -178,11 +188,14 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
     addProject: (projectPath) => direct(async () => announceProjectsChanged(await svc('addProject', [projectPath]))),
     renameProject: (projectPath, alias) =>
       direct(async () => announceProjectsChanged(await svc('renameProject', [projectPath, alias]))),
-    removeProject: (projectPath) => direct(async () => announceProjectsChanged(await svc('removeProject', [projectPath]))),
+    removeProject: (projectPath) =>
+      direct(async () => announceProjectsChanged(await svc('removeProject', [projectPath]))),
     searchWorkspaceText: (projectPath, options) =>
       direct(async () => op('searchWorkspaceTextIn', [await projectFolder(projectPath), options])),
     replaceWorkspaceText: (projectPath, options, replacement, relPaths) =>
-      direct(async () => op('replaceWorkspaceTextIn', [await projectFolder(projectPath), options, replacement, relPaths])),
+      direct(async () =>
+        op('replaceWorkspaceTextIn', [await projectFolder(projectPath), options, replacement, relPaths])
+      ),
     // The @ palette (the only caller listing folders) is one search at a time per window: its next keystroke supersedes
     // the previous one. Every other search of this window has its own session too.
     searchProjectFiles: (projectIdOrWorkspaceId, query, limit, includeIgnored, includeDirectories) =>
@@ -216,7 +229,10 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
       direct(async () => {
         // A server window's files live on the server, out of this PC's reach.
         if (serverWindow()) throw new Error('Snapshots are not available for server files.');
-        return ctx.call('projectFs/captureSnapshot', await fileTarget(projectPath, relPath, accessToken)) as Promise<never>;
+        return ctx.call(
+          'projectFs/captureSnapshot',
+          await fileTarget(projectPath, relPath, accessToken)
+        ) as Promise<never>;
       }),
     previewDocumentFile: (projectPath, relPath, accessToken) =>
       direct(async () => {

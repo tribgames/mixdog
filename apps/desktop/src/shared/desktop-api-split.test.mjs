@@ -6,7 +6,12 @@ import { DIRECT_KEYS, HOST_KEYS, OPTIONAL_UNPROVIDED } from './desktop-api-split
 import { HOST_EXTRA_IPC } from './contract-ipc-host.ts';
 
 const contractPath = new URL('./contract.ts', import.meta.url);
-const sourceFile = ts.createSourceFile('contract.ts', fs.readFileSync(contractPath, 'utf8'), ts.ScriptTarget.ES2022, true);
+const sourceFile = ts.createSourceFile(
+  'contract.ts',
+  fs.readFileSync(contractPath, 'utf8'),
+  ts.ScriptTarget.ES2022,
+  true
+);
 
 function desktopApiMembers() {
   for (const node of sourceFile.statements) {
@@ -39,7 +44,17 @@ test('no key is in two groups', () => {
 });
 
 test('the direct half has the nine groups and sections holds only the key sections', () => {
-  assert.deepEqual(Object.keys(DIRECT_KEYS), ['sessions', 'files', 'scm', 'terminal', 'secrets', 'settings', 'connections', 'capabilities', 'sections']);
+  assert.deepEqual(Object.keys(DIRECT_KEYS), [
+    'sessions',
+    'files',
+    'scm',
+    'terminal',
+    'secrets',
+    'settings',
+    'connections',
+    'capabilities',
+    'sections',
+  ]);
   assert.deepEqual([...DIRECT_KEYS.sections], ['sections']);
 });
 

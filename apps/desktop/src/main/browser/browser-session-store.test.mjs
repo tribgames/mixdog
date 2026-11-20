@@ -92,24 +92,33 @@ test('site logout preserves unrelated sessions when the old snapshot cannot be r
   const host = {
     directory,
     cookies: { get: async () => jar, set: async (details) => writes.push(details) },
-    encrypt: async (text) => canEncrypt ? Buffer.from(text).reverse() : null,
+    encrypt: async (text) => (canEncrypt ? Buffer.from(text).reverse() : null),
     decrypt: async (data) => Buffer.from(data).reverse().toString(),
   };
   const store = createBrowserSessionStore(host);
   assert.equal(await store.save(), 2);
   await store.withSnapshotInvalidated(async () => {
     assert.equal(await createBrowserSessionStore(host).restore(), 1);
-    assert.deepEqual(writes.splice(0).map((cookie) => cookie.domain), ['.other.test']);
+    assert.deepEqual(
+      writes.splice(0).map((cookie) => cookie.domain),
+      ['.other.test']
+    );
     jar.shift();
     canEncrypt = false;
   }, 'example.test');
   assert.equal(await createBrowserSessionStore(host).restore(), 1);
-  assert.deepEqual(writes.splice(0).map((cookie) => cookie.domain), ['.other.test']);
+  assert.deepEqual(
+    writes.splice(0).map((cookie) => cookie.domain),
+    ['.other.test']
+  );
   canEncrypt = true;
   jar.push(sessionCookie({ value: 'fixture-new-session' }));
   assert.equal(await store.save(), 2);
   assert.equal(await createBrowserSessionStore(host).restore(), 2);
-  assert.deepEqual(writes.map((cookie) => cookie.domain), ['.other.test', '.example.test']);
+  assert.deepEqual(
+    writes.map((cookie) => cookie.domain),
+    ['.other.test', '.example.test']
+  );
 });
 
 test('a fresh sign-in saves while the startup snapshot remains unreadable', async (t) => {
@@ -140,14 +149,20 @@ test('a fresh sign-in saves while the startup snapshot remains unreadable', asyn
   jar.push(sessionCookie({ value: 'fresh-session' }));
   assert.equal(await store.save(), 1);
   assert.equal(await createBrowserSessionStore(host).restore(), 1);
-  assert.deepEqual(restored.splice(0).map(({ value }) => value), ['fresh-session']);
+  assert.deepEqual(
+    restored.splice(0).map(({ value }) => value),
+    ['fresh-session']
+  );
 
   canReadOld = true;
   assert.equal(await createBrowserSessionStore(host).restore(), 2);
-  assert.deepEqual(restored.map(({ domain, path, value }) => [domain, path, value]), [
-    ['.other.test', '/', 'secret-session'],
-    ['.example.test', '/', 'fresh-session'],
-  ]);
+  assert.deepEqual(
+    restored.map(({ domain, path, value }) => [domain, path, value]),
+    [
+      ['.other.test', '/', 'secret-session'],
+      ['.example.test', '/', 'fresh-session'],
+    ]
+  );
 });
 
 test('autosave after a partial restore cannot promote an older cookie over a newer unreadable one', async (t) => {
@@ -160,18 +175,21 @@ test('autosave after a partial restore cannot promote an older cookie over a new
     sessionCookie({ domain: '.removed.test' }),
   ];
   let readable = new Set(['A']);
-  const open = (key) => createBrowserSessionStore({
-    directory,
-    cookies: {
-      get: async () => jar,
-      set: async ({ domain, path, value }) => { jar.push(sessionCookie({ domain, path, value })); },
-    },
-    encrypt: async (text) => Buffer.from(`${key}:${text}`),
-    decrypt: async (sealed) => {
-      const text = sealed.toString();
-      return readable.has(text.slice(0, 1)) ? text.slice(2) : null;
-    },
-  });
+  const open = (key) =>
+    createBrowserSessionStore({
+      directory,
+      cookies: {
+        get: async () => jar,
+        set: async ({ domain, path, value }) => {
+          jar.push(sessionCookie({ domain, path, value }));
+        },
+      },
+      encrypt: async (text) => Buffer.from(`${key}:${text}`),
+      decrypt: async (sealed) => {
+        const text = sealed.toString();
+        return readable.has(text.slice(0, 1)) ? text.slice(2) : null;
+      },
+    });
   assert.equal(await open('A').save(), 4);
   readable = new Set(['B']);
   jar = [];

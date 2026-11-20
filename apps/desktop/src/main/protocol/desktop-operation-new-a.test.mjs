@@ -67,7 +67,12 @@ test('a read that arrives before the first snapshot waits for the handshake inst
   let settle;
   const synced = new Promise((resolve, reject) => (settle = { resolve, reject }));
   const l = createOperationLane({
-    protocol: { snapshot: () => ({ status: 'ready', entries }), whenSynced: () => synced, notify() {}, call: async () => ({}) },
+    protocol: {
+      snapshot: () => ({ status: 'ready', entries }),
+      whenSynced: () => synced,
+      notify() {},
+      call: async () => ({}),
+    },
   });
   let answered;
   const reads = ['readSettings', 'readZoom', 'listConversationNotifications'].map((name) =>
@@ -81,7 +86,12 @@ test('a read that arrives before the first snapshot waits for the handshake inst
   assert.equal((await l.invoke('readSettings', [])).keepAwake, false, 'read from the snapshot the handshake folded');
   // A handshake that failed is every waiting read's failure.
   const failed = createOperationLane({
-    protocol: { snapshot: () => ({ status: 'reconnecting', entries: [] }), whenSynced: () => Promise.reject(new Error('core refused')), notify() {}, call: async () => ({}) },
+    protocol: {
+      snapshot: () => ({ status: 'reconnecting', entries: [] }),
+      whenSynced: () => Promise.reject(new Error('core refused')),
+      notify() {},
+      call: async () => ({}),
+    },
   });
   await assert.rejects(failed.invoke('readZoom', []), /core refused/);
   // After the first snapshot a link that went down keeps answering from its last values.
@@ -90,7 +100,10 @@ test('a read that arrives before the first snapshot waits for the handshake inst
 
 test('conversation overrides in force exclude expired mutes and invalid entries', async () => {
   const list = await lane(CONFIG).lane.invoke('listConversationNotifications', []);
-  assert.deepEqual(list.map((row) => row.target.id), ['a1']);
+  assert.deepEqual(
+    list.map((row) => row.target.id),
+    ['a1']
+  );
 });
 
 test('the notification state lists this PC and the paired devices with defaults by kind and pairing time', async () => {
@@ -98,19 +111,47 @@ test('the notification state lists this PC and the paired devices with defaults 
     settings: { name: 'Desk' },
     pushRegistered: ['p-new'],
     clients: [
-      { id: 'p-new', name: 'Pixel · Mixdog App', platform: 'Android', browser: 'Mixdog App', createdAt: 200, lastSeenAt: 1, online: true },
-      { id: 'p-old', name: 'Old · Mixdog App', platform: 'Android', browser: 'Mixdog App', createdAt: 50, lastSeenAt: 1, online: false },
-      { id: 'gone', name: 'X', platform: 'x', browser: 'Chrome', createdAt: 1, lastSeenAt: 1, online: false, pendingRemoval: true },
+      {
+        id: 'p-new',
+        name: 'Pixel · Mixdog App',
+        platform: 'Android',
+        browser: 'Mixdog App',
+        createdAt: 200,
+        lastSeenAt: 1,
+        online: true,
+      },
+      {
+        id: 'p-old',
+        name: 'Old · Mixdog App',
+        platform: 'Android',
+        browser: 'Mixdog App',
+        createdAt: 50,
+        lastSeenAt: 1,
+        online: false,
+      },
+      {
+        id: 'gone',
+        name: 'X',
+        platform: 'x',
+        browser: 'Chrome',
+        createdAt: 1,
+        lastSeenAt: 1,
+        online: false,
+        pendingRemoval: true,
+      },
     ],
   });
   const { lane: l } = lane([...CONFIG, remote]);
   const state = await l.invoke('notificationPreferencesState', ['pc', true]);
   assert.equal(state.currentDeviceId, 'pc');
-  assert.deepEqual(state.devices.map((d) => [d.id, d.kind, d.canNotify]), [
-    ['pc', 'pc', true],
-    ['p-new', 'phone-app', true],
-    ['p-old', 'phone-app', false],
-  ]);
+  assert.deepEqual(
+    state.devices.map((d) => [d.id, d.kind, d.canNotify]),
+    [
+      ['pc', 'pc', true],
+      ['p-new', 'phone-app', true],
+      ['p-old', 'phone-app', false],
+    ]
+  );
   assert.equal(state.devices[0].name, 'Desk');
   assert.equal(state.preferences.pc.scope, 'bots');
   assert.equal(state.preferences['p-new'].scope, 'bots');
@@ -121,7 +162,10 @@ test('a null pcCanNotify is asked of the host, and refused when there is none', 
   const withHost = lane(CONFIG, { pcNotificationsSupported: async () => false, hostName: () => 'box' });
   const state = await withHost.lane.invoke('notificationPreferencesState', ['pc', null]);
   assert.deepEqual([state.devices[0].name, state.devices[0].canNotify], ['box', false]);
-  await assert.rejects(lane(CONFIG, { hostName: () => 'b' }).lane.invoke('notificationPreferencesState', ['pc', null]), /needs pcCanNotify/);
+  await assert.rejects(
+    lane(CONFIG, { hostName: () => 'b' }).lane.invoke('notificationPreferencesState', ['pc', null]),
+    /needs pcCanNotify/
+  );
 });
 
 test('ignored deletions answer undefined and send nothing; refused ones are unknownMethod', async () => {
@@ -148,12 +192,18 @@ test('the remote-access and terminal-activity reads come from the held sections,
   const { lane: l, calls } = lane([remote, entry('terminalActivity', null, { t1: 'working', t2: 'idle' })]);
   // Without the activation (the argument false) the descriptor is the section's info as Node's descriptor() returned it:
   // no connected. The activating read, the stale states and the stubbed section are in desktop-operation-route.test.mjs.
-  assert.deepEqual(await l.invoke('remoteAccessInfo', [false]), { relay: { clientUrl: 'u', token: 't', clients: [] }, enabled: true });
+  assert.deepEqual(await l.invoke('remoteAccessInfo', [false]), {
+    relay: { clientUrl: 'u', token: 't', clients: [] },
+    enabled: true,
+  });
   assert.deepEqual(await l.invoke('remoteAccessSettings', []), { name: 'Desk' });
   assert.deepEqual(await l.invoke('remoteAccessListClaims', []), [{ id: 'c1' }]);
   assert.deepEqual(await l.invoke('remoteAccessControllerKeys', []), [{ key: 'k' }]);
   assert.deepEqual(await l.invoke('remoteAccessOwedControllerKeys', []), []);
-  assert.deepEqual(await l.invoke('termActivity', []), [{ id: 't1', state: 'working' }, { id: 't2', state: 'idle' }]);
+  assert.deepEqual(await l.invoke('termActivity', []), [
+    { id: 't1', state: 'working' },
+    { id: 't2', state: 'idle' },
+  ]);
   assert.deepEqual(calls, []);
   // A section the core has not pushed is an error, never an empty answer.
   await assert.rejects(lane([]).lane.invoke('remoteAccessInfo', []), { code: 'sectionUnavailable' });

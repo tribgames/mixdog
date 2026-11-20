@@ -164,10 +164,16 @@ test('opening a hidden custom model shows its saved favorite even outside the li
   await mountLive(t, {
     ...data,
     providerSetup: {
-      api: [{
-        id: 'custom-team', name: 'Team', custom: true, authenticated: true,
-        modelOverrides: { 'family/model': { hidden: true } }, hiddenFavoriteModels: ['family/model'],
-      }],
+      api: [
+        {
+          id: 'custom-team',
+          name: 'Team',
+          custom: true,
+          authenticated: true,
+          modelOverrides: { 'family/model': { hidden: true } },
+          hiddenFavoriteModels: ['family/model'],
+        },
+      ],
     },
     models: [],
   });
@@ -224,7 +230,10 @@ test('an incomplete catalog keeps rows and drafts until that provider actually r
   assert.match(card().textContent, /1 changed/);
   await read([], []);
   await render({
-    providerSetup: { ...setup, oauth: [{ ...setup.oauth[0], catalogError: { message: 'models 403' } }, setup.oauth[1]] },
+    providerSetup: {
+      ...setup,
+      oauth: [{ ...setup.oauth[0], catalogError: { message: 'models 403' } }, setup.oauth[1]],
+    },
   });
   assert.match(provider().textContent, /2 \/ 3 shown/);
   assert.match(provider().textContent, /403/);

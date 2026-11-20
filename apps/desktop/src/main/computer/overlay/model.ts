@@ -60,7 +60,9 @@ function visibleTarget(target: string): string {
 export function overlayTitles(locale: string) {
   const ko = locale.toLowerCase().startsWith('ko');
   return {
-    shortcutUnavailable: ko ? 'Ctrl+Alt+Esc 단축키를 사용할 수 없습니다. 중단 버튼을 누르세요' : 'The Ctrl+Alt+Esc shortcut is unavailable; use the Stop button',
+    shortcutUnavailable: ko
+      ? 'Ctrl+Alt+Esc 단축키를 사용할 수 없습니다. 중단 버튼을 누르세요'
+      : 'The Ctrl+Alt+Esc shortcut is unavailable; use the Stop button',
     working: ko ? '컴퓨터 사용 중' : 'Computer in use',
     attention: ko ? '확인 필요' : 'Check',
     paused: ko ? '대기 중' : 'Waiting',

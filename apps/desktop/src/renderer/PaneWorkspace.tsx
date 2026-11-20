@@ -336,18 +336,18 @@ export function PaneWorkspace({
               so every owner below releases what it holds the moment it hides. */}
           <SurfaceActiveContext.Provider value={!parked && !retained}>
             <ConversationReleaseContext.Provider value={releaseGateFor(owner)}>
-            <RetainedConversation retained={retained}>
-              <PaneKeyContext.Provider value={leaf.id}>
-                {renderConversation(
-                  active,
-                  focused && !handoff && !parked && !retained,
-                  focusPane,
-                  leaf.id,
-                  warm,
-                  !parked && !retained
-                )}
-              </PaneKeyContext.Provider>
-            </RetainedConversation>
+              <RetainedConversation retained={retained}>
+                <PaneKeyContext.Provider value={leaf.id}>
+                  {renderConversation(
+                    active,
+                    focused && !handoff && !parked && !retained,
+                    focusPane,
+                    leaf.id,
+                    warm,
+                    !parked && !retained
+                  )}
+                </PaneKeyContext.Provider>
+              </RetainedConversation>
             </ConversationReleaseContext.Provider>
           </SurfaceActiveContext.Provider>
         </PersistentPanePortal>

@@ -8,11 +8,16 @@ import { fileURLToPath } from 'node:url';
 // The page-world source the Rust engine sends (`observe.rs` visualLocatorExpression: the lower-cased trimmed query as a JSON string and
 // the clamped candidate count replace the two placeholders).
 const SOURCE = readFileSync(
-  fileURLToPath(new URL('../../../../../../native/core/crates/mixdog-browser-engine/assets/page/visual-locator.js', import.meta.url)),
+  fileURLToPath(
+    new URL('../../../../../../native/core/crates/mixdog-browser-engine/assets/page/visual-locator.js', import.meta.url)
+  ),
   'utf8'
 );
 const browserVisualLocatorExpression = (query, maximum) =>
-  SOURCE.replace('__MIXDOG_QUERY__', JSON.stringify(query.trim().toLowerCase())).replace('__MIXDOG_MAXIMUM__', String(maximum));
+  SOURCE.replace('__MIXDOG_QUERY__', JSON.stringify(query.trim().toLowerCase())).replace(
+    '__MIXDOG_MAXIMUM__',
+    String(maximum)
+  );
 
 test('browser visual locator ranks color, label, and position in screenshot coordinates', () => {
   const dom = new JSDOM(

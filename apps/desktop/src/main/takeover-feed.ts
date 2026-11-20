@@ -9,7 +9,9 @@
 import type { ConnectionClientEvent } from './protocol/connection';
 import type { TakeoverStateUpdate } from './takeover-state';
 
-export function createTakeoverFeed(deliver: (update: TakeoverStateUpdate) => void): (event: ConnectionClientEvent) => void {
+export function createTakeoverFeed(
+  deliver: (update: TakeoverStateUpdate) => void
+): (event: ConnectionClientEvent) => void {
   /** requestId -> the session that asked. */
   const open = new Map<string, string>();
   /** session -> its current takeover request: a replaced one's late resolution must not end the new one. */
@@ -24,7 +26,8 @@ export function createTakeoverFeed(deliver: (update: TakeoverStateUpdate) => voi
       const id = String(request.id);
       open.set(id, sessionId);
       current.set(sessionId, id);
-      const takeover = params.takeover && typeof params.takeover === 'object' ? (params.takeover as Record<string, unknown>) : null;
+      const takeover =
+        params.takeover && typeof params.takeover === 'object' ? (params.takeover as Record<string, unknown>) : null;
       deliver({ sessionId, snapshot: { toolApproval: { id, kind: 'takeover', takeover } } });
     } else if (event.type === 'serverRequestResolved') {
       const params = ((event as { params?: Record<string, unknown> }).params ?? {}) as Record<string, unknown>;

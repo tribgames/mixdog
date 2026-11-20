@@ -158,7 +158,9 @@ test('a base64 payload over 192 KiB moves to blob/put and the result carries the
 
 test('a result over 192 KiB that is not a payload fails, and one just under goes through', async () => {
   const h = harness();
-  registerEngineMethod(h.connection, h.ctx, 'host/browser/big', async () => ({ rows: 'x'.repeat(MAX_INLINE_RESULT_BYTES) }));
+  registerEngineMethod(h.connection, h.ctx, 'host/browser/big', async () => ({
+    rows: 'x'.repeat(MAX_INLINE_RESULT_BYTES),
+  }));
   registerEngineMethod(h.connection, h.ctx, 'host/browser/fits', async () => ({
     rows: 'x'.repeat(MAX_INLINE_RESULT_BYTES - 1024),
   }));

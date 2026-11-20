@@ -16,7 +16,13 @@ import type {
   PageFacts,
   Precondition,
 } from '../../../../../../packages/protocol/src/index.ts';
-import { CDP_REQUEST_TIMEOUT_MS, EXTRACT_MAX_LIMIT, MAX_EVALUATE_SCRIPT_CHARS, NAVIGATE_SETTLE_TIMEOUT_MS, READ_DEFAULT_CHARS } from '../../browser/host-types';
+import {
+  CDP_REQUEST_TIMEOUT_MS,
+  EXTRACT_MAX_LIMIT,
+  MAX_EVALUATE_SCRIPT_CHARS,
+  NAVIGATE_SETTLE_TIMEOUT_MS,
+  READ_DEFAULT_CHARS,
+} from '../../browser/host-types';
 import { bounded } from '../../browser/cdp-bounded';
 import type { createBrowserDialogReport } from '../../browser/dialog-report';
 import { createBrowserDomQuiet } from '../../browser/dom-quiet';
@@ -238,7 +244,13 @@ export async function loadUrl(
   }
 }
 
-async function navigate(host: PageHost, ctx: EngineContext, params: EngineParams, signal: AbortSignal, page: EnginePageCall) {
+async function navigate(
+  host: PageHost,
+  ctx: EngineContext,
+  params: EngineParams,
+  signal: AbortSignal,
+  page: EnginePageCall
+) {
   const { guest } = page;
   const { kind, url, mailLink, expect } = params;
   if (kind === 'url') {
@@ -289,10 +301,21 @@ async function settledRevision(
 
 interface EvaluateResponse {
   result?: { value?: unknown; description?: string; objectId?: string };
-  exceptionDetails?: { text?: string; lineNumber?: number; columnNumber?: number; exception?: { description?: string } };
+  exceptionDetails?: {
+    text?: string;
+    lineNumber?: number;
+    columnNumber?: number;
+    exception?: { description?: string };
+  };
 }
 
-async function evaluate(host: PageHost, ctx: EngineContext, params: EngineParams, signal: AbortSignal, page: EnginePageCall) {
+async function evaluate(
+  host: PageHost,
+  ctx: EngineContext,
+  params: EngineParams,
+  signal: AbortSignal,
+  page: EnginePageCall
+) {
   const { guest } = page;
   const expression = params.expression;
   if (typeof expression !== 'string' || !expression.trim()) {
@@ -328,7 +351,9 @@ async function evaluate(host: PageHost, ctx: EngineContext, params: EngineParams
     });
     runtime.contextId = created.executionContextId;
   } else if (frameId && !sessionId) {
-    throw failed('eval in the main world of a frame needs the sessionId of the frame target; use world "utility" for a frame id');
+    throw failed(
+      'eval in the main world of a frame needs the sessionId of the frame target; use world "utility" for a frame id'
+    );
   }
   // A script that provably leaves the page alone keeps the refs the caller holds (the old evaluate action). The refs are the
   // core engine's: it asks with `checkUnchanged` and invalidates them itself from the answer and from a failure.
@@ -354,7 +379,10 @@ async function evaluate(host: PageHost, ctx: EngineContext, params: EngineParams
     !page.state.pendingDialog &&
     !page.state.openedPopups.length &&
     before === (await settledRevision(host, guest, signal));
-  return { value: remote && 'value' in remote ? remote.value : (remote?.description ?? null), ...(keepsRefs ? { unchanged } : {}) };
+  return {
+    value: remote && 'value' in remote ? remote.value : (remote?.description ?? null),
+    ...(keepsRefs ? { unchanged } : {}),
+  };
 }
 
 const TEXT_OF_FRAME = '(() => document.body?.innerText || "")()';
@@ -362,7 +390,13 @@ const HIDDEN_TEXT_OF_FRAME = '(() => document.documentElement?.textContent || ""
 const DOCUMENT_OF_FRAME =
   '(() => ({ url: location.href, origin: location.origin, title: document.title, readyState: document.readyState, textLength: (document.body?.innerText || "").length }))()';
 
-async function read(host: PageHost, ctx: EngineContext, params: EngineParams, signal: AbortSignal, page: EnginePageCall) {
+async function read(
+  host: PageHost,
+  ctx: EngineContext,
+  params: EngineParams,
+  signal: AbortSignal,
+  page: EnginePageCall
+) {
   const { guest } = page;
   assertNotBlocked(page);
   const kind = params.kind;
@@ -398,7 +432,11 @@ async function read(host: PageHost, ctx: EngineContext, params: EngineParams, si
     }
     if (frameId || options.includeHidden === true) {
       const texts = await inFrame<string>(options.includeHidden === true ? HIDDEN_TEXT_OF_FRAME : TEXT_OF_FRAME);
-      const joined = texts.map(([, value]) => value).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+      const joined = texts
+        .map(([, value]) => value)
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
       const part = withoutLoneHalf(joined.slice(offset, offset + maxChars));
       return {
         payload: { url: guest.getURL(), title: guest.getTitle(), text: part, total: joined.length, offset },
@@ -465,7 +503,13 @@ function domCounter(revision: string): number {
   return revision.split('|').reduce((sum, frame) => sum + (Number(frame.split(':')[6]) || 0), 0);
 }
 
-async function domQuiet(host: PageHost, ctx: EngineContext, params: EngineParams, signal: AbortSignal, page: EnginePageCall) {
+async function domQuiet(
+  host: PageHost,
+  ctx: EngineContext,
+  params: EngineParams,
+  signal: AbortSignal,
+  page: EnginePageCall
+) {
   const { guest } = page;
   assertNotBlocked(page);
   const quietMs = clamp(params.quietMs, 350, 1, DOM_QUIET_MAX_MS);
@@ -481,7 +525,8 @@ async function domQuiet(host: PageHost, ctx: EngineContext, params: EngineParams
         cancel,
         { timeoutMs: timeoutMs + CDP_REQUEST_TIMEOUT_MS }
       );
-      if (response.exceptionDetails) throw failed(response.exceptionDetails.exception?.description || 'dom quiet observer failed');
+      if (response.exceptionDetails)
+        throw failed(response.exceptionDetails.exception?.description || 'dom quiet observer failed');
       return response.result?.value as T;
     },
   });

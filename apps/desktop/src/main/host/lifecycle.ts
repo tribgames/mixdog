@@ -42,12 +42,17 @@ export function createHostReports(
   let updaterState: JsonValue | undefined;
   let browserApprovalSessions: string[] = [];
   const sendBrowserApprovalSessions = (): void => {
-    void sendHostState(connection, { key: BROWSER_DIALOG_APPROVAL_SESSIONS_KEY, value: browserApprovalSessions }).catch(() => undefined);
+    void sendHostState(connection, { key: BROWSER_DIALOG_APPROVAL_SESSIONS_KEY, value: browserApprovalSessions }).catch(
+      () => undefined
+    );
   };
 
   if (updater) {
     connection.handleRequest('host/update/command', async (params) => {
-      const { action, confirmed: confirmedParam } = objectParams<HostUpdateCommandParams>(params, 'host/update/command');
+      const { action, confirmed: confirmedParam } = objectParams<HostUpdateCommandParams>(
+        params,
+        'host/update/command'
+      );
       if (action === 'check') return (await updater.check()) ?? updater.getState();
       if (action === 'install') {
         // Only a confirmed request installs past running agent tasks; otherwise the
@@ -58,7 +63,12 @@ export function createHostReports(
         // Installing restarts the app, so the caller is answered first.
         if (!held && updater.getState().status === 'ready') {
           // Node let a failed install escape to the process; here it is reported, never discarded.
-          setImmediate(() => void Promise.resolve().then(() => updater.install(confirmed)).catch(onInstallFailed));
+          setImmediate(
+            () =>
+              void Promise.resolve()
+                .then(() => updater.install(confirmed))
+                .catch(onInstallFailed)
+          );
         }
         return state;
       }

@@ -22,7 +22,10 @@ test('repeated titling of the same preview normalizes it once', () => {
 });
 
 test('a second catalog build over a few thousand sessions cleans no title again', () => {
-  const previews = Array.from({ length: 3000 }, (_, i) => `session ${i} preview ${Math.random()} with some words in it`);
+  const previews = Array.from(
+    { length: 3000 },
+    (_, i) => `session ${i} preview ${Math.random()} with some words in it`
+  );
   const build = () => previews.map((preview) => generatedSessionTitle(preview, ''));
   sessionTitleNormalizationStats.cleaned = 0;
   const first = build();

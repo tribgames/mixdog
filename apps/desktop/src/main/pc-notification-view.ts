@@ -4,7 +4,13 @@
 // changed in Settings applies to the next toast, taskbar flash and Browser Use approval toast without a re-read request.
 import { NOTIFICATION_PC_DEVICE_ID } from '../shared/contract-notifications';
 import type { DesktopSectionsSnapshot } from '../shared/contract-sections';
-import { activeOverrides, devicePreferencesIn, migratedAtOf, storedOverrides, storedPreferences } from '../shared/notification-state';
+import {
+  activeOverrides,
+  devicePreferencesIn,
+  migratedAtOf,
+  storedOverrides,
+  storedPreferences,
+} from '../shared/notification-state';
 import type { NotificationPreferencesView } from './notification-decision';
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -13,7 +19,10 @@ const record = (value: unknown): Record<string, unknown> =>
 /** This PC's view from the `notifications` subtree of the core's config (undefined while it was never written: the defaults). */
 export function pcNotificationViewOf(notifications: unknown, now = Date.now()): NotificationPreferencesView {
   const devices = Object.fromEntries(
-    Object.entries(record(record(notifications).devices)).map(([id, preferences]) => [id, storedPreferences(preferences)])
+    Object.entries(record(record(notifications).devices)).map(([id, preferences]) => [
+      id,
+      storedPreferences(preferences),
+    ])
   );
   return {
     preferences: devicePreferencesIn({ devices, migratedAt: migratedAtOf(notifications) }, NOTIFICATION_PC_DEVICE_ID),

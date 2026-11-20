@@ -22,7 +22,8 @@ function fakeCore() {
   };
   return {
     snapshot: () => ({
-      entries: 'notifications' in config ? [{ section: 'config', key: 'notifications', value: config.notifications }] : [],
+      entries:
+        'notifications' in config ? [{ section: 'config', key: 'notifications', value: config.notifications }] : [],
     }),
     write: (path, value) => setPath(path, value),
   };
@@ -62,7 +63,9 @@ test('a preference written to the core applies to the next toast, approval toast
 test('a conversation mute written to the core silences that conversation until it ends', () => {
   const core = fakeCore();
   const read = createPcNotificationView(core);
-  core.write('notifications.overrides', [{ target: { kind: 'agent', id: 'secretary' }, setting: { mode: 'muted', until: NOON + 1000 } }]);
+  core.write('notifications.overrides', [
+    { target: { kind: 'agent', id: 'secretary' }, setting: { mode: 'muted', until: NOON + 1000 } },
+  ]);
   assert.equal(toast(read(NOON)).notify, false);
   assert.equal(allowsTaskbarFlash(read(NOON), conversation, NOON), false);
   // After the end the mute is gone.

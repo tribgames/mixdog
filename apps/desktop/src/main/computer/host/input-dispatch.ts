@@ -6,7 +6,11 @@ import { computerUseCoordinator } from '../session/coordinator';
 import type { ComputerCommand, PowerShellResponse } from '../shared/types';
 import type { CommandRouterHost } from './command-router';
 import type { ComputerExecutionPolicy } from './execution-policy';
-import { dispatchElectronText, type DispatchAuthority, type ElectronTextDispatch } from './input-dispatch-electron-text';
+import {
+  dispatchElectronText,
+  type DispatchAuthority,
+  type ElectronTextDispatch,
+} from './input-dispatch-electron-text';
 import { powerShellInputRequest, type InputObservation } from './input-dispatch-request';
 import { dispatchElectronInput } from './input-dispatch-electron-input';
 import { canUseAppOwnedInput } from './input-preflight';
@@ -133,7 +137,10 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
       // The renderer's port admits each event through the command's own endpoint and the run's abort (`rendererScope`); input
       // outside a command endpoint has no scope to run under and is refused.
       const endpoint = currentEndpoint();
-      if (!endpoint) throw new Error('computer_scope_unavailable: renderer input runs only under a command endpoint; no input was sent');
+      if (!endpoint)
+        throw new Error(
+          'computer_scope_unavailable: renderer input runs only under a command endpoint; no input was sent'
+        );
       const { scope, close } = rendererScope(endpoint, action, assertExecutionNotAborted);
       const electronInput = {
         host,
@@ -175,7 +182,12 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
         const request =
           step === 'check'
             ? { action: 'saved_login_check', field: command.field, text: null }
-            : { action: 'saved_login_type', field: command.field, text: command.saved_login_text, expected: command.saved_login_expected };
+            : {
+                action: 'saved_login_type',
+                field: command.field,
+                text: command.saved_login_text,
+                expected: command.saved_login_expected,
+              };
         const authority = await authorizeDispatch();
         assertObservationInputAllowed(command, host.isObserveOnly());
         if (step === 'type') assertSavedLoginAvailable(command, host.savedLogins);

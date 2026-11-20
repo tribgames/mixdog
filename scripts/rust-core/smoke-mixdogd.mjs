@@ -20,9 +20,28 @@ import { startScriptedProvider } from './lib/scripted-provider.mjs';
 // A start or a call that has not answered by now is hung, not slow: it fails with a message instead of waiting.
 const HANG_MS = 60_000;
 const OWNER = 'rs-tool-failures';
-const THREAD = { kind: 'task', session: { toolProfile: 'headless', toolMode: 'full', approvalMode: 'implicit', disallowDelegation: true, autoWakeCompletions: false, webSearch: false, memory: false } };
+const THREAD = {
+  kind: 'task',
+  session: {
+    toolProfile: 'headless',
+    toolMode: 'full',
+    approvalMode: 'implicit',
+    disallowDelegation: true,
+    autoWakeCompletions: false,
+    webSearch: false,
+    memory: false,
+  },
+};
 const startThread = (core, route) =>
-  within(core.call('thread/start', { ...THREAD, projectPath: core.paths.workspace, draft: { projectPath: core.paths.workspace, route, workflowId: 'headless', orchestrationMode: 'none' } }), HANG_MS, 'thread/start');
+  within(
+    core.call('thread/start', {
+      ...THREAD,
+      projectPath: core.paths.workspace,
+      draft: { projectPath: core.paths.workspace, route, workflowId: 'headless', orchestrationMode: 'none' },
+    }),
+    HANG_MS,
+    'thread/start'
+  );
 
 /**
  * One core on a fresh profile: `work(core)` runs against it, then the core is stopped (bounded, the child ended on every
@@ -90,17 +109,38 @@ export async function toolFailureCheck(bin) {
   const provider = await startScriptedProvider({ tool: 'read', args: '{}' });
   let result;
   try {
-    const config = { agent: { providers: { [CUSTOM]: { type: 'custom', name: 'smoke', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', models: [{ id: 'smoke' }] } } } };
+    const config = {
+      agent: {
+        providers: {
+          [CUSTOM]: {
+            type: 'custom',
+            name: 'smoke',
+            protocol: 'openai-chat',
+            baseURL: provider.baseURL,
+            auth: 'none',
+            models: [{ id: 'smoke' }],
+          },
+        },
+      },
+    };
     const startedAt = Date.now();
     result = await withCore(bin, config, async (core) => {
       const started = await startThread(core, { provider: CUSTOM, model: 'smoke' });
       const threadId = started?.thread?.id;
-      if (!threadId) throw new Error(`thread/start answered without a thread: ${JSON.stringify(started).slice(0, 200)}`);
-      await within(core.call('turn/start', { threadId, input: { prompt: 'call the tool', options: {} } }), HANG_MS, 'turn/start');
+      if (!threadId)
+        throw new Error(`thread/start answered without a thread: ${JSON.stringify(started).slice(0, 200)}`);
+      await within(
+        core.call('turn/start', { threadId, input: { prompt: 'call the tool', options: {} } }),
+        HANG_MS,
+        'turn/start'
+      );
       // The second model request carries the failed tool's result back: the failure has happened.
       const request = await within(provider.toolResult, HANG_MS, 'the scripted turn reaching its tool result');
       const answer = JSON.parse(request.body).messages.find((m) => m.role === 'tool')?.content ?? '';
-      if (!/requires "path"/.test(answer)) throw new Error(`the provoked tool call did not fail as scripted; the tool answered: ${String(answer).slice(0, 200)}`);
+      if (!/requires "path"/.test(answer))
+        throw new Error(
+          `the provoked tool call did not fail as scripted; the tool answered: ${String(answer).slice(0, 200)}`
+        );
       return { sessionId: threadId, cwd: core.paths.workspace, startedAt };
     });
   } finally {
@@ -110,7 +150,9 @@ export async function toolFailureCheck(bin) {
 }
 
 /** The row Node wrote for this scripted failure (record-node-tool-failure-row.mjs, run on b6f10295a): the schema and every stable value. */
-export const NODE_ROW = JSON.parse(readFileSync(new URL('./recorded/node_tool_failure_row.json', import.meta.url), 'utf8'));
+export const NODE_ROW = JSON.parse(
+  readFileSync(new URL('./recorded/node_tool_failure_row.json', import.meta.url), 'utf8')
+);
 // Values that differ per run and are checked against this run's own facts instead of the recording.
 const PER_RUN = ['ts', 'session_id', 'cwd', 'tool_ms'];
 
@@ -125,27 +167,42 @@ export function judgeToolFailureRows(rows, run) {
   if (!rows?.length) {
     throw new Error(
       `the core wrote ${rows ? 'an empty' : 'no'} history/tool-failures.jsonl for the scripted failure (read with no path -> 'read requires "path"'): mixdogd has no tool-failure writer yet ` +
-        `(AgentTrace::append_tool_failure is not wired to the call sites of Node's _appendToolFailureRow, agent-trace-format.mjs:532 and agent-progress-watchdog.mjs:204). Owner: ${OWNER}. smoke-loop's tool-failure check is NOT covered`,
+        `(AgentTrace::append_tool_failure is not wired to the call sites of Node's _appendToolFailureRow, agent-trace-format.mjs:532 and agent-progress-watchdog.mjs:204). Owner: ${OWNER}. smoke-loop's tool-failure check is NOT covered`
     );
   }
-  if (rows.length !== 1) throw new Error(`expected exactly the one provoked tool-failure row, found ${rows.length}:\n${rows.join('\n').slice(0, 800)}`);
+  if (rows.length !== 1)
+    throw new Error(
+      `expected exactly the one provoked tool-failure row, found ${rows.length}:\n${rows.join('\n').slice(0, 800)}`
+    );
   const row = JSON.parse(rows[0]);
   const differs = [];
   // Key order is compared on purpose: the spool's lines must be the bytes Node writes, so the order is part of the contract.
-  if (JSON.stringify(Object.keys(row)) !== JSON.stringify(Object.keys(NODE_ROW))) differs.push(`keys ${JSON.stringify(Object.keys(row))} (Node: ${JSON.stringify(Object.keys(NODE_ROW))})`);
+  if (JSON.stringify(Object.keys(row)) !== JSON.stringify(Object.keys(NODE_ROW)))
+    differs.push(`keys ${JSON.stringify(Object.keys(row))} (Node: ${JSON.stringify(Object.keys(NODE_ROW))})`);
   for (const key of Object.keys(NODE_ROW)) {
-    if (!PER_RUN.includes(key) && JSON.stringify(row[key]) !== JSON.stringify(NODE_ROW[key])) differs.push(`${key} ${JSON.stringify(row[key])} (Node: ${JSON.stringify(NODE_ROW[key])})`);
+    if (!PER_RUN.includes(key) && JSON.stringify(row[key]) !== JSON.stringify(NODE_ROW[key]))
+      differs.push(`${key} ${JSON.stringify(row[key])} (Node: ${JSON.stringify(NODE_ROW[key])})`);
   }
-  if (row.session_id !== run.sessionId) differs.push(`session_id ${JSON.stringify(row.session_id)} (this run's thread: ${run.sessionId})`);
+  if (row.session_id !== run.sessionId)
+    differs.push(`session_id ${JSON.stringify(row.session_id)} (this run's thread: ${run.sessionId})`);
   if (row.cwd !== run.cwd) differs.push(`cwd ${JSON.stringify(row.cwd)} (this run's workspace: ${run.cwd})`);
-  if (!Number.isFinite(row.ts) || row.ts < run.startedAt || row.ts > run.endedAt) differs.push(`ts ${row.ts} (outside this run: ${run.startedAt}..${run.endedAt})`);
+  if (!Number.isFinite(row.ts) || row.ts < run.startedAt || row.ts > run.endedAt)
+    differs.push(`ts ${row.ts} (outside this run: ${run.startedAt}..${run.endedAt})`);
   if (!Number.isFinite(row.tool_ms) || row.tool_ms < 0) differs.push(`tool_ms ${JSON.stringify(row.tool_ms)}`);
-  if (differs.length) throw new Error(`the tool-failure row is not the provoked call's; it differs from Node's row in: ${differs.join('; ')}`);
+  if (differs.length)
+    throw new Error(
+      `the tool-failure row is not the provoked call's; it differs from Node's row in: ${differs.join('; ')}`
+    );
   return row;
 }
 // The module's own URL is the real path: a script named through a linked directory or drive is compared resolved too.
-if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)) {
-  const arg = (name, fallback) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : fallback);
+if (
+  process.argv[1] &&
+  existsSync(process.argv[1]) &&
+  realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)
+) {
+  const arg = (name, fallback) =>
+    process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : fallback;
   const bin = resolve(arg('--mixdogd'));
   const limit = Number(arg('--limit-ms', process.env.MIXDOG_BOOT_SMOKE_LIMIT_MS || 5000));
   const until = Date.now() + Number(arg('--loop', 0));
@@ -154,9 +211,13 @@ if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(resolve(proce
   do {
     const { servingMs, answeredMs, exitMs } = await bootOnce(bin);
     runs += 1;
-    console.log(`run ${runs}: spawn to serving+connected ${servingMs.toFixed(0)}ms, to first answered thread + status ${answeredMs.toFixed(0)}ms, to stopped and exited ${exitMs.toFixed(0)}ms (budget ${limit}ms on the last)`);
+    console.log(
+      `run ${runs}: spawn to serving+connected ${servingMs.toFixed(0)}ms, to first answered thread + status ${answeredMs.toFixed(0)}ms, to stopped and exited ${exitMs.toFixed(0)}ms (budget ${limit}ms on the last)`
+    );
     if (exitMs > limit) {
-      problems.push(`spawn to exit took ${exitMs.toFixed(0)}ms (serving ${servingMs.toFixed(0)}ms, answered ${answeredMs.toFixed(0)}ms), over the ${limit}ms limit`);
+      problems.push(
+        `spawn to exit took ${exitMs.toFixed(0)}ms (serving ${servingMs.toFixed(0)}ms, answered ${answeredMs.toFixed(0)}ms), over the ${limit}ms limit`
+      );
       break;
     }
   } while (Date.now() < until);

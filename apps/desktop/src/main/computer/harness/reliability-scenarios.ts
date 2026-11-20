@@ -150,7 +150,11 @@ export async function nativeObservationSoak(ctx: ReliabilityContext): Promise<Sc
     assert.equal(observed.window_id, target.id);
     // A helper that died or was replaced under a steady load is a failure the
     // soak exists to find: the session keeps the one helper it started with.
-    assert.equal(reply.helperPid, expectedHelper, `the session's helper changed from ${expectedHelper} to ${reply.helperPid}`);
+    assert.equal(
+      reply.helperPid,
+      expectedHelper,
+      `the session's helper changed from ${expectedHelper} to ${reply.helperPid}`
+    );
     commands++;
     const elapsed = performance.now() - started;
     if (elapsed >= nextSample) {
@@ -350,5 +354,8 @@ export async function authorizationLiveDispatch(ctx: ReliabilityContext): Promis
   await assert.rejects(command({ action: 'type', window_id: target.id, text: 'DENIED' }), /computer_policy_denied/);
   assert.equal(await sentinel.webContents.executeJavaScript('document.querySelector("input").value'), previousValue);
   // The denied command is a failure the core keeps as a bundle with its records.
-  assert.ok(failureBundles().some((bundle) => bundle.records.length > 0), 'the core wrote no failure bundle');
+  assert.ok(
+    failureBundles().some((bundle) => bundle.records.length > 0),
+    'the core wrote no failure bundle'
+  );
 }

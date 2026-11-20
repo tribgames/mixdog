@@ -546,8 +546,7 @@ export function LiveActivity({
   );
   // While the quiet cue shows nothing counted moves, so the token readout
   // yields its room to the cue and the line stays one row (#326).
-  const tokensLabel =
-    meta.showTokens && !quietParts ? t('{{tokens}} tokens', { tokens: meta.tokensCount }) : '';
+  const tokensLabel = meta.showTokens && !quietParts ? t('{{tokens}} tokens', { tokens: meta.tokensCount }) : '';
   // The token readout is its own span: where the pinned bot overlay stands
   // over the transcript's column (a narrow window) it hides, so the row ends
   // before the bot (html[data-pet-over-transcript], 14-live-activity.css).
@@ -815,9 +814,7 @@ export function CompletionStatus({
     let fallback = cut ? t('Interrupted') : t('Cancelled');
     if (tone === 'failed') fallback = t('Failed');
     else if (elapsed) {
-      fallback = cut
-        ? t('Interrupted after {{elapsed}}', { elapsed })
-        : t('Cancelled after {{elapsed}}', { elapsed });
+      fallback = cut ? t('Interrupted after {{elapsed}}', { elapsed }) : t('Cancelled after {{elapsed}}', { elapsed });
     }
     const translated = translateStatusLabel(label);
     const visible =

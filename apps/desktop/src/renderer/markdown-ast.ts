@@ -57,7 +57,12 @@ function offsetOf(node: SyntaxNode): { offset?: number } {
  *  and the breaks in their run of consecutive offsets, as flat [value index,
  *  offset] pairs (sourceOffsets). Text that does not read off its source
  *  range has none (no text node of this renderer's parser and plugins). */
-function textOffsets(node: SyntaxNode, value: string, source: string, code: boolean): { offset?: number; jumps?: number[] } {
+function textOffsets(
+  node: SyntaxNode,
+  value: string,
+  source: string,
+  code: boolean
+): { offset?: number; jumps?: number[] } {
   const start = node.position?.start?.offset;
   const end = node.position?.end?.offset;
   if (typeof start !== 'number' || typeof end !== 'number') return {};
@@ -146,7 +151,9 @@ function normalizeAstNode(node: SyntaxNode, source: string, code = false): Markd
       tagName,
       ...offsetOf(node),
       ...(properties ? { properties } : {}),
-      children: Array.isArray(node.children) ? node.children.map((child) => normalizeAstNode(child, source, inner)) : [],
+      children: Array.isArray(node.children)
+        ? node.children.map((child) => normalizeAstNode(child, source, inner))
+        : [],
     };
   }
   return {

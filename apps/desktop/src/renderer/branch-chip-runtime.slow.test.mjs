@@ -22,7 +22,13 @@ test('the runtime getBranchMenu response feeds the renderer model: rows, marks a
     pendingWorktree: null,
     branches: [
       { name: 'main', current: true, remote: false, upstream: '' },
-      { name: 'dev', current: false, remote: false, upstream: '', lastCommitAt: new Date(Date.now() - 86_400_000).toISOString() },
+      {
+        name: 'dev',
+        current: false,
+        remote: false,
+        upstream: '',
+        lastCommitAt: new Date(Date.now() - 86_400_000).toISOString(),
+      },
       { name: 'feat/ssh-remote', current: false, remote: false, upstream: '' },
       { name: 'ext-branch', current: false, remote: false, upstream: '' },
     ],

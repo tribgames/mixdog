@@ -69,7 +69,8 @@ function methodsOf(route) {
     } catch {
       continue;
     }
-    for (const request of routed?.requests ?? [routed]) if (typeof request?.method === 'string') found.add(request.method);
+    for (const request of routed?.requests ?? [routed])
+      if (typeof request?.method === 'string') found.add(request.method);
   }
   return found;
 }
@@ -83,24 +84,43 @@ function collect() {
     }
   };
   for (const capability of new Set([...DESKTOP_CAPABILITIES, ...DESKTOP_READ_CAPABILITIES])) {
-    add(`capability ${capability}`, methodsOf((args) => routeCapability(capability, args, 'sess')));
-    add(`capability ${capability} (control session)`, methodsOf((args) => routeCapability(capability, args)));
+    add(
+      `capability ${capability}`,
+      methodsOf((args) => routeCapability(capability, args, 'sess'))
+    );
+    add(
+      `capability ${capability} (control session)`,
+      methodsOf((args) => routeCapability(capability, args))
+    );
   }
   // An operation the main process names itself (the host role's `localService.invokeDesktopOperation`, the remote shim) is
   // not a window's call: a window names an operation only in the renderer's direct API.
   const named = namesInDirectApi();
   for (const name of ROUTED_DESKTOP_OPERATIONS.filter((operation) => named.has(operation))) {
-    add(`operation ${name}`, methodsOf((args) => routeDesktopOperation(name, args)));
+    add(
+      `operation ${name}`,
+      methodsOf((args) => routeDesktopOperation(name, args))
+    );
   }
   for (const name of NOTIFICATION_DESKTOP_OPERATIONS.filter((operation) => named.has(operation))) {
-    add(`notification ${name}`, methodsOf((args) => routeDesktopNotification(name, args)));
+    add(
+      `notification ${name}`,
+      methodsOf((args) => routeDesktopNotification(name, args))
+    );
   }
-  for (const name of serviceNames()) add(`service ${name}`, methodsOf((args) => routeService(name, args)));
+  for (const name of serviceNames())
+    add(
+      `service ${name}`,
+      methodsOf((args) => routeService(name, args))
+    );
   add('login feed start', LOGIN_START_METHODS);
   add('login feed cancel', LOGIN_CANCEL_METHODS);
   // The room actions are one service method with an action argument.
   for (const action of ['create', 'update', 'continue', 'leave', 'remove', 'reset']) {
-    add(`service agentRoomAction(${action})`, methodsOf((args) => routeService('agentRoomAction', [action, args])));
+    add(
+      `service agentRoomAction(${action})`,
+      methodsOf((args) => routeService('agentRoomAction', [action, args]))
+    );
   }
   return bySource;
 }
@@ -126,7 +146,8 @@ function serviceNames() {
       if (declaration.name.getText() !== 'SINGLE' || !declaration.initializer) continue;
       const object = declaration.initializer;
       if (ts.isObjectLiteralExpression(object)) {
-        for (const property of object.properties) if (property.name) names.add(property.name.getText().replace(/['"]/g, ''));
+        for (const property of object.properties)
+          if (property.name) names.add(property.name.getText().replace(/['"]/g, ''));
       }
     }
   });
@@ -144,7 +165,9 @@ test('the refusal list is a table of host-role methods only', () => {
 test('no method the shared lanes produce is one a window is refused', () => {
   const produced = collect();
   assert.ok(produced.size > 300, `only ${produced.size} methods enumerated: the enumeration is broken`);
-  const refused = [...produced].filter(([method]) => REFUSED.has(method)).map(([method, sources]) => `${method} <- ${[...sources].slice(0, 3).join(', ')}`);
+  const refused = [...produced]
+    .filter(([method]) => REFUSED.has(method))
+    .map(([method, sources]) => `${method} <- ${[...sources].slice(0, 3).join(', ')}`);
   assert.deepEqual(refused, []);
 });
 
@@ -160,12 +183,19 @@ test('every capability resolves, and none to a host-role method', () => {
   // one, or one of these that starts resolving, is a change to look at.
   assert.deepEqual(unresolved.sort(), [...NO_REQUEST_CAPABILITIES].sort());
   for (const capability of unresolved) {
-    assert.ok(capability === 'noteUserInput' || isSectionCapability(capability), `${capability} resolves to nothing and is neither a section nor the activity notification`);
+    assert.ok(
+      capability === 'noteUserInput' || isSectionCapability(capability),
+      `${capability} resolves to nothing and is neither a section nor the activity notification`
+    );
   }
 });
 
 test('the protocol client actions and their argument table name no refused method', () => {
   const methods = new Set(Object.keys(METHOD_ARGS));
-  for (const [namespace, actions] of Object.entries(ACTION_NAMESPACES)) for (const action of actions) methods.add(`${namespace}/${action}`);
-  assert.deepEqual([...methods].filter((method) => REFUSED.has(method)), []);
+  for (const [namespace, actions] of Object.entries(ACTION_NAMESPACES))
+    for (const action of actions) methods.add(`${namespace}/${action}`);
+  assert.deepEqual(
+    [...methods].filter((method) => REFUSED.has(method)),
+    []
+  );
 });

@@ -151,7 +151,9 @@ test('workflow contracts: strict gate, Latest guard triggers, post-release job, 
 test('standalone runtime dispatch forwards both options and hands off the gated worker’s exact manifest', async () => {
   const { readFile } = await import('node:fs/promises');
   const { parse } = (await import('node:module')).createRequire(import.meta.url)('yaml');
-  const workflow = parse(await readFile(new URL('../.github/workflows/refresh-runtime-manifest.yml', import.meta.url), 'utf8'));
+  const workflow = parse(
+    await readFile(new URL('../.github/workflows/refresh-runtime-manifest.yml', import.meta.url), 'utf8')
+  );
   const { inputs } = workflow.on.workflow_dispatch;
   const { refresh, handoff } = workflow.jobs;
   for (const option of ['force_rebuild', 'refresh_manifest']) {

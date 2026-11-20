@@ -3,11 +3,7 @@ import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 import test from 'node:test';
 import { createBridgeServer } from './bridge-server.ts';
-import {
-  answerAdmittedCommand,
-  CAPACITY_REFUSAL,
-  createBridgeRequestHandler,
-} from './bridge-server-request.ts';
+import { answerAdmittedCommand, CAPACITY_REFUSAL, createBridgeRequestHandler } from './bridge-server-request.ts';
 import { createBridgeServerState } from './bridge-server-contract.ts';
 
 // The host protocol's `host/computer/capture` runs the real dispatch under the HTTP bridge's own request handling:

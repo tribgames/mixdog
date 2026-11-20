@@ -18,22 +18,50 @@ const refusals = verifiedFixture('refusals').recordings[0];
 const coreReply = (name) => {
   const { reply } = refusals.cases.find((x) => x.name === name);
   return reply.error
-    ? Object.assign(new Error(reply.error.message), { detail: { kind: 'rpc', code: reply.error.code, reason: reply.error.data?.reason, message: reply.error.message, data: reply.error.data } })
+    ? Object.assign(new Error(reply.error.message), {
+        detail: {
+          kind: 'rpc',
+          code: reply.error.code,
+          reason: reply.error.data?.reason,
+          message: reply.error.message,
+          data: reply.error.data,
+        },
+      })
     : reply.result;
 };
 const S = 'sess_a';
 const threadRead = (state = {}) => ({
-  thread: { id: S, preview: '', title: '', updatedAt: 1, messageCount: 0, cwd: '/w', classification: {}, projectPath: null },
+  thread: {
+    id: S,
+    preview: '',
+    title: '',
+    updatedAt: 1,
+    messageCount: 0,
+    cwd: '/w',
+    classification: {},
+    projectPath: null,
+  },
   items: [],
   state,
   hasOlder: false,
 });
-const rpcError = (reason, message) => Object.assign(new Error(message), { detail: { kind: 'rpc', code: -32000, reason, message, data: { reason } } });
+const rpcError = (reason, message) =>
+  Object.assign(new Error(message), { detail: { kind: 'rpc', code: -32000, reason, message, data: { reason } } });
 
 const PENDING_AP1 = { id: 'ap1', method: 'item/tool/requestApproval', params: { threadId: S, order: 1 } };
-const startedTask = (n) => ({ 'thread/start': { thread: { id: n.result.sessionId }, turn: { kind: 'started', turnId: 't1' } }, state: n.result.snapshot });
+const startedTask = (n) => ({
+  'thread/start': { thread: { id: n.result.sessionId }, turn: { kind: 'started', turnId: 't1' } },
+  state: n.result.snapshot,
+});
 const startedBlank = (n) => ({
-  'thread/start': { thread: { id: 'sess_blank', cwd: n.result.cwd, projectPath: n.result.currentProject ?? undefined, classification: {} } },
+  'thread/start': {
+    thread: {
+      id: 'sess_blank',
+      cwd: n.result.cwd,
+      projectPath: n.result.currentProject ?? undefined,
+      classification: {},
+    },
+  },
 });
 
 /** Per case: the mixdogd replies (by protocol method), the readers' fields to compare, and a documented difference if any.
@@ -50,18 +78,37 @@ const SCRIPT = {
   'submitToSession-accepted': () => ({ 'turn/start': { kind: 'started', turnId: 't1' } }),
   // approval_notification.rs `answer_approval`: `{accepted}` once the thread took the decision; a bare Allow reads the approval the
   // thread shows (the card of the pending request, or none once it settled).
-  'resolveToolApproval-approved': () => ({ pending: [PENDING_AP1], state: { toolApproval: { id: 'ap1' } }, 'thread/approval/answer': { accepted: true } }),
+  'resolveToolApproval-approved': () => ({
+    pending: [PENDING_AP1],
+    state: { toolApproval: { id: 'ap1' } },
+    'thread/approval/answer': { accepted: true },
+  }),
   'resolveToolApproval-settled': () => ({ pending: [], state: { toolApproval: null } }),
-  setFast: () => ({ 'fast/set': true, 'thread/read': threadRead({ route: { provider: 'p', model: 'm', fast: true } }) }),
-  setModelRoute: () => ({ 'route/set': { provider: 'p2', model: 'm2' }, 'thread/read': threadRead({ route: { provider: 'p2', model: 'm2', fast: false } }) }),
+  setFast: () => ({
+    'fast/set': true,
+    'thread/read': threadRead({ route: { provider: 'p', model: 'm', fast: true } }),
+  }),
+  setModelRoute: () => ({
+    'route/set': { provider: 'p2', model: 'm2' },
+    'thread/read': threadRead({ route: { provider: 'p2', model: 'm2', fast: false } }),
+  }),
   'stopShellJob-stopped': (n) => ({ 'thread/backgroundTerminals/terminate': n.daemon.configure.value }),
   'stopShellJob-failed': (n) => ({ 'thread/backgroundTerminals/terminate': n.daemon.configure.value }),
   'releaseShellJob-released': (n) => ({ 'thread/backgroundTerminals/release': n.daemon.configure.value }),
   'releaseShellJob-throws': () => ({ 'thread/backgroundTerminals/release': new Error('no hold') }),
   // route_setup.rs / thread_route_service.rs: a bare boolean; the lane then reads the thread's state
-  'scheduleQuotaResume-true': (n) => ({ 'thread/quotaResume/schedule': n.daemon.configure.value, 'thread/read': threadRead() }),
-  'cancelQuotaResume-false': (n) => ({ 'thread/quotaResume/cancel': n.daemon.configure.value, 'thread/read': threadRead() }),
-  'continueSessionInModel-true': (n) => ({ 'thread/continueInModel': n.daemon.configure.value, 'thread/read': threadRead() }),
+  'scheduleQuotaResume-true': (n) => ({
+    'thread/quotaResume/schedule': n.daemon.configure.value,
+    'thread/read': threadRead(),
+  }),
+  'cancelQuotaResume-false': (n) => ({
+    'thread/quotaResume/cancel': n.daemon.configure.value,
+    'thread/read': threadRead(),
+  }),
+  'continueSessionInModel-true': (n) => ({
+    'thread/continueInModel': n.daemon.configure.value,
+    'thread/read': threadRead(),
+  }),
   // thread_search.rs:56 `Value::Array(out)`
   searchSessionContent: (n) => ({ 'thread/search': n.daemon.search }),
   'readTranscriptHistory-unsupported': () => ({}),
@@ -75,8 +122,10 @@ const SCRIPT = {
   // actor.rs:4276 refuses with the text Node's host threw
   'renameSession-refused': (n) => ({ 'thread/name/set': new Error(n.error) }),
   'renameSession-empty': () => ({}),
-  'setSessionFavorite': () => ({ 'thread/metadata/update': {} }),
-  startTask: (n) => ({ 'thread/start': { thread: { id: 'sess_new', cwd: n.result.cwd, classification: {}, projectPath: undefined } } }),
+  setSessionFavorite: () => ({ 'thread/metadata/update': {} }),
+  startTask: (n) => ({
+    'thread/start': { thread: { id: 'sess_new', cwd: n.result.cwd, classification: {}, projectPath: undefined } },
+  }),
   // model_list.rs: the catalog rows are Node's (id, name), not yet the phone's DesktopModelOption
   listProviderModels: (n) => ({ 'model/list': n.daemon.read.value }),
   // initialize.connection.device (v1.rs:131): the name the phone's client announced
@@ -89,7 +138,10 @@ const SCRIPT = {
   // call.rs:76: `approval/provideSecret` answers `EmptyResult`
   'provideSecretInput-true': () => ({ 'approval/provideSecret': {} }),
   readCapabilities: () => ({ 'thread/start': { thread: { id: 'ctl' } }, 'config/getProfile': { name: 'Mixy' } }),
-  'readCapabilities-failed': () => ({ 'thread/start': { thread: { id: 'ctl' } }, 'config/getProfile': new Error('profile unavailable') }),
+  'readCapabilities-failed': () => ({
+    'thread/start': { thread: { id: 'ctl' } },
+    'config/getProfile': new Error('profile unavailable'),
+  }),
   'prefetchSession-limit': () => ({}),
   'prefetchSession-fails': () => ({ resume: new Error('read failed') }),
   'setSessionArchived-true': () => ({ 'thread/archive': {} }),
@@ -113,7 +165,10 @@ const SCRIPT = {
   'agentRoomAction-update': (n) => ({ 'room/update': n.result }),
   'agentRoomAction-remove': () => ({ 'room/remove': {} }),
   // feedback.rs:287 `{ id, status: "accepted" }`; the refusals are the core's own sentences
-  'deleteSession-missing': () => ({ 'thread/delete': rpcError('threadNotFound', 'thread not found'), 'thread/unsubscribe': {} }),
+  'deleteSession-missing': () => ({
+    'thread/delete': rpcError('threadNotFound', 'thread not found'),
+    'thread/unsubscribe': {},
+  }),
 };
 
 /** The cases this file does not replay through the base adapter, each with where it is replayed whole against Node's own answer:
@@ -124,8 +179,10 @@ const REPLAYED_BY = {
   startProject: 'remote-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
   'startProjectTask-registered': 'remote-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
   'provideSecretInput-false': 'remote-chat-host.test.mjs: provideSecretInput of an id that is no secret request',
-  'startProjectTask-unknown': 'remote-chat-host.test.mjs: startProjectTask of an unregistered Project, over the core reply recorded from mixdogd',
-  'openAgentHome-unknown-agent': 'remote-chat-host.test.mjs: openAgentHome of an unknown agent, over the core reply recorded from mixdogd',
+  'startProjectTask-unknown':
+    'remote-chat-host.test.mjs: startProjectTask of an unregistered Project, over the core reply recorded from mixdogd',
+  'openAgentHome-unknown-agent':
+    'remote-chat-host.test.mjs: openAgentHome of an unknown agent, over the core reply recorded from mixdogd',
   'agentRoomAction-unknown': 'remote-chat-host.test.mjs: agentRoomAction of an unknown action',
   ...Object.fromEntries(
     ['accepted', 'rate-limited', 'unavailable', 'bad-receipt', 'network'].map((outcome) => [
@@ -137,15 +194,22 @@ const REPLAYED_BY = {
 
 /** The fields the phone's readers use (use-composer-submission.ts:461, model-controls.tsx:654/754, shell-job-controls.tsx:63/65). */
 const pick = (name, value) => {
-  if (name.startsWith('submitNewTask')) return { accepted: value.accepted, sessionId: value.sessionId, snapshotSessionId: value.snapshot?.sessionId ?? null };
-  if (name === 'inheritSession') return { sessionId: value.sessionId, snapshotSessionId: value.snapshot?.sessionId ?? null };
+  if (name.startsWith('submitNewTask'))
+    return {
+      accepted: value.accepted,
+      sessionId: value.sessionId,
+      snapshotSessionId: value.snapshot?.sessionId ?? null,
+    };
+  if (name === 'inheritSession')
+    return { sessionId: value.sessionId, snapshotSessionId: value.snapshot?.sessionId ?? null };
   if (name === 'agentRoomAction-update') return { name: value.name, members: value.members };
   if (name.startsWith('start')) {
     // remoteEnabled/remoteSessionId: snapshotWithRemoteSession fields of the host relay (reported gap)
     const { remoteEnabled: _a, remoteSessionId: _b, ...rest } = value;
     return rest;
   }
-  if (name === 'setFast' || name === 'setModelRoute') return { provider: value.provider, model: value.model, fast: value.fast };
+  if (name === 'setFast' || name === 'setModelRoute')
+    return { provider: value.provider, model: value.model, fast: value.fast };
   return value;
 };
 
@@ -179,20 +243,17 @@ function adapterFor(script) {
     unsubscribeThread: async (threadId) => protocol.call('thread/unsubscribe', { threadId }),
     server: { connection: { device: script.device } },
   };
-  const api = createChatApi(
-    client,
-    {
-      routeService,
-      lane,
-      coreErrorForWindow,
-      normalizedProviderModels,
-      sessionStateOf: () => script.state,
-      whenFolded: (_threadId, resume) => resume().then(() => undefined),
-      whenSettled: async () => undefined,
-      approvalRequestId: (cardId) => cardId,
-      transcript: foldTranscript(client),
-    }
-  );
+  const api = createChatApi(client, {
+    routeService,
+    lane,
+    coreErrorForWindow,
+    normalizedProviderModels,
+    sessionStateOf: () => script.state,
+    whenFolded: (_threadId, resume) => resume().then(() => undefined),
+    whenSettled: async () => undefined,
+    approvalRequestId: (cardId) => cardId,
+    transcript: foldTranscript(client),
+  });
   return { api, sent };
 }
 
@@ -251,12 +312,19 @@ for (const c of recorded.cases) {
     }
     const reply = await invoke[c.call](api, c.args);
     assert.deepEqual(pick(c.name, reply), pick(c.name, c.node.result));
-    if (c.name === 'prefetchSession-limit') assert.deepEqual(sent.find((s) => s.resume), { resume: S, window: { lastItems: 40 } });
+    if (c.name === 'prefetchSession-limit')
+      assert.deepEqual(
+        sent.find((s) => s.resume),
+        { resume: S, window: { lastItems: 40 } }
+      );
     if (c.call === 'resolveToolApprovalForSession' && c.node.result === true) {
-      assert.deepEqual(sent.find((s) => s.method === 'thread/approval/answer'), {
-        method: 'thread/approval/answer',
-        params: { threadId: S, approvalId: 'ap1', result: { approved: true } },
-      });
+      assert.deepEqual(
+        sent.find((s) => s.method === 'thread/approval/answer'),
+        {
+          method: 'thread/approval/answer',
+          params: { threadId: S, approvalId: 'ap1', result: { approved: true } },
+        }
+      );
     }
   });
 }

@@ -3,12 +3,22 @@
 // request's shape and the read's argument rules (ipc-validation.ts validateTurnCapabilityArgs) before anything is sent, then the core
 // over the desktop's capability lane (remote-capability-lane.ts), with the value alone (VALUE_ONLY_SESSION_CAPABILITIES: Node never
 // sent these reads the session's snapshot).
-import { requiredCapabilityRequest, TURN_REVIEW_CAPABILITY_ARITY, validateTurnCapabilityArgs } from '../shared/capability-request';
+import {
+  requiredCapabilityRequest,
+  TURN_REVIEW_CAPABILITY_ARITY,
+  validateTurnCapabilityArgs,
+} from '../shared/capability-request';
 import { requiredSessionId } from '../main/desktop-state';
 import { invokePhoneCapability } from './remote-capability-lane';
 import type { NodeCall, PhoneProtocolAdapter } from './remote-shim-protocol';
 
-const REVIEW_READS = ['getTurnReviewDiff', 'getTurnReviewFilePatch', 'getSessionReviewDiff', 'getSessionReviewFilePatch', 'getTurnChanges'] as const;
+const REVIEW_READS = [
+  'getTurnReviewDiff',
+  'getTurnReviewFilePatch',
+  'getSessionReviewDiff',
+  'getSessionReviewFilePatch',
+  'getTurnChanges',
+] as const;
 type ReviewRead = (typeof REVIEW_READS)[number];
 const READS: ReadonlySet<string> = new Set(REVIEW_READS);
 

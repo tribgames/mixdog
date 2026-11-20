@@ -38,7 +38,13 @@ export interface LocalHostRoleOptions extends Omit<DesktopHostOptions, 'connecti
   onHostFault?: HostFault;
 }
 
-export function createLocalHostRole({ protocol, onClaimFailed, onHostFault, computer, ...options }: LocalHostRoleOptions) {
+export function createLocalHostRole({
+  protocol,
+  onClaimFailed,
+  onHostFault,
+  computer,
+  ...options
+}: LocalHostRoleOptions) {
   // The presence mirror: the pill and the arrow follow the core's section (the in-process coordinator while the section
   // names the desktop's own host as the backend); moving the real mouse releases the agent's pointer in the core.
   const computerPill = createComputerPillSource(Date.now, {
@@ -53,7 +59,11 @@ export function createLocalHostRole({ protocol, onClaimFailed, onHostFault, comp
     );
   });
   // The mirror exists before the host: the computer handlers draw the app input's arrow through it and ask it who drives the computer.
-  const host = createDesktopHost({ ...options, connection: createHostConnection(protocol, onHostFault), computer: { ...computer, mirror: computerPill } });
+  const host = createDesktopHost({
+    ...options,
+    connection: createHostConnection(protocol, onHostFault),
+    computer: { ...computer, mirror: computerPill },
+  });
   let wasReady = false;
   let claimed!: () => void;
   /** Settles once the host role is claimed for the first time (the core's windows of saved servers ask for this desktop's from then on). */

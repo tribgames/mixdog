@@ -137,7 +137,9 @@ export function resolvedStoredProjectPath(stored: string, resolve: (candidate: s
   return resolve(stored) || null;
 }
 
-export const draftModelSelectionFromSnapshot = (snapshot: Snapshot | SessionSnapshot | undefined): DesktopModelSelection | null => {
+export const draftModelSelectionFromSnapshot = (
+  snapshot: Snapshot | SessionSnapshot | undefined
+): DesktopModelSelection | null => {
   // The host holds no shell snapshot until a session start publishes one (`getSnapshot` is null then, in Node too).
   if (!snapshot) return null;
   const provider = String(snapshot.provider || '');

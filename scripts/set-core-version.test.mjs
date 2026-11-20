@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { workspaceVersion } from './check-release-version.mjs';
 import { setCoreVersion } from './set-core-version.mjs';
 
-const MANIFEST = '[workspace]\nmembers = ["crates/a"]\n\n[workspace.package]\nversion = "1.4.5" # == root package.json version\nedition = "2024"\n\n[workspace.dependencies]\nserde = { version = "1.4.5" }\n';
+const MANIFEST =
+  '[workspace]\nmembers = ["crates/a"]\n\n[workspace.package]\nversion = "1.4.5" # == root package.json version\nedition = "2024"\n\n[workspace.dependencies]\nserde = { version = "1.4.5" }\n';
 const LOCK = [
   'version = 4',
   '',
@@ -62,6 +63,10 @@ test('the real workspace crates are all found in the real lock file', async () =
   const root = fileURLToPath(new URL('..', import.meta.url));
   const lock = await readFile(join(root, 'native/core/Cargo.lock'), 'utf8');
   const version = await workspaceVersion(join(root, 'native/core/Cargo.toml'));
-  const members = [...lock.matchAll(new RegExp(`name = "(mixdog-[^"]+)"\\nversion = "${version.replaceAll('.', '\\.')}"\\n(?!source = )`, 'g'))];
+  const members = [
+    ...lock.matchAll(
+      new RegExp(`name = "(mixdog-[^"]+)"\\nversion = "${version.replaceAll('.', '\\.')}"\\n(?!source = )`, 'g')
+    ),
+  ];
   assert.ok(members.length > 30, `found ${members.length} workspace crates at ${version}`);
 });

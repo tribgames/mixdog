@@ -114,7 +114,8 @@ export function useAppSessionActivity({
         (error: unknown) => {
           if (!live) return;
           // A host that showed its first page and then failed to finish the list leaves the catalog incomplete: not ready, read again.
-          if (isIncompleteCatalogError(error)) timer = setTimeout(() => read(attempt + 1), Math.min(30_000, 1_000 * 2 ** attempt));
+          if (isIncompleteCatalogError(error))
+            timer = setTimeout(() => read(attempt + 1), Math.min(30_000, 1_000 * 2 ** attempt));
           else setSessionCatalogReady(true);
         }
       );

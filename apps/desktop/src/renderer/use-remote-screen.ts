@@ -166,8 +166,7 @@ export function useRemoteScreen({
     if (!rtc || !listen) return undefined;
     const generation = relayGeneration.current;
     let hostStopped = false;
-    const shouldNotifyHost = () =>
-      !hostStopped && generation === relayGeneration.current && remoteWebrtcHost(api);
+    const shouldNotifyHost = () => !hostStopped && generation === relayGeneration.current && remoteWebrtcHost(api);
     /** This viewer asked for its replacement already. */
     let resumed = false;
     /** No session of this viewer was asked for yet. */

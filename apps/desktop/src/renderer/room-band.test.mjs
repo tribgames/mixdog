@@ -6,9 +6,24 @@ import test from 'node:test';
 import { installTestDom } from './test-support/test-dom.mjs';
 
 const user = (id) => ({ kind: 'user', id, text: 'hi' });
-const speech = (id, speaker) => ({ kind: 'notice', id, text: 'words', room: { kind: 'speech', speaker, name: speaker } });
-const typing = (id, speaker) => ({ kind: 'notice', id, text: `${speaker}…`, room: { kind: 'typing', speaker, name: speaker.toUpperCase() } });
-const deciding = { kind: 'notice', id: 'room-deciding', text: '…', room: { kind: 'typing', speaker: '', name: '', deciding: true } };
+const speech = (id, speaker) => ({
+  kind: 'notice',
+  id,
+  text: 'words',
+  room: { kind: 'speech', speaker, name: speaker },
+});
+const typing = (id, speaker) => ({
+  kind: 'notice',
+  id,
+  text: `${speaker}…`,
+  room: { kind: 'typing', speaker, name: speaker.toUpperCase() },
+});
+const deciding = {
+  kind: 'notice',
+  id: 'room-deciding',
+  text: '…',
+  room: { kind: 'typing', speaker: '', name: '', deciding: true },
+};
 
 async function selector(t) {
   const { restore } = installTestDom(null, {
@@ -39,7 +54,10 @@ test('the band follows the supplied rows through an exchange: typing, hand-off, 
     const band = bandOf(true, items);
     return band ? band.speaker : null;
   });
-  assert.deepEqual(seen, states.map(([, expected]) => expected));
+  assert.deepEqual(
+    seen,
+    states.map(([, expected]) => expected)
+  );
 });
 
 test('the band is read from the rows alone: the same rows give the same band whatever came before', async (t) => {
@@ -47,7 +65,11 @@ test('the band is read from the rows alone: the same rows give the same band wha
   const items = [user('u1'), typing('t1', 'alpha')];
   bandOf(true, [user('u1'), speech('a1', 'alpha'), typing('t1', 'alpha')]);
   assert.deepEqual(bandOf(true, items), { speaker: 'alpha', name: 'ALPHA', deciding: false });
-  assert.deepEqual(bandOf(true, [user('u1'), deciding]), { speaker: '', name: '', deciding: true }, 'the hand-off is its own state');
+  assert.deepEqual(
+    bandOf(true, [user('u1'), deciding]),
+    { speaker: '', name: '', deciding: true },
+    'the hand-off is its own state'
+  );
   assert.equal(bandOf(true, [user('u1'), speech('a1', 'alpha')]), null, 'no typing row, no band: nothing is held');
   assert.equal(bandOf(false, items), null, 'a conversation that is not a room has no room band');
 });

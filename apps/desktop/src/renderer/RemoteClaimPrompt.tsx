@@ -39,13 +39,16 @@ export function RemoteClaimPrompt() {
     const recovery = startSettingsReadRecovery(async () => {
       const before = claimQueueSnapshot();
       const state = await api.getRemoteConnectionState?.();
-      const claims = state?.claims ?? await api.listRemoteClientClaims?.();
+      const claims = state?.claims ?? (await api.listRemoteClientClaims?.());
       if (!live || !claims || before !== claimQueueSnapshot()) return;
       updateClaimQueue((current) =>
-        claims.reduce((next, value) => {
-          const normalized = normalizeRemoteClientClaim(value);
-          return normalized ? enqueueRemoteClientClaim(next, normalized) : next;
-        }, state?.claims ? [] : current)
+        claims.reduce(
+          (next, value) => {
+            const normalized = normalizeRemoteClientClaim(value);
+            return normalized ? enqueueRemoteClientClaim(next, normalized) : next;
+          },
+          state?.claims ? [] : current
+        )
       );
     }, 10_000);
     return () => {

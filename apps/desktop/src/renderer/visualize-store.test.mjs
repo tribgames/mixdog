@@ -666,7 +666,10 @@ test('a snapshot read is authoritative about holds: held stays held with its sta
   // The release was missed while away: the core's current state is not held.
   resyncVisualizeStates([{ ...middle, active: 'v2' }]);
   assert.equal(visualizeHeldSince('away'), null, 'a state that does not say held is not held');
-  assert.deepEqual(visualizeStateFor('away').tabs.map((entry) => entry.id), ['v1', 'v2']);
+  assert.deepEqual(
+    visualizeStateFor('away').tabs.map((entry) => entry.id),
+    ['v1', 'v2']
+  );
 });
 
 test('the initial read applies holds as a re-read does: a held turn is withheld, and a snapshot that introduces a hold notifies', () => {

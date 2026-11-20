@@ -4,7 +4,15 @@
 // Every answer, error text and event equals what Node's remote methods and relay pushes gave (b6f10295a: remote-methods.ts
 // `terminalRemoteMethods`, remote-relay-push-lanes.ts, run-dispatch.ts); the replay in apps/mobile compares them with the recordings.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
-import { foldsCaseOn, hostPlatformOf, isAbsoluteOn, needsHostDevice, pathText, requiredString, resolveOn } from '../shared/remote-arguments';
+import {
+  foldsCaseOn,
+  hostPlatformOf,
+  isAbsoluteOn,
+  needsHostDevice,
+  pathText,
+  requiredString,
+  resolveOn,
+} from '../shared/remote-arguments';
 import {
   createTerminalOutputDecoder,
   terminalActivityChanges,
@@ -39,7 +47,6 @@ const FILES_LANE = 'files';
 /** How many request ids are remembered; the core re-delivers app-feed events after a reconnect. */
 const REMEMBERED_RUNS = 256;
 
-
 /** The device (`D:`, `\\server\share`) of the working directory of the host's Windows core: what a rooted path (`\dir`) resolves onto. The
  *  phone cannot know it; the host's own resolution of `\` says it (`projectFs/statLocal`). */
 const hostDevices = new WeakMap<object, Promise<string>>();
@@ -59,7 +66,11 @@ const hostDeviceOf = (host: PhoneProtocolHost): Promise<string> => {
 
 /** The registry key of Node's folder watches (`createFolderWatchRegistry`) for a path argument: checked and resolved with the rules of the
  *  host's platform (Node's `absoluteLocalPath`), folded to lower case on a Windows host. `path` is the resolved path the core is asked to watch. */
-async function watchTarget(value: unknown, recursive: boolean, host: PhoneProtocolHost): Promise<{ key: string; path: string }> {
+async function watchTarget(
+  value: unknown,
+  recursive: boolean,
+  host: PhoneProtocolHost
+): Promise<{ key: string; path: string }> {
   const text = pathText(value);
   const platform = hostPlatformOf(host.client().server.platformOs);
   if (!isAbsoluteOn(platform, text)) throw new TypeError('path must be absolute.');
@@ -70,7 +81,8 @@ async function watchTarget(value: unknown, recursive: boolean, host: PhoneProtoc
 const watches = new WeakMap<object, Map<string, { count: number; watchId: string; dir: string }>>();
 let nextWatch = 1;
 
-const sectionValue = (client: Client, section: 'terminalActivity' | 'terminalTabs'): unknown => client.store.section(section, null)?.value;
+const sectionValue = (client: Client, section: 'terminalActivity' | 'terminalTabs'): unknown =>
+  client.store.section(section, null)?.value;
 
 /** Reads the terminal's events from the client that is up and moves to every client that replaces it: a re-pairing dials a new client in
  *  the same page, and Node's relay published to whichever connection was current (remote-relay-push-lanes.ts:64), never to a closed one. */
@@ -92,7 +104,11 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
     unwire = undefined;
   });
   const started = ctx.phone.start();
-  if (!off) void started.then(() => rewire(host.client()), () => undefined);
+  if (!off)
+    void started.then(
+      () => rewire(host.client()),
+      () => undefined
+    );
   else void started.catch(() => undefined);
   return () => {
     stopped = true;
@@ -103,14 +119,18 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
 }
 
 type QueuedOutput = { params: unknown } | { exitStream: unknown };
-type HeldTab = { cut?: TerminalReplayCut; recovery?: { frames: QueuedOutput[] }; retry?: ReturnType<typeof setTimeout> };
+type HeldTab = {
+  cut?: TerminalReplayCut;
+  recovery?: { frames: QueuedOutput[] };
+  retry?: ReturnType<typeof setTimeout>;
+};
 type TerminalOutput = { id: string; data: string; reset?: true };
 
 /** Restores every held tab, including a parked view with no mounted pane. Its output listener survives the park. */
 export function followTerminalOutput(
   read: (id: string) => Promise<unknown>,
   emit: (event: TerminalOutput) => void,
-  ready: () => boolean,
+  ready: () => boolean
 ) {
   const tabs = new Map<string, HeldTab>();
   const output = createTerminalOutputDecoder();
@@ -128,23 +148,26 @@ export function followTerminalOutput(
     const recovery = { frames: tab.recovery?.frames ?? [] };
     tab.recovery = recovery;
     if (!ready()) return;
-    void read(id).then((reply) => {
-      if (tabs.get(id) !== tab || tab.recovery !== recovery) return;
-      const cut = terminalReplayCut(reply);
-      if (cut) {
-        output.end(id);
-        tab.cut = cut;
-        emit({ id, data: terminalReply(reply).replay, reset: true });
+    void read(id).then(
+      (reply) => {
+        if (tabs.get(id) !== tab || tab.recovery !== recovery) return;
+        const cut = terminalReplayCut(reply);
+        if (cut) {
+          output.end(id);
+          tab.cut = cut;
+          emit({ id, data: terminalReply(reply).replay, reset: true });
+        }
+        for (const frame of recovery.frames) {
+          if ('params' in frame) publish(frame.params, tab.cut);
+          else ended(id, tab, frame.exitStream);
+        }
+        delete tab.recovery;
+      },
+      () => {
+        if (tabs.get(id) !== tab || tab.recovery !== recovery || !ready()) return;
+        tab.retry = setTimeout(() => recover(id, tab), 1_000);
       }
-      for (const frame of recovery.frames) {
-        if ('params' in frame) publish(frame.params, tab.cut);
-        else ended(id, tab, frame.exitStream);
-      }
-      delete tab.recovery;
-    }, () => {
-      if (tabs.get(id) !== tab || tab.recovery !== recovery || !ready()) return;
-      tab.retry = setTimeout(() => recover(id, tab), 1_000);
-    });
+    );
   };
   const forget = (id: string) => {
     clearTimeout(tabs.get(id)?.retry);
@@ -207,8 +230,10 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
     let connection = '';
     const output = followTerminalOutput(
       (id) => rpc(client, 'terminal/attach', { tabId: id }),
-      (event) => { if (laneInUse()) ctx.fanOut(ctx.termListeners, event); },
-      () => client.status.state === 'ready',
+      (event) => {
+        if (laneInUse()) ctx.fanOut(ctx.termListeners, event);
+      },
+      () => client.status.state === 'ready'
     );
     const remember = (reply: unknown): void => {
       const info = reply as { client?: unknown; id?: unknown } | null;
@@ -222,7 +247,8 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
 
     const onGap = () => output.gap();
     window.addEventListener('mixdog:remote-terminal-gap', onGap);
-    const watchDirs = (): Map<string, string> => new Map([...(watches.get(ctx) ?? [])].map(([, watch]) => [watch.watchId, watch.dir]));
+    const watchDirs = (): Map<string, string> =>
+      new Map([...(watches.get(ctx) ?? [])].map(([, watch]) => [watch.watchId, watch.dir]));
     const ranRequests = new Set<string>();
     const offEvents = client.on((event) => {
       if (event.type === 'status' && event.status.state === 'ready') output.ready();
@@ -299,7 +325,10 @@ export const adapter: PhoneProtocolAdapter = {
     },
     termActivity: async (_params, host) => terminalActivityRows(sectionValue(host.client(), 'terminalActivity')),
     termFocus: async ([id, focused], host) => {
-      await rpc(host.client(), 'terminal/focus', { tabId: requiredString(id, 'terminal id', 128), focused: focused === true });
+      await rpc(host.client(), 'terminal/focus', {
+        tabId: requiredString(id, 'terminal id', 128),
+        focused: focused === true,
+      });
       return null;
     },
     folderWatch: async ([dir, recursive], host) => {

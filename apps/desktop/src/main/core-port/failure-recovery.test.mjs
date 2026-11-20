@@ -5,7 +5,10 @@ import { BootReports } from './boot-progress.ts';
 import { watchRecovery } from './failure-recovery.ts';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
-const exited = (path) => Object.assign(new Error('ended'), { coreExit: { code: 2, signal: null, reason: 'exited with code 2', stderrPath: path } });
+const exited = (path) =>
+  Object.assign(new Error('ended'), {
+    coreExit: { code: 2, signal: null, reason: 'exited with code 2', stderrPath: path },
+  });
 const confirmedReports = () => {
   const reports = new BootReports();
   reports.attempt().failed(exited('a'));
@@ -14,11 +17,20 @@ const confirmedReports = () => {
 };
 const serving = { state: 'serving', rpcPort: 4242, pid: 77 };
 
-test('observing recovery never interferes with reporting the failure: a watch that throws is not the listeners\' error, and every window hears it', async () => {
+test("observing recovery never interferes with reporting the failure: a watch that throws is not the listeners' error, and every window hears it", async () => {
   const reports = new BootReports();
   const heard = [];
   reports.subscribe((report) => heard.push(report.failure));
-  watchRecovery({ ensureRoot() {}, log() {}, reports, runtimeRoot: 'C:\\absent\\runtime', readState: async () => serving, watch: () => { throw new Error('ENOENT'); } });
+  watchRecovery({
+    ensureRoot() {},
+    log() {},
+    reports,
+    runtimeRoot: 'C:\\absent\\runtime',
+    readState: async () => serving,
+    watch: () => {
+      throw new Error('ENOENT');
+    },
+  });
   reports.subscribe((report) => heard.push(report.failure));
   reports.attempt().failed(exited('a'));
   const second = reports.attempt().failed(exited('b'));
@@ -31,7 +43,10 @@ test('recovery makes sure the runtime directory exists, watches it, and only the
   const reports = confirmedReports();
   const order = [];
   watchRecovery({
-    reports, runtimeRoot: 'C:\\data\\runtime', runs: () => true, log() {},
+    reports,
+    runtimeRoot: 'C:\\data\\runtime',
+    runs: () => true,
+    log() {},
     ensureRoot: () => order.push('ensure'),
     watch: () => (order.push('watch'), { close() {} }),
     readState: async () => (order.push('read'), serving),
@@ -45,8 +60,13 @@ test('a watch that cannot be installed is recorded in the diagnostics log with i
   const reports = confirmedReports();
   const logged = [];
   watchRecovery({
-    reports, runtimeRoot: 'C:\\data\\runtime', readState: async () => ({ state: 'booting', rpcPort: null }), ensureRoot() {},
-    watch: () => { throw new Error('EPERM: watch denied'); },
+    reports,
+    runtimeRoot: 'C:\\data\\runtime',
+    readState: async () => ({ state: 'booting', rpcPort: null }),
+    ensureRoot() {},
+    watch: () => {
+      throw new Error('EPERM: watch denied');
+    },
     log: (event, fields) => logged.push([event, fields]),
   });
   await tick();
@@ -55,7 +75,18 @@ test('a watch that cannot be installed is recorded in the diagnostics log with i
   assert.match(logged[0][1].message, /EPERM/);
   assert.ok(reports.confirmed(), 'the card and Try again remain');
   const failing = [];
-  watchRecovery({ reports, runtimeRoot: 'r', readState: async () => serving, ensureRoot: () => { throw new Error('EACCES: cannot create'); }, watch() { throw new Error('unreachable'); }, log: (event, fields) => failing.push(fields.message) });
+  watchRecovery({
+    reports,
+    runtimeRoot: 'r',
+    readState: async () => serving,
+    ensureRoot: () => {
+      throw new Error('EACCES: cannot create');
+    },
+    watch() {
+      throw new Error('unreachable');
+    },
+    log: (event, fields) => failing.push(fields.message),
+  });
   await tick();
   assert.match(failing[0], /EACCES/, 'a directory that cannot be made is recorded too');
 });
@@ -64,8 +95,13 @@ test('a watch that stops is replaced, and the replacement looks at what it misse
   const ends = [];
   let installed = 0;
   let discovery = { state: 'booting', rpcPort: null, pid: 77 };
-  watchRecovery({ ensureRoot() {}, log() {},
-    reports, runtimeRoot: 'r', readState: async () => discovery, runs: () => true,
+  watchRecovery({
+    ensureRoot() {},
+    log() {},
+    reports,
+    runtimeRoot: 'r',
+    readState: async () => discovery,
+    runs: () => true,
     watch: (_directory, _onChange, onEnd) => {
       installed += 1;
       ends.push(onEnd);
@@ -85,8 +121,13 @@ test('a stale discovery document does not clear a real failure: a serving state 
   const reports = confirmedReports();
   let alive = false;
   let onChange;
-  watchRecovery({ ensureRoot() {}, log() {},
-    reports, runtimeRoot: 'r', readState: async () => serving, runs: (pid) => (pid === 77 ? alive : false),
+  watchRecovery({
+    ensureRoot() {},
+    log() {},
+    reports,
+    runtimeRoot: 'r',
+    readState: async () => serving,
+    runs: (pid) => (pid === 77 ? alive : false),
     watch: (_directory, change) => ((onChange = change), { close() {} }),
   });
   await tick();
@@ -102,8 +143,12 @@ test('a read answers for the failure that started it: one outstanding when the f
   let release;
   const slow = new Promise((resolve) => (release = resolve));
   let reads = 0;
-  watchRecovery({ ensureRoot() {}, log() {},
-    reports, runtimeRoot: 'r', runs: () => true,
+  watchRecovery({
+    ensureRoot() {},
+    log() {},
+    reports,
+    runtimeRoot: 'r',
+    runs: () => true,
     readState: () => (reads++ === 0 ? slow : new Promise(() => {})),
     watch: () => ({ close() {} }),
   });
@@ -114,7 +159,7 @@ test('a read answers for the failure that started it: one outstanding when the f
   assert.ok(reports.confirmed() && reports.confirmed() !== first, 'a new failure stands');
   release(serving);
   await tick();
-  assert.ok(reports.confirmed(), 'the old read, answering late, is not the new failure\'s');
+  assert.ok(reports.confirmed(), "the old read, answering late, is not the new failure's");
 });
 
 // Established by measurement, kept as a test: the real directory watch tells of the discovery file's atomic replacement (a staging file

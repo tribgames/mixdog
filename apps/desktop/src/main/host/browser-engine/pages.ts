@@ -13,7 +13,7 @@
  * `host/browser/surface` (registerBrowserSurfaceReport listens to it).
  */
 import type { PageDescriptor, PageFacts } from '../../../../../../packages/protocol/src/index.ts';
-import { type BrowserGuestStateStore } from '../../browser/host-state';
+import type { BrowserGuestStateStore } from '../../browser/host-state';
 import { browserSessionId, type BrowserSessionRegistry } from '../../browser/session-registry';
 import type { createBrowserGuestLifecycle } from '../../browser/guest-lifecycle';
 import type { createBrowserTabs } from '../../browser/tabs';
@@ -36,7 +36,13 @@ export interface PageLeases {
 export interface PagesHost {
   sessions: Pick<
     BrowserSessionRegistry,
-    'visibleGuests' | 'backgroundPages' | 'currentGuest' | 'liveGuest' | 'backgroundPageForGuest' | 'setAgentPage' | 'sessionIdForGuest'
+    | 'visibleGuests'
+    | 'backgroundPages'
+    | 'currentGuest'
+    | 'liveGuest'
+    | 'backgroundPageForGuest'
+    | 'setAgentPage'
+    | 'sessionIdForGuest'
   >;
   tabs: Pick<ReturnType<typeof createBrowserTabs>, 'resolveTargetGuest'>;
   lifecycle: Pick<
@@ -101,7 +107,14 @@ function describe(
   origin: Origin = { created: false, disposable: false }
 ): PageDescriptor {
   const pageId = host.store.pageId(page.guest);
-  return { pageId, tabId: page.tabId, sessionId, background: page.background, ...origin, facts: ctx.events.facts(pageId) };
+  return {
+    pageId,
+    tabId: page.tabId,
+    sessionId,
+    background: page.background,
+    ...origin,
+    facts: ctx.events.facts(pageId),
+  };
 }
 
 async function resolve(host: PagesHost, ctx: EngineContext, params: Record<string, unknown>, signal: AbortSignal) {
@@ -131,7 +144,8 @@ async function resolve(host: PagesHost, ctx: EngineContext, params: Record<strin
     throw new HostRpcError(ENGINE_ERROR.failed, 'No browser page is open; navigate or use background:true.');
   }
   // An agent command with no tab wants a visible page of its own; an adopting one takes the pane's page.
-  const guest = target?.guest ?? (await lifecycle.ensureGuest(sessionId, { reveal: false, adopt: params.adopt === true }));
+  const guest =
+    target?.guest ?? (await lifecycle.ensureGuest(sessionId, { reveal: false, adopt: params.adopt === true }));
   const created = !known.has(guest);
   const hidden = target?.background === true;
   // `open` shows a page the person can already see; a page this call had to make is not one.
@@ -258,10 +272,8 @@ async function surface(host: PagesHost, ctx: EngineContext, params: Record<strin
 
 /** Registers `host/browser/pages/*`. */
 export function registerPages(connection: HostConnection, ctx: EngineContext, host: PagesHost): void {
-  const on = (
-    method: string,
-    handler: (params: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>
-  ) => registerEngineSessionMethod(connection, ctx, `host/browser/pages/${method}`, handler);
+  const on = (method: string, handler: (params: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>) =>
+    registerEngineSessionMethod(connection, ctx, `host/browser/pages/${method}`, handler);
   on('resolve', (params, signal) => resolve(host, ctx, params, signal));
   on('list', (params) => list(host, ctx, params));
   on('close', (params) => close(host, ctx, params));

@@ -9,13 +9,22 @@ export function adaptersOf(modules: Record<string, { adapter?: PhoneProtocolAdap
     .sort()
     .map((path) => {
       const adapter = modules[path].adapter;
-      const answers = adapter && [adapter.calls, adapter.fires, adapter.capabilities].some((table) => typeof table === 'object' && table !== null);
-      if (!adapter || typeof adapter.group !== 'string' || !answers) throw new Error(`${path} exports no phone adapter`);
+      const answers =
+        adapter &&
+        [adapter.calls, adapter.fires, adapter.capabilities].some(
+          (table) => typeof table === 'object' && table !== null
+        );
+      if (!adapter || typeof adapter.group !== 'string' || !answers)
+        throw new Error(`${path} exports no phone adapter`);
       return adapter;
     });
 }
 
 /** The adapters the bundle holds, in file-name order. */
 export function bundledPhoneAdapters(): PhoneProtocolAdapter[] {
-  return adaptersOf(import.meta.glob<{ adapter?: PhoneProtocolAdapter }>(['./remote-protocol-*.ts', '!./remote-protocol-queue.ts'], { eager: true }));
+  return adaptersOf(
+    import.meta.glob<{ adapter?: PhoneProtocolAdapter }>(['./remote-protocol-*.ts', '!./remote-protocol-queue.ts'], {
+      eager: true,
+    })
+  );
 }

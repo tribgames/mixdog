@@ -338,7 +338,10 @@ test('a delivered message does not come back as a queued bubble when the settled
   assert.equal(pane.bubble('sub-1'), undefined, 'no optimistic twin beside the durable row');
   // A compaction folds rows, or a bounded/reloaded window drops the oldest:
   // the user count falls below the baseline. The twin must be gone for good.
-  const shrunk = [{ kind: 'assistant', id: 'a1', text: 'Next.' }, { kind: 'turndone', id: 'd1' }];
+  const shrunk = [
+    { kind: 'assistant', id: 'a1', text: 'Next.' },
+    { kind: 'turndone', id: 'd1' },
+  ];
   await pane.show({ settledItems: shrunk });
   assert.deepEqual(waiting(), [], 'no "Send now" bubble after the count drops');
   assert.equal(pane.bubble('sub-1'), undefined);

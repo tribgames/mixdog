@@ -21,7 +21,15 @@ export const put = (file, text = 'x') => {
 
 export const LIBRARY = { win32: 'onnxruntime.dll', linux: 'libonnxruntime.so.1', darwin: 'libonnxruntime.1.dylib' };
 const SIBLINGS = {
-  win32: ['onnxruntime_binding.node', 'DirectML.dll', 'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'],
+  win32: [
+    'onnxruntime_binding.node',
+    'DirectML.dll',
+    'msvcp140.dll',
+    'msvcp140_1.dll',
+    'msvcp140_atomic_wait.dll',
+    'vcruntime140.dll',
+    'vcruntime140_1.dll',
+  ],
   linux: ['onnxruntime_binding.node'],
   darwin: ['onnxruntime_binding.node'],
 };
@@ -37,10 +45,14 @@ export function modulesTree(modules, platform, arch) {
   put(join(modules, 'alpha/package.json'), JSON.stringify({ name: 'alpha', dependencies: { beta: '1' } }));
   put(join(modules, 'beta/package.json'), JSON.stringify({ name: 'beta' }));
   // The desktop on Linux routes sharp to its WebAssembly build by name (desktopExtraRoots).
-  if (platform === 'linux') put(join(modules, '@img/sharp-wasm32/package.json'), JSON.stringify({ name: '@img/sharp-wasm32' }));
+  if (platform === 'linux')
+    put(join(modules, '@img/sharp-wasm32/package.json'), JSON.stringify({ name: '@img/sharp-wasm32' }));
   put(join(modules, CLOSURE_RECORD), JSON.stringify({ skippedOptional: [] }));
   if (platform === 'darwin' && arch === 'x64') return;
-  put(join(modules, 'onnxruntime-node', 'package.json'), JSON.stringify({ name: 'onnxruntime-node', version: '1.23.0' }));
+  put(
+    join(modules, 'onnxruntime-node', 'package.json'),
+    JSON.stringify({ name: 'onnxruntime-node', version: '1.23.0' })
+  );
   const binary = join(modules, 'onnxruntime-node', ortBinaryDir(platform, arch));
   put(join(binary, LIBRARY[platform]));
   for (const sibling of SIBLINGS[platform]) put(join(binary, sibling));
@@ -56,7 +68,8 @@ export function install(kind, platform, arch, top = makeTempDirSync(`core-layout
   put(join(dir, 'js-runtime.json'), JSON.stringify(manifest));
   put(join(dir, manifest.program));
   for (const file of OFFICE_TEMPLATE_FILES) put(join(dir, OFFICE_TEMPLATES_DIR, file));
-  const modules = kind === 'desktop' ? join(root, 'runtime.asar.unpacked/node_modules') : join(root, 'js/pkg/node_modules');
+  const modules =
+    kind === 'desktop' ? join(root, 'runtime.asar.unpacked/node_modules') : join(root, 'js/pkg/node_modules');
   modulesTree(modules, platform, arch);
   return { root, dir, modules, top };
 }

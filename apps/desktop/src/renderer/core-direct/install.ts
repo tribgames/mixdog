@@ -59,17 +59,20 @@ export async function installDirectDesktopApi(options: InstallOptions = {}): Pro
   const live = connection;
   const events = typeof window === 'undefined' ? undefined : window;
   watchWake({
-    check: () => server
-      ? Promise.all([live.protocolClient()?.checkLink(), pcCoreClient()?.checkLink()])
-      : live.protocolClient()?.checkLink(),
+    check: () =>
+      server
+        ? Promise.all([live.protocolClient()?.checkLink(), pcCoreClient()?.checkLink()])
+        : live.protocolClient()?.checkLink(),
     events,
   });
   ctx.setSender((client, method, params) => sizedCall(client as never, method, params));
   // The management client carries only PC requests and scoped feeds. It cannot wait for the server it may need to reconnect.
   if (server && bridge) {
-    noteFirstPcCoreOpen(openDirectClient({ bridge, version: desktopPackage.version, slot: 'pc' }).catch((error: unknown) => {
-      console.error('The PC connection did not open:', error);
-    }));
+    noteFirstPcCoreOpen(
+      openDirectClient({ bridge, version: desktopPackage.version, slot: 'pc' }).catch((error: unknown) => {
+        console.error('The PC connection did not open:', error);
+      })
+    );
     events?.addEventListener(CONNECTION_REATTACHED_EVENT, () => {
       // A long outage may have exhausted the primary open. Leave healthy or still-retrying clients alone.
       if (live.status === 'closed') void live.ensureOpen().catch(() => undefined);

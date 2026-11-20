@@ -1,18 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import {
-  access,
-  chmod,
-  cp,
-  mkdir,
-  open,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { access, chmod, cp, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
@@ -263,8 +251,11 @@ async function prepareMainNative() {
   await mkdir(outputDirectory, { recursive: true });
   const targetRoot = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : join(crateRoot, 'target');
   await cp(join(targetRoot, triple, 'release', mainNativeBuiltFileName), output);
-  await writeFile(cacheMarker, `${JSON.stringify(identity, null, 2)}
-`);
+  await writeFile(
+    cacheMarker,
+    `${JSON.stringify(identity, null, 2)}
+`
+  );
   return { binary: output, identity };
 }
 
@@ -677,20 +668,31 @@ async function prepareRuntime(manifest, fingerprint) {
     // Local preparation keeps tarballs/logs in a disposable cache (see runNpm); CI supplies its restored cache.
     process.env.npm_config_cache = npmCacheDir;
     await timed('npm-ci', () =>
-      installProductionModules(stagingDir, embeddingTarget.key, { extraRoots: desktopExtraRoots(embeddingTarget.platform) })
+      installProductionModules(stagingDir, embeddingTarget.key, {
+        extraRoots: desktopExtraRoots(embeddingTarget.platform),
+      })
     );
     const onnx = onnxRuntimeSupported(embeddingTarget.platform, embeddingTarget.arch);
     const ortBinarySource = onnx
       ? join(stagingDir, 'node_modules', ORT_PACKAGE, ortBinaryDir(embeddingTarget.platform, embeddingTarget.arch))
       : null;
-    if (onnx && !(await stat(join(ortBinarySource, 'onnxruntime_binding.node')).then((entry) => entry.isFile(), () => false))) {
-      throw new Error(`Embedding runtime is incomplete: missing ${embeddingTarget.key} ONNX binding in ${ortBinarySource}`);
+    if (
+      onnx &&
+      !(await stat(join(ortBinarySource, 'onnxruntime_binding.node')).then(
+        (entry) => entry.isFile(),
+        () => false
+      ))
+    ) {
+      throw new Error(
+        `Embedding runtime is incomplete: missing ${embeddingTarget.key} ONNX binding in ${ortBinarySource}`
+      );
     }
     if (onnx && embeddingTarget.platform === 'win32') {
       await timed('vc-runtime-copy', async () => {
         // The fixed production embedding profile uses CPU inference. DirectML.dll stays for explicit device
         // overrides; the optional DXC shader compiler payload was verified unnecessary by packaged-runtime warmup.
-        for (const name of WINDOWS_DML_PRUNABLE_FILES) await rm(join(ortBinarySource, name), { force: true, maxRetries: 10, retryDelay: 250 });
+        for (const name of WINDOWS_DML_PRUNABLE_FILES)
+          await rm(join(ortBinarySource, name), { force: true, maxRetries: 10, retryDelay: 250 });
         const crtDir = await windowsVcRuntimeDir(embeddingTarget.arch);
         for (const name of WINDOWS_ONNX_VC_RUNTIME_DLLS) {
           await cp(join(crtDir, name), join(ortBinarySource, name));
@@ -746,7 +748,10 @@ async function prepareRuntime(manifest, fingerprint) {
       for (const entry of await readdir(builderNativeModulesDir, { recursive: true, withFileTypes: true })) {
         if (!entry.isFile() || !NATIVE_BINARY_NAME.test(entry.name)) continue;
         const source = join(entry.parentPath, entry.name);
-        await assertTargetArchitecture(source, `Runtime addon ${relative(builderNativeModulesDir, source).replaceAll(sep, '/')}`);
+        await assertTargetArchitecture(
+          source,
+          `Runtime addon ${relative(builderNativeModulesDir, source).replaceAll(sep, '/')}`
+        );
         found.push(source);
       }
       return found;

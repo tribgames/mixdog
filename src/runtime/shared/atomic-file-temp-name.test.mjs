@@ -5,9 +5,6 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 
-
-
-
 import {
   writeFileAtomicAsync,
   writeFileAtomicSync,
@@ -93,4 +90,3 @@ test('a basename whose old-shape temp fit in 255 characters still publishes', as
   assert.deepEqual(JSON.parse(fs.readFileSync(path, 'utf8')), { n: 2 });
   assert.deepEqual(fs.readdirSync(dir), [name]);
 });
-

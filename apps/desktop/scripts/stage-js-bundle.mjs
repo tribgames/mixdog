@@ -57,7 +57,10 @@ const splitKey = (key) => {
   return { platform, arch };
 };
 
-const sha256File = async (file) => createHash('sha256').update(await readFile(file)).digest('hex');
+const sha256File = async (file) =>
+  createHash('sha256')
+    .update(await readFile(file))
+    .digest('hex');
 
 /** The pinned Node of `key`: downloads its release tarball (checked against the pinned sha256), keeps only
  *  `bin/node` and `LICENSE`. Cached under `cacheDir`. */
@@ -90,7 +93,15 @@ export async function fetchPinnedNode(key, cacheDir, { pin, fetchImpl = fetch } 
   }
   await rm(dir, { recursive: true, force: true });
   await mkdir(dir, { recursive: true });
-  await execFileAsync('tar', ['-xzf', archive, '-C', dir, '--strip-components=1', `${name}/bin/node`, `${name}/LICENSE`]);
+  await execFileAsync('tar', [
+    '-xzf',
+    archive,
+    '-C',
+    dir,
+    '--strip-components=1',
+    `${name}/bin/node`,
+    `${name}/LICENSE`,
+  ]);
   await cp(join(dir, 'bin', 'node'), node);
   await rm(join(dir, 'bin'), { recursive: true, force: true });
   return { node, license, version: wanted.version };
@@ -128,7 +139,12 @@ export async function installProductionModules(pkgDir, key, { packageRootDir = r
   // The ONNX Runtime library the core loads is the one inside onnxruntime-node; no JS entry imports the
   // package (the core loads the library itself), so it is a root of its own, where the platform has one.
   const withOrt = onnxRuntimeSupported(platform, arch);
-  const target = { os: platform, cpu: arch, libc: platform === 'linux' ? 'glibc' : undefined, keep: new Set(extraRoots) };
+  const target = {
+    os: platform,
+    cpu: arch,
+    libc: platform === 'linux' ? 'glibc' : undefined,
+    keep: new Set(extraRoots),
+  };
   const trimmed = trimManifest({
     manifest: JSON.parse(await readFile(join(packageRootDir, 'package.json'), 'utf8')),
     lock: JSON.parse(await readFile(join(packageRootDir, 'package-lock.json'), 'utf8')),
@@ -155,7 +171,8 @@ export async function installProductionModules(pkgDir, key, { packageRootDir = r
   // package.json decides; then the whole reached tree, not just the roots, must be there.
   const inapplicable = new Set([...trimmed.inapplicable, ...pruneInapplicable(join(pkgDir, 'node_modules'), target)]);
   for (const name of [...roots.keys(), ...extraRoots]) {
-    if (!existsSync(join(pkgDir, 'node_modules', name, 'package.json'))) throw new Error(`${name} is reached from the remote entry points but was not installed`);
+    if (!existsSync(join(pkgDir, 'node_modules', name, 'package.json')))
+      throw new Error(`${name} is reached from the remote entry points but was not installed`);
   }
   verifyInstalledTree(pkgDir, inapplicable);
   // The package carries every platform's binaries; this payload keeps the target's directory (the library,
@@ -171,7 +188,9 @@ export async function installProductionModules(pkgDir, key, { packageRootDir = r
 /** The files `npm pack` would publish (src/ and package.json, as the desktop's runtime package). */
 export async function packedFiles() {
   const { stdout } = await npm(['pack', '--dry-run', '--json', '--ignore-scripts'], rootDir);
-  return JSON.parse(stdout)[0].files.map((file) => file.path).filter((path) => path === 'package.json' || path.startsWith('src/'));
+  return JSON.parse(stdout)[0]
+    .files.map((file) => file.path)
+    .filter((path) => path === 'package.json' || path.startsWith('src/'));
 }
 
 /** Builds `payloadDir` for the server `key`. */
@@ -208,7 +227,10 @@ export async function buildJsPayload({
   // integrity check of the finished payload (and of the bundle's unpacked copy) accepts exactly those.
   recordClosure(join(pkgDir, 'node_modules'));
   const { platform, arch } = splitKey(key);
-  await writeFile(join(payloadDir, JS_RUNTIME_MANIFEST), `${JSON.stringify(remoteJsRuntimeManifest(platform, arch), null, 2)}\n`);
+  await writeFile(
+    join(payloadDir, JS_RUNTIME_MANIFEST),
+    `${JSON.stringify(remoteJsRuntimeManifest(platform, arch), null, 2)}\n`
+  );
   // The Office engine reads its templates beside the executable; the payload's entries move beside `mixdogd`.
   await stageOfficeTemplates(payloadDir);
   return { nodeVersion: node.version };

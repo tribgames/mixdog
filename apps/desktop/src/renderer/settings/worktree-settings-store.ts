@@ -53,7 +53,8 @@ function setProblem(kind: keyof Problems, reason: string | null): void {
 
 function adopt(value: DesktopWorktreeSettings): void {
   const before = committed;
-  if (before && (Object.keys(value) as (keyof DesktopWorktreeSettings)[]).every((key) => before[key] === value[key])) return;
+  if (before && (Object.keys(value) as (keyof DesktopWorktreeSettings)[]).every((key) => before[key] === value[key]))
+    return;
   committed = value;
   for (const listener of [...readbackListeners]) listener();
 }

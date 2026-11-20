@@ -348,7 +348,10 @@ async function readAllCapabilitySettings(
       await Promise.all(
         chunks.map(async (chunk) => {
           trace('chunk-start', { keys: chunk.map((entry) => entry.key) });
-          const results = await readOrHeld(api, chunk.map((entry) => entry.request));
+          const results = await readOrHeld(
+            api,
+            chunk.map((entry) => entry.request)
+          );
           trace('chunk-done', {
             keys: chunk.map((entry) => entry.key),
             ok: results.map((entry) => entry?.ok === true),

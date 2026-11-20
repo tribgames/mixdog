@@ -13,7 +13,10 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs
 import { builtinModules } from 'node:module';
 import { basename, dirname, join, resolve } from 'node:path';
 
-const FIXED_ENTRIES = Object.freeze(['src/runtime/office/authoring/pptx-script-entry.mjs', 'src/skill-script-entry.mjs']);
+const FIXED_ENTRIES = Object.freeze([
+  'src/runtime/office/authoring/pptx-script-entry.mjs',
+  'src/skill-script-entry.mjs',
+]);
 const SKILLS_DIR = 'src/defaults/skills';
 // The packages an authored script may require are data in the contract, not imports: the runner hands them out with
 // createRequire, so no import names them and the walk reads them from the contract's `require` list.
@@ -45,7 +48,8 @@ const BARE =
   /(?:^|\n)\s*(?:import|export)\s[^'"`;]*?from\s*(['"])([^'".][^'"]*)\1|(?:^|\n)\s*import\s*(['"])([^'".][^'"]*)\3|\b(?:import|require|require\.resolve)\s*\(\s*(['"])([^'".][^'"]*)\5\s*\)/g;
 const PACKAGE_NAME = /^(@[a-z0-9._-]+\/)?[a-z0-9][a-z0-9._-]*$/i;
 
-const packageName = (specifier) => (specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]);
+const packageName = (specifier) =>
+  specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0];
 const resolveFile = (base) =>
   [base, `${base}.mjs`, join(base, 'index.mjs')].find((file) => existsSync(file) && statSync(file).isFile()) ?? null;
 
@@ -57,10 +61,14 @@ export function deriveRemoteRoots({ packageRootDir, entries = remoteJsEntries(pa
   const visited = new Set();
   const note = (file) => {
     const source = readFileSync(file, 'utf8');
-    const contracted = relative(file) === SCRIPT_CONTRACT ? [...(CONTRACT_REQUIRE.exec(source)?.[1] ?? '').matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]) : [];
+    const contracted =
+      relative(file) === SCRIPT_CONTRACT
+        ? [...(CONTRACT_REQUIRE.exec(source)?.[1] ?? '').matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1])
+        : [];
     for (const specifier of contracted) {
       const bare = specifier.replace(/^node:/, '');
-      if (BUILTINS.has(bare) || BUILTINS.has(bare.split('/')[0]) || !PACKAGE_NAME.test(packageName(specifier))) continue;
+      if (BUILTINS.has(bare) || BUILTINS.has(bare.split('/')[0]) || !PACKAGE_NAME.test(packageName(specifier)))
+        continue;
       roots.set(packageName(specifier), [...(roots.get(packageName(specifier)) ?? []), relative(file)]);
     }
     for (const match of source.matchAll(BARE)) {
@@ -102,8 +110,10 @@ export function trimManifest({ manifest, lock, roots, target }) {
   const dependencies = {};
   for (const name of [...roots].sort()) {
     const wanted = manifest.dependencies?.[name];
-    if (!wanted) throw new Error(`${name} is reached from the remote entry points but is not a dependency in package.json`);
-    if (!lock.packages[`node_modules/${name}`]) throw new Error(`${name} is reached from the remote entry points but is not in package-lock.json`);
+    if (!wanted)
+      throw new Error(`${name} is reached from the remote entry points but is not a dependency in package.json`);
+    if (!lock.packages[`node_modules/${name}`])
+      throw new Error(`${name} is reached from the remote entry points but is not in package-lock.json`);
     dependencies[name] = wanted;
   }
   const lookup = (from, name) => {
@@ -121,7 +131,11 @@ export function trimManifest({ manifest, lock, roots, target }) {
     if (keep.has(path)) return;
     keep.add(path);
     const entry = lock.packages[path];
-    for (const [kind, group] of [['dependency', entry.dependencies], ['optional dependency', entry.optionalDependencies], ['peer dependency', entry.peerDependencies]]) {
+    for (const [kind, group] of [
+      ['dependency', entry.dependencies],
+      ['optional dependency', entry.optionalDependencies],
+      ['peer dependency', entry.peerDependencies],
+    ]) {
       for (const name of Object.keys(group ?? {})) {
         const found = lookup(path, name);
         if (found) {
@@ -154,11 +168,14 @@ export function trimManifest({ manifest, lock, roots, target }) {
 }
 
 const allowed = (list, value) =>
-  !list || list.length === 0 || (list.some((item) => item.startsWith('!')) ? !list.includes(`!${value}`) : list.includes(value));
+  !list ||
+  list.length === 0 ||
+  (list.some((item) => item.startsWith('!')) ? !list.includes(`!${value}`) : list.includes(value));
 
 /** Packages that declare no `os`/`cpu`/`libc` yet are not for the remote's plain Node, by exact name. */
 export const NOT_FOR_REMOTE = Object.freeze({
-  '@img/sharp-wasm32': "sharp's wasm build, which sharp loads only under Electron on Linux; the remote's Node uses the native @img package",
+  '@img/sharp-wasm32':
+    "sharp's wasm build, which sharp loads only under Electron on Linux; the remote's Node uses the native @img package",
 });
 
 /** Whether a package installs on `target` ({ os, cpu, libc? }): its declared os/cpu/libc (npm's rules) and
@@ -186,7 +203,8 @@ export function installedClosure(modulesDir, roots, tolerate = () => false) {
   // `modulesDir` is the tree's top `node_modules` whatever it is called (the desktop stages it as `native-modules`).
   const find = (owner, name) => {
     for (let at = owner; ; at = dirname(at)) {
-      const candidate = at === modulesDir ? join(at, name) : basename(at) === 'node_modules' ? null : join(at, 'node_modules', name);
+      const candidate =
+        at === modulesDir ? join(at, name) : basename(at) === 'node_modules' ? null : join(at, 'node_modules', name);
       if (candidate && existsSync(join(candidate, 'package.json'))) return candidate;
       if (at === modulesDir || at === dirname(at)) return null;
     }
@@ -198,7 +216,11 @@ export function installedClosure(modulesDir, roots, tolerate = () => false) {
     if (dirs.has(dir)) return;
     dirs.add(dir);
     const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
-    for (const [kind, group] of [['dependency', manifest.dependencies], ['optional dependency', manifest.optionalDependencies], ['peer dependency', manifest.peerDependencies]]) {
+    for (const [kind, group] of [
+      ['dependency', manifest.dependencies],
+      ['optional dependency', manifest.optionalDependencies],
+      ['peer dependency', manifest.peerDependencies],
+    ]) {
       for (const name of Object.keys(group ?? {})) {
         const found = find(dir, name);
         if (found) visit(found);
@@ -228,7 +250,8 @@ function installedPackages(modulesDir) {
       if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
       const path = join(dir, entry.name);
       if (entry.name.startsWith('@')) {
-        for (const scoped of readdirSync(path, { withFileTypes: true })) if (scoped.isDirectory()) add(`${entry.name}/${scoped.name}`, join(path, scoped.name));
+        for (const scoped of readdirSync(path, { withFileTypes: true }))
+          if (scoped.isDirectory()) add(`${entry.name}/${scoped.name}`, join(path, scoped.name));
       } else add(entry.name, path);
     }
   };
@@ -267,9 +290,16 @@ export function verifyInstalledTree(pkgDir, inapplicable) {
       if (at === pkgDir || at === dirname(at)) return false;
     }
   };
-  const owners = [['(root)', pkgDir, JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'))], ...installedPackages(modulesDir)];
+  const owners = [
+    ['(root)', pkgDir, JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'))],
+    ...installedPackages(modulesDir),
+  ];
   for (const [owner, dir, manifest] of owners) {
-    for (const [kind, group] of [['dependency', manifest.dependencies], ['optional dependency', manifest.optionalDependencies], ['peer dependency', manifest.peerDependencies]]) {
+    for (const [kind, group] of [
+      ['dependency', manifest.dependencies],
+      ['optional dependency', manifest.optionalDependencies],
+      ['peer dependency', manifest.peerDependencies],
+    ]) {
       for (const name of Object.keys(group ?? {})) {
         if (resolves(dir, name)) continue;
         if (kind === 'optional dependency' && inapplicable.has(name)) continue;

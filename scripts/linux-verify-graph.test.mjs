@@ -316,12 +316,17 @@ test('release graph with the pre-fix conditions: publish would have proceeded wi
   assert.equal(broken.inner['linux-verify-full'].results['update-path'], 'skipped');
 });
 
-
 test('a release builds server bundles once and verifies its actual Linux packages', () => {
   assert.equal(release.jobs['server-cores'].uses, './.github/workflows/server-cores-build.yml');
   assert.ok(needsOf(release.jobs['server-cores']).includes('mixdogd'));
   assert.ok(needsOf(release.jobs.publish).includes('server-cores'));
-  for (const name of ['desktop-windows', 'desktop-darwin-arm64', 'desktop-darwin-x64', 'desktop-linux-x64', 'desktop-linux-arm64']) {
+  for (const name of [
+    'desktop-windows',
+    'desktop-darwin-arm64',
+    'desktop-darwin-x64',
+    'desktop-linux-x64',
+    'desktop-linux-arm64',
+  ]) {
     assert.ok(!needsOf(release.jobs[name]).includes('mixdogd'), `${name} should prepare while cores build`);
   }
   assert.equal(release.jobs['linux-verify-full'].with.server_cores_prebuilt, true);
@@ -348,7 +353,10 @@ test('release: Linux proofs use the packagers’ immutable artifacts and do not 
   const upload = packager.steps.find((step) => step.name === 'Upload the Linux packages for verification');
   assert.match(upload.uses, /^actions\/upload-artifact@/);
   assert.equal(packager.outputs.linux_package_id, `\${{ steps.${upload.id}.outputs.artifact-id }}`);
-  assert.equal(desktopPackage.on.workflow_call.outputs.linux_package_id.value, '${{ jobs.package.outputs.linux_package_id }}');
+  assert.equal(
+    desktopPackage.on.workflow_call.outputs.linux_package_id.value,
+    '${{ jobs.package.outputs.linux_package_id }}'
+  );
 
   assert.equal(full.permissions.actions, 'read');
   assert.equal(full.with.arm64_tests_only, true);
@@ -373,16 +381,18 @@ test('release: Linux proofs use the packagers’ immutable artifacts and do not 
   const testLegs = (value) => JSON.parse(value).include.map((leg) => `${leg.arch}-${leg.suite}-${leg.shard}`);
   const arm64Legs = ['arm64-root-1', 'arm64-desktop-1', 'arm64-desktop-2'];
   assert.deepEqual(testLegs(arm64Only), arm64Legs);
-  assert.deepEqual(testLegs(all), [
-    'x64-root-1', 'x64-desktop-1', 'x64-desktop-2', ...arm64Legs,
-  ]);
+  assert.deepEqual(testLegs(all), ['x64-root-1', 'x64-desktop-1', 'x64-desktop-2', ...arm64Legs]);
   assert.equal(verify.on.workflow_call.inputs.arm64_tests_only.default, false);
 });
 
 test('release: the process-tree helper is built once per target and every smoke takes it', () => {
   const targets = release.jobs['tree-helper'].strategy.matrix.include.map((leg) => leg.target).sort();
   assert.deepEqual(targets, [
-    'aarch64-apple-darwin', 'aarch64-unknown-linux-gnu', 'x86_64-apple-darwin', 'x86_64-pc-windows-msvc', 'x86_64-unknown-linux-gnu',
+    'aarch64-apple-darwin',
+    'aarch64-unknown-linux-gnu',
+    'x86_64-apple-darwin',
+    'x86_64-pc-windows-msvc',
+    'x86_64-unknown-linux-gnu',
   ]);
   const smoke = release.jobs['core-smoke'];
   assert.ok(needsOf(smoke).includes('tree-helper'));
@@ -398,7 +408,10 @@ test('release: the process-tree helper is built once per target and every smoke 
   assert.match(pack, /tree-helper-\$HELPER_TARGET/);
   // Only the x86_64 relay is built and used.
   const include = load('mixdogd-build.yml').jobs.build.strategy.matrix.include;
-  assert.deepEqual(include.filter((leg) => leg.relay).map((leg) => leg.target), ['x86_64-unknown-linux-gnu']);
+  assert.deepEqual(
+    include.filter((leg) => leg.relay).map((leg) => leg.target),
+    ['x86_64-unknown-linux-gnu']
+  );
 });
 
 test('Linux verification never destroys adopted bundles by calling the restaging package script', () => {

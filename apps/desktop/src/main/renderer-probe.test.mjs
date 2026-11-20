@@ -19,7 +19,8 @@ const at = new Date('2026-01-01T00:00:00Z');
 const script = (overrides = {}) => ({
   invoker: 'DIV#root.onclick',
   invokerType: 'event-listener',
-  sourceURL: 'file:///C:/Users/someone/AppData/Local/Programs/Mixdog/resources/app.asar/out/renderer/assets/index-abc.js',
+  sourceURL:
+    'file:///C:/Users/someone/AppData/Local/Programs/Mixdog/resources/app.asar/out/renderer/assets/index-abc.js',
   sourceFunctionName: 'publishAgentPool',
   sourceCharPosition: 120,
   duration: 61.25,
@@ -63,7 +64,11 @@ test('a frame line carries the reduced locations and refuses non-finite numbers'
     },
   ]);
   assert.equal('prompt' in line, false);
-  assert.equal(JSON.parse(rendererProbeLine(frame({ scripts: [script({ invokerType: 'typed text' })] }), at)).scripts[0].invokerType, PROBE_REDACTED);
+  assert.equal(
+    JSON.parse(rendererProbeLine(frame({ scripts: [script({ invokerType: 'typed text' })] }), at)).scripts[0]
+      .invokerType,
+    PROBE_REDACTED
+  );
   assert.equal(rendererProbeLine(frame({ duration: '80' }), at), null);
   assert.equal(rendererProbeLine(frame({ scripts: [script({ duration: null })] }), at), null);
   assert.equal(rendererProbeLine(frame({ blockingDuration: 1e400 }), at), null, 'Infinity from JSON overflow');
@@ -115,7 +120,10 @@ test('a slow disk drops lines beyond the queue bound and the next summary counts
   assert.equal(log.dropped(), 25);
   await queued;
   await log.write(JSON.stringify({ kind: 'summary', windowMs: 1, frames: 1, longFrames: 0, blockedMs: 0, ipc: {} }));
-  const lines = readFileSync(join(dataDir, 'renderer-perf.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  const lines = readFileSync(join(dataDir, 'renderer-perf.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
   assert.equal(lines.length, PROBE_MAX_PENDING_LINES + 1);
   assert.equal(lines.at(-1).droppedLines, 25);
   assert.equal(log.dropped(), 0);

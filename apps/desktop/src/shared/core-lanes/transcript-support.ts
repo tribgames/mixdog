@@ -1,6 +1,10 @@
 // The transcript sizes and the provider-model normaliser the core lanes share: the pieces of desktop-support.ts that
 // name no path, so the lanes (and the phone's web bundle) import them without node:path.
-export { DESKTOP_TRANSCRIPT_TAIL_ITEMS, REMOTE_TRANSCRIPT_TAIL_BYTES, normalizedProviderModels } from '../desktop-transcript-limits';
+export {
+  DESKTOP_TRANSCRIPT_TAIL_ITEMS,
+  REMOTE_TRANSCRIPT_TAIL_BYTES,
+  normalizedProviderModels,
+} from '../desktop-transcript-limits';
 
 /** Items a runtime restores on resume, and the page an old (non-paging)
  *  remote client keeps receiving. */

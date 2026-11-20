@@ -43,7 +43,13 @@ class FakePort extends EventEmitter {
 
 function webContents(id = 1) {
   const emitter = new EventEmitter();
-  return Object.assign(emitter, { id, delivered: [], postMessage(channel, message, transfer) { this.delivered.push({ channel, message, transfer }); } });
+  return Object.assign(emitter, {
+    id,
+    delivered: [],
+    postMessage(channel, message, transfer) {
+      this.delivered.push({ channel, message, transfer });
+    },
+  });
 }
 
 function harness({ scope = 1, endpoints } = {}) {
@@ -52,7 +58,9 @@ function harness({ scope = 1, endpoints } = {}) {
   const ports = [];
   const logs = [];
   const diags = [];
-  const all = endpoints ?? [{ slot: 'primary', url: 'ws://127.0.0.1:1/rpc', token: 'tok', target: 'local', role: 'main' }];
+  const all = endpoints ?? [
+    { slot: 'primary', url: 'ws://127.0.0.1:1/rpc', token: 'tok', target: 'local', role: 'main' },
+  ];
   const relay = new CorePortRelay({
     endpointFor: async () => all,
     coreWindowScope: async () => scope,
@@ -131,7 +139,10 @@ test('a link that the core ends is written to the diagnostics with its code, rea
   assert.equal(typeof close.openMs, 'number');
   await relay.open(wc);
   const opens = diags.filter((d) => d.event === 'core-link-open');
-  assert.deepEqual(opens.map((d) => d.replaced), [false, false]);
+  assert.deepEqual(
+    opens.map((d) => d.replaced),
+    [false, false]
+  );
 });
 
 test('a link ended by a newer open is written as closed by the desktop, and the newer open says it replaced a live link', async () => {
@@ -143,10 +154,13 @@ test('a link ended by a newer open is written as closed by the desktop, and the 
   const close = diags.find((d) => d.event === 'core-link-close');
   assert.equal(close.initiator, 'desktop');
   assert.equal(close.reason, 'superseded');
-  assert.deepEqual(diags.filter((d) => d.event === 'core-link-open').map((d) => d.replaced), [false, true]);
+  assert.deepEqual(
+    diags.filter((d) => d.event === 'core-link-open').map((d) => d.replaced),
+    [false, true]
+  );
 });
 
-test('a channel that cannot be created after the socket opened still leaves the link\'s close line, from the desktop', async () => {
+test("a channel that cannot be created after the socket opened still leaves the link's close line, from the desktop", async () => {
   const { diags } = harness();
   const failing = new CorePortRelay({
     coreWindowScope: async () => 1,
@@ -204,7 +218,7 @@ test('a socket the core closes while the channel is still being created leaves o
   assert.equal(close[0].code, 4001);
 });
 
-test('a close the window asks for is written as the window\'s, once, not as the core\'s or network\'s', async () => {
+test("a close the window asks for is written as the window's, once, not as the core's or network's", async () => {
   const { relay, ports, sockets, diags } = harness();
   await relay.open(webContents());
   ports[0].emit('message', { data: { t: 'close' } });
@@ -245,7 +259,10 @@ test('an open superseded before its port is delivered rejects and delivers nothi
   const fresh = relay.open(wc);
   await assert.rejects(stale, /superseded/);
   const { generation } = await fresh;
-  assert.deepEqual(wc.delivered.map((d) => d.message.generation), [generation]);
+  assert.deepEqual(
+    wc.delivered.map((d) => d.message.generation),
+    [generation]
+  );
   assert.equal(sockets.length, 1);
   assert.equal(ports.length, 1);
 });
@@ -304,10 +321,10 @@ test('opens_when_core_lacks_window_scope', async () => {
 
 test('server window gets two ports with the right role headers; role is sent on every socket', async () => {
   const { relay, headers } = harness({
-      endpoints: [
-        { slot: 'primary', url: 'ws://127.0.0.1:2/rpc', token: 'a', target: 'server', role: 'server:c1' },
-        { slot: 'pc', url: 'ws://127.0.0.1:3/rpc', token: 'b', target: 'local', role: 'server:c1' },
-      ],
+    endpoints: [
+      { slot: 'primary', url: 'ws://127.0.0.1:2/rpc', token: 'a', target: 'server', role: 'server:c1' },
+      { slot: 'pc', url: 'ws://127.0.0.1:3/rpc', token: 'b', target: 'local', role: 'server:c1' },
+    ],
   });
   const wc = webContents();
   await relay.open(wc, 'primary');
@@ -319,7 +336,10 @@ test('server window gets two ports with the right role headers; role is sent on 
       ['ws://127.0.0.1:3/rpc', 'server:c1'],
     ]
   );
-  assert.deepEqual(wc.delivered.map((d) => d.message.slot), ['primary', 'pc']);
+  assert.deepEqual(
+    wc.delivered.map((d) => d.message.slot),
+    ['primary', 'pc']
+  );
   const local = harness();
   await local.relay.open(webContents());
   assert.equal(local.headers[0]['Mixdog-Window-Role'], 'main');
@@ -351,7 +371,9 @@ function reporting({ endpointFor } = {}) {
   const reports = new BootReports();
   const relay = new CorePortRelay({
     bootReports: reports,
-    endpointFor: endpointFor ?? (async () => [{ slot: 'primary', url: 'ws://127.0.0.1:1/rpc', token: 'tok', target: 'local', role: 'main' }]),
+    endpointFor:
+      endpointFor ??
+      (async () => [{ slot: 'primary', url: 'ws://127.0.0.1:1/rpc', token: 'tok', target: 'local', role: 'main' }]),
     coreWindowScope: async () => 1,
     createSocket: () => {
       const socket = new FakeSocket();
@@ -386,7 +408,11 @@ test('boot reports: a window waiting for its core is told the rebuild as it adva
   const wc = window();
   const opening = relay.open(wc);
   await flush();
-  assert.deepEqual(wc.told, [{ channel: CORE_BOOT_CHANNEL, message: { progress: { done: 10, total: 100, boot: 7 }, failure: null } }], 'what is known when the open begins');
+  assert.deepEqual(
+    wc.told,
+    [{ channel: CORE_BOOT_CHANNEL, message: { progress: { done: 10, total: 100, boot: 7 }, failure: null } }],
+    'what is known when the open begins'
+  );
   attempt.progress({ done: 60, total: 100 }, 7);
   assert.deepEqual(wc.told.at(-1).message.progress, { done: 60, total: 100, boot: 7 });
   attempt.succeeded();
@@ -438,9 +464,10 @@ test('boot reports: an open that a newer open superseded, or whose window is des
 });
 
 test('boot reports: a start that fails the same way twice reaches the waiting window before its open rejects', async () => {
-  const exit = (path) => Object.assign(new Error('core is not ready: the core ended before serving (exited with code 2): no manifest'), {
-    coreExit: { code: 2, signal: null, stderrPath: path },
-  });
+  const exit = (path) =>
+    Object.assign(new Error('core is not ready: the core ended before serving (exited with code 2): no manifest'), {
+      coreExit: { code: 2, signal: null, stderrPath: path },
+    });
   const reports = new BootReports();
   const relay = new CorePortRelay({
     bootReports: reports,

@@ -22,5 +22,8 @@ test('the askpass helper is an .exe on Windows', () => {
 });
 
 test('a path that is not there is left out of the claim', () => {
-  assert.deepEqual(claimResources(true, resources, () => false, 'linux'), {});
+  assert.deepEqual(
+    claimResources(true, resources, () => false, 'linux'),
+    {}
+  );
 });

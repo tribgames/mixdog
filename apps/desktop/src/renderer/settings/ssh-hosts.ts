@@ -24,10 +24,15 @@ export function useSshHosts(enabled = true): { hosts: DesktopSshHost[]; refresh(
   useEffect(() => {
     if (!enabled) return undefined;
     let live = true;
-    const recovery = startSettingsReadRecovery(async (signal) => {
-      const next = await sshListHosts();
-      if (live && !signal.aborted && next) setHosts(next);
-    }, 10_000, true, true);
+    const recovery = startSettingsReadRecovery(
+      async (signal) => {
+        const next = await sshListHosts();
+        if (live && !signal.aborted && next) setHosts(next);
+      },
+      10_000,
+      true,
+      true
+    );
     recoveryRef.current = recovery.replace;
     const stopLink = followSettingsReadConnection(window.mixdogDesktop, recovery);
     const unsubscribe = subscribeSshHostsChanged(refresh);

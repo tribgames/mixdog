@@ -13,10 +13,22 @@ import {
   type ProtocolClient,
   type SessionFold,
 } from '../../../../../packages/protocol-client/src/index.ts';
-import type { DesktopSessionStateUpdate, DesktopSessionSummary, DesktopStreamPosition, SessionSnapshot } from '../contract';
+import type {
+  DesktopSessionStateUpdate,
+  DesktopSessionSummary,
+  DesktopStreamPosition,
+  SessionSnapshot,
+} from '../contract';
 import { remoteSessionIdOf, withRemoteSession } from '../blank-snapshot';
 import { createChatHostApi, type ChatHostApi } from '../../renderer/remote-chat-host';
-import { createChatApi, createRosterFeed, remoteSession, sharedFor, type ChatClient, type RosterClient } from '../../renderer/remote-protocol-chat';
+import {
+  createChatApi,
+  createRosterFeed,
+  remoteSession,
+  sharedFor,
+  type ChatClient,
+  type RosterClient,
+} from '../../renderer/remote-protocol-chat';
 import { DESKTOP_TRANSCRIPT_TAIL_BYTES, DESKTOP_TRANSCRIPT_TAIL_ITEMS } from './transcript-support';
 import type { ProtocolConnection } from '../../main/protocol/connection';
 import { coreErrorForWindow } from './core-error';
@@ -50,7 +62,13 @@ function sameProjectionInputs(before: SessionFold, after: SessionFold): boolean 
   const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
   for (const key of keys) {
     if (key === 'frames' || key === 'framedRevision') continue;
-    if (!Object.is((before as unknown as Record<string, unknown>)[key], (after as unknown as Record<string, unknown>)[key])) return false;
+    if (
+      !Object.is(
+        (before as unknown as Record<string, unknown>)[key],
+        (after as unknown as Record<string, unknown>)[key]
+      )
+    )
+      return false;
   }
   return true;
 }
@@ -58,7 +76,10 @@ function sameProjectionInputs(before: SessionFold, after: SessionFold): boolean 
 export function createSessionLane({
   protocol,
 }: {
-  protocol: Pick<ProtocolConnection, 'call' | 'client' | 'whenSynced' | 'onEvent' | 'onStoreChange' | 'onReplaced' | 'resumeThread'>;
+  protocol: Pick<
+    ProtocolConnection,
+    'call' | 'client' | 'whenSynced' | 'onEvent' | 'onStoreChange' | 'onReplaced' | 'resumeThread'
+  >;
 }): SessionLane {
   const sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
   const stateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
@@ -94,7 +115,10 @@ export function createSessionLane({
   // ── the followed threads' states ──
   // Node's host stamped every session snapshot it answered with the remote channel's session (`snapshotWithRemoteSession`).
   const decorated = (client: Client, state: unknown): SessionSnapshot =>
-    withRemoteSession(state, remoteSessionIdOf(remoteSession(client as unknown as ChatClient))) as unknown as SessionSnapshot;
+    withRemoteSession(
+      state,
+      remoteSessionIdOf(remoteSession(client as unknown as ChatClient))
+    ) as unknown as SessionSnapshot;
   const emit = (update: DesktopSessionStateUpdate): void => {
     for (const listener of [...stateListeners]) listener(update);
   };
@@ -123,11 +147,12 @@ export function createSessionLane({
   const transcriptPending = (threadId: string): boolean => {
     const client = held();
     const subscription = client?.threadSubscription?.(threadId);
-    return Boolean(subscription && (
-      subscription.snapshotPending ||
-      subscription.replayPending ||
-      (subscription.followed && !client?.feedPosition(threadId))
-    ));
+    return Boolean(
+      subscription &&
+        (subscription.snapshotPending ||
+          subscription.replayPending ||
+          (subscription.followed && !client?.feedPosition(threadId)))
+    );
   };
   /** A change of a thread the store announced: its state is published when the change ends one of the core's frames, or
    *  is a snapshot or a change of the thread's server requests, and only when what the state is made of changed.
@@ -168,10 +193,17 @@ export function createSessionLane({
       desktopSessionState(fold, client.pendingServerRequests(), client.store.section('hostShellJobs')?.value)
     );
     const streamPosition = positionOf(client, threadId);
-    if (fold.origin) projected.set(fold.origin, { fold, requests: requestsOf(client, threadId), snapshot, position: streamPosition });
+    if (fold.origin)
+      projected.set(fold.origin, { fold, requests: requestsOf(client, threadId), snapshot, position: streamPosition });
     const readTraceId = pendingTraces.get(threadId);
     pendingTraces.delete(threadId);
-    emit({ sessionId: threadId, snapshot, frameSource: 'live', ...(readTraceId ? { readTraceId } : {}), ...(streamPosition ? { streamPosition } : {}) });
+    emit({
+      sessionId: threadId,
+      snapshot,
+      frameSource: 'live',
+      ...(readTraceId ? { readTraceId } : {}),
+      ...(streamPosition ? { streamPosition } : {}),
+    });
     return true;
   };
   // The threads a state was published of: a state also changes with what is not the thread's own (the host's shell jobs,
@@ -191,12 +223,20 @@ export function createSessionLane({
       if (!interested(change.threadId) || transcriptPending(change.threadId)) return;
       if (!change.replayComplete && !due(change.threadId)) return;
       publish(change.threadId);
-    } else if (change.type === 'section' && (change.section === 'hostShellJobs' || (change.section === 'hostState' && change.key === 'remoteSession'))) {
+    } else if (
+      change.type === 'section' &&
+      (change.section === 'hostShellJobs' || (change.section === 'hostState' && change.key === 'remoteSession'))
+    ) {
       republishShown();
     } else if (change.type === 'subscription' && change.state === 'lost' && change.feedId && change.feedId !== 'app') {
       // The core no longer has the thread for this connection (deleted, or it refused to restore the subscription).
       shown.delete(change.feedId);
-      emit({ sessionId: change.feedId, snapshot: null as unknown as SessionSnapshot, frameSource: 'live', laneEnd: 'gone' });
+      emit({
+        sessionId: change.feedId,
+        snapshot: null as unknown as SessionSnapshot,
+        frameSource: 'live',
+        laneEnd: 'gone',
+      });
     }
   });
 
@@ -230,7 +270,9 @@ export function createSessionLane({
     async chat() {
       const client = (await live()) as unknown as ChatClient;
       const shared = sharedFor(client);
-      return createChatHostApi(client, shared, createChatApi(client, shared), { remoteSession: () => remoteSession(client) });
+      return createChatHostApi(client, shared, createChatApi(client, shared), {
+        remoteSession: () => remoteSession(client),
+      });
     },
     listSessions: () => roster.list(rosterClient),
     subscribeSessions(listener) {
@@ -268,10 +310,11 @@ export function createSessionLane({
       if (readTraceId) pendingTraces.set(sessionId, readTraceId);
       // The held window answers unless the read asks for more rows than it holds and the core has older ones.
       if (fold.items.length >= lastItems || fold.fields.transcriptHasOlder !== true) publish(sessionId);
-      else await folded(sessionId, () => protocol.resumeThread(sessionId, { lastItems })).catch((error: unknown) => {
-        pendingTraces.delete(sessionId);
-        throw coreErrorForWindow(error);
-      });
+      else
+        await folded(sessionId, () => protocol.resumeThread(sessionId, { lastItems })).catch((error: unknown) => {
+          pendingTraces.delete(sessionId);
+          throw coreErrorForWindow(error);
+        });
       return true;
     },
     requestSessionStateResync(sessionId) {

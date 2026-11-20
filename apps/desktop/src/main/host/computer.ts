@@ -22,13 +22,20 @@ import { registerComputerAppInput, type ComputerAppInputDeps } from './computer-
 import { registerComputerAppWindows } from './computer-app-windows';
 import { type ComputerPixelsDeps, registerComputerPixels } from './computer-pixels';
 import type { ComputerScopes } from './computer-scope';
-import { HOST_COMMAND_FAILED, HOST_INVALID_PARAMS, HostRpcError, type HostConnection, objectParams } from './connection';
+import {
+  HOST_COMMAND_FAILED,
+  HOST_INVALID_PARAMS,
+  HostRpcError,
+  type HostConnection,
+  objectParams,
+} from './connection';
 
 export const HOST_COMPUTER_CAPTURE = 'host/computer/capture';
 export const HOST_COMPUTER_DISPLAYS = 'host/computer/displays';
 
 /** What the client says when no desktop serves Computer Use (`computer-bridge/client.mjs` `BRIDGE_UNAVAILABLE_MESSAGE`). */
-export const COMPUTER_UNAVAILABLE = 'computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings';
+export const COMPUTER_UNAVAILABLE =
+  'computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings';
 
 /** What the host serves from, handed in by the process that owns the computer host (it reaches Electron, which this module does not). */
 export interface ComputerControl {
@@ -55,7 +62,11 @@ export interface ComputerHostDeps {
 
 /** Every `host/computer/*` handler, always: a core that does not drive Computer Use (or runs it through the desktop's own
  *  host) never calls cursorPrepare, appWindows, appInput or pixels, so serving them changes nothing for it. */
-export function registerComputerHandlers(connection: HostConnection, source: ComputerControlSource, deps: ComputerHostDeps): void {
+export function registerComputerHandlers(
+  connection: HostConnection,
+  source: ComputerControlSource,
+  deps: ComputerHostDeps
+): void {
   const running = (): ComputerControl => {
     const control = source();
     if (!control) throw new HostRpcError(HOST_COMMAND_FAILED, COMPUTER_UNAVAILABLE);
@@ -90,5 +101,9 @@ export function registerComputerHandlers(connection: HostConnection, source: Com
   registerComputerCursor(connection, deps.scopes);
   registerComputerAppWindows(connection);
   registerComputerAppInput(connection, { ...deps.appInput, scopes: deps.scopes });
-  registerComputerPixels(connection, { ...deps.pixels, scopes: deps.scopes, callCore: (method, params) => connection.request(method, params) });
+  registerComputerPixels(connection, {
+    ...deps.pixels,
+    scopes: deps.scopes,
+    callCore: (method, params) => connection.request(method, params),
+  });
 }

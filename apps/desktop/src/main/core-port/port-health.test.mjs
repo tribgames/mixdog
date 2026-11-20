@@ -9,7 +9,9 @@ import { connect } from '../../../../../packages/protocol-client/src/client.ts';
 import { createPortConnector } from '../../renderer/core-direct/port-connector.ts';
 import { CorePortRelay } from './relay.ts';
 
-const options = JSON.parse(readFileSync(new URL('../../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8'));
+const options = JSON.parse(
+  readFileSync(new URL('../../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8')
+);
 const INTERVAL = 10_000;
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -88,7 +90,9 @@ function rig() {
     main.emit('close');
   };
   const relay = new CorePortRelay({
-    endpointFor: async () => [{ slot: 'primary', url: 'ws://127.0.0.1:1/rpc', token: 't', target: 'local', role: 'main' }],
+    endpointFor: async () => [
+      { slot: 'primary', url: 'ws://127.0.0.1:1/rpc', token: 't', target: 'local', role: 'main' },
+    ],
     coreWindowScope: async () => 1,
     createSocket: () => {
       queueMicrotask(() => socket.emit('open'));
@@ -99,7 +103,8 @@ function rig() {
   });
   const webContents = Object.assign(new EventEmitter(), {
     id: 1,
-    postMessage: (_channel, message, [port]) => listeners.forEach((l) => l({ source: host, data: { type: 'mixdog-core-port', ...message }, ports: [port] })),
+    postMessage: (_channel, message, [port]) =>
+      listeners.forEach((l) => l({ source: host, data: { type: 'mixdog-core-port', ...message }, ports: [port] })),
   });
   const bridge = { open: (o) => relay.open(webContents, o?.slot) };
   const connector = createPortConnector(bridge, host);
@@ -118,7 +123,14 @@ function rig() {
       clock: { sleep: () => Promise.resolve() },
       random: () => options.jitterUnit,
       ladder: options.ladder,
-      health: { intervalMs: INTERVAL, windowMs: INTERVAL, gapMs: 20_000, now: () => timers.now, setTimer: timers.set, clearTimer: timers.clear },
+      health: {
+        intervalMs: INTERVAL,
+        windowMs: INTERVAL,
+        gapMs: 20_000,
+        now: () => timers.now,
+        setTimer: timers.set,
+        clearTimer: timers.clear,
+      },
     });
     for (let i = 0; i < 50 && socket.writes.length === 0; i++) await settle();
     const init = JSON.parse(socket.writes[0].text);
@@ -132,10 +144,14 @@ function rig() {
 }
 
 /** Writes of the probe (a `thread/unsubscribe`) on the socket. */
-const probeWrites = (socket) => socket.writes.map((w, index) => ({ index, text: typeof w.text === 'string' ? w.text : '' })).filter((w) => w.text.includes('thread/unsubscribe'));
-const pendingRead = (client) => client.call('thread/read', { threadId: 't1', window: { lastItems: 1 } }).catch(() => undefined);
+const probeWrites = (socket) =>
+  socket.writes
+    .map((w, index) => ({ index, text: typeof w.text === 'string' ? w.text : '' }))
+    .filter((w) => w.text.includes('thread/unsubscribe'));
+const pendingRead = (client) =>
+  client.call('thread/read', { threadId: 't1', window: { lastItems: 1 } }).catch(() => undefined);
 
-test('main\'s dispatch held past the window: no close; released but its socket completion held: no close; the receipt opens the window', async () => {
+test("main's dispatch held past the window: no close; released but its socket completion held: no close; the receipt opens the window", async () => {
   const r = rig();
   const client = await r.start();
   r.gate.stalled = true; // main does not get to what the renderer posts
@@ -157,7 +173,11 @@ test('main\'s dispatch held past the window: no close; released but its socket c
   assert.equal(r.socket.closed, null, 'the window has not ended');
   await r.timers.advance(1);
   await r.timers.advance(1);
-  assert.equal(r.socket.closed?.reason, 'window closed the port', 'a valid silent window after the receipt ends the link');
+  assert.equal(
+    r.socket.closed?.reason,
+    'window closed the port',
+    'a valid silent window after the receipt ends the link'
+  );
   await client.close();
 });
 
@@ -175,7 +195,11 @@ test('main stalled after the acknowledgement with the barrier pending: no verdic
   assert.equal(r.socket.closed, null, 'the window ended but the receive barrier has not');
   await r.release();
   await settle();
-  assert.equal(r.socket.closed?.reason, 'window closed the port', 'once main settled and nothing came, the verdict follows');
+  assert.equal(
+    r.socket.closed?.reason,
+    'window closed the port',
+    'once main settled and nothing came, the verdict follows'
+  );
   await client.close();
 });
 
@@ -189,7 +213,7 @@ test('main settled with progress waiting behind the barrier: the verdict is with
   await settle();
   r.gate.stalled = true;
   await r.timers.advance(INTERVAL);
-  r.socket._socket.emit('data', Buffer.from('bytes of the core\'s answer, still arriving')); // main saw them; the note is ahead of the barrier
+  r.socket._socket.emit('data', Buffer.from("bytes of the core's answer, still arriving")); // main saw them; the note is ahead of the barrier
   await settle();
   await r.release();
   await r.timers.advance(INTERVAL * 3);

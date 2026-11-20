@@ -361,9 +361,11 @@ test('turning voice off discards a live take and prevents a new mic request', as
     await ctx.openMic();
     await ctx.fireStart();
     await act(async () => {
-      ctx.dom.window.dispatchEvent(new ctx.dom.window.CustomEvent('mixdog:voice-runtime-changed', {
-        detail: { installed: true, enabled: false },
-      }));
+      ctx.dom.window.dispatchEvent(
+        new ctx.dom.window.CustomEvent('mixdog:voice-runtime-changed', {
+          detail: { installed: true, enabled: false },
+        })
+      );
     });
     assert.equal(ctx.recorder.state, 'inactive');
     assert.ok(ctx.track.stopped > 0);

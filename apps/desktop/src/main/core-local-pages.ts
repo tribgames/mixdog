@@ -12,7 +12,11 @@ export interface PageOwner {
 }
 
 export interface CoreLocalPages {
-  url(root: string, rel: string, access?: { accessToken?: string; ownerId?: string; owner?: PageOwner }): Promise<string>;
+  url(
+    root: string,
+    rel: string,
+    access?: { accessToken?: string; ownerId?: string; owner?: PageOwner }
+  ): Promise<string>;
   /** An in-memory page (visualize): `index.html` is required; the lease is revoked with its owner as url()'s is. */
   virtual(
     files: Record<string, { type: string; body: Buffer }>,

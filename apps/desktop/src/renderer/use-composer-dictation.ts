@@ -213,16 +213,16 @@ export function useComposerDictation({
     };
     const refresh = () => {
       const seq = ++latest;
-      void Promise.resolve().then(() =>
-        window.mixdogDesktop.invokeCapability<VoiceStatus>({ capability: 'getVoiceStatus', args: [] })
-      ).then(
-        (answer) => {
-          if (live && seq === latest) adopt(answer?.value);
-        },
-        () => {
-          if (live && seq === latest) adopt();
-        }
-      );
+      void Promise.resolve()
+        .then(() => window.mixdogDesktop.invokeCapability<VoiceStatus>({ capability: 'getVoiceStatus', args: [] }))
+        .then(
+          (answer) => {
+            if (live && seq === latest) adopt(answer?.value);
+          },
+          () => {
+            if (live && seq === latest) adopt();
+          }
+        );
     };
     const onRuntimeChanged = (event: Event) => {
       const status = (event as CustomEvent<VoiceStatus>).detail;

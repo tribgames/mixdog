@@ -33,7 +33,13 @@ const SECTIONS = [
   entry('webSearch', null, { provider: 'openai', model: 'gpt-5' }),
   entry('providerSetup', null, { providers: [], pendingSecrets: false }),
   entry('providerAccounts', 'openai-oauth', { provider: 'openai-oauth', accounts: [] }),
-  entry('config', 'onboarding', { completed: true, version: 3, default: 'lead', workflowRoutes: { lead: {} }, starterGuide: null }),
+  entry('config', 'onboarding', {
+    completed: true,
+    version: 3,
+    default: 'lead',
+    workflowRoutes: { lead: {} },
+    starterGuide: null,
+  }),
 ];
 
 const coreSource = (store, recomputed = []) => ({
@@ -50,11 +56,17 @@ const nodeSource = () => ({
 test('the sections carry the capabilities they replaced', () => {
   assert.deepEqual(sectionOf('listPresets'), { section: 'presets', key: null });
   assert.deepEqual(sectionOf('getProviderSetup', [{}]), { section: 'providerSetup', key: null });
-  assert.deepEqual(sectionOf('getProviderAccounts', ['openai-oauth']), { section: 'providerAccounts', key: 'openai-oauth' });
+  assert.deepEqual(sectionOf('getProviderAccounts', ['openai-oauth']), {
+    section: 'providerAccounts',
+    key: 'openai-oauth',
+  });
   assert.deepEqual(sectionOf('getOnboardingStatus'), { section: 'config', key: 'onboarding' });
   assert.throws(() => sectionOf('getProviderAccounts', []), /Unknown OAuth provider/);
   assert.equal(isSectionCapability('getProfile'), false);
-  assert.deepEqual(providerSetupRefresh('getProviderSetup', [{ force: true, unlockKeychain: true, other: 1 }]), { force: true, unlockKeychain: true });
+  assert.deepEqual(providerSetupRefresh('getProviderSetup', [{ force: true, unlockKeychain: true, other: 1 }]), {
+    force: true,
+    unlockKeychain: true,
+  });
   assert.equal(providerSetupRefresh('getProviderSetup', [{}]), undefined);
   assert.equal(providerSetupRefresh('listAgents', [{ force: true }]), undefined);
 });
@@ -95,12 +107,19 @@ test('a core connection waits for a section that is not published yet, and never
 
 test('a provider the core did not publish is an error, not a request', async () => {
   const { store } = await storeWith(SECTIONS);
-  await assert.rejects(readHeldCapability('getProviderAccounts', ['nope'], coreSource(store)), /Unknown OAuth provider/);
-  const results = await readOrHeld({ readCapabilities: async () => assert.fail('nothing to ask the host') }, [
-    { capability: 'getProviderAccounts', args: ['nope'] },
-    { capability: 'listAgents' },
-  ], coreSource(store));
-  assert.deepEqual(results, [{ ok: false, error: 'Unknown OAuth provider.' }, { ok: true, value: SECTIONS[1].value }]);
+  await assert.rejects(
+    readHeldCapability('getProviderAccounts', ['nope'], coreSource(store)),
+    /Unknown OAuth provider/
+  );
+  const results = await readOrHeld(
+    { readCapabilities: async () => assert.fail('nothing to ask the host') },
+    [{ capability: 'getProviderAccounts', args: ['nope'] }, { capability: 'listAgents' }],
+    coreSource(store)
+  );
+  assert.deepEqual(results, [
+    { ok: false, error: 'Unknown OAuth provider.' },
+    { ok: true, value: SECTIONS[1].value },
+  ]);
 });
 
 test('getProviderSetup options recompute the section before it is read', async () => {
@@ -126,21 +145,33 @@ test('a Node-hosted connection asks the host for every capability', async () => 
       return requests.map((request) => ({ ok: true, value: `host:${request.capability}` }));
     },
   };
-  assert.deepEqual(await invokeOrHeld(api, { capability: 'listAgents' }, nodeSource()), { value: 'host:listAgents', snapshot: null });
+  assert.deepEqual(await invokeOrHeld(api, { capability: 'listAgents' }, nodeSource()), {
+    value: 'host:listAgents',
+    snapshot: null,
+  });
   const results = await readOrHeld(api, [{ capability: 'getProviderSetup' }, { capability: 'getTheme' }], nodeSource());
-  assert.deepEqual(results, [{ ok: true, value: 'host:getProviderSetup' }, { ok: true, value: 'host:getTheme' }]);
-  assert.deepEqual(sent, [['invoke', 'listAgents'], ['read', ['getProviderSetup', 'getTheme']]]);
+  assert.deepEqual(results, [
+    { ok: true, value: 'host:getProviderSetup' },
+    { ok: true, value: 'host:getTheme' },
+  ]);
+  assert.deepEqual(sent, [
+    ['invoke', 'listAgents'],
+    ['read', ['getProviderSetup', 'getTheme']],
+  ]);
 });
 
 test('on a core connection a capability the sections did not replace still goes to the core lane', async () => {
   const { store } = await storeWith(SECTIONS);
   const sent = [];
   const api = { invokeCapability: async (request) => (sent.push(request.capability), { value: 1, snapshot: null }) };
-  assert.deepEqual(await invokeOrHeld(api, { capability: 'getProfile' }, coreSource(store)), { value: 1, snapshot: null });
+  assert.deepEqual(await invokeOrHeld(api, { capability: 'getProfile' }, coreSource(store)), {
+    value: 1,
+    snapshot: null,
+  });
   assert.deepEqual(sent, ['getProfile']);
 });
 
-test('prioritizeQueued is taken for Node\'s count or the core\'s turn/steer answer', () => {
+test("prioritizeQueued is taken for Node's count or the core's turn/steer answer", () => {
   assert.equal(wasPrioritized({ count: 1, ids: ['q1'], priority: 'now' }), true);
   assert.equal(wasPrioritized({ accepted: true, queuedId: 'q1' }), true);
   assert.equal(wasPrioritized({ count: 0, ids: [], priority: 'now' }), false);

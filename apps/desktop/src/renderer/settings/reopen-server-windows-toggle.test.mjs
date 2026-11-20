@@ -49,7 +49,7 @@ test('a setting that cannot be read leaves no toggle until a settings announceme
     for (const listener of [...listeners]) listener({ scope: 'desktop' });
   });
   await settle();
-  assert.equal(isOn(checkbox(dom.document)), true, 'the core\'s answer shows once it arrives');
+  assert.equal(isOn(checkbox(dom.document)), true, "the core's answer shows once it arrives");
 });
 
 test('turning it off stores the choice and shows what the core read back', async (t) => {

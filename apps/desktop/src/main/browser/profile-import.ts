@@ -782,11 +782,17 @@ export class BrowserProfileImportService {
   /** One cookie import with no window: for the scheduler, which only calls it
    *  while Chrome is closed. It never launches the elevated helper (no UAC
    *  prompt) and records how it went for the settings page. */
-  runAutomaticCookieImport(profileId: string, stillSelected: () => boolean = () => true): Promise<AutoCookieImportOutcome> {
+  runAutomaticCookieImport(
+    profileId: string,
+    stillSelected: () => boolean = () => true
+  ): Promise<AutoCookieImportOutcome> {
     return this.withCookieMutation(() => this.importCookiesAutomatically(profileId, stillSelected));
   }
 
-  private async importCookiesAutomatically(profileId: string, stillSelected: () => boolean): Promise<AutoCookieImportOutcome> {
+  private async importCookiesAutomatically(
+    profileId: string,
+    stillSelected: () => boolean
+  ): Promise<AutoCookieImportOutcome> {
     if (!stillSelected()) return { state: 'skipped', reason: 'selection-changed' };
     if (this.activeJobId) return { state: 'skipped', reason: 'busy' };
     this.activeJobId = AUTOMATIC_JOB_ID;

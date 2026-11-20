@@ -11,7 +11,9 @@ import { fileDownloadErrorReason } from '../shared/file-downloads.ts';
 import { withPhoneApi } from './test-support/phone-api-rig.mjs';
 import { wholeOutcome } from './test-support/whole-outcome.mjs';
 
-const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-shim/golden.json', import.meta.url), 'utf8'));
+const golden = JSON.parse(
+  readFileSync(new URL('../../../mobile/fixtures/phone-shim/golden.json', import.meta.url), 'utf8')
+);
 
 test('a host that did not advertise fileDownloads refuses as host-too-old without a call', async () => {
   const { input, observed } = golden.downloads;

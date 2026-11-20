@@ -13,16 +13,27 @@ import { createChatHostApi } from './remote-chat-host.ts';
 
 const S = 'sess_a';
 const ROOT = '/phone/root';
-const at = (value) => (typeof value === 'string' ? value.replaceAll('<ROOT>', ROOT) : JSON.parse(JSON.stringify(value).replaceAll('<ROOT>', ROOT)));
+const at = (value) =>
+  typeof value === 'string'
+    ? value.replaceAll('<ROOT>', ROOT)
+    : JSON.parse(JSON.stringify(value).replaceAll('<ROOT>', ROOT));
 
 const rpcError = (reason, extra = {}) =>
-  Object.assign(new Error(reason), { detail: { kind: 'rpc', code: -32000, reason, message: reason, data: { reason, ...extra } } });
+  Object.assign(new Error(reason), {
+    detail: { kind: 'rpc', code: -32000, reason, message: reason, data: { reason, ...extra } },
+  });
 const domainError = (code, message) => rpcError('domainError', { ...(code ? { code } : {}), message });
 
 /** A Node transcript row as the item mixdogd holds it (the inverse of `rowOf` for the plain rows of these recordings). */
 const itemOf = (row) =>
   row.kind === 'user'
-    ? { type: 'userMessage', id: row.id, content: [{ type: 'text', text: row.text }], ...(row.device ? { device: row.device } : {}), meta: {} }
+    ? {
+        type: 'userMessage',
+        id: row.id,
+        content: [{ type: 'text', text: row.text }],
+        ...(row.device ? { device: row.device } : {}),
+        meta: {},
+      }
     : { type: 'agentMessage', id: row.id, text: row.text, meta: {} };
 const foldRows = (items) => mergeToolRows(items.map((item) => rowOf(item)).filter(Boolean));
 
@@ -76,7 +87,11 @@ function adapter({ replies = {}, state, remoteSession, device = 'Pixel 9' }) {
   return { api, sent, unclaimed };
 }
 
-const failure = (error) => ({ message: error.message, ...(error.name === 'TypeError' || error.name === 'Error' ? { name: error.name } : {}), ...(error.code ? { code: error.code } : {}) });
+const failure = (error) => ({
+  message: error.message,
+  ...(error.name === 'TypeError' || error.name === 'Error' ? { name: error.name } : {}),
+  ...(error.code ? { code: error.code } : {}),
+});
 const outcome = async (run) => {
   try {
     return { result: await run() };
@@ -84,7 +99,6 @@ const outcome = async (run) => {
     return { error };
   }
 };
-
 
 const rows = (...ids) => ids.map((id) => ({ id, kind: 'user', text: id }));
 
@@ -115,7 +129,10 @@ test('history keeps the original body and a digest cannot authorize replay of a 
   assert.equal(whole.result, full);
   assert.equal(whole.rawResult, full);
   assert.deepEqual(sent, [
-    { method: 'thread/items/list', params: { threadId: S, cursor: { type: 'item', itemId: 'tail' }, sortDirection: 'desc', limit: 3 } },
+    {
+      method: 'thread/items/list',
+      params: { threadId: S, cursor: { type: 'item', itemId: 'tail' }, sortDirection: 'desc', limit: 3 },
+    },
   ]);
   assert.deepEqual(unclaimed, []);
 });
@@ -149,11 +166,15 @@ test('the three start calls answer a blank snapshot for the folder the core name
     const { api, sent } = adapter({ replies: { [method]: reply, 'project/touch': { project: {} } } });
     const snapshot = await api[call](...args);
     assert.equal(snapshot.cwd, reply.path ?? reply.project.path, call);
-    assert.deepEqual(sent.filter((s) => s.method?.startsWith('thread/')), [], `${call}: no thread is created`);
+    assert.deepEqual(
+      sent.filter((s) => s.method?.startsWith('thread/')),
+      [],
+      `${call}: no thread is created`
+    );
   }
 });
 
-test('every snapshot says whether the remote channel is on, from the core\'s remoteSession host state', async () => {
+test("every snapshot says whether the remote channel is on, from the core's remoteSession host state", async () => {
   const replies = { 'project/taskWorkspace': { path: '/phone/root/task' } };
   const off = await adapter({ replies, remoteSession: { sessionId: null } }).api.startTask();
   assert.deepEqual([off.remoteEnabled, off.remoteSessionId], [false, null]);
@@ -169,70 +190,148 @@ test('a start refused by the core fails the call', async () => {
 });
 
 test('an older page is read from the row before it, newest first on the wire, and a newer one from the row after it', async () => {
-  const items = [{ type: 'userMessage', id: 'r1', content: [{ type: 'text', text: 'one' }], meta: {} }, { type: 'agentMessage', id: 'r2', text: 'two', meta: {} }];
-  const { api, sent } = adapter({ replies: { 'thread/items/list': { data: items, hasOlder: true, hasNewer: false } }, state: { items: [] } });
+  const items = [
+    { type: 'userMessage', id: 'r1', content: [{ type: 'text', text: 'one' }], meta: {} },
+    { type: 'agentMessage', id: 'r2', text: 'two', meta: {} },
+  ];
+  const { api, sent } = adapter({
+    replies: { 'thread/items/list': { data: items, hasOlder: true, hasNewer: false } },
+    state: { items: [] },
+  });
   const older = await api.readTranscriptHistory(S, { before: 'r3', limit: 2, byteBudget: 4096 });
-  assert.deepEqual(older.items.map((r) => [r.id, r.kind, r.text]), [['r1', 'user', 'one'], ['r2', 'assistant', 'two']]);
+  assert.deepEqual(
+    older.items.map((r) => [r.id, r.kind, r.text]),
+    [
+      ['r1', 'user', 'one'],
+      ['r2', 'assistant', 'two'],
+    ]
+  );
   assert.deepEqual([older.hasOlder, older.hasNewer], [true, false]);
   assert.equal('positions' in older, false);
   await api.readTranscriptHistory(S, { after: 'r2', limit: 5 });
-  assert.deepEqual(sent.map((s) => s.params), [
-    { threadId: S, cursor: { type: 'item', itemId: 'r3' }, sortDirection: 'desc', limit: 2, byteBudget: 4096 },
-    { threadId: S, cursor: { type: 'item', itemId: 'r2' }, sortDirection: 'asc', limit: 5 },
-  ]);
+  assert.deepEqual(
+    sent.map((s) => s.params),
+    [
+      { threadId: S, cursor: { type: 'item', itemId: 'r3' }, sortDirection: 'desc', limit: 2, byteBudget: 4096 },
+      { threadId: S, cursor: { type: 'item', itemId: 'r2' }, sortDirection: 'asc', limit: 5 },
+    ]
+  );
 });
 
 test('a row the thread no longer holds returns the reader to the live tail', async () => {
-  const { api } = adapter({ replies: { 'thread/items/list': rpcError('cursorInvalidated', { threadId: S }) }, state: { items: [] } });
-  assert.deepEqual(await api.readTranscriptHistory(S, { before: 'gone', limit: 5 }), { items: [], hasOlder: false, hasNewer: false, reset: true });
+  const { api } = adapter({
+    replies: { 'thread/items/list': rpcError('cursorInvalidated', { threadId: S }) },
+    state: { items: [] },
+  });
+  assert.deepEqual(await api.readTranscriptHistory(S, { before: 'gone', limit: 5 }), {
+    items: [],
+    hasOlder: false,
+    hasNewer: false,
+    reset: true,
+  });
 });
 
 test('a malformed history request is refused before anything is sent', async () => {
   const { api, sent } = adapter({ replies: { 'thread/items/list': { data: [] } }, state: { items: [] } });
-  for (const bad of [null, {}, { before: 'a', after: 'b', limit: 5 }, { before: '', limit: 5 }, { before: 'a', limit: 0 }, { before: 'a', limit: 513 }, { before: 'a', limit: 1.5 }, { before: 'a', limit: 5, byteBudget: 0 }, { before: 'a', limit: 5, position: 'x' }]) {
-    await assert.rejects(api.readTranscriptHistory(S, bad), { name: 'TypeError', message: 'transcript history request is invalid.' }, JSON.stringify(bad));
+  for (const bad of [
+    null,
+    {},
+    { before: 'a', after: 'b', limit: 5 },
+    { before: '', limit: 5 },
+    { before: 'a', limit: 0 },
+    { before: 'a', limit: 513 },
+    { before: 'a', limit: 1.5 },
+    { before: 'a', limit: 5, byteBudget: 0 },
+    { before: 'a', limit: 5, position: 'x' },
+  ]) {
+    await assert.rejects(
+      api.readTranscriptHistory(S, bad),
+      { name: 'TypeError', message: 'transcript history request is invalid.' },
+      JSON.stringify(bad)
+    );
   }
   assert.deepEqual(sent, []);
 });
 
 test('a session this connection does not hold is not paged', async () => {
   const { api, sent } = adapter({});
-  await assert.rejects(api.readTranscriptHistory(S, { before: 'r2', limit: 5 }), { message: 'This session is not open on this device.' });
+  await assert.rejects(api.readTranscriptHistory(S, { before: 'r2', limit: 5 }), {
+    message: 'This session is not open on this device.',
+  });
   assert.deepEqual(sent, []);
 });
 
-test('a send from a view that misses another device\'s prompt is refused, reaches no core and re-sends the transcript', async () => {
-  const latest = [...rows('r1', 'r2'), { id: 'r3', kind: 'user', text: 'from the desktop', device: 'Desktop' }].map((r) => ({ type: 'userMessage', id: r.id, content: [{ type: 'text', text: r.text }], ...(r.device ? { device: r.device } : {}), meta: {} }));
-  const replies = { 'thread/items/list': { data: latest, hasOlder: false, hasNewer: false }, 'turn/start': { kind: 'started', turnId: 't1' } };
+test("a send from a view that misses another device's prompt is refused, reaches no core and re-sends the transcript", async () => {
+  const latest = [...rows('r1', 'r2'), { id: 'r3', kind: 'user', text: 'from the desktop', device: 'Desktop' }].map(
+    (r) => ({
+      type: 'userMessage',
+      id: r.id,
+      content: [{ type: 'text', text: r.text }],
+      ...(r.device ? { device: r.device } : {}),
+      meta: {},
+    })
+  );
+  const replies = {
+    'thread/items/list': { data: latest, hasOlder: false, hasNewer: false },
+    'turn/start': { kind: 'started', turnId: 't1' },
+  };
   const { api, sent } = adapter({ replies, state: { items: rows('r1', 'r2') } });
-  await assert.rejects(api.submitToSession(S, 'hello', {}), { message: 'This conversation changed on another device. Review the latest messages, then send again.' });
-  assert.equal(sent.some((s) => s.method === 'turn/start'), false);
+  await assert.rejects(api.submitToSession(S, 'hello', {}), {
+    message: 'This conversation changed on another device. Review the latest messages, then send again.',
+  });
+  assert.equal(
+    sent.some((s) => s.method === 'turn/start'),
+    false
+  );
   assert.equal(sent.filter((s) => s.resume).length, 1);
 });
 
 test('a send from a current view goes through, and a prompt of the same device is no news', async () => {
-  const same = [{ type: 'userMessage', id: 'r2', content: [{ type: 'text', text: 'mine' }], device: 'Pixel 9', meta: {} }];
-  const replies = { 'thread/items/list': { data: same, hasOlder: false, hasNewer: false }, 'turn/start': { kind: 'started', turnId: 't1' } };
+  const same = [
+    { type: 'userMessage', id: 'r2', content: [{ type: 'text', text: 'mine' }], device: 'Pixel 9', meta: {} },
+  ];
+  const replies = {
+    'thread/items/list': { data: same, hasOlder: false, hasNewer: false },
+    'turn/start': { kind: 'started', turnId: 't1' },
+  };
   const { api, sent } = adapter({ replies, state: { items: rows('r1') } });
   assert.equal(await api.submitToSession(S, 'hello', {}), true);
-  assert.equal(sent.some((s) => s.method === 'turn/start'), true);
+  assert.equal(
+    sent.some((s) => s.method === 'turn/start'),
+    true
+  );
 });
 
 test('a blank prompt answers false and nothing reaches the core', async () => {
   const { api, sent } = adapter({});
   assert.equal(await api.submitToSession(S, '   ', { id: 'blank' }), false);
-  assert.deepEqual(await api.submitNewTask('', { id: 'blank' }, {}), { accepted: false, sessionId: '', snapshot: null });
+  assert.deepEqual(await api.submitNewTask('', { id: 'blank' }, {}), {
+    accepted: false,
+    sessionId: '',
+    snapshot: null,
+  });
   assert.deepEqual(sent, []);
 });
 
 test('a phone window starting inside a tool group does not mistake older desktop prompts for new ones', async () => {
-  const read = (id) => ({ type: 'toolCall', id, name: 'read', input: { path: id }, output: 'ok', meta: { status: 'completed', at: 1 } });
+  const read = (id) => ({
+    type: 'toolCall',
+    id,
+    name: 'read',
+    input: { path: id },
+    output: 'ok',
+    meta: { status: 'completed', at: 1 },
+  });
   const oldPrompt = itemOf({ kind: 'user', id: 'old', text: 'already behind the window', device: 'Desktop' });
   const latest = [oldPrompt, read('one'), read('two'), itemOf({ kind: 'assistant', id: 'answer', text: 'done' })];
   const state = { items: foldRows(latest.slice(2)) };
-  const { api, sent } = adapter({ state, replies: {
-    'thread/items/list': { data: latest }, 'turn/start': { kind: 'started', turnId: 't1' },
-  } });
+  const { api, sent } = adapter({
+    state,
+    replies: {
+      'thread/items/list': { data: latest },
+      'turn/start': { kind: 'started', turnId: 't1' },
+    },
+  });
   assert.equal(await api.submitToSession(S, 'next', {}), true);
   latest.push({ ...oldPrompt, id: 'new' });
   await assert.rejects(api.submitToSession(S, 'another', {}), /changed on another device/);
@@ -251,17 +350,25 @@ test('a secret is taken only for a request id the runtime minted', async () => {
   assert.equal(await api.provideSecretInput('secret_abcdef123456', 'x'.repeat(4097)), false);
   assert.deepEqual(sent, []);
   assert.equal(await api.provideSecretInput(' secret_abcdef123456 ', 'hunter2'), true);
-  assert.deepEqual(sent.map((s) => [s.method, s.params]), [['approval/provideSecret', { requestId: 'secret_abcdef123456', secret: 'hunter2' }]]);
+  assert.deepEqual(
+    sent.map((s) => [s.method, s.params]),
+    [['approval/provideSecret', { requestId: 'secret_abcdef123456', secret: 'hunter2' }]]
+  );
 });
 
 test('an unknown room action is refused as text and sends nothing', async () => {
   const { api, sent } = adapter({});
-  await assert.rejects(api.agentRoomAction('explode', []), { name: 'TypeError', message: 'Unknown room action "explode".' });
+  await assert.rejects(api.agentRoomAction('explode', []), {
+    name: 'TypeError',
+    message: 'Unknown room action "explode".',
+  });
   assert.deepEqual(sent, []);
 });
 
-test('every request a host call writes is handed the call\'s claim', async () => {
-  const latest = [{ type: 'userMessage', id: 'r3', content: [{ type: 'text', text: 'x' }], device: 'Desktop', meta: {} }];
+test("every request a host call writes is handed the call's claim", async () => {
+  const latest = [
+    { type: 'userMessage', id: 'r3', content: [{ type: 'text', text: 'x' }], device: 'Desktop', meta: {} },
+  ];
   const replies = {
     'project/taskWorkspace': { path: '/phone/root/task' },
     'thread/items/list': { data: latest, hasOlder: false, hasNewer: false },

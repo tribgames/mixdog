@@ -191,7 +191,9 @@ test('system: a failed first settings read hides Power until an announcement rea
       await new Promise((done) => setTimeout(done, 0));
     });
     assert.ok(groupTitles().includes('Power'));
-    const power = [...document.querySelectorAll('.settings-group')].find((group) => group.textContent.includes('Keep system awake'));
+    const power = [...document.querySelectorAll('.settings-group')].find((group) =>
+      group.textContent.includes('Keep system awake')
+    );
     assert.equal(power.querySelector('input[type="checkbox"]').checked, false, 'the stored keepAwake');
   } finally {
     await cleanup();

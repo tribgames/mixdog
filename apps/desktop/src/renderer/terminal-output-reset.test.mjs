@@ -49,14 +49,30 @@ test('a parked terminal redraws after queued writes and receives only the relay 
     replayPending: null,
     localEcho: null,
     term: { reset: () => writes.push('reset') },
-    writer: new TerminalWritePump((text, done) => { writes.push(text); complete.push(done); }, () => {}),
+    writer: new TerminalWritePump(
+      (text, done) => {
+        writes.push(text);
+        complete.push(done);
+      },
+      () => {}
+    ),
   };
   let notify;
   let answer;
-  attachTerminalOutput(view, (listener) => (notify = listener, () => {}));
-  const output = followTerminalOutput(() => new Promise((resolve) => { answer = resolve; }), notify, () => true);
+  attachTerminalOutput(view, (listener) => ((notify = listener), () => {}));
+  const output = followTerminalOutput(
+    () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    notify,
+    () => true
+  );
   const chunk = (offset, text) => ({
-    processHandle: 'tab', outputStream: 'stream', outputOffset: offset, bytesB64: Buffer.from(text).toString('base64'),
+    processHandle: 'tab',
+    outputStream: 'stream',
+    outputOffset: offset,
+    bytesB64: Buffer.from(text).toString('base64'),
   });
   output.hold('tab');
   output.frame('tab', chunk(0, 'old'));
@@ -71,6 +87,10 @@ test('a parked terminal redraws after queued writes and receives only the relay 
   complete.shift()();
   assert.deepEqual(writes, ['old', 'reset', 'oldé', 'after']);
   complete.shift()();
-  assert.deepEqual(writes, ['old', 'reset', 'oldé', 'after'], 'a pre-cut frame delivered after the reply is also discarded');
+  assert.deepEqual(
+    writes,
+    ['old', 'reset', 'oldé', 'after'],
+    'a pre-cut frame delivered after the reply is also discarded'
+  );
   output.stop();
 });

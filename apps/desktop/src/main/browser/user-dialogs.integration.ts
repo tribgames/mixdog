@@ -154,8 +154,7 @@ async function scenario(harness: CoreHarness, origin: string, paymentOrigin: str
       (frame) => frame !== null
     )) as WebFrameMain;
     await eventually(
-      () =>
-        layer.executeJavaScript(`document.readyState === 'complete' && Boolean(document.querySelector('#agree'))`),
+      () => layer.executeJavaScript(`document.readyState === 'complete' && Boolean(document.querySelector('#agree'))`),
       Boolean
     );
     const inner = await center(layer, '#agree');

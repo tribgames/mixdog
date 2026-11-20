@@ -14,7 +14,8 @@ function fixture(files) {
   }
   return {
     root,
-    analyze: () => analyzeCoreSrc({ desktopRoot: path.join(root, 'apps/desktop'), runtimeRoot: path.join(root, 'src') }),
+    analyze: () =>
+      analyzeCoreSrc({ desktopRoot: path.join(root, 'apps/desktop'), runtimeRoot: path.join(root, 'src') }),
   };
 }
 

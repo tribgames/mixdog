@@ -95,7 +95,14 @@ function bound() {
 }
 
 const fillWith = (w, expect, extra) =>
-  runSecretFill(host(w, extra), 's1', REQUEST, { value: SECRET, username: '', save: false, expect }, undefined, bound());
+  runSecretFill(
+    host(w, extra),
+    's1',
+    REQUEST,
+    { value: SECRET, username: '', save: false, expect },
+    undefined,
+    bound()
+  );
 
 test('a cross-origin navigation between the precheck and the fill refuses it and nothing is typed', async () => {
   const w = world({
@@ -138,15 +145,19 @@ test('a state that still holds is typed once, and the value is kept for redactio
 test('the takeover taken meanwhile blocks the write of a bound call', async () => {
   const w = world();
   let free = true;
-  const out = await fillWith(w, { documentId: documentIdOf(w.state) }, {
-    assertFree: () => {
-      if (!free) throw new Error('takeover');
-    },
-    fill: (guest, request, signal) => {
-      free = false;
-      return w.fill.fillSecretField(guest, request, signal);
-    },
-  });
+  const out = await fillWith(
+    w,
+    { documentId: documentIdOf(w.state) },
+    {
+      assertFree: () => {
+        if (!free) throw new Error('takeover');
+      },
+      fill: (guest, request, signal) => {
+        free = false;
+        return w.fill.fillSecretField(guest, request, signal);
+      },
+    }
+  );
   assert.deepEqual(out, { text: 'blocked' });
   assert.ok(!w.sent.includes('Runtime.callFunctionOn'));
 });
@@ -182,7 +193,10 @@ test('saved_login_type is refused without expect in engine mode and checked besi
   const input = { turn_id: 1, window_id: 'w1', account: 'a', field: 'password', text: 'x', expected: { name: 'f' } };
   saved.admit('s1', { turn_id: 1 });
   await assert.rejects(saved.type('s1', input), (e) => e.code === -32010 && e.data.reason === 'document');
-  await assert.rejects(saved.type('s1', { ...input, expect: { documentId: 'p1:0' } }), (e) => e.data.reason === 'document');
+  await assert.rejects(
+    saved.type('s1', { ...input, expect: { documentId: 'p1:0' } }),
+    (e) => e.data.reason === 'document'
+  );
   assert.equal(dispatched.length, 0);
   const ok = await saved.type('s1', { ...input, expect: { documentId: documentIdOf(w.state) } });
   assert.deepEqual(ok, { ok: true });
@@ -194,7 +208,15 @@ test('saved_login_type is refused without expect in engine mode and checked besi
  * object whose strings carry the secret, so whatever a handler forwards or throws would leak it if the exits did not mask it.
  */
 function leaky() {
-  const answer = () => ({ text: SECRET, value: SECRET, url: `${ORIGIN}/?k=${SECRET}`, title: SECRET, message: SECRET, name: SECRET });
+  const answer = () => ({
+    text: SECRET,
+    value: SECRET,
+    url: `${ORIGIN}/?k=${SECRET}`,
+    title: SECRET,
+    message: SECRET,
+    name: SECRET,
+  });
+  // biome-ignore lint/complexity/useArrowFunction: the proxy target must be constructable, or `new` throws before the construct trap runs.
   return new Proxy(function () {}, {
     get: (_target, key) => (key === 'then' || key === 'toJSON' || typeof key === 'symbol' ? undefined : leaky()),
     apply: answer,
@@ -205,7 +227,9 @@ function leaky() {
 /** The methods the protocol lists as the host's engine lane (every `host/browser/*` request but the two the host serves itself). */
 function engineMethods() {
   const file = fileURLToPath(new URL('../../../../../../packages/protocol/src/index.ts', import.meta.url));
-  const line = readFileSync(file, 'utf8').split('\n').find((text) => text.startsWith('export type ServerRequest ='));
+  const line = readFileSync(file, 'utf8')
+    .split('\n')
+    .find((text) => text.startsWith('export type ServerRequest ='));
   const names = [...line.matchAll(/"method": "(host\/browser\/[A-Za-z/]+)"/g)].map((match) => match[1]);
   return names.filter((name) => name !== 'host/browser/command' && name !== 'host/browser/liveControl');
 }
@@ -221,11 +245,20 @@ const PARAMS = {
   'host/browser/page/read': { pageId: 'p1', kind: 'text', options: {} },
   'host/browser/page/dialog/answer': { pageId: 'p1', accept: true },
   'host/browser/snapshot': { pageId: 'p1', mode: 'full', expect: { documentId: DOC } },
-  'host/browser/ref/call': { pageId: 'p1', snapshotId: 's', ref: 'e1', functionDeclaration: 'function(){}', expect: { documentId: DOC } },
+  'host/browser/ref/call': {
+    pageId: 'p1',
+    snapshotId: 's',
+    ref: 'e1',
+    functionDeclaration: 'function(){}',
+    expect: { documentId: DOC },
+  },
   'host/browser/ref/mint': { pageId: 'p1', snapshotId: 's', selector: 'a', limit: 50, expect: { documentId: DOC } },
   'host/browser/input/batch': {
     pageId: 'p1',
-    steps: [{ op: 'type', text: 'a' }, { op: 'press', key: 'Enter' }],
+    steps: [
+      { op: 'type', text: 'a' },
+      { op: 'press', key: 'Enter' },
+    ],
     stopOnDialog: true,
     timeoutMs: 0,
     expect: { documentId: DOC },
@@ -247,7 +280,18 @@ const PARAMS = {
   'host/browser/turn': { sessionId: 's1', op: 'end', turn: 1 },
 };
 
-const SESSION_DEPS = ['partitionSession', 'evaluate', 'invalidateInteractionState', 'applyFetchPatterns', 'tracesByGuest', 'processMemoryMb', 'pause', 'emulation', 'downloads', 'urlPolicy'];
+const SESSION_DEPS = [
+  'partitionSession',
+  'evaluate',
+  'invalidateInteractionState',
+  'applyFetchPatterns',
+  'tracesByGuest',
+  'processMemoryMb',
+  'pause',
+  'emulation',
+  'downloads',
+  'urlPolicy',
+];
 
 test('after a typed secret and a submit, no engine reply, error, event or transcript line carries it', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'engine-secret-'));
@@ -337,9 +381,19 @@ test('after a typed secret and a submit, no engine reply, error, event or transc
 
     const lines = readdirSync(dir).map((file) => readFileSync(join(dir, file), 'utf8'));
     assert.ok(lines.join('').length > 0, 'the tap recorded');
-    assert.ok(replies.some((entry) => entry.reply !== undefined), 'some method answered');
-    assert.ok(wire.some((frame) => frame.method === 'host/browser/events'), 'the events left');
-    assert.deepEqual(replies.filter((entry) => JSON.stringify(entry).includes(SECRET)).map((entry) => entry.name), [], 'no reply or error carries the secret');
+    assert.ok(
+      replies.some((entry) => entry.reply !== undefined),
+      'some method answered'
+    );
+    assert.ok(
+      wire.some((frame) => frame.method === 'host/browser/events'),
+      'the events left'
+    );
+    assert.deepEqual(
+      replies.filter((entry) => JSON.stringify(entry).includes(SECRET)).map((entry) => entry.name),
+      [],
+      'no reply or error carries the secret'
+    );
     assert.ok(!JSON.stringify(wire).includes(SECRET), 'no frame or notification carries the secret');
     assert.ok(!lines.join('').includes(SECRET), 'the transcript does not carry it');
   } finally {

@@ -95,7 +95,8 @@ export function markPartialCatalog<T extends object>(rows: T): T {
   partialCatalogs.add(rows);
   return rows;
 }
-export const isPartialCatalog = (rows: unknown): boolean => typeof rows === 'object' && rows !== null && partialCatalogs.has(rows);
+export const isPartialCatalog = (rows: unknown): boolean =>
+  typeof rows === 'object' && rows !== null && partialCatalogs.has(rows);
 
 /** `incoming` laid over `current`: its rows added or replaced, every other row of `current` kept after them. */
 export function withPartialCatalogRows(

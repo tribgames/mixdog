@@ -21,7 +21,6 @@ const {
   sanitizeContentForStoredHistory,
 } = await import('../agent/orchestrator/providers/media-normalization.mjs');
 
-
 function minimalPdf(text = 'Hello PDF') {
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
@@ -114,8 +113,6 @@ test('attachment reads reject content that no longer matches its sha256 referenc
   const freshStore = await import(`./store.mjs?integrity=${Date.now()}`);
   assert.throws(() => freshStore.readAttachmentBuffer(stored), /integrity check failed/);
 });
-
-
 
 function pagedPdf(pageCount) {
   const objects = ['<< /Type /Catalog /Pages 2 0 R >>'];
@@ -240,7 +237,10 @@ test('an occupied content address is never unlinked or replaced: a corrupt file 
   writeFileSync(blobFile(ref), 'damaged');
   const before = statSync(blobFile(ref));
   assert.throws(
-    () => materializePromptSubmission([{ type: 'file', data: bytes.toString('base64'), mimeType: 'application/octet-stream' }]),
+    () =>
+      materializePromptSubmission([
+        { type: 'file', data: bytes.toString('base64'), mimeType: 'application/octet-stream' },
+      ]),
     /integrity check/
   );
   assert.equal(readFileSync(blobFile(ref), 'utf8'), 'damaged');

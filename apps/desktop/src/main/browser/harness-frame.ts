@@ -38,4 +38,3 @@ export async function readyBrowserFrame(host: BrowserHost, sessionId: string): P
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
 }
-

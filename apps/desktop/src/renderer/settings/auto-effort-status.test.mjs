@@ -21,7 +21,11 @@ async function mountCard(t, entries, fallback) {
   const Card = () => React.createElement('p', null, JSON.stringify(useAutoEffortStatus(fallback)));
   await act(async () => root.render(React.createElement(Card)));
   await act(async () => {});
-  return { asked, push: (e) => act(async () => push({ kind: 'sections', changes: [{ section: 'toolModules', key: null, entry: e }] })) };
+  return {
+    asked,
+    push: (e) =>
+      act(async () => push({ kind: 'sections', changes: [{ section: 'toolModules', key: null, entry: e }] })),
+  };
 }
 
 test('the Auto reasoning card shows the section pushed with the app snapshot and follows its updates without asking', async (t) => {

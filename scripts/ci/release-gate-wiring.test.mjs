@@ -15,7 +15,8 @@ const read = (path) => readFileSync(new URL(path, ROOT), 'utf8');
 const gateText = read('.github/workflows/release-gate.yml');
 const gate = parse(gateText);
 const unix = parse(read('.github/workflows/rust-core-unix.yml'));
-const bashPath = () => (process.platform === 'win32' ? `${process.env.ProgramFiles || 'C:/Program Files'}/Git/bin/bash.exe` : 'bash');
+const bashPath = () =>
+  process.platform === 'win32' ? `${process.env.ProgramFiles || 'C:/Program Files'}/Git/bin/bash.exe` : 'bash';
 const needsOf = (job) => [job.needs ?? []].flat();
 const stepsOf = (job) => job.steps ?? [];
 
@@ -47,7 +48,8 @@ for (const label of ['release-gate.yml', 'rust-core-unix.yml']) {
         if (!step.uses) continue;
         if (step.uses.startsWith('./')) {
           const action = parse(read(`${step.uses.slice(2)}/action.yml`));
-          for (const input of Object.keys(step.with ?? {})) assert.ok(action.inputs?.[input], `${name}: ${step.uses} has no input ${input}`);
+          for (const input of Object.keys(step.with ?? {}))
+            assert.ok(action.inputs?.[input], `${name}: ${step.uses} has no input ${input}`);
         } else {
           assert.match(step.uses, /@[0-9a-f]{40}\b/, `${name}: ${step.uses} is not pinned by a commit hash`);
         }
@@ -59,7 +61,8 @@ for (const label of ['release-gate.yml', 'rust-core-unix.yml']) {
     const uploads = new Map();
     for (const [name, job] of Object.entries(workflow.jobs)) {
       for (const step of stepsOf(job)) {
-        if (step.uses?.startsWith('actions/upload-artifact@')) uploads.set(name, [...(uploads.get(name) ?? []), step.with.name]);
+        if (step.uses?.startsWith('actions/upload-artifact@'))
+          uploads.set(name, [...(uploads.get(name) ?? []), step.with.name]);
       }
     }
     // A matrix name (`core-tests-${{ matrix.os }}`) is compared up to its first expression.
@@ -74,7 +77,9 @@ for (const label of ['release-gate.yml', 'rust-core-unix.yml']) {
           continue;
         }
         const wanted = stem(step.with.name);
-        const from = [...ancestors(workflow.jobs, name)].filter((up) => (uploads.get(up) ?? []).some((have) => stem(have) === wanted));
+        const from = [...ancestors(workflow.jobs, name)].filter((up) =>
+          (uploads.get(up) ?? []).some((have) => stem(have) === wanted)
+        );
         assert.ok(from.length > 0, `${name} downloads ${step.with.name}, which no job it needs uploads`);
       }
     }
@@ -85,10 +90,14 @@ test('release-gate.yml: complete requires every other job, and checks the result
   const others = Object.keys(gate.jobs).filter((name) => name !== 'complete');
   assert.deepEqual([...needsOf(gate.jobs.complete)].sort(), [...others].sort());
   const script = stepsOf(gate.jobs.complete)[0].run;
-  const results = Object.values(stepsOf(gate.jobs.complete)[0].env).filter((value) => /needs\.[\w-]+\.result/.test(value));
+  const results = Object.values(stepsOf(gate.jobs.complete)[0].env).filter((value) =>
+    /needs\.[\w-]+\.result/.test(value)
+  );
   assert.equal(results.length, others.length);
-  for (const name of others) assert.match(JSON.stringify(stepsOf(gate.jobs.complete)[0].env), new RegExp(`needs\\.${name}\\.result`));
-  for (const variable of Object.keys(stepsOf(gate.jobs.complete)[0].env)) assert.match(script, new RegExp(`\\$${variable}\\b`), `${variable} is never checked`);
+  for (const name of others)
+    assert.match(JSON.stringify(stepsOf(gate.jobs.complete)[0].env), new RegExp(`needs\\.${name}\\.result`));
+  for (const variable of Object.keys(stepsOf(gate.jobs.complete)[0].env))
+    assert.match(script, new RegExp(`\\$${variable}\\b`), `${variable} is never checked`);
 });
 
 test('release-gate.yml: every output a job reads from `changes` is declared, and written by the selection or by core-select.mjs', () => {
@@ -100,7 +109,9 @@ test('release-gate.yml: every output a job reads from `changes` is declared, and
   for (const [name, expression] of Object.entries(gate.jobs.changes.outputs)) {
     const [, step, output] = /steps\.(\w+)\.outputs\.(\w+)/.exec(expression);
     if (step === 'paths') {
-      const written = new RegExp(`(?:flag ${output}\\b|"${output}=|\\b${output}\\b[^\\n]*(?:;|do))`).test(selectionScript);
+      const written = new RegExp(`(?:flag ${output}\\b|"${output}=|\\b${output}\\b[^\\n]*(?:;|do))`).test(
+        selectionScript
+      );
       assert.ok(written, `${name}: the selection step never writes ${output}`);
     } else {
       // The `core` step is core-select.mjs; the `shards` step is node-shards.mjs.
@@ -122,7 +133,10 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
   const build = gate.jobs['core-build'];
   const tests = gate.jobs['core-tests'];
   assert.deepEqual(needsOf(tests), ['changes', 'core-build']);
-  const run = (job) => stepsOf(job).map((step) => step.run ?? '').join('\n');
+  const run = (job) =>
+    stepsOf(job)
+      .map((step) => step.run ?? '')
+      .join('\n');
   assert.match(run(build), /cargo nextest archive /);
   assert.doesNotMatch(run(tests), /cargo (build|test|nextest archive)/, 'a test leg compiles nothing');
   assert.match(run(tests), /--archive-file core-tests\.tar\.zst/);
@@ -133,7 +147,11 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
     const save = stepsOf(gate.jobs[name]).filter((step) => step.uses?.startsWith('actions/cache/save@'));
     assert.equal(save.length, 1, `${name} saves the cache once`);
     assert.match(save[0].if, /refs\/heads\/main/);
-    assert.equal(stepsOf(gate.jobs[name]).filter((step) => step.uses?.startsWith('actions/cache@')).length, 0, `${name} uses restore and save, not a cache that saves on every miss`);
+    assert.equal(
+      stepsOf(gate.jobs[name]).filter((step) => step.uses?.startsWith('actions/cache@')).length,
+      0,
+      `${name} uses restore and save, not a cache that saves on every miss`
+    );
   }
   // Nothing else builds the mixdogd the desktop replays drive.
   assert.doesNotMatch(JSON.stringify(gate.jobs['desktop-slow']), /cargo/);
@@ -144,9 +162,15 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
   const helper = desktop.steps.find((step) => step.name === 'Build the native Computer Use helper');
   const suite = desktop.steps.find((step) => step.name === 'Run the Computer Use suites on Windows');
   assert.equal(desktop['runs-on'], 'windows-latest');
-  assert.equal(helper.run, 'cargo build --locked --manifest-path native/mixdog-computer/Cargo.toml --bin mixdog-computer --target-dir native/mixdog-computer/target');
+  assert.equal(
+    helper.run,
+    'cargo build --locked --manifest-path native/mixdog-computer/Cargo.toml --bin mixdog-computer --target-dir native/mixdog-computer/target'
+  );
   assert.ok(desktop.steps.indexOf(helper) < desktop.steps.indexOf(suite));
-  assert.equal(suite.env.MIXDOG_COMPUTER_BIN, '${{ github.workspace }}/native/mixdog-computer/target/debug/mixdog-computer.exe');
+  assert.equal(
+    suite.env.MIXDOG_COMPUTER_BIN,
+    '${{ github.workspace }}/native/mixdog-computer/target/debug/mixdog-computer.exe'
+  );
   assert.doesNotMatch(JSON.stringify({ ...desktop, steps: desktop.steps.filter((step) => step !== helper) }), /cargo/);
   assert.doesNotMatch(JSON.stringify(helper), /MIXDOGD_BIN/);
   // The real offscreen boot (app-start.electron.test.mjs, run by the electron lane of this step) takes this run's Windows
@@ -154,18 +178,27 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
   assert.equal(suite.env.MIXDOGD_BIN, '${{ github.workspace }}/mixdogd-dev/mixdogd.exe');
   assert.deepEqual(desktop.needs, ['changes', 'desktop', 'core-build']);
   const fetched = desktop.steps.filter((step) => step.uses?.startsWith('actions/download-artifact@'));
-  assert.deepEqual(fetched.map((step) => [step.with.name, step.with.path]), [
-    ['mixdogd-dev-${{ env.GATE_KEY }}-windows', 'mixdogd-dev'],
-    ['desktop-out-${{ env.GATE_KEY }}', 'apps/desktop/out'],
-  ]);
+  assert.deepEqual(
+    fetched.map((step) => [step.with.name, step.with.path]),
+    [
+      ['mixdogd-dev-${{ env.GATE_KEY }}-windows', 'mixdogd-dev'],
+      ['desktop-out-${{ env.GATE_KEY }}', 'apps/desktop/out'],
+    ]
+  );
   assert.ok(fetched.every((step) => desktop.steps.indexOf(step) < desktop.steps.indexOf(suite)));
   // dev-core-install needs the root onnxruntime-node and the four data/pptxgenjs files, staged by the project's own paths.
   const install = desktop.steps.find((step) => step.name === 'Install dependencies');
   const stage = desktop.steps.find((step) => step.name?.startsWith('Stage the root packages'));
   assert.match(install.run, /lock-subset\.mjs ci-boot-subset onnxruntime-node pptxgenjs jszip/);
   assert.match(stage.run, /copyPptxgenjsData/);
-  assert.ok(desktop.steps.indexOf(install) < desktop.steps.indexOf(stage) && desktop.steps.indexOf(stage) < desktop.steps.indexOf(suite));
-  assert.equal(gate.jobs.desktop.if, "needs.changes.outputs.desktop == 'true' || needs.changes.outputs.desktop_computer == 'true'");
+  assert.ok(
+    desktop.steps.indexOf(install) < desktop.steps.indexOf(stage) &&
+      desktop.steps.indexOf(stage) < desktop.steps.indexOf(suite)
+  );
+  assert.equal(
+    gate.jobs.desktop.if,
+    "needs.changes.outputs.desktop == 'true' || needs.changes.outputs.desktop_computer == 'true'"
+  );
   assert.ok(stepsOf(gate.jobs.desktop).some((step) => step.with?.name === 'desktop-out-${{ env.GATE_KEY }}'));
   assert.match(gate.jobs['core-build'].steps.find((step) => step.name === 'Upload mixdogd').with.name, /-windows/);
 });
@@ -173,7 +206,11 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
 test('release-gate.yml: the Node lanes install and build nothing a root test does not read', () => {
   for (const name of ['runtime', 'runtime-slow', 'runtime-macos']) {
     const text = JSON.stringify(gate.jobs[name]);
-    assert.doesNotMatch(text, /office-runtime|libreoffice|build:spawn:test|stage-native-tools/i, `${name} still carries the deleted setup`);
+    assert.doesNotMatch(
+      text,
+      /office-runtime|libreoffice|build:spawn:test|stage-native-tools/i,
+      `${name} still carries the deleted setup`
+    );
   }
   // Only the Linux default lane is sharded, by the count scripts/ci/node-shards.mjs sizes from the files it discovers.
   assert.match(JSON.stringify(gate.jobs.runtime), /--test-shard=\$\{\{ matrix\.shard \}\}\/\$\{\{ matrix\.of \}\}/);
@@ -183,7 +220,8 @@ test('release-gate.yml: the Node lanes install and build nothing a root test doe
 });
 
 test('release-gate.yml: every script a step runs from scripts/ci exists', () => {
-  for (const [, path] of gateText.matchAll(/(scripts\/ci\/[\w.-]+\.mjs)/g)) assert.ok(existsSync(new URL(path, ROOT)), path);
+  for (const [, path] of gateText.matchAll(/(scripts\/ci\/[\w.-]+\.mjs)/g))
+    assert.ok(existsSync(new URL(path, ROOT)), path);
   assert.ok(readdirSync(new URL('scripts/ci/', ROOT)).includes('core-select.test.mjs'));
 });
 
@@ -203,10 +241,17 @@ test('release-gate.yml: a pull request restores shared caches and never saves on
       // `actions/cache` saves from a post step on every miss, a pull request included.
       assert.ok(!step.uses?.startsWith('actions/cache@'), `${name}: ${step.name ?? step.uses} saves on a pull request`);
       if (step.uses?.startsWith('actions/cache/save@')) {
-        assert.match(step.if, /github\.event_name != 'pull_request'|github\.ref == 'refs\/heads\/main'/, `${name}: ${step.name} must not run on a pull request`);
+        assert.match(
+          step.if,
+          /github\.event_name != 'pull_request'|github\.ref == 'refs\/heads\/main'/,
+          `${name}: ${step.name} must not run on a pull request`
+        );
       }
       // setup-node's own cache saves the same way: the repository's wrapper restores only on a pull request.
-      assert.ok(!(step.uses?.startsWith('actions/setup-node@') && step.with?.cache), `${name}: use ./.github/actions/setup-node-ci for a cached setup-node`);
+      assert.ok(
+        !(step.uses?.startsWith('actions/setup-node@') && step.with?.cache),
+        `${name}: use ./.github/actions/setup-node-ci for a cached setup-node`
+      );
     }
   }
   const action = parse(read('.github/actions/setup-node-ci/action.yml'));
@@ -218,7 +263,9 @@ test('release-gate.yml: a pull request restores shared caches and never saves on
 test('release-gate.yml: release-profile builds run on a push to main or a manual run, not on a pull request', () => {
   const real = gate.jobs['core-real'];
   assert.match(real.if, /github\.event_name == 'pull_request' && needs\.changes\.outputs\.core_scripts == 'true'/);
-  for (const step of stepsOf(real).filter((s) => /Build mixdogd as it ships|Boot mixdogd|stop past its deadline/.test(s.name ?? ''))) {
+  for (const step of stepsOf(real).filter((s) =>
+    /Build mixdogd as it ships|Boot mixdogd|stop past its deadline/.test(s.name ?? '')
+  )) {
     assert.match(step.if, /github\.event_name != 'pull_request'/, step.name);
   }
   const relay = stepsOf(gate.jobs['relay-rust']);
@@ -229,19 +276,27 @@ test('release-gate.yml: release-profile builds run on a push to main or a manual
   assert.doesNotMatch(debug.run, /--release/);
   // The pull request reads the entry core-build writes (same key formula, the dev profile's family).
   const restore = relay.find((step) => step.name === 'Restore the compiled test dependencies');
-  const buildKey = stepsOf(gate.jobs['core-build']).find((step) => step.id === 'deps').with.key.split('-${{ hashFiles')[1];
+  const buildKey = stepsOf(gate.jobs['core-build'])
+    .find((step) => step.id === 'deps')
+    .with.key.split('-${{ hashFiles')[1];
   assert.ok(restore.with.key.includes(buildKey), 'relay-rust and core-build hash the same inputs');
   assert.match(restore.with.key, /^core-deps-linux-/);
 });
 
 test('release-gate.yml: core-tests install only the packages the tests read, without scripts, and no relay twin host; the machine-path check runs in changes', () => {
-  const tests = stepsOf(gate.jobs['core-tests']).map((step) => step.run ?? '').join('\n');
+  const tests = stepsOf(gate.jobs['core-tests'])
+    .map((step) => step.run ?? '')
+    .join('\n');
   assert.match(tests, /node scripts\/ci\/lock-subset\.mjs ci-node-subset pptxgenjs jszip/);
   assert.match(tests, /npm ci --prefix ci-node-subset --ignore-scripts /);
   // mixdog-office tests/pptx_script.rs passes by returning early without the package, so the leg proves it is there
   assert.match(tests, /test -f node_modules\/pptxgenjs\/package\.json/);
   assert.doesNotMatch(tests, /apps\/relay/);
-  assert.doesNotMatch(JSON.stringify(gate.jobs['core-tests']), /setup-node-ci/, 'no npm download cache restore for a two-package install');
+  assert.doesNotMatch(
+    JSON.stringify(gate.jobs['core-tests']),
+    /setup-node-ci/,
+    'no npm download cache restore for a two-package install'
+  );
   assert.ok(stepsOf(gate.jobs.changes).some((step) => step.run === 'node scripts/check-machine-paths.mjs'));
   assert.ok(existsSync(new URL('scripts/check-machine-paths.mjs', ROOT)));
 });
@@ -249,10 +304,21 @@ test('release-gate.yml: core-tests install only the packages the tests read, wit
 test('release-gate.yml: a split cache restore never falls back to an entry built for another lockfile', () => {
   const restores = (name) => stepsOf(gate.jobs[name]).filter((step) => step.uses?.startsWith('actions/cache/restore@'));
   // Targets of standalone crates: the lockfile hash is in every restore key, the sources may differ.
-  for (const [job, lock] of [['computer-backend', 'mixdog-computer'], ['patch', 'mixdog-patch'], ['graph', 'mixdog-graph']]) {
+  for (const [job, lock] of [
+    ['computer-backend', 'mixdog-computer'],
+    ['patch', 'mixdog-patch'],
+    ['graph', 'mixdog-graph'],
+  ]) {
     for (const step of restores(job)) {
-      assert.match(step.with['restore-keys'], new RegExp(`hashFiles\\('native/${lock}/Cargo\\.lock'\\)`), `${job}: ${step.name}`);
-      assert.ok(step.with.key.includes(`hashFiles('native/${lock}/Cargo.lock') }}-\${{ hashFiles('native/${lock}/src/**') }}`), `${job}: ${step.name}`);
+      assert.match(
+        step.with['restore-keys'],
+        new RegExp(`hashFiles\\('native/${lock}/Cargo\\.lock'\\)`),
+        `${job}: ${step.name}`
+      );
+      assert.ok(
+        step.with.key.includes(`hashFiles('native/${lock}/Cargo.lock') }}-\${{ hashFiles('native/${lock}/src/**') }}`),
+        `${job}: ${step.name}`
+      );
     }
   }
   // The whole key is the dependency fingerprint (spawn) or the same fingerprint core-build / core-real write (relay-rust): exact or cold.
@@ -260,19 +326,29 @@ test('release-gate.yml: a split cache restore never falls back to an entry built
     assert.equal(step.with['restore-keys'], undefined, `${step.name} must not fall back to a prefix`);
   }
   const real = stepsOf(gate.jobs['core-real']).find((step) => step.id === 'deps').with.key;
-  const relayRelease = restores('relay-rust').find((step) => step.name === 'Restore the compiled release dependencies').with.key;
-  assert.equal(relayRelease.replace('core-release-linux-', ''), real.replace('core-release-${{ matrix.os }}-', ''), 'relay-rust reads the entry core-real (linux) writes');
+  const relayRelease = restores('relay-rust').find((step) => step.name === 'Restore the compiled release dependencies')
+    .with.key;
+  assert.equal(
+    relayRelease.replace('core-release-linux-', ''),
+    real.replace('core-release-${{ matrix.os }}-', ''),
+    'relay-rust reads the entry core-real (linux) writes'
+  );
 });
 
 test('release-gate.yml: every lane filter is checked against the compiled test list of the archive core-build makes, before a release', () => {
   const tests = gate.jobs['core-tests'];
   assert.deepEqual(needsOf(tests), ['changes', 'core-build']);
-  const index = stepsOf(tests).findIndex((step) => step.name === 'Check that every lane filter selects a compiled test');
+  const index = stepsOf(tests).findIndex(
+    (step) => step.name === 'Check that every lane filter selects a compiled test'
+  );
   const download = stepsOf(tests).findIndex((step) => step.uses?.startsWith('actions/download-artifact@'));
   assert.ok(download >= 0 && index > download, 'the check runs on the downloaded archive');
   const step = stepsOf(tests)[index];
   assert.equal(step.if, "matrix.os == 'linux' && matrix.part == 1");
-  assert.match(step.run, /cargo nextest list --archive-file core-tests\.tar\.zst --workspace-remap native\/core --message-format json/);
+  assert.match(
+    step.run,
+    /cargo nextest list --archive-file core-tests\.tar\.zst --workspace-remap native\/core --message-format json/
+  );
   assert.match(step.run, /node scripts\/ci\/check-lane-filters\.mjs nextest-list\.json/);
   // a pull request archive holds only some crates; a main push or manual run archives all and requires every lane package
   assert.match(step.run, /CORE_SCOPE" != all .*--allow-missing-packages/s);
@@ -286,53 +362,92 @@ test('release-gate.yml: every lane filter is checked against the compiled test l
 });
 
 test('release-gate.yml: core-real runs the harness suites after the helper is built', () => {
-  const run = stepsOf(gate.jobs['core-real']).map((step) => step.run ?? '').join('\n');
+  const run = stepsOf(gate.jobs['core-real'])
+    .map((step) => step.run ?? '')
+    .join('\n');
   const names = stepsOf(gate.jobs['core-real']).map((step) => step.name);
-  assert.ok(names.indexOf('Build the process-tree helper') < names.indexOf('Terminal-bench harness suites for the Rust core (OAuth preflight, prebake)'));
-  assert.match(run, /anthropic_oauth_preflight_rust\.test\.mjs benchmarks\/terminal-bench-2\.1\/harness\/prebake-rust\.test\.mjs/);
+  assert.ok(
+    names.indexOf('Build the process-tree helper') <
+      names.indexOf('Terminal-bench harness suites for the Rust core (OAuth preflight, prebake)')
+  );
+  assert.match(
+    run,
+    /anthropic_oauth_preflight_rust\.test\.mjs benchmarks\/terminal-bench-2\.1\/harness\/prebake-rust\.test\.mjs/
+  );
   // `node --test` of a missing file fails the job: every test file the job names exists
-  for (const path of run.match(/(?:scripts\/rust-core|benchmarks\/token-lang|benchmarks\/terminal-bench-2\.1\/harness)\/[\w./-]+\.test\.mjs/g)) assert.ok(existsSync(new URL(path, ROOT)), `${path} does not exist`);
+  for (const path of run.match(
+    /(?:scripts\/rust-core|benchmarks\/token-lang|benchmarks\/terminal-bench-2\.1\/harness)\/[\w./-]+\.test\.mjs/g
+  ))
+    assert.ok(existsSync(new URL(path, ROOT)), `${path} does not exist`);
   const selection = stepsOf(gate.jobs.changes).find((step) => step.id === 'paths').run;
-  assert.match(selection, /CORE_SCRIPTS_RE=.*terminal-bench-2\\\.1\/harness\/\(anthropic_oauth_preflight_rust\|prebake-rust\)/);
-  for (const file of ['anthropic_oauth_preflight_rust.test.mjs', 'prebake-rust.test.mjs']) assert.ok(existsSync(new URL(`benchmarks/terminal-bench-2.1/harness/${file}`, ROOT)), file);
+  assert.match(
+    selection,
+    /CORE_SCRIPTS_RE=.*terminal-bench-2\\\.1\/harness\/\(anthropic_oauth_preflight_rust\|prebake-rust\)/
+  );
+  for (const file of ['anthropic_oauth_preflight_rust.test.mjs', 'prebake-rust.test.mjs'])
+    assert.ok(existsSync(new URL(`benchmarks/terminal-bench-2.1/harness/${file}`, ROOT)), file);
 });
 
 test('release-gate.yml: the standalone window and browser-import test jobs run their own manifests', () => {
-  assert.match(JSON.stringify(gate.jobs.window), /run-nextest\.mjs .*--manifest-path native\/mixdog-window\/Cargo\.toml/);
-  assert.match(JSON.stringify(gate.jobs['browser-import']), /run-nextest\.mjs .*--manifest-path \\+"\$RUNNER_TEMP\/browser-import\/Cargo\.toml/);
+  assert.match(
+    JSON.stringify(gate.jobs.window),
+    /run-nextest\.mjs .*--manifest-path native\/mixdog-window\/Cargo\.toml/
+  );
+  assert.match(
+    JSON.stringify(gate.jobs['browser-import']),
+    /run-nextest\.mjs .*--manifest-path \\+"\$RUNNER_TEMP\/browser-import\/Cargo\.toml/
+  );
   assert.equal(gate.jobs.window['runs-on'], 'windows-latest');
 });
 
 test('release-gate.yml: toolchain actions consume the root pin and desktop output key covers the current closure', () => {
-  for (const job of Object.values(gate.jobs)) for (const step of stepsOf(job)) {
-    if (step.uses?.startsWith('dtolnay/rust-toolchain@')) assert.equal(step.with.toolchain, '${{ steps.rust-pin.outputs.version }}');
-  }
+  for (const job of Object.values(gate.jobs))
+    for (const step of stepsOf(job)) {
+      if (step.uses?.startsWith('dtolnay/rust-toolchain@'))
+        assert.equal(step.with.toolchain, '${{ steps.rust-pin.outputs.version }}');
+    }
   const key = stepsOf(gate.jobs.desktop).find((step) => step.id === 'desktop-out').with.key;
   const release = parse(read('.github/workflows/release.yml'));
   assert.equal(stepsOf(release.jobs['desktop-build']).find((step) => step.id === 'desktop-out').with.key, key);
   const manifestCommand = (job) => stepsOf(job).find((step) => step.id === 'desktop-key').run;
   assert.equal(manifestCommand(gate.jobs.desktop), manifestCommand(release.jobs['desktop-build']));
-  assert.match(manifestCommand(gate.jobs.desktop), /manifest-cache-key\.mjs package-lock\.json apps\/desktop\/package-lock\.json/);
-  for (const input of ['packages/**', 'src/**', 'apps/desktop/scripts/**', 'apps/mobile/src/**',
-    'apps/relay/lib/feedback-attachments.mjs', 'apps/relay/lib/media-http.mjs', 'apps/relay/lib/relay-close-codes.mjs']) {
+  assert.match(
+    manifestCommand(gate.jobs.desktop),
+    /manifest-cache-key\.mjs package-lock\.json apps\/desktop\/package-lock\.json/
+  );
+  for (const input of [
+    'packages/**',
+    'src/**',
+    'apps/desktop/scripts/**',
+    'apps/mobile/src/**',
+    'apps/relay/lib/feedback-attachments.mjs',
+    'apps/relay/lib/media-http.mjs',
+    'apps/relay/lib/relay-close-codes.mjs',
+  ]) {
     assert.ok(key.includes(input));
   }
 });
 
 test('release-gate.yml: every bash step parses after expression placeholders are replaced', () => {
   const bash = bashPath();
-  for (const [name, job] of Object.entries(gate.jobs)) for (const step of stepsOf(job)) {
-    if (!step.run || (step.shell && !step.shell.startsWith('bash'))) continue;
-    const script = step.run.replace(/\$\{\{[\s\S]*?\}\}/g, 'placeholder');
-    assert.doesNotThrow(() => execFileSync(bash, ['-n'], { input: script, encoding: 'utf8', timeout: 5000 }), `${name}: ${step.name}`);
-  }
+  for (const [name, job] of Object.entries(gate.jobs))
+    for (const step of stepsOf(job)) {
+      if (!step.run || (step.shell && !step.shell.startsWith('bash'))) continue;
+      const script = step.run.replace(/\$\{\{[\s\S]*?\}\}/g, 'placeholder');
+      assert.doesNotThrow(
+        () => execFileSync(bash, ['-n'], { input: script, encoding: 'utf8', timeout: 5000 }),
+        `${name}: ${step.name}`
+      );
+    }
 });
 
 test('release-gate.yml: the Postgres-backed tests run from the core-build archive under the profile that selects them, with the shipped runtime', () => {
   const job = gate.jobs['core-pg'];
   assert.deepEqual(needsOf(job), ['changes', 'core-build']);
   assert.match(job.strategy.matrix, /needs\.changes\.outputs\.core_pg_matrix/);
-  const run = stepsOf(job).map((step) => step.run ?? '').join('\n');
+  const run = stepsOf(job)
+    .map((step) => step.run ?? '')
+    .join('\n');
   assert.doesNotMatch(run, /cargo (build|test|nextest archive)/, 'the job compiles nothing');
   assert.match(run, /--archive-file core-tests\.tar\.zst --workspace-remap native\/core/);
   assert.match(run, /--profile "\$\{\{ matrix\.profile \}\}"/);
@@ -350,7 +465,10 @@ test('release-gate.yml: the Postgres-backed tests run from the core-build archiv
   }
   // the tests the issue named: the daemon's session-project and ssh-origin modules are in the profile's filter and its time budget
   assert.match(nextest, /\[profile\.pg\][\s\S]*session_project_tests[\s\S]*\^ssh_origin_tests::/);
-  assert.match(nextest, /\[\[profile\.default\.overrides\]\]\nfilter = '''package\(mixdog-app-server-daemon\)[\s\S]*\^ssh_origin_tests::[\s\S]*terminate-after = 6/);
+  assert.match(
+    nextest,
+    /\[\[profile\.default\.overrides\]\]\nfilter = '''package\(mixdog-app-server-daemon\)[\s\S]*\^ssh_origin_tests::[\s\S]*terminate-after = 6/
+  );
 });
 
 test('release-gate.yml: complete fails any job its own `if` selected that did not succeed, for every job of the graph', () => {
@@ -362,9 +480,17 @@ test('release-gate.yml: complete fails any job its own `if` selected that did no
   for (const job of jobs) {
     assert.ok(gate.jobs[job].if !== undefined, `${job} has no \`if\`, so nothing says when it is selected`);
     // the selection is the job's own condition, verbatim, and the result is the job's own
-    assert.equal(flat(step.env[`SEL_${variable(job)}`]), `\${{ ${flat(gate.jobs[job].if)} }}`, `${job}: SEL_ differs from the job's if`);
+    assert.equal(
+      flat(step.env[`SEL_${variable(job)}`]),
+      `\${{ ${flat(gate.jobs[job].if)} }}`,
+      `${job}: SEL_ differs from the job's if`
+    );
     assert.equal(step.env[variable(job)], `\${{ needs.${job}.result }}`);
-    assert.match(step.run, new RegExp(`gate ${job} "\\$SEL_${variable(job)}" "\\$${variable(job)}"`), `${job} is never gated`);
+    assert.match(
+      step.run,
+      new RegExp(`gate ${job} "\\$SEL_${variable(job)}" "\\$${variable(job)}"`),
+      `${job} is never gated`
+    );
   }
 });
 
@@ -374,7 +500,10 @@ function runGate(selected, result) {
   const start = script.indexOf('gate() {');
   const body = script.slice(start, script.indexOf('\n          gate ', start)).replace(/^ {10}/gm, '');
   try {
-    execFileSync(bashPath(), ['-c', `${body}\ngate job "${selected}" "${result}"`], { encoding: 'utf8', stdio: 'pipe' });
+    execFileSync(bashPath(), ['-c', `${body}\ngate job "${selected}" "${result}"`], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
     return true;
   } catch {
     return false;
@@ -404,7 +533,10 @@ test('release-gate.yml: a failed shard discovery fails changes, and no one-shard
     for (const s of stepsOf(job)) {
       if (!/\|\s*tee\b/.test(s.run ?? '')) continue;
       const shell = s.shell ?? job.defaults?.run?.shell;
-      assert.ok(shell === 'bash' || /set -\w*o pipefail|set -\w*u?o? ?pipefail/.test(s.run), `${name}: ${s.name} pipes into tee without pipefail`);
+      assert.ok(
+        shell === 'bash' || /set -\w*o pipefail|set -\w*u?o? ?pipefail/.test(s.run),
+        `${name}: ${s.name} pipes into tee without pipefail`
+      );
     }
   }
 });
@@ -428,7 +560,12 @@ function selected(changedPaths) {
   const script = stepsOf(gate.jobs.changes).find((step) => step.id === 'paths').run;
   const dir = mkdtempSync(join(tmpdir(), 'gate-select-'));
   const slash = (path) => path.replaceAll('\\', '/');
-  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args], { cwd: dir, encoding: 'utf8' });
+  const git = (...args) =>
+    execFileSync(
+      'git',
+      ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args],
+      { cwd: dir, encoding: 'utf8' }
+    );
   try {
     git('init', '-q');
     writeFileSync(join(dir, 'base.txt'), 'x');
@@ -450,17 +587,43 @@ function selected(changedPaths) {
       cwd: dir,
       encoding: 'utf8',
       stdio: 'pipe',
-      env: { ...process.env, EVENT_NAME: 'pull_request', PR_BASE: base, PUSH_BASE: '', HEAD_MESSAGE: '', ACTOR: 'someone', GITHUB_SHA: sha, GITHUB_OUTPUT: slash(output) },
+      env: {
+        ...process.env,
+        EVENT_NAME: 'pull_request',
+        PR_BASE: base,
+        PUSH_BASE: '',
+        HEAD_MESSAGE: '',
+        ACTOR: 'someone',
+        GITHUB_SHA: sha,
+        GITHUB_OUTPUT: slash(output),
+      },
     });
-    const flags = Object.fromEntries(readFileSync(output, 'utf8').split('\n').filter(Boolean).map((line) => line.split('=')));
-    return Object.keys(flags).filter((name) => flags[name] === 'true').sort();
+    const flags = Object.fromEntries(
+      readFileSync(output, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => line.split('='))
+    );
+    return Object.keys(flags)
+      .filter((name) => flags[name] === 'true')
+      .sort();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
 test('release-gate.yml: a change to the toolchain pin, the workflow or the core workspace selects every job that consumes it', () => {
-  const TOOLCHAIN_JOBS = ['browser_import', 'computer', 'core_scripts', 'graph', 'patch', 'relay', 'secure_desktop', 'spawn', 'window'];
+  const TOOLCHAIN_JOBS = [
+    'browser_import',
+    'computer',
+    'core_scripts',
+    'graph',
+    'patch',
+    'relay',
+    'secure_desktop',
+    'spawn',
+    'window',
+  ];
   const WORKFLOW_JOBS = [...TOOLCHAIN_JOBS, 'desktop', 'desktop_tests', 'mobile', 'packages', 'runtime'];
   const WORKSPACE_JOBS = ['core_scripts', 'desktop', 'desktop_tests', 'relay', 'runtime', 'spawn'];
   const table = [
@@ -483,24 +646,38 @@ test('release-gate.yml: a change to the toolchain pin, the workflow or the core 
   assert.deepEqual(selected(['docs/readme.md']), []);
   assert.deepEqual(selected(['apps/desktop/src/renderer/connectors.css']), ['desktop', 'desktop_css_only']);
   // each output the table names is read by a job's own `if`
-  for (const job of TOOLCHAIN_JOBS.filter((name) => name !== 'core_scripts')) assert.ok(gateText.includes(`needs.changes.outputs.${job} == 'true'`), job);
+  for (const job of TOOLCHAIN_JOBS.filter((name) => name !== 'core_scripts'))
+    assert.ok(gateText.includes(`needs.changes.outputs.${job} == 'true'`), job);
 });
 
 test('release-gate.yml: nextest inputs and the computer helper select their PR consumers without adding unrelated lanes', () => {
-  const standalone = ['browser_import', 'computer', 'core_scripts', 'graph', 'patch', 'secure_desktop', 'spawn', 'window'];
+  const standalone = [
+    'browser_import',
+    'computer',
+    'core_scripts',
+    'graph',
+    'patch',
+    'secure_desktop',
+    'spawn',
+    'window',
+  ];
   const inputs = ['.github/actions/install-nextest/action.yml', 'native/.config/nextest-standalone.toml'];
   for (const paths of [inputs, ...inputs.map((path) => [path])]) {
     assert.deepEqual(selected(paths), standalone, paths.join(', '));
   }
   assert.deepEqual(selected(['native/mixdog-computer/Cargo.toml']), ['computer', 'desktop_computer', 'runtime']);
   // A helper-only PR runs the Windows job alone; any desktop test change runs the three Linux shards and the Windows job.
-  assert.equal(gate.jobs['desktop-computer'].if, "needs.changes.outputs.desktop_tests == 'true' || needs.changes.outputs.desktop_computer == 'true'");
+  assert.equal(
+    gate.jobs['desktop-computer'].if,
+    "needs.changes.outputs.desktop_tests == 'true' || needs.changes.outputs.desktop_computer == 'true'"
+  );
   assert.equal(gate.jobs['desktop-tests'].if, "needs.changes.outputs.desktop_tests == 'true'");
   assert.deepEqual(gate.jobs['desktop-tests'].strategy.matrix, { shard: [1, 2, 3] });
 });
 
 // A test invocation of a workflow: a line of a step's `run` that starts a test runner (not a comment line).
-const TEST_COMMAND = /(?:^|[\s;&|(])(?:npm (?:run )?test(?::\w+)?(?=\s|$)|node (?:\.\.\/)*scripts\/test\.mjs|node (?:\.\.\/)*scripts\/ci\/node-test\.mjs|node (?:\.\.\/)*scripts\/ci\/run-receipt\.mjs|node (?:\.\.\/)*scripts\/ci\/run-nextest\.mjs|cargo test(?=\s)|python3? -m unittest)/;
+const TEST_COMMAND =
+  /(?:^|[\s;&|(])(?:npm (?:run )?test(?::\w+)?(?=\s|$)|node (?:\.\.\/)*scripts\/test\.mjs|node (?:\.\.\/)*scripts\/ci\/node-test\.mjs|node (?:\.\.\/)*scripts\/ci\/run-receipt\.mjs|node (?:\.\.\/)*scripts\/ci\/run-nextest\.mjs|cargo test(?=\s)|python3? -m unittest)/;
 const receiptNames = (text) => [...text.matchAll(/receipts\/([\w.-]+)\.json/gi)].map((hit) => hit[1]);
 
 function invocationsOf(job) {
@@ -526,10 +703,18 @@ for (const label of ['release-gate.yml', 'desktop-package.yml']) {
         const fromEnv = receiptNames(step.env?.MIXDOG_RECEIPT ?? '')[0];
         assert.ok(inline || fromEnv, `${name}: "${line}" leaves no receipt (MIXDOG_RECEIPT)`);
         // a cargo or unittest run is not a Node runner: only the wrapper reads its output into a receipt
-        if (/cargo test|unittest/.test(line)) assert.match(line, /run-receipt\.mjs unittest /, `${name}: "${line}" must run through scripts/ci/run-receipt.mjs`);
+        if (/cargo test|unittest/.test(line))
+          assert.match(
+            line,
+            /run-receipt\.mjs unittest /,
+            `${name}: "${line}" must run through scripts/ci/run-receipt.mjs`
+          );
         const id = inline ? line : `step ${stepsOf(job).indexOf(step)}`;
         const receipt = inline ?? fromEnv;
-        assert.ok(owner.get(receipt) === undefined || owner.get(receipt) === id, `${name}: receipt ${receipt} is shared by two invocations`);
+        assert.ok(
+          owner.get(receipt) === undefined || owner.get(receipt) === id,
+          `${name}: receipt ${receipt} is shared by two invocations`
+        );
         owner.set(receipt, id);
         declared.push({ name: receipt, step });
       }
@@ -540,17 +725,27 @@ for (const label of ['release-gate.yml', 'desktop-package.yml']) {
       if (['core-tests', 'core-pg'].includes(name)) continue;
       const checks = stepsOf(job).filter((step) => /check-skips\.mjs receipts/.test(step.run ?? ''));
       assert.ok(checks.length > 0, `${name}: no check-skips.mjs receipts step`);
-      const checked = new Set(checks.flatMap((step) => [...receiptNames(step.run ?? ''), ...(/\$MIXDOG_RECEIPT/.test(step.run ?? '') ? receiptNames(step.env?.MIXDOG_RECEIPT ?? '') : [])]));
-      for (const { name: receipt } of declared) assert.ok(checked.has(receipt), `${name}: receipt ${receipt} is never checked`);
+      const checked = new Set(
+        checks.flatMap((step) => [
+          ...receiptNames(step.run ?? ''),
+          ...(/\$MIXDOG_RECEIPT/.test(step.run ?? '') ? receiptNames(step.env?.MIXDOG_RECEIPT ?? '') : []),
+        ])
+      );
+      for (const { name: receipt } of declared)
+        assert.ok(checked.has(receipt), `${name}: receipt ${receipt} is never checked`);
       const lastRun = Math.max(...declared.map(({ step }) => stepsOf(job).indexOf(step)));
       // a check in the step of the last run (desktop-package.yml) follows its command
-      assert.ok(stepsOf(job).indexOf(checks.at(-1)) >= lastRun, `${name}: the receipts are checked before the last test ran`);
+      assert.ok(
+        stepsOf(job).indexOf(checks.at(-1)) >= lastRun,
+        `${name}: the receipts are checked before the last test ran`
+      );
     }
   });
 }
 
 test('workflows: the retired MIXDOG_SKIP_REPORT file, which a missing file read as zero skips, is gone', () => {
-  for (const file of ['release-gate.yml', 'desktop-package.yml']) assert.doesNotMatch(read(`.github/workflows/${file}`), /MIXDOG_SKIP_REPORT|test ! -s/, file);
+  for (const file of ['release-gate.yml', 'desktop-package.yml'])
+    assert.doesNotMatch(read(`.github/workflows/${file}`), /MIXDOG_SKIP_REPORT|test ! -s/, file);
 });
 
 test('desktop-package.yml: the Windows runtime step takes a receipt and no skip at all', () => {
@@ -561,33 +756,61 @@ test('desktop-package.yml: the Windows runtime step takes a receipt and no skip 
 });
 
 test('release-gate.yml: every system lists its archive unfiltered for the reconciliation, the reader scan is advisory, and every standalone Rust lane has a check', () => {
-  const rust = stepsOf(gate.jobs['core-tests']).find((step) => step.name === 'List the archive (unfiltered, and per profile that runs ignored tests)');
+  const rust = stepsOf(gate.jobs['core-tests']).find(
+    (step) => step.name === 'List the archive (unfiltered, and per profile that runs ignored tests)'
+  );
   // every system's archive is listed whatever the scope of the run: a macOS-only ignored test is seen by no other leg
   assert.equal(rust.if, 'matrix.part == 1');
   assert.equal(rust.env.OS, '${{ matrix.os }}');
-  for (const profile of ['pg', 'services-pg']) assert.ok(read('scripts/ci/core-select.mjs').includes(`name: '${profile}'`), profile);
+  for (const profile of ['pg', 'services-pg'])
+    assert.ok(read('scripts/ci/core-select.mjs').includes(`name: '${profile}'`), profile);
   assert.match(rust.run, /for profile in pg services-pg/);
   assert.match(rust.run, /--profile "\$profile" --run-ignored only --message-format json/);
   assert.match(rust.run, /\[\[ "\$OS" != windows \]\]/);
-  assert.doesNotMatch(JSON.stringify(gate.jobs['core-tests']), /check-skips\.mjs rust/, 'a listing that matches a profile credits nothing');
-  const upload = stepsOf(gate.jobs['core-tests']).find((step) => step.uses?.startsWith('actions/upload-artifact@') && /rust-lists/.test(step.with.name));
+  assert.doesNotMatch(
+    JSON.stringify(gate.jobs['core-tests']),
+    /check-skips\.mjs rust/,
+    'a listing that matches a profile credits nothing'
+  );
+  const upload = stepsOf(gate.jobs['core-tests']).find(
+    (step) => step.uses?.startsWith('actions/upload-artifact@') && /rust-lists/.test(step.with.name)
+  );
   assert.equal(upload.with.name, 'rust-lists-${{ env.GATE_KEY }}-${{ matrix.os }}');
   // the entry scenarios the audit lists as run are run, after the audit, against the artifact the same run built
   const names = stepsOf(gate.jobs['core-tests']).map((step) => step.name);
-  assert.ok(names.indexOf('Run the interactive entry scenarios (the terminal interface and --plain, without Node)') > names.indexOf(rust.name));
+  assert.ok(
+    names.indexOf('Run the interactive entry scenarios (the terminal interface and --plain, without Node)') >
+      names.indexOf(rust.name)
+  );
   assert.match(rust.run, /package\(mixdog-entry\) & binary\(node_free\)/);
   const readers = stepsOf(gate.jobs.changes).find((step) => /check-clean-checkout\.mjs --readers/.test(step.run ?? ''));
   assert.equal(readers['continue-on-error'], true, 'the reader scan is advice, like the silent-return scan');
   const silent = stepsOf(gate.jobs.changes).find((step) => /scan-silent-returns/.test(step.run ?? ''));
   assert.equal(silent['continue-on-error'], true);
   // every standalone Rust and script lane checks its receipts
-  for (const job of ['computer-backend', 'spawn', 'patch', 'graph', 'secure-desktop', 'window', 'mobile-scripts', 'core-real'])
-    assert.ok(invocationsOf(gate.jobs[job]).length > 0 && stepsOf(gate.jobs[job]).some((step) => /check-skips\.mjs receipts/.test(step.run ?? '')), `${job} has a receipt check`);
+  for (const job of [
+    'computer-backend',
+    'spawn',
+    'patch',
+    'graph',
+    'secure-desktop',
+    'window',
+    'mobile-scripts',
+    'core-real',
+  ])
+    assert.ok(
+      invocationsOf(gate.jobs[job]).length > 0 &&
+        stepsOf(gate.jobs[job]).some((step) => /check-skips\.mjs receipts/.test(step.run ?? '')),
+      `${job} has a receipt check`
+    );
 });
 
 test('Linux root delegates protocol-client fast tests only when the packages job is required', () => {
   const planner = stepsOf(gate.jobs.changes).find((step) => step.id === 'shards');
-  const selection = planner.env.PROTOCOL_IN_PACKAGES.slice(4, -3).replaceAll('steps.paths.outputs.', 'needs.changes.outputs.');
+  const selection = planner.env.PROTOCOL_IN_PACKAGES.slice(4, -3).replaceAll(
+    'steps.paths.outputs.',
+    'needs.changes.outputs.'
+  );
   assert.equal(selection, gate.jobs.packages.if);
   const root = stepsOf(gate.jobs.runtime).find((step) => step.env?.EXCLUDED_PATH);
   const client = stepsOf(gate.jobs.packages).find((step) => step.name === "Run the client's suite");

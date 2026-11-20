@@ -38,7 +38,10 @@ test('a host announcing open access unblocks everything but the media resolver',
 // The refusal itself was raised by the Node relay's assertRemoteCapabilityCall (remote-methods.ts, gone with the relay); the core
 // raises it now with this message (mixdog-core-config config/service.rs settings_call).  What stays here is the renderer's reading of the code.
 test('the coded Allow-all remote refusal becomes desktop-only guidance, by code not text', () => {
-  const refusal = Object.assign(new Error('setDeveloperOption cannot turn on Allow all actions over remote access; use the desktop.'), { code: 'REMOTE_DESKTOP_ONLY' });
+  const refusal = Object.assign(
+    new Error('setDeveloperOption cannot turn on Allow all actions over remote access; use the desktop.'),
+    { code: 'REMOTE_DESKTOP_ONLY' }
+  );
   assert.equal(friendlyCapabilityError(refusal).message, 'Turn this on in the desktop app.');
   const rebuilt = Object.assign(new Error('some other wording'), { code: 'REMOTE_DESKTOP_ONLY' });
   assert.equal(friendlyCapabilityError(rebuilt).message, 'Turn this on in the desktop app.');

@@ -10,7 +10,13 @@ import { fileURLToPath } from 'node:url';
 
 import { startCore } from '../../../scripts/rust-core/lib/core-session.mjs';
 import { computerSourceEsbuildPlugin } from './computer-source-assets.mjs';
-import { bundleElectronEntry, electronProcessEnv, spawnElectron, waitForChildExit, withTempWorkspace } from './electron-harness.mjs';
+import {
+  bundleElectronEntry,
+  electronProcessEnv,
+  spawnElectron,
+  waitForChildExit,
+  withTempWorkspace,
+} from './electron-harness.mjs';
 
 const SUITE_LIMIT_MS = 90_000;
 
@@ -42,47 +48,57 @@ if (!existsSync(suiteFile)) {
 const coreRoot = mkdtempSync(join(tmpdir(), 'mixdog-browser-core-'));
 let core = null;
 try {
-  core = await startCore({ bin, root: coreRoot, extraEnv: { MIXDOGD_TEST_HOOKS: '1' }, clientName: 'browser-core-harness' });
-  await withTempWorkspace('mixdog-browser-core-integration-', async (staging) => {
-    const output = join(staging, 'browser-core-integration.mjs');
-    const entry = join(staging, 'entry.ts');
-    const progressPath = join(staging, 'progress.log');
-    await writeFile(
-      entry,
-      `import { runCoreHarnessSuite } from ${JSON.stringify(join(testSupport, 'core-harness.ts'))};\n` +
-        `import suite from ${JSON.stringify(suiteFile)};\nrunCoreHarnessSuite(suite);\n`
-    );
-    await bundleElectronEntry({
-      entry,
-      outfile: output,
-      plugins: [computerSourceEsbuildPlugin()],
-      external: ['electron', 'ws'],
-      sourcemap: 'inline',
-    });
-    const env = electronProcessEnv({
-      MIXDOG_BROWSER_INTEGRATION_LOG: progressPath,
-      MIXDOG_CORE_HARNESS_RUNTIME_ROOT: core.paths.runtimeRoot,
-      MIXDOG_CORE_HARNESS_ENGINE: engine,
-      // Inside the staging folder, which is removed whatever becomes of the child (killed, timed out, crashed).
-      MIXDOG_CORE_HARNESS_PROFILE_DIR: join(staging, 'profile'),
-      MIXDOG_CORE_HARNESS_VERSION: JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version,
-    });
-    const child = spawnElectron(output, { env });
-    let exitCode;
-    try {
-      exitCode = await waitForChildExit(child, {
-        timeoutMs: SUITE_LIMIT_MS,
-        timeoutMessage: `browser core integration exceeded ${SUITE_LIMIT_MS / 1000} seconds`,
-        signalMessage: (signal) => `browser core integration was terminated by ${signal}`,
+  core = await startCore({
+    bin,
+    root: coreRoot,
+    extraEnv: { MIXDOGD_TEST_HOOKS: '1' },
+    clientName: 'browser-core-harness',
+  });
+  await withTempWorkspace(
+    'mixdog-browser-core-integration-',
+    async (staging) => {
+      const output = join(staging, 'browser-core-integration.mjs');
+      const entry = join(staging, 'entry.ts');
+      const progressPath = join(staging, 'progress.log');
+      await writeFile(
+        entry,
+        `import { runCoreHarnessSuite } from ${JSON.stringify(join(testSupport, 'core-harness.ts'))};\n` +
+          `import suite from ${JSON.stringify(suiteFile)};\nrunCoreHarnessSuite(suite);\n`
+      );
+      await bundleElectronEntry({
+        entry,
+        outfile: output,
+        plugins: [computerSourceEsbuildPlugin()],
+        external: ['electron', 'ws'],
+        sourcemap: 'inline',
       });
-    } finally {
-      process.stdout.write(await readFile(progressPath, 'utf8').catch(() => ''));
-    }
-    const progress = await readFile(progressPath, 'utf8').catch(() => '');
-    if (exitCode !== 0 || !progress.includes('integration passed')) {
-      throw new Error(`browser core integration failed before its success marker (exit ${exitCode})`);
-    }
-  }, { maxRetries: 20, retryDelay: 100 });
+      const env = electronProcessEnv({
+        MIXDOG_BROWSER_INTEGRATION_LOG: progressPath,
+        MIXDOG_CORE_HARNESS_RUNTIME_ROOT: core.paths.runtimeRoot,
+        MIXDOG_CORE_HARNESS_ENGINE: engine,
+        // Inside the staging folder, which is removed whatever becomes of the child (killed, timed out, crashed).
+        MIXDOG_CORE_HARNESS_PROFILE_DIR: join(staging, 'profile'),
+        MIXDOG_CORE_HARNESS_VERSION: JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+          .version,
+      });
+      const child = spawnElectron(output, { env });
+      let exitCode;
+      try {
+        exitCode = await waitForChildExit(child, {
+          timeoutMs: SUITE_LIMIT_MS,
+          timeoutMessage: `browser core integration exceeded ${SUITE_LIMIT_MS / 1000} seconds`,
+          signalMessage: (signal) => `browser core integration was terminated by ${signal}`,
+        });
+      } finally {
+        process.stdout.write(await readFile(progressPath, 'utf8').catch(() => ''));
+      }
+      const progress = await readFile(progressPath, 'utf8').catch(() => '');
+      if (exitCode !== 0 || !progress.includes('integration passed')) {
+        throw new Error(`browser core integration failed before its success marker (exit ${exitCode})`);
+      }
+    },
+    { maxRetries: 20, retryDelay: 100 }
+  );
 } finally {
   // The core's own stop (`POST /mgmt/stop`), else its tree ended by handle; a failed stop is reported, not thrown over the run's outcome.
   if (core) await core.stop().catch((error) => console.error(error.message));

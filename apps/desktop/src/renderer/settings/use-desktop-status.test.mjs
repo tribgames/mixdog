@@ -40,7 +40,12 @@ test('a failed or empty first read stays unknown; every announcement reads again
   const dom = installTestDom(t, DOM);
   await act(async () =>
     dom.root.render(
-      React.createElement(React.Fragment, null, React.createElement(Probe, { seen: seenA }), React.createElement(Probe, { seen: seenB }))
+      React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(Probe, { seen: seenA }),
+        React.createElement(Probe, { seen: seenB })
+      )
     )
   );
   await settle();

@@ -68,12 +68,10 @@ test('extras invoke the channels main registers (registerHostExtrasIpc)', async 
   await api.invokePcQuotaCapability({ capability: 'getUsageDashboard' });
   await api.readPcQuotaCapabilities([{ capability: 'getLeadStatus' }]);
   api.observeSignIn('getMcpOAuthLoginStatus', ['f1'], { state: 'done' });
-  assert.deepEqual(calls.map((c) => c[1]), [
-    DESKTOP_IPC.enableAllowAllActions,
-    DESKTOP_IPC.pcQuotaInvoke,
-    DESKTOP_IPC.pcQuotaRead,
-    DESKTOP_IPC.observeSignIn,
-  ]);
+  assert.deepEqual(
+    calls.map((c) => c[1]),
+    [DESKTOP_IPC.enableAllowAllActions, DESKTOP_IPC.pcQuotaInvoke, DESKTOP_IPC.pcQuotaRead, DESKTOP_IPC.observeSignIn]
+  );
   assert.deepEqual(calls[3].slice(2), [{ capability: 'getMcpOAuthLoginStatus', args: ['f1'] }, { state: 'done' }]);
 });
 
@@ -89,7 +87,11 @@ test('a notification open before the renderer subscribes is held for it', () => 
 
 test('folderPathForFile answers an empty path when webUtils throws', () => {
   const { deps } = makeDeps();
-  deps.webUtils = { getPathForFile: () => { throw new Error('x'); } };
+  deps.webUtils = {
+    getPathForFile: () => {
+      throw new Error('x');
+    },
+  };
   assert.equal(createHostApi(deps).folderPathForFile({}), '');
 });
 

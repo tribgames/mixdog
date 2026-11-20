@@ -6,7 +6,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { helperTest } from './lib/tree-helper-gate.mjs';
 import { endTree, helperPath, runTree, spawnTree } from './lib/process-tree.mjs';
-import { assertNothingInside, assertTreeEnded, leakGuard, pidsOfExecutable, processesInside, startTimeOf } from './lib/process-probe.mjs';
+import {
+  assertNothingInside,
+  assertTreeEnded,
+  leakGuard,
+  pidsOfExecutable,
+  processesInside,
+  startTimeOf,
+} from './lib/process-probe.mjs';
 
 const test = helperTest();
 
@@ -78,7 +85,12 @@ async function withTree(body) {
     }
   };
   try {
-    await body(dir, members, (record) => extra.push(record), (child) => tracked.push(child));
+    await body(
+      dir,
+      members,
+      (record) => extra.push(record),
+      (child) => tracked.push(child)
+    );
   } finally {
     const failures = [];
     for (const child of tracked) await endTree(child).catch((error) => failures.push(error.message));
@@ -91,7 +103,10 @@ test('at the deadline the child and the grandchild it started are both gone', ()
     // The child is the hung process (it holds the event loop open, as a hung core does); the test returns at runTree's deadline.
     const script = join(dir, 'tree.mjs');
     writeFileSync(script, treeScript(dir, { out: 'ignore', after: 'setInterval(() => {}, 1000);' }));
-    await assert.rejects(runTree(process.execPath, [script], { label: 'lane x (filter y)', cwd: dir, deadlineMs: 30_000, onSpawn: track }), /lane x \(filter y\) did not finish within 30000ms and was ended/);
+    await assert.rejects(
+      runTree(process.execPath, [script], { label: 'lane x (filter y)', cwd: dir, deadlineMs: 30_000, onSpawn: track }),
+      /lane x \(filter y\) did not finish within 30000ms and was ended/
+    );
     assert.equal(members().length, 2);
     await assertTreeEnded(dir, members());
   }));
@@ -100,7 +115,12 @@ test('a command that exits normally leaves nothing running: an independent child
   withTree(async (dir, members, _remember, track) => {
     const script = join(dir, 'leaves.mjs');
     writeFileSync(script, treeScript(dir, { out: 'ignore', after: 'process.exit(0);' }));
-    const done = await runTree(process.execPath, [script], { label: 'leaving lane', cwd: dir, deadlineMs: 60_000, onSpawn: track });
+    const done = await runTree(process.execPath, [script], {
+      label: 'leaving lane',
+      cwd: dir,
+      deadlineMs: 60_000,
+      onSpawn: track,
+    });
     assert.equal(done.status, 0);
     assert.equal(members().length, 2);
     await assertTreeEnded(dir, members());
@@ -110,7 +130,12 @@ test('a parent that exits at once leaves a grandchild holding stdout: the run st
   withTree(async (dir, members, _remember, track) => {
     const script = join(dir, 'orphan.mjs');
     writeFileSync(script, treeScript(dir, { out: 'inherit', after: 'process.exit(0);' }));
-    const done = await runTree(process.execPath, [script], { label: 'orphan lane', cwd: dir, deadlineMs: 60_000, onSpawn: track });
+    const done = await runTree(process.execPath, [script], {
+      label: 'orphan lane',
+      cwd: dir,
+      deadlineMs: 60_000,
+      onSpawn: track,
+    });
     assert.equal(done.status, 0);
     await assertTreeEnded(dir, members());
   }));
@@ -122,11 +147,17 @@ test('a parent that exits at once leaves a grandchild holding stdout: the run st
 test('a process outside the tree is not touched by ending it', () =>
   withTree(async (dir, members, _remember, track) => {
     // Neither started by runTree nor marked: what a pid reused after the parent's exit would be.
-    const stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
+    const stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
     try {
       const script = join(dir, 'tree.mjs');
       writeFileSync(script, treeScript(dir, { out: 'ignore', after: 'setInterval(() => {}, 1000);' }));
-      await assert.rejects(runTree(process.execPath, [script], { label: 'lane s', cwd: dir, deadlineMs: 30_000, onSpawn: track }), /did not finish within 30000ms/);
+      await assert.rejects(
+        runTree(process.execPath, [script], { label: 'lane s', cwd: dir, deadlineMs: 30_000, onSpawn: track }),
+        /did not finish within 30000ms/
+      );
       await assertTreeEnded(dir, members());
       assert.equal(stranger.exitCode, null, 'the stranger is still running');
       assert.equal(stranger.kill(0), true);
@@ -143,7 +174,10 @@ test('when the Node process that started the tree is killed abruptly, nothing of
     // (parent.mjs, the helper, the program, the grandchild) is gone, which is the event that the helper saw its parent die
     // and finished ending the tree. Nothing is waited for by time.
     const middle = join(dir, 'middle.mjs');
-    writeFileSync(middle, treeScript(dir, { out: 'inherit', after: "console.log('ready'); setInterval(() => {}, 1000);" }));
+    writeFileSync(
+      middle,
+      treeScript(dir, { out: 'inherit', after: "console.log('ready'); setInterval(() => {}, 1000);" })
+    );
     const parentScript = join(dir, 'parent.mjs');
     writeFileSync(
       parentScript,
@@ -152,7 +186,7 @@ import { startTimeOf } from ${JSON.stringify(PROBE)};
 const child = spawnTree(process.execPath, [${JSON.stringify(middle)}], { stdio: ['ignore', 'inherit', 'inherit'] });
 console.log(JSON.stringify({ helper: { pid: child.pid, start: await startTimeOf(child.pid) } }));
 setInterval(() => {}, 1000);
-`,
+`
     );
     const parent = spawn(process.execPath, [parentScript], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true });
     let timer;
@@ -171,7 +205,15 @@ setInterval(() => {}, 1000);
       remember(report.helper);
       assert.equal(members().length, 3);
       const closed = new Promise((resolveClose, reject) => {
-        timer = setTimeout(() => reject(new Error('the pipe held by the whole tree did not reach end-of-file within 60000ms of the parent being killed')), 60_000);
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                'the pipe held by the whole tree did not reach end-of-file within 60000ms of the parent being killed'
+              )
+            ),
+          60_000
+        );
         parent.once('close', resolveClose);
       });
       parent.kill('SIGKILL');
@@ -186,7 +228,10 @@ setInterval(() => {}, 1000);
   }));
 
 test('a finished child answers its status, stdout and stderr', async () => {
-  const done = await runTree(process.execPath, ['-e', 'console.log("out"); console.error("err"); process.exit(3)'], { label: 'x', deadlineMs: 30_000 });
+  const done = await runTree(process.execPath, ['-e', 'console.log("out"); console.error("err"); process.exit(3)'], {
+    label: 'x',
+    deadlineMs: 30_000,
+  });
   assert.equal(done.status, 3);
   assert.equal(done.stdout.trim(), 'out');
   assert.equal(done.stderr.trim(), 'err');
@@ -195,18 +240,33 @@ test('a finished child answers its status, stdout and stderr', async () => {
 test('every exit code of the program arrives unchanged, 125 and 126 and an NTSTATUS included, none read as a launch failure', async () => {
   const codes = [125, 126, 127, 255, ...(WINDOWS ? [0xc0000005, 0xc0000409] : [])];
   for (const code of codes) {
-    const done = await runTree(process.execPath, ['-e', `process.exit(${code})`], { label: `exit ${code}`, deadlineMs: 30_000 });
+    const done = await runTree(process.execPath, ['-e', `process.exit(${code})`], {
+      label: `exit ${code}`,
+      deadlineMs: 30_000,
+    });
     // What Node itself reports for the same program run directly is the reference.
-    assert.equal(done.status, spawnSync(process.execPath, ['-e', `process.exit(${code})`], { timeout: 30_000, windowsHide: true }).status, `exit code ${code}`);
+    assert.equal(
+      done.status,
+      spawnSync(process.execPath, ['-e', `process.exit(${code})`], { timeout: 30_000, windowsHide: true }).status,
+      `exit code ${code}`
+    );
   }
 });
 
 test('binary stdout arrives byte for byte and non-ASCII arguments arrive as they were', async () => {
   const bytes = Array.from({ length: 256 }, (_, i) => i);
-  const binary = await runTree(process.execPath, ['-e', `process.stdout.write(Buffer.from(${JSON.stringify(bytes)}))`], { label: 'binary', deadlineMs: 30_000 });
+  const binary = await runTree(
+    process.execPath,
+    ['-e', `process.stdout.write(Buffer.from(${JSON.stringify(bytes)}))`],
+    { label: 'binary', deadlineMs: 30_000 }
+  );
   assert.deepEqual([...binary.stdoutBytes], bytes);
   const args = ['héllo wörld', '日本語 テスト', '🙂 "quoted"', 'dir\\', ''];
-  const done = await runTree(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(process.argv.slice(1)))', ...args], { label: 'args', deadlineMs: 30_000 });
+  const done = await runTree(
+    process.execPath,
+    ['-e', 'process.stdout.write(JSON.stringify(process.argv.slice(1)))', ...args],
+    { label: 'args', deadlineMs: 30_000 }
+  );
   assert.deepEqual(JSON.parse(done.stdout), args);
 });
 
@@ -229,7 +289,9 @@ test('a helper that dies before it reports is an error, never a success, and its
   if (!WINDOWS) await assert.rejects(endTree(child), /died of SIGKILL, so the end of its tree cannot be established/);
 });
 
-test('a helper killed after endTree found it alive, before it finished ending the tree, makes endTree fail', { skip: WINDOWS && 'Windows ends a tree by killing its helper: the job ends every member' }, async () => {
+test('a helper killed after endTree found it alive, before it finished ending the tree, makes endTree fail', {
+  skip: WINDOWS && 'Windows ends a tree by killing its helper: the job ends every member',
+}, async () => {
   const child = spawnTree(process.execPath, ['-e', STDIN_BOUND], { stdio: ['pipe', 'pipe', 'ignore'] });
   child.stdin.on('error', () => {});
   const closed = closeOf(child, `the killed helper ${child.pid} with its program`);
@@ -248,7 +310,10 @@ test('a helper killed after endTree found it alive, before it finished ending th
 test('an aborted run ends its tree through the helper and rejects', () =>
   withTree(async (dir, members, _remember, track) => {
     const script = join(dir, 'abort.mjs');
-    writeFileSync(script, treeScript(dir, { out: 'ignore', after: "console.log('ready'); setInterval(() => {}, 1000);" }));
+    writeFileSync(
+      script,
+      treeScript(dir, { out: 'ignore', after: "console.log('ready'); setInterval(() => {}, 1000);" })
+    );
     const controller = new AbortController();
     await assert.rejects(
       runTree(process.execPath, [script], {
@@ -261,11 +326,14 @@ test('an aborted run ends its tree through the helper and rejects', () =>
           child.stdout.once('data', () => controller.abort());
         },
       }),
-      { code: 'ABORT_ERR', message: /abort lane was aborted and its tree ended/ },
+      { code: 'ABORT_ERR', message: /abort lane was aborted and its tree ended/ }
     );
     assert.equal(members().length, 2);
     await assertTreeEnded(dir, members());
-    await assert.rejects(runTree(process.execPath, ['-e', '0'], { label: 'late', deadlineMs: 30_000, signal: controller.signal }), { code: 'ABORT_ERR' });
+    await assert.rejects(
+      runTree(process.execPath, ['-e', '0'], { label: 'late', deadlineMs: 30_000, signal: controller.signal }),
+      { code: 'ABORT_ERR' }
+    );
   }));
 
 test('a callback that throws after the start ends the started tree and rejects', async () => {
@@ -279,7 +347,7 @@ test('a callback that throws after the start ends the started tree and rejects',
         throw new Error('callback failure');
       },
     }),
-    /throwing lane: the onSpawn callback threw: callback failure \(ended: /,
+    /throwing lane: the onSpawn callback threw: callback failure \(ended: /
   );
   assert.ok(started.exitCode !== null || started.signalCode !== null, 'the helper has exited, so it ended its tree');
 });
@@ -304,45 +372,75 @@ test('a Node parent killed as soon as its helper finished leaves no record in it
       `import { spawnTree } from ${JSON.stringify(PROCESS_TREE)};
 const child = spawnTree(process.execPath, ['-e', '0'], { stdio: 'ignore' });
 child.once('exit', () => process.kill(process.pid, 'SIGKILL'));
-`,
+`
     );
-    const parent = spawn(process.execPath, [parentScript], { stdio: 'ignore', env: { ...process.env, TMP: temp, TEMP: temp, TMPDIR: temp }, windowsHide: true });
+    const parent = spawn(process.execPath, [parentScript], {
+      stdio: 'ignore',
+      env: { ...process.env, TMP: temp, TEMP: temp, TMPDIR: temp },
+      windowsHide: true,
+    });
     try {
       await exitOf(parent);
     } finally {
       parent.kill('SIGKILL');
     }
     // Killed by itself: SIGKILL on POSIX, TerminateProcess (exit code 1) on Windows.
-    assert.ok(WINDOWS ? parent.exitCode === 1 : parent.signalCode === 'SIGKILL', `the parent ended by its own kill (code ${parent.exitCode}, signal ${parent.signalCode})`);
+    assert.ok(
+      WINDOWS ? parent.exitCode === 1 : parent.signalCode === 'SIGKILL',
+      `the parent ended by its own kill (code ${parent.exitCode}, signal ${parent.signalCode})`
+    );
     assert.deepEqual(readdirSync(temp), []);
   }));
 
-test('a signal-killed program is reported with its signal, read from the helper\'s record', { skip: WINDOWS && 'POSIX signals' }, async () => {
-  const done = await runTree(process.execPath, ['-e', 'process.kill(process.pid, "SIGKILL")'], { label: 'killed', deadlineMs: 30_000 });
+test("a signal-killed program is reported with its signal, read from the helper's record", {
+  skip: WINDOWS && 'POSIX signals',
+}, async () => {
+  const done = await runTree(process.execPath, ['-e', 'process.kill(process.pid, "SIGKILL")'], {
+    label: 'killed',
+    deadlineMs: 30_000,
+  });
   assert.equal(done.status, null);
   assert.equal(done.signal, 'SIGKILL');
 });
 
-test('index 3 of the stdio is the helper\'s channel: a fourth entry is refused', () => {
-  assert.throws(() => spawnTree(process.execPath, ['-e', '0'], { stdio: ['ignore', 'pipe', 'pipe', 'pipe'] }), /index 3/);
+test("index 3 of the stdio is the helper's channel: a fourth entry is refused", () => {
+  assert.throws(
+    () => spawnTree(process.execPath, ['-e', '0'], { stdio: ['ignore', 'pipe', 'pipe', 'pipe'] }),
+    /index 3/
+  );
 });
 
 // Not `node -e` with fstat(3): Node's own event loop owns a descriptor near 3 of its own, which would read as "open". `sh` opens
 // none: `: <&3` succeeds only if descriptor 3 is open in the shell it runs in, and the nested `sh` is a descendant of the program.
 const FD3_OPEN_IN_DESCENDANT = 'if sh -c ": <&3" 2>/dev/null; then echo open; else echo closed; fi';
 
-test('the program and its descendants do not inherit the parent channel', { skip: WINDOWS && 'POSIX descriptors' }, async () => {
+test('the program and its descendants do not inherit the parent channel', {
+  skip: WINDOWS && 'POSIX descriptors',
+}, async () => {
   const done = await runTree('sh', ['-c', FD3_OPEN_IN_DESCENDANT], { label: 'fd3', deadlineMs: 30_000 });
   assert.equal(done.stdout.trim(), 'closed');
 });
 
-test('the descriptor check does see an inherited descriptor 3 (the check is not vacuous)', { skip: WINDOWS && 'POSIX descriptors' }, () => {
-  const seen = spawnSync('sh', ['-c', FD3_OPEN_IN_DESCENDANT], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe', 'pipe'], timeout: 30_000, windowsHide: true });
+test('the descriptor check does see an inherited descriptor 3 (the check is not vacuous)', {
+  skip: WINDOWS && 'POSIX descriptors',
+}, () => {
+  const seen = spawnSync('sh', ['-c', FD3_OPEN_IN_DESCENDANT], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
+    timeout: 30_000,
+    windowsHide: true,
+  });
   assert.equal(seen.stdout.trim(), 'open');
 });
 test('a command that cannot start rejects with its label and the spawn error code; a deadline has no such code', async () => {
-  await assert.rejects(runTree('no-such-program-anywhere', [], { label: 'lane z', deadlineMs: 30_000 }), { code: 'ENOENT', message: /lane z could not run: spawn no-such-program-anywhere ENOENT/ });
-  await assert.rejects(runTree(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { label: 'lane h', deadlineMs: 3000 }), (error) => error.code === undefined && /lane h did not finish/.test(error.message));
+  await assert.rejects(runTree('no-such-program-anywhere', [], { label: 'lane z', deadlineMs: 30_000 }), {
+    code: 'ENOENT',
+    message: /lane z could not run: spawn no-such-program-anywhere ENOENT/,
+  });
+  await assert.rejects(
+    runTree(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { label: 'lane h', deadlineMs: 3000 }),
+    (error) => error.code === undefined && /lane h did not finish/.test(error.message)
+  );
 });
 
 test('ending a child that already exited is not an error', async () => {
@@ -352,12 +450,21 @@ test('ending a child that already exited is not an error', async () => {
 });
 
 test('a helper that does not exit after it was told to end the tree is its own error', async () => {
-  const stuck = Object.assign(new EventEmitter(), { pid: 2_000_000_000, exitCode: null, signalCode: null, kill: () => true, stdio: [null, null, null, { end() {} }] });
+  const stuck = Object.assign(new EventEmitter(), {
+    pid: 2_000_000_000,
+    exitCode: null,
+    signalCode: null,
+    kill: () => true,
+    stdio: [null, null, null, { end() {} }],
+  });
   await assert.rejects(endTree(stuck, { deadlineMs: 50 }), /tree helper of pid 2000000000 did not exit within 50ms/);
 });
 
 test('a process is identified by its pid together with its start time: the same process answers the same value twice, none answers null', async () => {
-  const sleeper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
+  const sleeper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: 'ignore',
+    windowsHide: true,
+  });
   try {
     // Two processes may share a start time (POSIX lstart has one-second resolution); the pair with the pid is what differs.
     const mine = await startTimeOf(sleeper.pid);
@@ -377,7 +484,12 @@ test('--end-inside ends a process only when it is verified inside the directory'
   const exe = join(dir, WINDOWS ? 'inside.exe' : 'inside');
   copyFileSync(process.execPath, exe);
   const inside = spawn(exe, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
-  const endInside = (where) => spawnSync(helperPath(), ['--end-inside', where, String(inside.pid)], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+  const endInside = (where) =>
+    spawnSync(helperPath(), ['--end-inside', where, String(inside.pid)], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      windowsHide: true,
+    });
   try {
     const refused = endInside(elsewhere);
     // macOS has no verified handle: it answers 4 for every directory and ends nothing.
@@ -407,7 +519,10 @@ for (const name of ['a$(throw 1)', 'b`n`$x']) {
     copyFileSync(process.execPath, exe);
     const odd = spawn(exe, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
     try {
-      assert.ok((await processesInside(dir)).some(({ pid }) => pid === odd.pid), `pid ${odd.pid} is found inside ${dir}`);
+      assert.ok(
+        (await processesInside(dir)).some(({ pid }) => pid === odd.pid),
+        `pid ${odd.pid} is found inside ${dir}`
+      );
       assert.ok((await pidsOfExecutable(exe)).includes(odd.pid), `pid ${odd.pid} is found running ${exe}`);
     } finally {
       odd.kill();

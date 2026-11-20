@@ -37,7 +37,10 @@ import { sectionStoreFor } from './section-store';
 import type { RecordValue } from './desktop-types';
 
 type SidebarReferenceApi = Partial<
-  Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects' | 'notifyProviderModelsChanged' | 'sections'>
+  Pick<
+    DesktopApi,
+    'invokeCapability' | 'listProviderModels' | 'listProjects' | 'notifyProviderModelsChanged' | 'sections'
+  >
 >;
 
 interface SidebarReferenceValues {
@@ -585,7 +588,10 @@ function withAcknowledgedLead(
   const held = record(presets.find((entry) => record(entry).id === 'workflow-lead'));
   const kept = 'fallbacks' in ack.route || !Array.isArray(held.fallbacks) ? {} : { fallbacks: held.fallbacks };
   const lead = { id: 'workflow-lead', name: 'WORKFLOW LEAD', ...kept, ...ack.route };
-  return { ...result, value: [...presets.filter((entry) => record(entry).id !== 'workflow-lead'), lead] } as PresetsResult;
+  return {
+    ...result,
+    value: [...presets.filter((entry) => record(entry).id !== 'workflow-lead'), lead],
+  } as PresetsResult;
 }
 
 /** listPresets answers with both the presets and the host's Main-route

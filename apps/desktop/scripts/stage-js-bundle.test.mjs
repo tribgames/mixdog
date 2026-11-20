@@ -56,7 +56,10 @@ test('a half-moved payload from an interrupted stage is rebuilt, never packaged'
   const listed = execFileSync('tar', ['-tzf', out], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
   assert.ok(listed.some((name) => name.replace(/\/$/, '') === 'payload/js-runtime.json'));
   assert.ok(listed.some((name) => name === 'mixdogd'));
-  assert.equal(listed.some((name) => name.includes('stale-partial-file')), false);
+  assert.equal(
+    listed.some((name) => name.includes('stale-partial-file')),
+    false
+  );
   assert.equal(existsSync(assembly), false);
   assert.equal(readFileSync(join(payloadDir, 'js', 'node'), 'utf8'), 'node');
 });
@@ -96,5 +99,11 @@ test('the cached Node is verified against the pin every time; a tampered cache i
   assert.equal(fetches, 2);
 
   // A download that does not match the pin is refused.
-  await assert.rejects(fetchPinnedNode('linux-x64', join(work, 'other'), { pin, fetchImpl: async () => ({ ok: true, arrayBuffer: async () => Buffer.from('x') }) }), /does not match its pin/);
+  await assert.rejects(
+    fetchPinnedNode('linux-x64', join(work, 'other'), {
+      pin,
+      fetchImpl: async () => ({ ok: true, arrayBuffer: async () => Buffer.from('x') }),
+    }),
+    /does not match its pin/
+  );
 });

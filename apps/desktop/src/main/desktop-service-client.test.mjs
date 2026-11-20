@@ -5,7 +5,13 @@ import { DesktopServiceClient, displayExitCode } from './desktop-service-client.
 
 const notice = (key, name = 'Gmail') => ({ key, code: 'connector-sign-in-expired', params: { name } });
 const clientWith = (lanes = {}) =>
-  new DesktopServiceClient({ serviceLane: { call: async () => null, dispose() {} }, capabilityLane: {}, operationLane: {}, sessionLane: { dispose() {} }, ...lanes });
+  new DesktopServiceClient({
+    serviceLane: { call: async () => null, dispose() {} },
+    capabilityLane: {},
+    operationLane: {},
+    sessionLane: { dispose() {} },
+    ...lanes,
+  });
 
 test('service notices that arrive before any window wait for it, one per condition', async (t) => {
   const client = clientWith();
@@ -42,7 +48,9 @@ test('a client calls its capability, operation and service lanes and never a tra
   const client = clientWith({
     serviceLane: { call: async (method, args) => (seen.push(['service', method, args]), 'svc') },
     capabilityLane: {
-      invoke: async (capability, args, sessionId) => (seen.push(['capability', capability, args, sessionId]), { value: 1, snapshot: null }),
+      invoke: async (capability, args, sessionId) => (
+        seen.push(['capability', capability, args, sessionId]), { value: 1, snapshot: null }
+      ),
       read: async (requests) => (seen.push(['read', requests]), []),
     },
     operationLane: { invoke: async (method, args) => (seen.push(['operation', method, args]), 'op') },

@@ -164,7 +164,9 @@ test('the last viewer releases the sender, and a later viewer gets a clean captu
     sources: () => ({
       source,
       start() {},
-      stop: () => { stops += 1; },
+      stop: () => {
+        stops += 1;
+      },
       page: () => ({ documentId: null, geometry }),
       dispatch: async () => {},
       capturePlan: () => plan,
@@ -198,10 +200,19 @@ test('the last viewer releases the sender, and a later viewer gets a clean captu
   assert.deepEqual(second.sent, [], 'only the new renderer can declare itself ready');
   second.emitSender({ type: 'ready' });
   const commands = second.sent.map(([, command]) => command);
-  assert.deepEqual(commands.map(({ type }) => type), ['source-capture', 'open']);
+  assert.deepEqual(
+    commands.map(({ type }) => type),
+    ['source-capture', 'open']
+  );
   assert.deepEqual(commands[0].plan, plan);
 
-  const close = { ...ready, type: 'close', reason: 'viewer-left', connectionId: commands[1].connectionId, generation: 1 };
+  const close = {
+    ...ready,
+    type: 'close',
+    reason: 'viewer-left',
+    connectionId: commands[1].connectionId,
+    generation: 1,
+  };
   await host.signal('c2', close);
   assert.equal(second.destroyed, true);
   await host.signal('c2', close); // A duplicate close must not leave a phantom viewer.

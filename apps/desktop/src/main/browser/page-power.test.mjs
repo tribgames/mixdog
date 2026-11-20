@@ -63,7 +63,6 @@ test('an agent command unthrottles a hidden page for its duration only', () => {
   assert.deepEqual(page.log.slice(5), ['throttle:true', 'stop']);
 });
 
-
 function harness(options = {}) {
   const sessions = new BrowserSessionRegistry();
   const displayed = new Set();
@@ -155,7 +154,13 @@ test('a popup that depends on its live opener keeps the session loaded', () => {
   const opener = h.page('s', 1);
   const popup = guest(2);
   h.power.track(popup);
-  h.sessions.setBackgroundPage('s', 'popup-1', { window: {}, guest: popup, lastUsedAt: h.origin, kind: 'popup', opener });
+  h.sessions.setBackgroundPage('s', 'popup-1', {
+    window: {},
+    guest: popup,
+    lastUsedAt: h.origin,
+    kind: 'popup',
+    opener,
+  });
   h.run(h.origin + IDLE_RELEASE_MS + 60_000);
   assert.deepEqual(h.unloaded, []);
   opener.isDestroyed = () => true;

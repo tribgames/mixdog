@@ -234,7 +234,10 @@ function useRowState({
     case 'failed':
       return {
         view,
-        tag: { label: view.reason === 'scopeNotGranted' ? t('More access needed') : t('Failed'), tone: 'danger' as const },
+        tag: {
+          label: view.reason === 'scopeNotGranted' ? t('More access needed') : t('Failed'),
+          tone: 'danger' as const,
+        },
         line:
           view.reason === 'scopeNotGranted'
             ? view.error

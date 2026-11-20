@@ -40,7 +40,10 @@ export const adapter: PhoneProtocolAdapter = {
     // Node: `browserRemote('control', [sessionId, normalizeRemoteBrowserControl(input)])`; the order a relay call carried only fenced
     // the PC's own queue, which the connection's call queue (remote-protocol-queue.ts) keeps here.
     browserRemoteControl: ([sessionId, input], host) =>
-      command(host, 'input', { ...(input && typeof input === 'object' ? (input as Record<string, unknown>) : {}), session_id: sessionId }),
+      command(host, 'input', {
+        ...(input && typeof input === 'object' ? (input as Record<string, unknown>) : {}),
+        session_id: sessionId,
+      }),
     browserRemoteTabOpen: ([url], host) => command(host, 'tabOpen', { url }),
     browserRemoteTabClose: ([id], host) => command(host, 'release', { id }),
     // `browserReleasePage` answered nothing; the host releases only a main-workspace tab's page (the core refuses any other).
@@ -48,15 +51,21 @@ export const adapter: PhoneProtocolAdapter = {
       await command(host, 'release', { id: pageId });
     },
     browserHistorySearch: ([query], host) => command(host, 'history', { query }),
-    browserCredentialSuggestions: ([sessionId], host) => command(host, 'credentialSuggestions', { session_id: sessionId }),
-    browserCredentialFill: ([sessionId, credentialId], host) => command(host, 'credentialFill', { session_id: sessionId, credentialId }),
+    browserCredentialSuggestions: ([sessionId], host) =>
+      command(host, 'credentialSuggestions', { session_id: sessionId }),
+    browserCredentialFill: ([sessionId, credentialId], host) =>
+      command(host, 'credentialFill', { session_id: sessionId, credentialId }),
     browserProfileImportSources: (_params, host) => command(host, 'importSources'),
     browserProfileImportStart: ([request], host) =>
       command(host, 'importStart', request && typeof request === 'object' ? (request as Record<string, unknown>) : {}),
     // `browserRemoteStream([sessionId, options])`: options `null` ends this phone's subscription (a subscription lapses 4 s after
     // its last renewal).
     browserRemoteStream: async ([sessionId, options], host) => {
-      await rpc(host, 'browser/stream', { sessionId, on: options != null, ...(options != null ? { request: options } : {}) });
+      await rpc(host, 'browser/stream', {
+        sessionId,
+        on: options != null,
+        ...(options != null ? { request: options } : {}),
+      });
       return null;
     },
     browserRemoteWebrtcSignal: async ([signal], host) => {
@@ -72,7 +81,8 @@ export const adapter: PhoneProtocolAdapter = {
     },
   },
   fires: {
-    browserRemoteStreamAck: ([sessionId, seq], host) => host.client().notify('browser/streamAck', { sessionId, seq } as { sessionId: string; seq: number }),
+    browserRemoteStreamAck: ([sessionId, seq], host) =>
+      host.client().notify('browser/streamAck', { sessionId, seq } as { sessionId: string; seq: number }),
   },
   install(host) {
     const { ctx } = host;
@@ -80,7 +90,11 @@ export const adapter: PhoneProtocolAdapter = {
     const markKeys = [BROWSER_APPROVAL_SESSIONS_KEY, BROWSER_DIALOG_APPROVAL_SESSIONS_KEY] as const;
     const marks = new Map<string, string[]>();
     const publishMarks = (ids: string[]): void => {
-      if (ids.length === ctx.browserApprovalSessionIds.length && ids.every((id, index) => id === ctx.browserApprovalSessionIds[index])) return;
+      if (
+        ids.length === ctx.browserApprovalSessionIds.length &&
+        ids.every((id, index) => id === ctx.browserApprovalSessionIds[index])
+      )
+        return;
       ctx.browserApprovalSessionIds = ids;
       ctx.fanOut(ctx.browserApprovalSessionListeners, ids);
     };
@@ -111,10 +125,12 @@ export const adapter: PhoneProtocolAdapter = {
         }
         // A snapshot or a resumed replay is what stood while the connection was away, not a change this phone is told of.
         if (!client.store.appLive()) return;
-        if (change.key === 'browserTabs' && watching.has(ctx)) ctx.fanOut(ctx.remoteBrowserTabListeners, tabsOf(hostState(client, 'browserTabs')) as never);
+        if (change.key === 'browserTabs' && watching.has(ctx))
+          ctx.fanOut(ctx.remoteBrowserTabListeners, tabsOf(hostState(client, 'browserTabs')) as never);
         if (change.key === 'browserImport') {
           const progress = hostState(client, 'browserImport');
-          if (progress && typeof progress === 'object') ctx.fanOut(ctx.browserImportProgressListeners, progress as never);
+          if (progress && typeof progress === 'object')
+            ctx.fanOut(ctx.browserImportProgressListeners, progress as never);
         }
       });
       const offEvents = client.on((event) => {
@@ -142,7 +158,11 @@ export const adapter: PhoneProtocolAdapter = {
       marks.clear();
       publishMarks([]);
     });
-    if (!off) void ctx.phone.start().then(() => wire(host.client()), () => undefined);
+    if (!off)
+      void ctx.phone.start().then(
+        () => wire(host.client()),
+        () => undefined
+      );
     return () => {
       off?.();
       offReset?.();

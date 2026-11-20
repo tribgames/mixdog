@@ -18,7 +18,7 @@ import {
   webContents,
   type WebContents,
 } from 'electron';
-import { type BrowserHost } from './host-types';
+import type { BrowserHost } from './host-types';
 import { createBrowserHost } from './host';
 import { createPolling } from '../host-harness-poll';
 import { registerBrowserIpc } from '../ipc-browser';
@@ -93,7 +93,8 @@ async function run(): Promise<void> {
         preload: join(directory, 'fixture-preload.cjs'),
       },
     });
-    host = createBrowserHost(parent, { hostId: 'test-host',
+    host = createBrowserHost(parent, {
+      hostId: 'test-host',
       remoteSession: false,
       requestApproval: async () => true,
       chooseBrowserFiles: async () => ({ canceled: false, filePaths: [chosenFile] }),

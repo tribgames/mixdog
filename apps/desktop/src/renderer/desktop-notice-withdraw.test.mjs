@@ -33,7 +33,8 @@ test('a notice the core withdraws takes its toast with it', async () => {
   await sectionStoreFor(dom.window.mixdogDesktop).ready();
   const { DesktopToastRegion } = await import('./desktop-toasts.tsx');
   const root = createRoot(document.getElementById('root'));
-  const region = () => React.createElement(DesktopToastRegion, { toasts: [], bridgeError: '', onDismissBridgeError() {} });
+  const region = () =>
+    React.createElement(DesktopToastRegion, { toasts: [], bridgeError: '', onDismissBridgeError() {} });
   try {
     await act(async () => root.render(region()));
     await act(async () => push({ kind: 'sections', changes: [{ section: 'notice', key, entry }] }));

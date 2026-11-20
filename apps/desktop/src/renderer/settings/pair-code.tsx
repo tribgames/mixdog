@@ -39,7 +39,7 @@ export function usePairCode(api: CapabilityApi, enabled: boolean): PairCodeState
   const latestSection = useRef(section);
   latestSection.current = section;
   const [readback, setReadback] = useState<{ section: typeof section; value: RemoteSectionValue } | null>(null);
-  const current = readback?.section === section ? readback?.value ?? section : section;
+  const current = readback?.section === section ? (readback?.value ?? section) : section;
   const linkUp = useCoreLink().view.status === 'ready';
   const request = api.getRemotePairCode;
   const readState = api.getRemoteConnectionState;
@@ -67,24 +67,29 @@ export function usePairCode(api: CapabilityApi, enabled: boolean): PairCodeState
     if (!request || !enabled || !linkUp) return undefined;
     let live = true;
     let held = false;
-    const recovery = startSettingsReadRecovery(async (signal) => {
-      const seen = latestSection.current;
-      if (!held) {
-        const next = await request('ensure');
-        if (!live || signal.aborted) return;
-        held = true;
-        if (latestSection.current === seen) accept(next);
-        // Ensure already answered the initial code. The fallback only needs
-        // to read state on later ticks if a code update was missed.
-        return;
-      }
-      if (!readState) return;
-      const before = latestSection.current;
-      const next = await readState();
-      if (live && !signal.aborted && latestSection.current === before && next.pairCode !== undefined) {
-        setReadback({ section: before, value: next });
-      }
-    }, 5_000, true, true);
+    const recovery = startSettingsReadRecovery(
+      async (signal) => {
+        const seen = latestSection.current;
+        if (!held) {
+          const next = await request('ensure');
+          if (!live || signal.aborted) return;
+          held = true;
+          if (latestSection.current === seen) accept(next);
+          // Ensure already answered the initial code. The fallback only needs
+          // to read state on later ticks if a code update was missed.
+          return;
+        }
+        if (!readState) return;
+        const before = latestSection.current;
+        const next = await readState();
+        if (live && !signal.aborted && latestSection.current === before && next.pairCode !== undefined) {
+          setReadback({ section: before, value: next });
+        }
+      },
+      5_000,
+      true,
+      true
+    );
     window.addEventListener('focus', recovery.replace);
     const tick = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => {

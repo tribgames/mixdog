@@ -26,7 +26,9 @@ export function cargoLibraryFile(lib: string, platform: NodeJS.Platform = proces
 }
 
 /** Where the module is: the packaged copy in resources/native-tools, else the dev build of the checkout this file is in. */
-export function nativeModulePath(spec: Pick<NativeModuleSpec<unknown>, 'crate' | 'packagedFile' | 'builtFile'>): string {
+export function nativeModulePath(
+  spec: Pick<NativeModuleSpec<unknown>, 'crate' | 'packagedFile' | 'builtFile'>
+): string {
   if (process.versions.electron && !process.defaultApp) {
     return join(process.resourcesPath, 'native-tools', spec.packagedFile);
   }
@@ -36,7 +38,11 @@ export function nativeModulePath(spec: Pick<NativeModuleSpec<unknown>, 'crate' |
     if (parent === root) break;
     root = parent;
   }
-  return join(process.env.CARGO_TARGET_DIR ?? join(root, 'native', spec.crate, 'target'), 'release', spec.builtFile(process.platform));
+  return join(
+    process.env.CARGO_TARGET_DIR ?? join(root, 'native', spec.crate, 'target'),
+    'release',
+    spec.builtFile(process.platform)
+  );
 }
 
 /** Loads a Node-API module from any file name (a dev build keeps cargo's library name): the one dlopen of the desktop's Rust modules. */
@@ -68,6 +74,8 @@ export function loadNativeModule<Exports>(spec: NativeModuleSpec<Exports>): Expo
     return exports;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`[mixdog-native] The native module ${spec.packagedFile} could not be loaded from ${library}: ${message}.`);
+    throw new Error(
+      `[mixdog-native] The native module ${spec.packagedFile} could not be loaded from ${library}: ${message}.`
+    );
   }
 }

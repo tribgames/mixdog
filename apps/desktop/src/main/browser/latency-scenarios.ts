@@ -144,7 +144,9 @@ function gateText(kind: 'ascii' | 'korean', length: number): string {
 
 function refNamed(snapshot: string, ...names: string[]): string {
   for (const name of names) {
-    const line = snapshot.split('\n').find((entry) => entry.includes(JSON.stringify(name)) && /\[p\d+-s\d+-e\d+\]/.test(entry));
+    const line = snapshot
+      .split('\n')
+      .find((entry) => entry.includes(JSON.stringify(name)) && /\[p\d+-s\d+-e\d+\]/.test(entry));
     const ref = line?.match(/\[(p\d+-s\d+-e\d+)\]/)?.[1];
     if (ref) return ref;
   }
@@ -239,14 +241,20 @@ export async function runBrowserEngineLatencyGate(harness: CoreHarness, emit: (l
   let turn = Date.now();
   /** The latest reply's text: a ref is valid only from the page's latest snapshot, and most replies carry a fresh one. */
   let last = '';
-  const call = async (action: string, input: Record<string, unknown>): Promise<{ text: string; turnId: number; clientMs: number }> => {
+  const call = async (
+    action: string,
+    input: Record<string, unknown>
+  ): Promise<{ text: string; turnId: number; clientMs: number }> => {
     turn += 1;
     const turnId = turn;
     hostCalls = 0;
     events = 0;
     eventBytes = 0;
     const started = performance.now();
-    const result = (await harness.runTool(GATE_THREAD, 'browser', { action, input: { ...input, turn_id: turnId } })) as {
+    const result = (await harness.runTool(GATE_THREAD, 'browser', {
+      action,
+      input: { ...input, turn_id: turnId },
+    })) as {
       text?: string;
       isError?: boolean;
     };

@@ -38,7 +38,8 @@ export function hostDirectoryPath(value: unknown): string {
 
 export function fileSearchLimit(value: unknown): number {
   if (value === undefined) return 50;
-  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 200) throw new TypeError('limit is invalid.');
+  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 200)
+    throw new TypeError('limit is invalid.');
   return value as number;
 }
 
@@ -55,9 +56,11 @@ export function textFileEncoding(value: unknown): TextFileEncoding | undefined {
 }
 
 const allowedKeys = (input: Record<string, unknown>, allowed: ReadonlySet<string>, name: string): void => {
-  if (Object.keys(input).some((key) => !allowed.has(key))) throw new TypeError(`${name} contains an unsupported field.`);
+  if (Object.keys(input).some((key) => !allowed.has(key)))
+    throw new TypeError(`${name} contains an unsupported field.`);
 };
-const plainObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+const plainObject = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
 
 const WORKSPACE_SEARCH_KEYS = new Set(['query', 'include', 'exclude', 'matchCase', 'wholeWord', 'regex', 'maxResults']);
 export interface WorkspaceSearchOptions {
@@ -74,7 +77,8 @@ export function workspaceSearchOptions(value: unknown): WorkspaceSearchOptions {
   allowedKeys(value, WORKSPACE_SEARCH_KEYS, 'Workspace search options');
   const limit = value.maxResults === undefined ? 2_000 : value.maxResults;
   const query = requiredString(value.query, 'search query', 4_096);
-  if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 5_000) throw new TypeError('maxResults is invalid.');
+  if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 5_000)
+    throw new TypeError('maxResults is invalid.');
   return {
     query,
     ...(typeof value.include === 'string' ? { include: value.include.slice(0, 4_096) } : {}),
@@ -91,7 +95,14 @@ export function relativePaths(value: unknown): string[] {
   if (!Array.isArray(value) || value.length === 0 || value.length > 500) throw new TypeError('git paths are invalid.');
   return value.map((item) => {
     const path = requiredString(item, 'git path', 4_096);
-    if (isAbsoluteHostPath(path) || path.includes('\0') || path.replace(/\\/g, '/').split('/').some((part) => part === '..')) {
+    if (
+      isAbsoluteHostPath(path) ||
+      path.includes('\0') ||
+      path
+        .replace(/\\/g, '/')
+        .split('/')
+        .some((part) => part === '..')
+    ) {
       throw new TypeError('git path is invalid.');
     }
     return path;
@@ -108,8 +119,12 @@ export function lspDocumentInput(value: unknown) {
   if (value.kind !== 'open' && value.kind !== 'change' && value.kind !== 'save' && value.kind !== 'close') {
     throw new TypeError('LSP document kind is invalid.');
   }
-  if (!Number.isInteger(value.version) || Number(value.version) < 0) throw new TypeError('LSP document version is invalid.');
-  if (value.content !== undefined && (typeof value.content !== 'string' || value.content.length > MAX_TEXT_FILE_LENGTH)) {
+  if (!Number.isInteger(value.version) || Number(value.version) < 0)
+    throw new TypeError('LSP document version is invalid.');
+  if (
+    value.content !== undefined &&
+    (typeof value.content !== 'string' || value.content.length > MAX_TEXT_FILE_LENGTH)
+  ) {
     throw new TypeError('LSP document content is invalid.');
   }
   return {
@@ -140,7 +155,8 @@ export function lspRequestInput(value: unknown) {
 
 const WORKSPACE_WRITE_KEYS = new Set(['relPath', 'content', 'expectedContent']);
 export function workspaceTextWrites(value: unknown) {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 100) throw new TypeError('Workspace edit files are invalid.');
+  if (!Array.isArray(value) || value.length < 1 || value.length > 100)
+    throw new TypeError('Workspace edit files are invalid.');
   return value.map((row) => {
     if (!plainObject(row)) throw new TypeError('Workspace edit file is invalid.');
     allowedKeys(row, WORKSPACE_WRITE_KEYS, 'Workspace edit file');
@@ -152,7 +168,11 @@ export function workspaceTextWrites(value: unknown) {
     ) {
       throw new TypeError('Workspace edit file content is invalid.');
     }
-    return { relPath: requiredString(row.relPath, 'relPath', 4_096), content: row.content, expectedContent: row.expectedContent };
+    return {
+      relPath: requiredString(row.relPath, 'relPath', 4_096),
+      content: row.content,
+      expectedContent: row.expectedContent,
+    };
   });
 }
 
@@ -167,6 +187,9 @@ export function workspaceFolders(value: unknown): Array<{ path: string; name?: s
     const key = path.toLocaleLowerCase();
     if (seen.has(key)) throw new TypeError('Workspace folders must be unique.');
     seen.add(key);
-    return { path, ...(typeof row.name === 'string' && row.name.trim() ? { name: row.name.trim().slice(0, 200) } : {}) };
+    return {
+      path,
+      ...(typeof row.name === 'string' && row.name.trim() ? { name: row.name.trim().slice(0, 200) } : {}),
+    };
   });
 }

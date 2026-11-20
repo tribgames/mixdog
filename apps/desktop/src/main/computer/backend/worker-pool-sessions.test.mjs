@@ -69,7 +69,8 @@ test('a read the helper abandoned is an error answer: the session keeps its work
   reply(workers[0], {
     id: first.id,
     ok: false,
-    error: 'computer_command_timeout: accessibility read exceeded 1000ms during the element search; the read was abandoned',
+    error:
+      'computer_command_timeout: accessibility read exceeded 1000ms during the element search; the read was abandoned',
   });
   const abandoned = await read;
   assert.equal(abandoned.ok, false);
@@ -101,5 +102,8 @@ test('retiring a worker still warming up releases its session and ends its proce
   pool.retirePowerShell(child, new Error('bridge disabled during warm-up'));
   assert.equal(pool.powerShellBySession.has('warm-up-race'), false);
   assert.equal(workers[0].killed, true);
-  assert.deepEqual(retired.map(([sessionId]) => sessionId), ['warm-up-race']);
+  assert.deepEqual(
+    retired.map(([sessionId]) => sessionId),
+    ['warm-up-race']
+  );
 });

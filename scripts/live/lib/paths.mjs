@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { desktopOrtLibraryPath, onnxRuntimeSupported, ortBinaryDir } from '../../../apps/desktop/scripts/core-layout.mjs';
+import {
+  desktopOrtLibraryPath,
+  onnxRuntimeSupported,
+  ortBinaryDir,
+} from '../../../apps/desktop/scripts/core-layout.mjs';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 export const DESKTOP_DIR = join(REPO_ROOT, 'apps', 'desktop');
@@ -28,7 +32,13 @@ export function parseLiveArgs(argv) {
 }
 
 /** The ONNX Runtime library the dev core loads, or null where the target has none. */
-export function findOrtLibrary({ desktopDir = DESKTOP_DIR, repoRoot = REPO_ROOT, platform = process.platform, arch = process.arch, exists = existsSync } = {}) {
+export function findOrtLibrary({
+  desktopDir = DESKTOP_DIR,
+  repoRoot = REPO_ROOT,
+  platform = process.platform,
+  arch = process.arch,
+  exists = existsSync,
+} = {}) {
   if (!onnxRuntimeSupported(platform, arch)) return null;
   const file = desktopOrtLibraryPath(platform, arch).split('/').pop();
   const rel = join('onnxruntime-node', ortBinaryDir(platform, arch), file);
@@ -38,7 +48,10 @@ export function findOrtLibrary({ desktopDir = DESKTOP_DIR, repoRoot = REPO_ROOT,
     join(repoRoot, 'node_modules', rel),
   ];
   const found = candidates.find((candidate) => exists(candidate));
-  if (!found) throw new Error(`onnxruntime library not found (tried ${candidates.join(', ')}); name one with --ort-library or MIXDOG_LIVE_ORT_LIBRARY`);
+  if (!found)
+    throw new Error(
+      `onnxruntime library not found (tried ${candidates.join(', ')}); name one with --ort-library or MIXDOG_LIVE_ORT_LIBRARY`
+    );
   return found;
 }
 
@@ -47,7 +60,13 @@ export function findOrtLibrary({ desktopDir = DESKTOP_DIR, repoRoot = REPO_ROOT,
  * MIXDOG_LIVE_ISO_ROOT is the instance root (default: a folder in the system temp dir); `--electron-dist` /
  * MIXDOG_LIVE_ELECTRON_DIST and `--ort-library` / MIXDOG_LIVE_ORT_LIBRARY override what this checkout provides.
  */
-export function resolveLivePaths({ argv = process.argv.slice(2), env = process.env, exists = existsSync, platform = process.platform, arch = process.arch } = {}) {
+export function resolveLivePaths({
+  argv = process.argv.slice(2),
+  env = process.env,
+  exists = existsSync,
+  platform = process.platform,
+  arch = process.arch,
+} = {}) {
   const args = parseLiveArgs(argv);
   const pick = (flag, name) => (typeof args[flag] === 'string' ? args[flag] : env[name] || undefined);
   const coreExe = pick('core', 'MIXDOG_LIVE_CORE_EXE');

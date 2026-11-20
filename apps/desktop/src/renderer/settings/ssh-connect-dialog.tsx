@@ -46,11 +46,23 @@ export function SshConnectDialog({
 
   if (cleaningUp) {
     // A first connection that failed has no saved entry: the clean-up runs by the address, then the failure is shown again.
-    const unsaved: DesktopSshHost = { id: '', name: shown.name, target: shown.target, lastConnectedAt: null, open: false };
-    return <SshCleanupDialog host={unsaved} unsavedTarget={shown.target} onDone={() => undefined} onClose={() => setCleaningUp(false)} />;
+    const unsaved: DesktopSshHost = {
+      id: '',
+      name: shown.name,
+      target: shown.target,
+      lastConnectedAt: null,
+      open: false,
+    };
+    return (
+      <SshCleanupDialog
+        host={unsaved}
+        unsavedTarget={shown.target}
+        onDone={() => undefined}
+        onClose={() => setCleaningUp(false)}
+      />
+    );
   }
-  if (logOpen)
-    return <SshLogDialog reference={shown.target} name={shown.name} onClose={() => setLogOpen(false)} />;
+  if (logOpen) return <SshLogDialog reference={shown.target} name={shown.name} onClose={() => setLogOpen(false)} />;
   if (question && question.kind !== 'close' && view.kind === 'steps') {
     return (
       <SshAskpassPrompt question={{ ...question, kind: question.kind }} name={shown.name} onAnswer={attempt.answer} />

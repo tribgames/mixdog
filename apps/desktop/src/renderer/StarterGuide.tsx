@@ -679,7 +679,9 @@ export function StarterGuide({
               {noticePhase === 'enter' ? notice.from : notice.to}/{steps.length}
             </span>
             <span className="starter-guide-meter" aria-hidden="true">
-              <span style={{ width: `${((noticePhase === 'enter' ? notice.from : notice.to) / steps.length) * 100}%` }} />
+              <span
+                style={{ width: `${((noticePhase === 'enter' ? notice.from : notice.to) / steps.length) * 100}%` }}
+              />
             </span>
           </output>,
           document.body

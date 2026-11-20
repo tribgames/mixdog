@@ -49,17 +49,29 @@ function world({ replies = {}, entries = [], pcClient = null } = {}) {
 
 const entry = (section, key, value) => ({ section, key, revision: 1, value });
 const rpc = (data) =>
-  Object.assign(new Error(`-32600 ${data.reason}`), { name: 'ClientError', detail: { kind: 'rpc', code: -32600, reason: data.reason, message: data.reason, data } });
+  Object.assign(new Error(`-32600 ${data.reason}`), {
+    name: 'ClientError',
+    detail: { kind: 'rpc', code: -32600, reason: data.reason, message: data.reason, data },
+  });
 
 test('section_reads_send_nothing', async () => {
   const { api, sent } = world({
     entries: [
-      entry('config', 'desktop', { activityRailPins: { pins: ['sessions'], revision: 3 }, editor: { markdownDefaultView: 'source' } }),
+      entry('config', 'desktop', {
+        activityRailPins: { pins: ['sessions'], revision: 3 },
+        editor: { markdownDefaultView: 'source' },
+      }),
       entry('config', 'agent', {}),
       entry('config', 'notifications', undefined),
     ],
   });
-  assert.deepEqual(await api.readSettings(), desktopSettingsFromConfig({ agent: {}, desktop: { activityRailPins: { pins: ['sessions'], revision: 3 }, editor: { markdownDefaultView: 'source' } } }));
+  assert.deepEqual(
+    await api.readSettings(),
+    desktopSettingsFromConfig({
+      agent: {},
+      desktop: { activityRailPins: { pins: ['sessions'], revision: 3 }, editor: { markdownDefaultView: 'source' } },
+    })
+  );
   assert.deepEqual(await api.readActivityRailPins(), { pins: ['sessions'], revision: 3 });
   assert.equal(typeof (await api.readMarkdownDefaultView()), 'string');
   assert.deepEqual(await api.listConversationNotifications(), []);
@@ -68,7 +80,9 @@ test('section_reads_send_nothing', async () => {
 
 test('desktop_setting_writes_announce_desktop_and_read_back_the_saved_config', async () => {
   const saved = { agent: { autoClear: { enabled: true } }, desktop: {} };
-  const { api, sent } = world({ replies: { 'config/value/write': { values: [true] }, 'config/read': { config: saved } } });
+  const { api, sent } = world({
+    replies: { 'config/value/write': { values: [true] }, 'config/read': { config: saved } },
+  });
   assert.deepEqual(await api.updateSetting('autoClear', true), desktopSettingsFromConfig(saved));
   assert.deepEqual(sent, [
     { method: 'config/value/write', params: { path: 'agent.autoClear.enabled', value: true, announce: 'desktop' } },
@@ -92,14 +106,24 @@ test('desktop_setting_writes_announce_desktop_and_read_back_the_saved_config', a
 
 test('rail_pins_markdown_view_and_conversation_overrides_write_one_config_key', async () => {
   const { api, sent } = world({
-    replies: { 'config/value/write': (params) => ({ values: [params.path === 'desktop.activityRailPins' ? { pins: ['sessions'], revision: 4 } : params.value] }) },
+    replies: {
+      'config/value/write': (params) => ({
+        values: [params.path === 'desktop.activityRailPins' ? { pins: ['sessions'], revision: 4 } : params.value],
+      }),
+    },
   });
   assert.deepEqual(await api.updateActivityRailPins(['sessions'], true), { pins: ['sessions'], revision: 4 });
-  assert.deepEqual(sent[0], { method: 'config/value/write', params: { path: 'desktop.activityRailPins', value: ['sessions'], mode: 'initializeIfMissing' } });
+  assert.deepEqual(sent[0], {
+    method: 'config/value/write',
+    params: { path: 'desktop.activityRailPins', value: ['sessions'], mode: 'initializeIfMissing' },
+  });
   await api.updateActivityRailPins(['sessions']);
   assert.equal(sent[1].params.mode, undefined);
   assert.equal(await api.writeMarkdownDefaultView('source'), 'source');
-  assert.deepEqual(sent[2], { method: 'config/value/write', params: { path: 'desktop.editor.markdownDefaultView', value: 'source', announce: 'desktop' } });
+  assert.deepEqual(sent[2], {
+    method: 'config/value/write',
+    params: { path: 'desktop.editor.markdownDefaultView', value: 'source', announce: 'desktop' },
+  });
   const target = { kind: 'session', sessionId: 's1' };
   await api.setConversationNotification(target, { muted: true });
   assert.deepEqual(sent[3], {
@@ -147,7 +171,10 @@ test('notification_preferences_read_the_state_and_a_test_notice_goes_to_the_core
   });
   const state = await api.getNotificationPreferences();
   assert.equal(state.devices[0].name, 'BENCH');
-  assert.deepEqual(sent.map((call) => call.method), ['remoteAccess/state', 'notify/state']);
+  assert.deepEqual(
+    sent.map((call) => call.method),
+    ['remoteAccess/state', 'notify/state']
+  );
   assert.deepEqual(await api.sendTestNotification(NOTIFICATION_PC_DEVICE_ID), { ok: true });
   assert.deepEqual(sent[2], { method: 'notify/test', params: { target: NOTIFICATION_PC_DEVICE_ID } });
 });
@@ -171,7 +198,9 @@ test('system_fonts_of_a_server_window_are_this_pcs', async () => {
 });
 
 test('notification_preferences_of_an_unpaired_device_write_nothing', async () => {
-  const { api, sent } = world({ replies: { 'remoteAccess/state': { clients: [] }, 'notify/state': { supported: true } } });
+  const { api, sent } = world({
+    replies: { 'remoteAccess/state': { clients: [] }, 'notify/state': { supported: true } },
+  });
   await assert.rejects(api.setNotificationPreferences('nobody', {}), /not paired/);
   assert.ok(!sent.some((call) => call.method === 'config/value/write'));
 });
@@ -225,8 +254,26 @@ test('remote_access_reads_come_from_the_held_section', async () => {
   assert.deepEqual(await api.listRemoteClientClaims(), disabled.claims);
   assert.deepEqual(sent, []);
   const live = world({
-    entries: [entry('remote', null, { disabled: false, info: { enabled: true, connected: true, relay: { clientUrl: 'https://relay.example/x', token: 't', clients: [] } } })],
-    replies: { 'remoteAccess/activate': { disabled: false, info: { enabled: true, connected: true, relay: { clientUrl: 'https://relay.example/x', token: 't', clients: [] } } } },
+    entries: [
+      entry('remote', null, {
+        disabled: false,
+        info: {
+          enabled: true,
+          connected: true,
+          relay: { clientUrl: 'https://relay.example/x', token: 't', clients: [] },
+        },
+      }),
+    ],
+    replies: {
+      'remoteAccess/activate': {
+        disabled: false,
+        info: {
+          enabled: true,
+          connected: true,
+          relay: { clientUrl: 'https://relay.example/x', token: 't', clients: [] },
+        },
+      },
+    },
   });
   const info = await live.api.getRemoteAccessInfo();
   assert.deepEqual(live.sent, [{ method: 'remoteAccess/activate', params: {} }]);
@@ -240,8 +287,16 @@ test('remote_access_reads_come_from_the_held_section', async () => {
 });
 
 test('a_core_failure_reaches_the_page_as_the_ipc_path_gave_it', async () => {
-  const { api } = world({ replies: { 'remoteAccess/setName': () => Promise.reject(rpc({ reason: 'domainError', domain: 'remote', message: 'name is too long' })) } });
-  await assert.rejects(api.setRemotePcName('x'), (error) => error instanceof Error && error.message === 'name is too long' && !error.detail);
+  const { api } = world({
+    replies: {
+      'remoteAccess/setName': () =>
+        Promise.reject(rpc({ reason: 'domainError', domain: 'remote', message: 'name is too long' })),
+    },
+  });
+  await assert.rejects(
+    api.setRemotePcName('x'),
+    (error) => error instanceof Error && error.message === 'name is too long' && !error.detail
+  );
 });
 
 test('announcements_reach_their_own_subscribers_and_stop_after_the_removal', () => {
@@ -263,7 +318,10 @@ test('announcements_reach_their_own_subscribers_and_stop_after_the_removal', () 
 
 test('rail_pins_orchestration_and_turn_review_follow_the_held_sections', () => {
   const { api, set, listeners } = world({
-    entries: [entry('config', 'desktop', { activityRailPins: { pins: ['sessions'], revision: 1 } }), entry('config', 'agent', {})],
+    entries: [
+      entry('config', 'desktop', { activityRailPins: { pins: ['sessions'], revision: 1 } }),
+      entry('config', 'agent', {}),
+    ],
   });
   const pins = [];
   const modes = [];
@@ -306,7 +364,9 @@ test('remote_settings_and_new_claims_follow_the_remote_section', async () => {
 });
 
 test('setting_writes_are_checked_before_anything_is_sent', async () => {
-  const { api, sent } = world({ replies: { 'config/value/write': { values: [true] }, 'config/read': { config: { agent: {}, desktop: {} } } } });
+  const { api, sent } = world({
+    replies: { 'config/value/write': { values: [true] }, 'config/read': { config: { agent: {}, desktop: {} } } },
+  });
   await assert.rejects(api.updateSetting('homeAccess', true), /setting key is invalid/);
   await assert.rejects(api.updateSetting('autoCompact', 'yes'), /enabled must be a boolean/);
   await assert.rejects(api.setNotificationVolume(401), /notification volume is invalid/);
@@ -317,7 +377,9 @@ test('setting_writes_are_checked_before_anything_is_sent', async () => {
   assert.deepEqual(sent, []);
   await api.setSessionRetention('sessionAutoArchiveDays', 14);
   assert.deepEqual(
-    sent.filter((call) => call.method === 'config/value/write').map((call) => [call.params.path, call.params.value, call.params.announce]),
+    sent
+      .filter((call) => call.method === 'config/value/write')
+      .map((call) => [call.params.path, call.params.value, call.params.announce]),
     [['desktop.sessionAutoArchiveDays', 14, 'desktop']]
   );
 });
@@ -331,7 +393,10 @@ test('a_core_refusal_of_a_setting_write_rejects_the_call_and_reads_nothing_back'
     },
   });
   await assert.rejects(api.updateSetting('autoClear', false), /config write rejected/);
-  assert.deepEqual(sent.map((call) => call.method), ['config/value/write']);
+  assert.deepEqual(
+    sent.map((call) => call.method),
+    ['config/value/write']
+  );
 });
 
 test('a_device_alias_is_sent_as_given_and_an_empty_string_clears_it', async () => {

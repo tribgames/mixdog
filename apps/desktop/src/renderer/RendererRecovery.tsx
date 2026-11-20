@@ -292,7 +292,10 @@ export function DesktopLoadingSurface({
           aria-valuemax={progress.total}
           aria-valuenow={progress.done}
         >
-          <div className="desktop-loading-progress-fill" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+          <div
+            className="desktop-loading-progress-fill"
+            style={{ width: `${(progress.done / progress.total) * 100}%` }}
+          />
         </div>
       )}
     </div>
@@ -312,11 +315,15 @@ export function DesktopBootFailure({ failure }: { failure: { message: string; st
           <summary>{t('Error details')}</summary>
           <pre>{detail}</pre>
         </details>
-        <button type="button" className="desktop-boot-failure-retry" onClick={() => {
+        <button
+          type="button"
+          className="desktop-boot-failure-retry"
+          onClick={() => {
             // Main launches the core again only once told to; then the window loads again and asks for it.
             const bridge = (window as { mixdogCorePort?: { retry?: () => Promise<void> } }).mixdogCorePort;
             void Promise.resolve(bridge?.retry?.()).finally(() => window.location.reload());
-          }}>
+          }}
+        >
           {t('Try again')}
         </button>
       </div>

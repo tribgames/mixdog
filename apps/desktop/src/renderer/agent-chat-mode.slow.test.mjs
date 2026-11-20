@@ -724,7 +724,12 @@ test('a room draws the band the core supplies: a named speaker, the hand-off, or
   const render = rowHarness(t);
   const thinking = { _tag: 'Thinking', key: 'think', turnKey: 't', active: true };
   const typing = (id, speaker) => ({ kind: 'notice', id, text: '', room: { kind: 'typing', speaker, name: speaker } });
-  const deciding = { kind: 'notice', id: 'room-deciding', text: '', room: { kind: 'typing', speaker: '', name: '', deciding: true } };
+  const deciding = {
+    kind: 'notice',
+    id: 'room-deciding',
+    text: '',
+    room: { kind: 'typing', speaker: '', name: '', deciding: true },
+  };
   const prompt = user('u1', DAY1);
   const s1 = speech('s1', 'alpha', DAY1);
   const s2 = speech('s2', 'beta', DAY1);
@@ -762,9 +767,11 @@ test('a room draws the band the core supplies: a named speaker, the hand-off, or
       name: row.querySelector('.mx-chat-name')?.textContent,
       status: bubble.getAttribute('aria-label'),
       // What the band occupies: its elements in order, whoever it names.
-      footprint: [...row.querySelectorAll('.mx-chat-face,.mx-chat-column,.mx-chat-name,.mx-chat-line,.mx-chat-typing,.mx-chat-dots')].map(
-        (element) => element.className.split(' ')[0]
-      ),
+      footprint: [
+        ...row.querySelectorAll(
+          '.mx-chat-face,.mx-chat-column,.mx-chat-name,.mx-chat-line,.mx-chat-typing,.mx-chat-dots'
+        ),
+      ].map((element) => element.className.split(' ')[0]),
     };
   };
   const speaker = async (settled) => (await bandOf(settled))?.name ?? null;
@@ -783,7 +790,11 @@ test('a room draws the band the core supplies: a named speaker, the hand-off, or
   // the mobile tabs): the same elements, and the band's name line is one fixed line (measured in real Chrome by
   // agent-chat-band-stability.slow.test.mjs).
   const css = readFileSync(new URL('./agent-chat.css', import.meta.url), 'utf8');
-  assert.match(css, /^\.mx-chat-name\[data-band\] \{[^}]*white-space: nowrap;[^}]*text-overflow: ellipsis;/m, 'the band name is one truncated line');
+  assert.match(
+    css,
+    /^\.mx-chat-name\[data-band\] \{[^}]*white-space: nowrap;[^}]*text-overflow: ellipsis;/m,
+    'the band name is one truncated line'
+  );
   assert.doesNotMatch(css, /mx-chat-name:empty/);
   for (const phone of [false, true]) {
     if (phone) document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
@@ -791,7 +802,11 @@ test('a room draws the band the core supplies: a named speaker, the hand-off, or
     const named = await bandOf([prompt.item, typing('ty-a', 'alpha')]);
     const handOff = await bandOf([prompt.item, s1.item, deciding]);
     const next = await bandOf([prompt.item, s1.item, typing('ty-b', 'beta')]);
-    assert.deepEqual(handOff.footprint, named.footprint, phone ? 'phone: hand-off footprint' : 'desktop: hand-off footprint');
+    assert.deepEqual(
+      handOff.footprint,
+      named.footprint,
+      phone ? 'phone: hand-off footprint' : 'desktop: hand-off footprint'
+    );
     assert.deepEqual(next.footprint, named.footprint);
     assert.ok(handOff.footprint.includes('mx-chat-name'), 'the name line is there');
     // Its own status, not "<nobody> is typing".

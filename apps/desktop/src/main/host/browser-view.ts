@@ -5,7 +5,10 @@
  * and sends each frame's facts as `host/browser/frame` and its JPEG paint as
  * the X17 binary frame after them. Nothing is captured while nobody views.
  */
-import type { HostBrowserFrameParams, HostBrowserViewFramesParams } from '../../../../../packages/protocol/src/index.ts';
+import type {
+  HostBrowserFrameParams,
+  HostBrowserViewFramesParams,
+} from '../../../../../packages/protocol/src/index.ts';
 import type { DesktopRemoteBrowserStreamFrame, DesktopRemoteBrowserStreamOptions } from '../../shared/contract';
 import { HOST_INVALID_PARAMS, HOST_METHOD, type HostConnection, HostRpcError, objectParams } from './connection';
 import { encodeMediaFrame, MEDIA_FLAG_FIT_FAILED, MEDIA_FLAG_FIT_SETTLED } from './media-frame';
@@ -33,7 +36,9 @@ function streamOptions(request: unknown): DesktopRemoteBrowserStreamOptions {
   return {
     maxWidth: Number(maxWidth),
     maxHeight: Number(maxHeight),
-    ...(fit === null || (fit && typeof fit === 'object') ? { fit: fit as DesktopRemoteBrowserStreamOptions['fit'] } : {}),
+    ...(fit === null || (fit && typeof fit === 'object')
+      ? { fit: fit as DesktopRemoteBrowserStreamOptions['fit'] }
+      : {}),
   };
 }
 
@@ -54,8 +59,16 @@ export function createBrowserView(
   }
 
   // Checked here, before the notification handler returns: an invalid one throws, as `host/notification/show` does.
-  function parseFrames(params: unknown): { tabId: string; streamId: number; on: boolean; options: DesktopRemoteBrowserStreamOptions | null } {
-    const { tabId, streamId, on, request } = objectParams<HostBrowserViewFramesParams>(params, HOST_METHOD.browserViewFrames);
+  function parseFrames(params: unknown): {
+    tabId: string;
+    streamId: number;
+    on: boolean;
+    options: DesktopRemoteBrowserStreamOptions | null;
+  } {
+    const { tabId, streamId, on, request } = objectParams<HostBrowserViewFramesParams>(
+      params,
+      HOST_METHOD.browserViewFrames
+    );
     if (typeof tabId !== 'string' || !tabId || !Number.isSafeInteger(streamId) || typeof on !== 'boolean') {
       throw new HostRpcError(HOST_INVALID_PARAMS, 'viewFrames needs tabId, streamId and on.');
     }
@@ -103,7 +116,10 @@ export function createBrowserView(
         const { data: _picture, ...image } = frame.image;
         facts = { ...frame, image: image as DesktopRemoteBrowserStreamFrame['image'] };
       }
-      const params: Omit<HostBrowserFrameParams, 'frame'> & { frame: DesktopRemoteBrowserStreamFrame } = { tabId: frame.sessionId, frame: facts };
+      const params: Omit<HostBrowserFrameParams, 'frame'> & { frame: DesktopRemoteBrowserStreamFrame } = {
+        tabId: frame.sessionId,
+        frame: facts,
+      };
       connection.notify(HOST_METHOD.browserFrame, params);
       const current = viewing.get(frame.sessionId);
       if (!current || frame.image?.mimeType !== 'image/jpeg') return Promise.resolve();

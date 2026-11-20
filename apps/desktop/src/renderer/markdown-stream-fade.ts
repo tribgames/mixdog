@@ -386,15 +386,14 @@ export class StreamFadeTimeline {
 
   /** Whether anything in revealed text [from, to) may fade. */
   fadesBetween(from: number, to: number, appearing: StreamFadeAppearance): boolean {
-    return (
-      appearing.stretches.length > 0 || this.stretches.some((stretch) => stretch.from < to && from < stretch.to)
-    );
+    return appearing.stretches.length > 0 || this.stretches.some((stretch) => stretch.from < to && from < stretch.to);
   }
 
   /** When the last stretch on screen ends fading (0: none runs at `now`). */
   fadesUntil(now: number): number {
     let until = 0;
-    for (const stretch of this.stretches) if (stretch.at + stretch.ms > now) until = Math.max(until, stretch.at + stretch.ms);
+    for (const stretch of this.stretches)
+      if (stretch.at + stretch.ms > now) until = Math.max(until, stretch.at + stretch.ms);
     return until;
   }
 

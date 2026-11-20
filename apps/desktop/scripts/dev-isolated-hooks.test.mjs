@@ -10,7 +10,11 @@ import { applyConfigOverlay, applyPassEnv, mergeConfigOverlay, parsePassEnv } fr
 
 test('mergeConfigOverlay merges objects deeply and replaces arrays and scalars', () => {
   const base = { a: 1, agent: { onboarding: { completed: true }, list: [1, 2] }, keep: 'x' };
-  const merged = mergeConfigOverlay(base, { a: 2, agent: { onboarding: { skipped: false }, list: [3] }, extra: { n: 1 } });
+  const merged = mergeConfigOverlay(base, {
+    a: 2,
+    agent: { onboarding: { skipped: false }, list: [3] },
+    extra: { n: 1 },
+  });
   assert.deepEqual(merged, {
     a: 2,
     agent: { onboarding: { completed: true, skipped: false }, list: [3] },
@@ -33,7 +37,9 @@ test('applyConfigOverlay lays the file over the seeded config, or makes one', as
     const overlay = join(dir, 'overlay.json');
     await writeFile(overlay, JSON.stringify({ agent: { provider: 'local' } }));
     await applyConfigOverlay(dir, overlay);
-    assert.deepEqual(JSON.parse(await readFile(join(dir, 'mixdog-config.json'), 'utf8')), { agent: { provider: 'local' } });
+    assert.deepEqual(JSON.parse(await readFile(join(dir, 'mixdog-config.json'), 'utf8')), {
+      agent: { provider: 'local' },
+    });
     await writeFile(overlay, JSON.stringify({ agent: { model: 'm' } }));
     await applyConfigOverlay(dir, overlay);
     assert.deepEqual(JSON.parse(await readFile(join(dir, 'mixdog-config.json'), 'utf8')), {

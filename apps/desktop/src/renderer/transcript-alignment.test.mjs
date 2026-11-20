@@ -133,7 +133,10 @@ test('the live row is matched by its id from frame to frame; its text is read on
   }
   assert.equal(reads, 0, 'a live row that keeps its id is never read for content');
   // The reply settles as a row of another id namespace: its content is compared once, and it keeps the id it streamed under.
-  const settled = reconciler.reconcile({ sessionId: 's', items: [user, { id: 'disk-7', kind: 'assistant', text: 'Hello world\n' }] });
+  const settled = reconciler.reconcile({
+    sessionId: 's',
+    items: [user, { id: 'disk-7', kind: 'assistant', text: 'Hello world\n' }],
+  });
   assert.deepEqual(
     settled.items.map((item) => item.id),
     ['u1', 'live-1']

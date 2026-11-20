@@ -11,7 +11,8 @@ export function announcedEvent(method: string, params: unknown): { name: string;
   if (method === 'import/progress/updated') {
     const job = params && typeof params === 'object' && 'job' in params ? params.job : null;
     if (!job || typeof job !== 'object' || !('jobId' in job) || typeof job.jobId !== 'string') return null;
-    if (!('seq' in job) || typeof job.seq !== 'number' || !('state' in job) || typeof job.state !== 'string') return null;
+    if (!('seq' in job) || typeof job.seq !== 'number' || !('state' in job) || typeof job.state !== 'string')
+      return null;
     if (!('results' in job) || !Array.isArray(job.results) || !('byProject' in job) || !Array.isArray(job.byProject)) {
       return null;
     }

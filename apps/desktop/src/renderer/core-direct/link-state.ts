@@ -20,6 +20,7 @@ export function closedLink(error: unknown): DesktopCoreLink {
 /** The link a client's status event stands for. */
 export function linkOfStatus(status: { state: string; attempt?: number; reason?: unknown }): DesktopCoreLink {
   if (status.state === 'reconnecting') return { attempt: status.attempt ?? 0, closed: null };
-  if (status.state === 'closed') return closedLink(status.reason === undefined ? undefined : { detail: status.reason, message: '' });
+  if (status.state === 'closed')
+    return closedLink(status.reason === undefined ? undefined : { detail: status.reason, message: '' });
   return UP;
 }

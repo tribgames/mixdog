@@ -11,8 +11,9 @@ installTestDom(null, {
   expose: ['Element', 'HTMLElement', 'MouseEvent', 'Event'],
 });
 
-const { FullToolOutputButton, prefetchToolOutputs, resetFullToolOutputs, useFullToolOutput } =
-  await import('./tool-full-output.tsx');
+const { FullToolOutputButton, prefetchToolOutputs, resetFullToolOutputs, useFullToolOutput } = await import(
+  './tool-full-output.tsx'
+);
 const { IDLE_RECLAIM_EVENT } = await import('./idle-reclaim.ts');
 
 const FULL = 'full output '.repeat(2_000);
@@ -334,8 +335,26 @@ test('two revisions that differ only in the omitted middle do not share a read',
 
 test('a grouped card reads its diff by the member the digest belongs to, and keeps its own output', async () => {
   resetFullToolOutputs();
-  const digest = { sections: [{ names: ['b.ts', 'b.ts'], counts: { additions: 1, deletions: 0 }, statuses: ['M'], targetPath: 'b.ts', files: [] }] };
-  const card = { id: 'first-call', kind: 'tool', name: '__aggregate__', aggregate: true, result: 'two edits', uiDiffSummary: digest, uiDiffMemberId: 'second-call' };
+  const digest = {
+    sections: [
+      {
+        names: ['b.ts', 'b.ts'],
+        counts: { additions: 1, deletions: 0 },
+        statuses: ['M'],
+        targetPath: 'b.ts',
+        files: [],
+      },
+    ],
+  };
+  const card = {
+    id: 'first-call',
+    kind: 'tool',
+    name: '__aggregate__',
+    aggregate: true,
+    result: 'two edits',
+    uiDiffSummary: digest,
+    uiDiffMemberId: 'second-call',
+  };
   const reads = [];
   window.mixdogDesktop = {
     readTranscriptItem: async (_sessionId, itemId) => {
@@ -353,13 +372,20 @@ test('Copy on a cut row asks for the whole output and copies that, never the pre
   resetFullToolOutputs();
   const { ToolPanel, ToolCopyGateContext } = await import('./transcript-tool-panel.tsx');
   const written = [];
-  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => void written.push(text) } });
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: async (text) => void written.push(text) },
+  });
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   let loads = 0;
   const panel = (gate, value) =>
-    React.createElement(ToolCopyGateContext.Provider, { value: gate }, React.createElement(ToolPanel, { copyValue: value }, 'body'));
+    React.createElement(
+      ToolCopyGateContext.Provider,
+      { value: gate },
+      React.createElement(ToolPanel, { copyValue: value }, 'body')
+    );
   await act(async () => root.render(panel({ load: () => void (loads += 1), failed: false }, 'preview')));
   await act(async () => host.querySelector('button').dispatchEvent(new window.MouseEvent('click', { bubbles: true })));
   assert.equal(loads, 1, 'the click asks for the whole output');

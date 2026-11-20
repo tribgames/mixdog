@@ -242,7 +242,7 @@ test("the PDF page cache does not keep the PDF's bytes once its card is gone", a
   );
 });
 
-test("two PDFs a short hash cannot tell apart never share a first page", async () => {
+test('two PDFs a short hash cannot tell apart never share a first page', async () => {
   // Equal length and equal 32-bit FNV-1a: a length-plus-FNV key gave B the page of A.
   const [first, second] = ['JVBERi0xq9cCAA', 'JVBERi0xmHADAA'];
   assert.notEqual(await pdfPageKey(first), await pdfPageKey(second));

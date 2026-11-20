@@ -15,18 +15,35 @@ test('reversing after an IPC history page uses the far edge of its grouped row',
   const requests = [];
   const read = async (_sessionId, request) => {
     requests.push(requiredTranscriptHistoryRequest(request));
-    if (request.before) return JSON.parse(JSON.stringify({
-      items: [{ id: 'group' }], hasOlder: false, hasNewer: true,
-      positions: ['h1:0:first'], positionEdges: [{ before: 'h1:0:first', after: 'h1:0:last' }],
-    }));
+    if (request.before)
+      return JSON.parse(
+        JSON.stringify({
+          items: [{ id: 'group' }],
+          hasOlder: false,
+          hasNewer: true,
+          positions: ['h1:0:first'],
+          positionEdges: [{ before: 'h1:0:first', after: 'h1:0:last' }],
+        })
+      );
     return { items: [{ id: 'next' }], hasOlder: true, hasNewer: false };
   };
-  const pager = new TranscriptHistoryPager('s', () => read, () => live, () => {});
+  const pager = new TranscriptHistoryPager(
+    's',
+    () => read,
+    () => live,
+    () => {}
+  );
   assert.equal(await pager.earlier(), 'paged');
-  assert.deepEqual(pager.window.items.map((row) => row.id), ['group']);
+  assert.deepEqual(
+    pager.window.items.map((row) => row.id),
+    ['group']
+  );
   assert.equal(await pager.later(), 'paged');
   assert.equal(requests.at(-1).position, 'h1:0:last');
-  assert.equal(requiredTranscriptHistoryRequest({ before: 'legacy', position: 'a:1:2:3', limit: 2 }).position, 'a:1:2:3');
+  assert.equal(
+    requiredTranscriptHistoryRequest({ before: 'legacy', position: 'a:1:2:3', limit: 2 }).position,
+    'a:1:2:3'
+  );
 });
 
 /** A daemon's historical-position reads over `rows` (oldest first). */

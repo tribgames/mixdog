@@ -86,7 +86,10 @@ export const HOST_CAPABILITIES = {
 export type WireFields<T> = { [K in keyof T]?: unknown };
 
 /** `T` is the generated params type: reading a field it does not declare does not compile. */
-export function objectParams<T extends object = Record<string, unknown>>(value: unknown, method: string): WireFields<T> {
+export function objectParams<T extends object = Record<string, unknown>>(
+  value: unknown,
+  method: string
+): WireFields<T> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new HostRpcError(HOST_INVALID_PARAMS, `${method} expects an object.`);
   }

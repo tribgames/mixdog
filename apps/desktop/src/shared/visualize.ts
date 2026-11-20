@@ -516,7 +516,9 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
   return {
     sessionId: state.sessionId,
     active: state.active,
-    ...(state.held === true ? { held: true, ...(Number.isFinite(state.heldSince) ? { heldSince: state.heldSince } : {}) } : {}),
+    ...(state.held === true
+      ? { held: true, ...(Number.isFinite(state.heldSince) ? { heldSince: state.heldSince } : {}) }
+      : {}),
     ...(Array.isArray(state.goneOpens) && state.goneOpens.length
       ? {
           goneOpens: state.goneOpens

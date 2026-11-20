@@ -4,7 +4,11 @@ import { sizedCall } from './core-direct/sized-call';
 
 /** Use the phone's scoped client for both the transfer and its consuming RPC.
  * The method, origin, and permission checks on the final call are unchanged. */
-export function phoneTransferCall(client: ProtocolClient<SessionFold>, method: string, params: unknown): Promise<unknown> {
+export function phoneTransferCall(
+  client: ProtocolClient<SessionFold>,
+  method: string,
+  params: unknown
+): Promise<unknown> {
   return Object.hasOwn(BLOB_REF_FIELDS, method)
     ? sizedCall(client, method, params)
     : client.call(method as never, params as never);

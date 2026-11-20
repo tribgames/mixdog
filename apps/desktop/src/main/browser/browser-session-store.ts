@@ -146,8 +146,9 @@ function readSealedLayers(snapshot: Buffer): SealedSessionLayer[] {
   const layers: unknown = JSON.parse(snapshot.subarray(LAYERED_HEADER.length).toString('utf8'));
   if (
     !Array.isArray(layers) ||
-    layers.some((layer) => !layer || typeof layer.sealed !== 'string' || !layer.sealed ||
-      !isSignOutScopeList(layer.excludedSites))
+    layers.some(
+      (layer) => !layer || typeof layer.sealed !== 'string' || !layer.sealed || !isSignOutScopeList(layer.excludedSites)
+    )
   ) {
     throw new Error('Invalid browser session snapshot.');
   }
@@ -216,15 +217,20 @@ export function createBrowserSessionStore(host: BrowserSessionStoreHost) {
           const key = sessionCookieKey(record, details);
           removed.delete(key);
           const fallback = inherited.get(key);
-          if (writtenKeys.length >= MAX_COOKIES ||
-              (!tailKeys.has(key) && fallback && JSON.stringify(fallback.details) === JSON.stringify(details))) return [];
+          if (
+            writtenKeys.length >= MAX_COOKIES ||
+            (!tailKeys.has(key) && fallback && JSON.stringify(fallback.details) === JSON.stringify(details))
+          )
+            return [];
           writtenKeys.push(key);
           return [record];
         });
       }
       const hasUpdates = records.length > 0 || removed.size > 0;
       const sealed = hasUpdates
-        ? await encrypt(JSON.stringify({ savedAt: now(), cookies: records, ...(removed.size ? { removed: [...removed] } : {}) }))
+        ? await encrypt(
+            JSON.stringify({ savedAt: now(), cookies: records, ...(removed.size ? { removed: [...removed] } : {}) })
+          )
         : null;
       if (hasUpdates && !sealed) return 0;
       if (retainedLayers.length) {
@@ -292,7 +298,11 @@ export function createBrowserSessionStore(host: BrowserSessionStoreHost) {
       } catch {
         continue;
       }
-      if (typeof parsed?.savedAt !== 'number' || now() - parsed.savedAt > MAX_AGE_MS || !Array.isArray(parsed.cookies)) {
+      if (
+        typeof parsed?.savedAt !== 'number' ||
+        now() - parsed.savedAt > MAX_AGE_MS ||
+        !Array.isArray(parsed.cookies)
+      ) {
         continue;
       }
       hasReadableTail = true;
@@ -360,7 +370,11 @@ export function createBrowserSessionStore(host: BrowserSessionStoreHost) {
         });
         if (previous?.length) {
           const sites = [...new Set([...(await exclusionsFor(previous)), site])];
-          await writeJsonAtomicAsync(exclusionsFile, { digest: digest(previous), sites }, { secret: true, fsyncDir: true });
+          await writeJsonAtomicAsync(
+            exclusionsFile,
+            { digest: digest(previous), sites },
+            { secret: true, fsyncDir: true }
+          );
           retainedLayers = retainedLayers.map((layer) => excludeSites(layer, sites));
           const excluded = signOutCookieMatcher(sites);
           for (const [key, { record }] of inherited) {

@@ -2,7 +2,16 @@
 // apps/desktop/scripts/dev-isolated.mjs under the run's own isolated root, the core identity check (daemon.json pid ->
 // executable path) and the copy-out of history/logs before stop.
 import { execFile, spawn } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readlinkSync, statSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -40,7 +49,13 @@ export async function prepareCore({ coreExe, desktopDir, repoRoot, isoRoot, ortL
     have = JSON.parse(readFileSync(marker, 'utf8'));
   } catch {}
   mkdirSync(dir, { recursive: true });
-  if (!existsSync(staged) || !have || have.path !== want.path || have.size !== want.size || have.mtimeMs !== want.mtimeMs) {
+  if (
+    !existsSync(staged) ||
+    !have ||
+    have.path !== want.path ||
+    have.size !== want.size ||
+    have.mtimeMs !== want.mtimeMs
+  ) {
     log(`core: copying ${coreExe} (${(st.size / 1e6).toFixed(1)} MB, built ${st.mtime.toISOString()}) to ${staged}`);
     copyFileSync(coreExe, staged);
     writeFileSync(marker, JSON.stringify(want, null, 2));
@@ -63,7 +78,14 @@ export function starterEnv({ coreExe, isoRoot, electronDist, parent = process.en
 }
 
 /** The `dev-isolated.mjs start` arguments of a run. */
-export function startArgs({ name = INSTANCE_NAME, ttlMinutes = 90, timeoutSeconds = 900, overlayFile, inspectorPort, passEnv = [] }) {
+export function startArgs({
+  name = INSTANCE_NAME,
+  ttlMinutes = 90,
+  timeoutSeconds = 900,
+  overlayFile,
+  inspectorPort,
+  passEnv = [],
+}) {
   return [
     'start',
     '--name',
@@ -80,7 +102,11 @@ export function startArgs({ name = INSTANCE_NAME, ttlMinutes = 90, timeoutSecond
 
 function run(desktopDir, args, env, logFile, timeoutMs) {
   return new Promise((resolveRun, reject) => {
-    const child = spawn(process.execPath, [join(desktopDir, 'scripts', 'dev-isolated.mjs'), ...args], { cwd: desktopDir, env, windowsHide: true });
+    const child = spawn(process.execPath, [join(desktopDir, 'scripts', 'dev-isolated.mjs'), ...args], {
+      cwd: desktopDir,
+      env,
+      windowsHide: true,
+    });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
@@ -98,7 +124,14 @@ function run(desktopDir, args, env, logFile, timeoutMs) {
 }
 
 /** An instance controller bound to one core/isolated root: start, stop, sweep. */
-export function instanceController({ desktopDir, coreExe, isoRoot, electronDist, name = INSTANCE_NAME, log = console.log }) {
+export function instanceController({
+  desktopDir,
+  coreExe,
+  isoRoot,
+  electronDist,
+  name = INSTANCE_NAME,
+  log = console.log,
+}) {
   const logs = join(isoRoot, 'logs');
   const env = () => starterEnv({ coreExe, isoRoot, electronDist });
   return {
@@ -114,8 +147,18 @@ export function instanceController({ desktopDir, coreExe, isoRoot, electronDist,
       const logFile = join(logs, `start-${Date.now()}.log`);
       log(`instance: starting ${name} (root ${isoRoot}, inspector ${inspectorPort ?? 'off'}); starter log ${logFile}`);
       const started = Date.now();
-      const { code, stdout, stderr } = await run(desktopDir, startArgs({ name, ttlMinutes, overlayFile, inspectorPort, passEnv }), env(), logFile, 960_000);
-      const line = stdout.trim().split(/\r?\n/).reverse().find((l) => l.startsWith('{'));
+      const { code, stdout, stderr } = await run(
+        desktopDir,
+        startArgs({ name, ttlMinutes, overlayFile, inspectorPort, passEnv }),
+        env(),
+        logFile,
+        960_000
+      );
+      const line = stdout
+        .trim()
+        .split(/\r?\n/)
+        .reverse()
+        .find((l) => l.startsWith('{'));
       if (code !== 0 || !line) throw new Error(`instance start failed (exit ${code}): ${stderr.slice(-1500)}`);
       const info = JSON.parse(line);
       log(`instance: window loaded after ${((Date.now() - started) / 1000).toFixed(1)} s; dataDir ${info.dataDir}`);
@@ -123,13 +166,25 @@ export function instanceController({ desktopDir, coreExe, isoRoot, electronDist,
     },
     async stop() {
       mkdirSync(logs, { recursive: true });
-      const { code, stdout, stderr } = await run(desktopDir, ['stop', '--name', name], env(), join(logs, `stop-${Date.now()}.log`), 120_000);
+      const { code, stdout, stderr } = await run(
+        desktopDir,
+        ['stop', '--name', name],
+        env(),
+        join(logs, `stop-${Date.now()}.log`),
+        120_000
+      );
       log(`instance: stop exit ${code} ${stdout.trim().slice(0, 400)} ${stderr.trim().slice(0, 400)}`);
       return code;
     },
     async sweep() {
       mkdirSync(logs, { recursive: true });
-      const { code, stdout } = await run(desktopDir, ['sweep', '--all'], env(), join(logs, `sweep-${Date.now()}.log`), 120_000);
+      const { code, stdout } = await run(
+        desktopDir,
+        ['sweep', '--all'],
+        env(),
+        join(logs, `sweep-${Date.now()}.log`),
+        120_000
+      );
       log(`instance: sweep exit ${code} ${stdout.trim().slice(0, 400)}`);
       return code;
     },
@@ -172,7 +227,12 @@ async function processImage(pid, platform) {
   if (platform === 'win32') {
     const { stdout } = await exec(
       'powershell.exe',
-      ['-NoLogo', '-NoProfile', '-Command', `Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}" | Select-Object ProcessId,ExecutablePath,CommandLine,CreationDate | ConvertTo-Json -Compress`],
+      [
+        '-NoLogo',
+        '-NoProfile',
+        '-Command',
+        `Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}" | Select-Object ProcessId,ExecutablePath,CommandLine,CreationDate | ConvertTo-Json -Compress`,
+      ],
       { windowsHide: true }
     );
     return parseCimProcess(stdout);

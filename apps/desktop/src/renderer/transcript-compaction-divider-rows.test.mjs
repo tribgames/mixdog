@@ -346,7 +346,9 @@ test('a compaction divider that splits a tool group mid-turn draws each half onc
 // appended came out under the divider as a tool group of the current turn
 // (the earlier turn's folder listing and exploration calls, as a summary).
 test('rows re-sent archived after a compaction stay above the divider, out of the turn that goes on below it', async () => {
-  const { sessionReducer, desktopSessionState } = await import('../../../../packages/protocol-client/src/session-state.ts');
+  const { sessionReducer, desktopSessionState } = await import(
+    '../../../../packages/protocol-client/src/session-state.ts'
+  );
   const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
   const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
   const user = (id, text, ext = {}) => ({ type: 'userMessage', id, content: [{ type: 'text', text }], meta: { ext } });
@@ -367,7 +369,12 @@ test('rows re-sent archived after a compaction stay above the divider, out of th
     reply('a1', '원인을 절반까지 좁혔습니다'),
     user('u2', '컴퓨터유즈 왜호출안되는지부터 파악필요할듯'),
   ];
-  const older = [user('u0', 'ㅎㅇ'), call('call:list-0', 'list'), call('call:explore-0', 'explore'), reply('a0', '안녕하세요')];
+  const older = [
+    user('u0', 'ㅎㅇ'),
+    call('call:list-0', 'list'),
+    call('call:explore-0', 'explore'),
+    reply('a0', '안녕하세요'),
+  ];
   const completed = (s, item) =>
     sessionReducer.apply(s, { method: 'item/completed', params: { threadId: SESSION, turnId: '', item } });
   let fold = sessionReducer.initial({ thread: { id: SESSION }, items: held, state: {}, hasOlder: true });
@@ -398,7 +405,10 @@ test('rows re-sent archived after a compaction stay above the divider, out of th
     rows
       .slice(0, dividerAt)
       .filter((row) => row._tag !== 'TurnGap')
-      .map((row) => [shown(row), row._tag === 'ToolActivity' ? row.items.every((item) => item.archived) : row.item.archived === true]),
+      .map((row) => [
+        shown(row),
+        row._tag === 'ToolActivity' ? row.items.every((item) => item.archived) : row.item.archived === true,
+      ]),
     [
       [['u1'], true],
       [['call:read-1'], true],

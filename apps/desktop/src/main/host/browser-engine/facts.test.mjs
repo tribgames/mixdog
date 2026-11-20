@@ -139,7 +139,7 @@ test('the host console entries and refusals join the event stream while the lane
   ]);
 });
 
-test("a page whose facts cannot be read inside its own event keeps the event for the listeners after it, and sends at the next change", () => {
+test('a page whose facts cannot be read inside its own event keeps the event for the listeners after it, and sends at the next change', () => {
   const { guest, publisher, state, log } = harness();
   state.for(guest);
   const stop = publisher.attach(guest);
@@ -159,6 +159,10 @@ test("a page whose facts cannot be read inside its own event keeps the event for
   );
   guest.getTitle = () => 'A';
   guest.emit('did-stop-loading');
-  assert.equal(log.filter((entry) => entry.method === 'host/browser/page/facts').length, 1, 'the next change sends the facts');
+  assert.equal(
+    log.filter((entry) => entry.method === 'host/browser/page/facts').length,
+    1,
+    'the next change sends the facts'
+  );
   stop();
 });

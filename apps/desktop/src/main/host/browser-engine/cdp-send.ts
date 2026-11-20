@@ -53,14 +53,18 @@ export const CDP_SEND_ALLOWED: ReadonlySet<string> = new Set([
 
 /** What `Page.printToPDF` needs of the browser host: the privacy check a screenshot runs (screenshots.prepareVisualOutput). */
 export interface CdpSendHost {
-  prepareVisualOutput: BrowserVisualPrivacy | ((guest: WebContents, signal?: AbortSignal) => Promise<(() => Promise<void>) | undefined>);
+  prepareVisualOutput:
+    | BrowserVisualPrivacy
+    | ((guest: WebContents, signal?: AbortSignal) => Promise<(() => Promise<void>) | undefined>);
 }
 
 const SEND_MAX_TIMEOUT_MS = 60_000;
 
 /** The refusal of `method`, or undefined when it is on the list. */
 export function cdpSendRefusal(method: string): string | undefined {
-  return CDP_SEND_ALLOWED.has(method) ? undefined : `CDP method ${method} is not available through host/browser/cdp/send`;
+  return CDP_SEND_ALLOWED.has(method)
+    ? undefined
+    : `CDP method ${method} is not available through host/browser/cdp/send`;
 }
 
 /**
@@ -72,7 +76,10 @@ async function printToPdf(connection: HostConnection, host: CdpSendHost, signal:
   const printed = await page.guest.printToPDF({ printBackground: true });
   await finishPrivacyCheck?.();
   if (printed.length > MAX_PRINTED_PDF_BYTES) {
-    throw new HostRpcError(ENGINE_ERROR.failed, `printed PDF is ${printed.length} bytes; limit is ${MAX_PRINTED_PDF_BYTES} bytes`);
+    throw new HostRpcError(
+      ENGINE_ERROR.failed,
+      `printed PDF is ${printed.length} bytes; limit is ${MAX_PRINTED_PDF_BYTES} bytes`
+    );
   }
   if (!printed.length) throw new HostRpcError(ENGINE_ERROR.failed, 'the page could not be printed to PDF');
   const data = printed.toString('base64');
@@ -92,7 +99,11 @@ async function send(
   if (typeof method !== 'string' || !method) throw new HostRpcError(HOST_INVALID_PARAMS, 'cdp/send needs a method.');
   const reason = cdpSendRefusal(method);
   if (reason) throw new HostRpcError(ENGINE_ERROR.refused, reason, { reason });
-  if (params.params !== undefined && params.params !== null && (typeof params.params !== 'object' || Array.isArray(params.params))) {
+  if (
+    params.params !== undefined &&
+    params.params !== null &&
+    (typeof params.params !== 'object' || Array.isArray(params.params))
+  ) {
     throw new HostRpcError(HOST_INVALID_PARAMS, 'cdp/send params must be an object.');
   }
   if (sessionId !== undefined && sessionId !== null) {

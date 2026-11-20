@@ -15,12 +15,20 @@ test('what was chosen is read from the stored choices, so it can be put back aft
   const state = recoveryStateOf({
     edits: [{ messageId: 'row-7', part: 2, choice: 'continueWithout' }],
     newContextAt: null,
-    gate: { state: 'repair', images: [{ messageId: 'row-3', part: null, message: 'x', actions: ['newBranchWithoutContext'] }] },
+    gate: {
+      state: 'repair',
+      images: [{ messageId: 'row-3', part: null, message: 'x', actions: ['newBranchWithoutContext'] }],
+    },
   });
   assert.deepEqual(chosenAmong(state, refusal.blockers), [{ messageId: 'row-7', part: 2 }]);
   assert.equal(state.gate.images[0].part, null);
   assert.equal(state.choicesUnreadable, false);
-  const unreadable = recoveryStateOf({ edits: [], newContextAt: null, choicesUnreadable: true, gate: { state: 'checking', done: 1, total: 4 } });
+  const unreadable = recoveryStateOf({
+    edits: [],
+    newContextAt: null,
+    choicesUnreadable: true,
+    gate: { state: 'checking', done: 1, total: 4 },
+  });
   assert.equal(unreadable.choicesUnreadable, true);
   assert.deepEqual(unreadable.gate, { state: 'checking', done: 1, total: 4 });
   assert.equal(recoveryStateOf({ edits: [], gate: { state: 'later' } }), null, 'a malformed answer is not guessed at');
@@ -43,7 +51,11 @@ test('a failure carries its image refusal in errorKind, and any other failure ca
   assert.equal(imageRefusalOf({ kind: 'unknown' }), null);
   assert.equal(imageRefusalOf(undefined), null);
   assert.equal(imageRefusalOf({ imageRefusal: { blockers: [] } }), null);
-  assert.equal(imageRefusalOf({ imageRefusal: { blockers: [{ messageId: 5, part: 'x' }] } }), null, 'a malformed one is not guessed at');
+  assert.equal(
+    imageRefusalOf({ imageRefusal: { blockers: [{ messageId: 5, part: 'x' }] } }),
+    null,
+    'a malformed one is not guessed at'
+  );
 });
 
 test('each fix is the request the core method takes, naming the images by message and position', () => {

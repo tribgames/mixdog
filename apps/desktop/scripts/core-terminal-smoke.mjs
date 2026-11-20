@@ -160,7 +160,11 @@ class Tap {
   }
 
   waitLine(text, ms = MARKER_TIMEOUT_MS) {
-    return waitFor(`the line ${JSON.stringify(text)} (read ${this.lines.length} lines, ${this.bytes} bytes)`, ms, () => this.count(text) > 0);
+    return waitFor(
+      `the line ${JSON.stringify(text)} (read ${this.lines.length} lines, ${this.bytes} bytes)`,
+      ms,
+      () => this.count(text) > 0
+    );
   }
 }
 
@@ -173,7 +177,8 @@ class Link {
     this.off = client.on((event) => {
       if (event.type !== 'notification') return;
       const feed = event.notification.feed?.id;
-      if (typeof feed === 'string' && feed.startsWith('process:')) this.taps.get(feed.slice('process:'.length))?.frame(event.notification);
+      if (typeof feed === 'string' && feed.startsWith('process:'))
+        this.taps.get(feed.slice('process:'.length))?.frame(event.notification);
     });
   }
 
@@ -210,7 +215,10 @@ class Link {
 /** The shell language a profile speaks, from its id and path. */
 function familyOf(profile) {
   const text = `${profile?.id ?? ''} ${profile?.path ?? ''}`.toLowerCase();
-  const base = String(profile?.path ?? '').toLowerCase().split(/[\\/]/).pop();
+  const base = String(profile?.path ?? '')
+    .toLowerCase()
+    .split(/[\\/]/)
+    .pop();
   if (profile?.id === 'cmd' || base === 'cmd.exe') return 'cmd';
   if (text.includes('pwsh') || text.includes('powershell')) return 'powershell';
   return 'posix';
@@ -237,7 +245,9 @@ async function run() {
     args = parseArgs(process.argv.slice(2));
   } catch (error) {
     console.error(`core-terminal-smoke: ${message(error)}`);
-    console.error('usage: core-terminal-smoke.mjs --endpoint ws://127.0.0.1:<port> --token-file <path> [--profile <id>] [--json out.json]');
+    console.error(
+      'usage: core-terminal-smoke.mjs --endpoint ws://127.0.0.1:<port> --token-file <path> [--profile <id>] [--json out.json]'
+    );
     return 2;
   }
   const token = await readToken(args['token-file']).catch((error) => {
@@ -332,7 +342,11 @@ async function run() {
 
   for (const profile of wanted) {
     current = profile.id || '(default)';
-    const family = familyOf(profile.id ? profile : (profiles.find((p) => p.default) ?? { id: process.platform === 'win32' ? 'powershell' : 'sh' }));
+    const family = familyOf(
+      profile.id
+        ? profile
+        : (profiles.find((p) => p.default) ?? { id: process.platform === 'win32' ? 'powershell' : 'sh' })
+    );
     const options = { cols: 80, rows: 24, ...(profile.id ? { profile: profile.id } : {}) };
     const tabs = [];
     const dispose = async (link, tabId) => {
@@ -344,14 +358,22 @@ async function run() {
     let tap = null;
     const ensured = await check('ensure+attach', async () => {
       const made = await main.ensure(options);
-      if (!made || typeof made.id !== 'string' || !made.id) throw new Error(`terminal/ensure answered ${JSON.stringify(made)}`);
+      if (!made || typeof made.id !== 'string' || !made.id)
+        throw new Error(`terminal/ensure answered ${JSON.stringify(made)}`);
       tab = made.id;
       tabs.push(tab);
       const { reply, tap: read } = await main.attach(tab);
       tap = read;
-      if (!reply || typeof reply.replay !== 'string') throw new Error(`terminal/attach answered ${JSON.stringify(reply)} (no replay)`);
+      if (!reply || typeof reply.replay !== 'string')
+        throw new Error(`terminal/attach answered ${JSON.stringify(reply)} (no replay)`);
       const sub = reply.subscription;
-      if (!sub || typeof sub.id !== 'string' || typeof sub.mode !== 'string' || typeof sub.epoch !== 'string' || typeof sub.startSeq !== 'number') {
+      if (
+        !sub ||
+        typeof sub.id !== 'string' ||
+        typeof sub.mode !== 'string' ||
+        typeof sub.epoch !== 'string' ||
+        typeof sub.startSeq !== 'number'
+      ) {
         throw new Error(`terminal/attach carried no subscription {id, mode, epoch, startSeq}: ${JSON.stringify(sub)}`);
       }
       return `${tab}, replay ${reply.replay.length} chars, ${sub.mode} from ${sub.epoch}:${sub.startSeq}, ${family}`;
@@ -366,7 +388,9 @@ async function run() {
           await tap.waitLine(mark);
         } catch (error) {
           const echoed = tap.lines.some((line) => line.includes(mark));
-          throw new Error(`${message(error)}${echoed ? ' (the typed line was echoed, the command printed nothing back)' : ''}`);
+          throw new Error(
+            `${message(error)}${echoed ? ' (the typed line was echoed, the command printed nothing back)' : ''}`
+          );
         }
         return mark;
       });
@@ -422,7 +446,11 @@ async function run() {
         const from = { bytes: tap.bytes, lines: tap.lines.length };
         try {
           main.input(tab, `${command}\r`);
-          await waitFor(`FLOODEND (read ${tap.bytes - from.bytes} bytes)`, FLOOD_TIMEOUT_MS, () => failure || tap.count(`FLOODEND-${mark}`) > 0);
+          await waitFor(
+            `FLOODEND (read ${tap.bytes - from.bytes} bytes)`,
+            FLOOD_TIMEOUT_MS,
+            () => failure || tap.count(`FLOODEND-${mark}`) > 0
+          );
           if (failure) throw failure;
         } finally {
           clearInterval(drain);
@@ -447,9 +475,16 @@ async function run() {
         const found = next - 1;
         if (tap.violations.length) throw new Error(`feed stamps broke: ${tap.violations.slice(0, 3).join('; ')}`);
         if (read < FLOOD_MIN_BYTES) throw new Error(`only ${read} bytes were read (need ${FLOOD_MIN_BYTES})`);
-        if (missing || found !== FLOOD_LINES) throw new Error(`lost output: ${missing} lines missing, last line ${found} of ${FLOOD_LINES}`);
-        if (pauses === 0) throw new Error(`the backlog never reached ${PAUSE_AT} bytes (highest ${Math.round(highest)}): flow control was not exercised`);
-        if (highest > FLOOD_BACKLOG_LIMIT) throw new Error(`the backlog reached ${Math.round(highest)} bytes (limit ${FLOOD_BACKLOG_LIMIT}) with ${pauses} pauses`);
+        if (missing || found !== FLOOD_LINES)
+          throw new Error(`lost output: ${missing} lines missing, last line ${found} of ${FLOOD_LINES}`);
+        if (pauses === 0)
+          throw new Error(
+            `the backlog never reached ${PAUSE_AT} bytes (highest ${Math.round(highest)}): flow control was not exercised`
+          );
+        if (highest > FLOOD_BACKLOG_LIMIT)
+          throw new Error(
+            `the backlog reached ${Math.round(highest)} bytes (limit ${FLOOD_BACKLOG_LIMIT}) with ${pauses} pauses`
+          );
         return `${read} bytes, ${found} lines, ${repeated} repeated, ${pauses} pauses, ${resumes} resumes, backlog ${Math.round(highest)}`;
       });
     } else {
@@ -481,8 +516,10 @@ async function run() {
       await after.waitLine(b);
       await sleep(300);
       if (after.violations.length) throw new Error(`stamps broke: ${after.violations.slice(0, 3).join('; ')}`);
-      if (after.stamps[0] !== last.seq + 1) throw new Error(`the first frame after ${last.epoch}:${last.seq} was ${after.stamps[0]}`);
-      if (after.stamps.some((seq) => seq <= last.seq)) throw new Error('a frame the first connection had read came again');
+      if (after.stamps[0] !== last.seq + 1)
+        throw new Error(`the first frame after ${last.epoch}:${last.seq} was ${after.stamps[0]}`);
+      if (after.stamps.some((seq) => seq <= last.seq))
+        throw new Error('a frame the first connection had read came again');
       if (after.count(b) !== 1) throw new Error(`${b} arrived ${after.count(b)} times`);
       if (after.count(a) !== 0) throw new Error(`${a} came again after the resume`);
       return `resumed after ${last.epoch}:${last.seq}, ${after.stamps.length} frames`;
@@ -504,7 +541,8 @@ async function run() {
       await sleep(300);
       await second.client.call('terminal/resume', { tabId: id });
       await reading.waitLine(mark);
-      if (second.client.status.state !== 'ready') throw new Error(`the second connection is ${second.client.status.state}`);
+      if (second.client.status.state !== 'ready')
+        throw new Error(`the second connection is ${second.client.status.state}`);
       return `${mark} read after the resume`;
     });
 
@@ -533,7 +571,10 @@ async function run() {
       profile: id,
       checks: results.filter((row) => row.profile === id).map(({ name, ok, ms, detail }) => ({ name, ok, ms, detail })),
     }));
-    await writeFile(args.json, `${JSON.stringify({ profile: args.profile ?? null, profiles: byProfile, checks: results }, null, 2)}\n`);
+    await writeFile(
+      args.json,
+      `${JSON.stringify({ profile: args.profile ?? null, profiles: byProfile, checks: results }, null, 2)}\n`
+    );
   }
   return failed.length ? 1 : 0;
 }

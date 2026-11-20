@@ -5,7 +5,9 @@ import { record } from './record-utils';
 import { sectionSourceOf } from './section-capabilities';
 
 export type SurfaceApi = Pick<DesktopApi, 'invokeCapability'> &
-  Partial<Pick<DesktopApi, 'getSnapshot' | 'subscribeState' | 'subscribeSessionState' | 'readCapabilities' | 'sections'>>;
+  Partial<
+    Pick<DesktopApi, 'getSnapshot' | 'subscribeState' | 'subscribeSessionState' | 'readCapabilities' | 'sections'>
+  >;
 
 export const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
   // The footer's session spend reads the usage ledger beside the gauge.
@@ -250,7 +252,9 @@ export function holdStatsDataCache(api: SurfaceApi, { background = true }: { bac
           unsubscribeStats = store.subscribe('usage', takeStats);
           return store.ready().then(takeStats);
         })
-        .catch((error: unknown) => console.error('[usage] the statistics connection lane could not be followed', error));
+        .catch((error: unknown) =>
+          console.error('[usage] the statistics connection lane could not be followed', error)
+        );
     }
     cache.release = () => {
       released = true;

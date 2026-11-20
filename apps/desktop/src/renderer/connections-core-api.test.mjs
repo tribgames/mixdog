@@ -43,9 +43,13 @@ test('list_mutations_return_the_list_again', async () => {
   assert.deepEqual(
     w.calls.map((c) => c.method),
     [
-      'connections/ssh/rename', 'connections/ssh/list', 'connections/ssh/forget', 'connections/ssh/list',
-      'connections/ssh/updateSettings', 'connections/ssh/list',
-    ],
+      'connections/ssh/rename',
+      'connections/ssh/list',
+      'connections/ssh/forget',
+      'connections/ssh/list',
+      'connections/ssh/updateSettings',
+      'connections/ssh/list',
+    ]
   );
   assert.deepEqual(w.calls[0].params, { id: 'a', name: 'x' });
 });
@@ -67,19 +71,35 @@ test('connect_dialog_calls_carry_their_arguments', async () => {
       { attemptId: 'at', requestId: 'rq', secret: null },
       { id: 'a', request: { operationId: 'o', removeUserData: false, forget: true } },
       { ref: 'a' },
-    ],
+    ]
   );
 });
 
 test('server_login_begin_opens_the_url_in_this_pcs_browser', async () => {
-  const flow = { flowId: 'f', provider: 'p', state: 'pending', url: 'http://x', error: null, forwarded: true, openUrl: 'https://login/' };
+  const flow = {
+    flowId: 'f',
+    provider: 'p',
+    state: 'pending',
+    url: 'http://x',
+    error: null,
+    forwarded: true,
+    openUrl: 'https://login/',
+  };
   const w = world({ replies: { 'connections/ssh/serverLoginBegin': flow } });
   assert.deepEqual(await w.api.sshServerLoginBegin('a', 'p'), flow);
   assert.deepEqual(w.opened, ['https://login/']);
 });
 
 test('server_login_begin_ends_the_login_when_the_browser_does_not_open', async () => {
-  const flow = { flowId: 'f', provider: 'p', state: 'pending', url: null, error: null, forwarded: false, openUrl: 'https://login/' };
+  const flow = {
+    flowId: 'f',
+    provider: 'p',
+    state: 'pending',
+    url: null,
+    error: null,
+    forwarded: false,
+    openUrl: 'https://login/',
+  };
   const calls = [];
   const api = createConnectionsCoreApi({
     client: () => ({
@@ -115,17 +135,22 @@ test('link_and_ports_use_the_windows_own_connection_id', async () => {
   assert.deepEqual(
     w.calls.map((c) => c.params),
     [
-      { connectionId: 's1' }, { connectionId: 's1' }, { connectionId: 's1' }, { connectionId: 's1' },
+      { connectionId: 's1' },
+      { connectionId: 's1' },
+      { connectionId: 's1' },
+      { connectionId: 's1' },
       { connectionId: 's1', remotePort: 3000, localPort: null },
       { connectionId: 's1', remotePort: 3000 },
       { connectionId: 's1', port: 8080 },
-    ],
+    ]
   );
 });
 
 test('open_port_in_browser_uses_the_active_forward', async () => {
   const w = world({
-    replies: { 'connections/ports/list': { forwards: [{ remotePort: 3000, localPort: 41000, status: 'active' }], suggested: [] } },
+    replies: {
+      'connections/ports/list': { forwards: [{ remotePort: 3000, localPort: 41000, status: 'active' }], suggested: [] },
+    },
   });
   await w.api.openServerPortInBrowser(3000);
   assert.deepEqual(w.opened, ['http://127.0.0.1:41000/']);
@@ -135,7 +160,10 @@ test('open_port_in_browser_uses_the_active_forward', async () => {
 test('restore_setting_reads_back_what_is_stored', async () => {
   const w = world({ replies: { 'connections/restore/get': { enabled: true } } });
   assert.equal(await w.api.setReopenServerWindows(true), true);
-  assert.deepEqual(w.calls.map((c) => c.method), ['connections/restore/set', 'connections/restore/get']);
+  assert.deepEqual(
+    w.calls.map((c) => c.method),
+    ['connections/restore/set', 'connections/restore/get']
+  );
 });
 
 test('feed_sections_reach_their_listeners_and_the_feed_is_released', async () => {
@@ -145,21 +173,36 @@ test('feed_sections_reach_their_listeners_and_the_feed_is_released', async () =>
   const stopLink = w.api.subscribeConnectionLink((v) => links.push(v));
   const stopPorts = w.api.subscribeServerPorts((v) => ports.push(v));
   await w.settle();
-  assert.deepEqual(w.calls.filter((c) => c.method === 'connections/subscribe'), [
-    { method: 'connections/subscribe', params: { connectionId: 's1' } },
-  ]);
-  w.note('connections/updated', { section: 'connections', key: 'link/s1', revision: 1, value: { state: 1 } }, 'connections');
-  w.note('connections/updated', { section: 'connections', key: 'link/other', revision: 1, value: { state: 2 } }, 'connections');
+  assert.deepEqual(
+    w.calls.filter((c) => c.method === 'connections/subscribe'),
+    [{ method: 'connections/subscribe', params: { connectionId: 's1' } }]
+  );
+  w.note(
+    'connections/updated',
+    { section: 'connections', key: 'link/s1', revision: 1, value: { state: 1 } },
+    'connections'
+  );
+  w.note(
+    'connections/updated',
+    { section: 'connections', key: 'link/other', revision: 1, value: { state: 2 } },
+    'connections'
+  );
   w.note(
     'feed/snapshot',
-    { feedId: 'connections', state: { sections: [{ section: 'connections', key: 'ports/s1', revision: 2, value: { p: 1 } }] } },
-    'connections',
+    {
+      feedId: 'connections',
+      state: { sections: [{ section: 'connections', key: 'ports/s1', revision: 2, value: { p: 1 } }] },
+    },
+    'connections'
   );
   assert.deepEqual(links, [{ state: 1 }]);
   assert.deepEqual(ports, [{ p: 1 }]);
   stopLink();
   await w.settle();
-  assert.equal(w.calls.some((c) => c.method === 'connections/unsubscribe'), false);
+  assert.equal(
+    w.calls.some((c) => c.method === 'connections/unsubscribe'),
+    false
+  );
   stopPorts();
   await w.settle();
   assert.deepEqual(w.calls.slice(-2), [
@@ -178,8 +221,13 @@ test('restore_progress_is_delivered_one_entry_at_a_time_and_hosts_changes_say_so
   assert.deepEqual(w.calls[0], { method: 'connections/subscribe', params: {} });
   w.note(
     'connections/updated',
-    { section: 'connections', key: 'restore', revision: 1, value: { enabled: true, progress: [{ id: 'a' }, { id: 'b' }] } },
-    'connections',
+    {
+      section: 'connections',
+      key: 'restore',
+      revision: 1,
+      value: { enabled: true, progress: [{ id: 'a' }, { id: 'b' }] },
+    },
+    'connections'
   );
   w.note('connections/updated', { section: 'connections', key: 'hosts', revision: 1, value: [] }, 'connections');
   assert.deepEqual(seen, [{ id: 'a' }, { id: 'b' }]);
@@ -187,10 +235,18 @@ test('restore_progress_is_delivered_one_entry_at_a_time_and_hosts_changes_say_so
   // A reopening that left the list is ready: the banner drops it.
   w.note(
     'connections/updated',
-    { section: 'connections', key: 'restore', revision: 2, value: { enabled: true, progress: [{ id: 'b', name: 'B' }] } },
-    'connections',
+    {
+      section: 'connections',
+      key: 'restore',
+      revision: 2,
+      value: { enabled: true, progress: [{ id: 'b', name: 'B' }] },
+    },
+    'connections'
   );
-  assert.deepEqual(seen.slice(2), [{ id: 'a', name: '', phase: 'ready' }, { id: 'b', name: 'B' }]);
+  assert.deepEqual(seen.slice(2), [
+    { id: 'a', name: '', phase: 'ready' },
+    { id: 'b', name: 'B' },
+  ]);
 });
 
 test('connection_scoped_notifications_reach_their_subscribers', () => {
@@ -230,7 +286,11 @@ test('a_new_core_connection_asks_for_the_feed_again', async () => {
 });
 
 test('without_a_core_client_a_call_rejects_and_a_subscription_is_inert', async () => {
-  const api = createConnectionsCoreApi({ client: () => null, connection: () => undefined, openExternal: async () => {} });
+  const api = createConnectionsCoreApi({
+    client: () => null,
+    connection: () => undefined,
+    openExternal: async () => {},
+  });
   await assert.rejects(api.sshListHosts(), /no connection to the core/);
   assert.equal(typeof api.subscribeSshProgress(() => {}), 'function');
 });
@@ -246,11 +306,20 @@ test('a_server_window_hears_the_saved_servers_change_through_its_own_subscriptio
     'feed/snapshot',
     {
       feedId: 'connections',
-      state: { sections: [{ section: 'connections', key: 'hosts', revision: 1, value: [] }, { section: 'connections', key: 'link/s1', revision: 1, value: {} }] },
+      state: {
+        sections: [
+          { section: 'connections', key: 'hosts', revision: 1, value: [] },
+          { section: 'connections', key: 'link/s1', revision: 1, value: {} },
+        ],
+      },
     },
-    'connections',
+    'connections'
   );
-  w.note('connections/updated', { section: 'connections', key: 'hosts', revision: 2, value: [{ id: 's1' }] }, 'connections');
+  w.note(
+    'connections/updated',
+    { section: 'connections', key: 'hosts', revision: 2, value: [{ id: 's1' }] },
+    'connections'
+  );
   assert.equal(changed, 2);
 });
 
@@ -286,13 +355,22 @@ test('before_the_first_open_calls_and_listeners_wait_for_it', async () => {
   release();
   assert.deepEqual(await listed, []);
   await new Promise((r) => setTimeout(r, 0));
-  assert.deepEqual(calls.map((c) => c.method), ['connections/ssh/list', 'connections/subscribe']);
-  [...handlers].forEach((h) => h({ type: 'notification', notification: { method: 'connections/ssh/progress', params: { step: 1 } } }));
+  assert.deepEqual(
+    calls.map((c) => c.method),
+    ['connections/ssh/list', 'connections/subscribe']
+  );
+  [...handlers].forEach((h) =>
+    h({ type: 'notification', notification: { method: 'connections/ssh/progress', params: { step: 1 } } })
+  );
   assert.deepEqual(heard, [{ step: 1 }], 'a listener added before the open hears the client once it is open');
 });
 
 test('with_no_open_in_flight_a_call_without_a_client_is_refused_at_once', async () => {
-  const api = createConnectionsCoreApi({ client: () => null, opening: () => null, connection: () => undefined, openExternal: async () => undefined });
+  const api = createConnectionsCoreApi({
+    client: () => null,
+    opening: () => null,
+    connection: () => undefined,
+    openExternal: async () => undefined,
+  });
   await assert.rejects(() => api.sshListHosts(), /This window has no connection to the core\./);
 });
-

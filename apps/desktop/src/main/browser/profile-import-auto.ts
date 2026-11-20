@@ -367,9 +367,15 @@ export class CookieAutoImporter {
     await this.changeSettings(async () => {
       const previous = this.settings;
       this.settings = await this.deps.settings.write(next);
-      if (this.settings.enabled && !previous.enabled &&
-          (!previous.profileId || previous.profileId === this.settings.profileId)) {
-        await this.deps.state.updateProfile(this.settings.profileId, { needsManualImport: false, lastError: undefined });
+      if (
+        this.settings.enabled &&
+        !previous.enabled &&
+        (!previous.profileId || previous.profileId === this.settings.profileId)
+      ) {
+        await this.deps.state.updateProfile(this.settings.profileId, {
+          needsManualImport: false,
+          lastError: undefined,
+        });
       }
       this.arm(0);
     });

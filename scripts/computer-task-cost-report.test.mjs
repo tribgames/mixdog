@@ -48,7 +48,10 @@ test('a task profile multiplies one call by the number of model calls', () => {
   const one = report.task_profiles.fresh_observation_action;
   const three = report.task_profiles.discover_observe_then_action;
   assert.equal(three.model_calls, 3);
-  assert.equal(three.call_equivalent_input_tokens_p50, Math.round(one.call_equivalent_input_tokens_p50 * 3 * 100) / 100);
+  assert.equal(
+    three.call_equivalent_input_tokens_p50,
+    Math.round(one.call_equivalent_input_tokens_p50 * 3 * 100) / 100
+  );
 });
 
 test('empty inputs give zero rates and null fields rather than a failure', () => {

@@ -69,7 +69,11 @@ function rig(windows) {
   const scopes = registerComputerScopes(connection, createComputerSwitch(true));
   registerComputerAppInput(connection, { showCursor: (...args) => cursors.push(args), scopes });
   const ask = (method, params, signal = new AbortController().signal) => handlers.get(method)(params, signal);
-  return { cursors, ask: (params, signal) => ask('host/computer/appInput', params, signal), windows: () => ask('host/computer/appWindows', {}) };
+  return {
+    cursors,
+    ask: (params, signal) => ask('host/computer/appInput', params, signal),
+    windows: () => ask('host/computer/appWindows', {}),
+  };
 }
 
 const base = (window) => ({ sessionThreadId: 'thr_1', windowId: appWindowId(window) });
@@ -137,7 +141,14 @@ test('type at a point clicks it inside the renderer, inserts the text and report
       window.sent.map((entry) => entry.params.type),
       ['mouseMoved', 'mousePressed', 'mouseReleased']
     );
-    assert.deepEqual(window.sent[1].params, { x: 10, y: 0, button: 'left', clickCount: 1, modifiers: 0, type: 'mousePressed' });
+    assert.deepEqual(window.sent[1].params, {
+      x: 10,
+      y: 0,
+      button: 'left',
+      clickCount: 1,
+      modifiers: 0,
+      type: 'mousePressed',
+    });
     assert.deepEqual(answer, {
       delivered: true,
       effect: 'delivered',
@@ -186,10 +197,26 @@ test('a wheel is one mouseWheel at the point or the middle of the content, signe
   try {
     const answer = await ask({ ...base(window), op: 'wheel', dx: 0, dy: -200, modifiers: 'ctrl' });
     assert.equal(answer.effect, 'delivered');
-    assert.deepEqual(window.sent[0].params, { type: 'mouseWheel', x: 390, y: 280, deltaX: 0, deltaY: -200, modifiers: 2, button: 'none' });
+    assert.deepEqual(window.sent[0].params, {
+      type: 'mouseWheel',
+      x: 390,
+      y: 280,
+      deltaX: 0,
+      deltaY: -200,
+      modifiers: 2,
+      button: 'none',
+    });
     window.sent.length = 0;
     await ask({ ...base(window), op: 'wheel', dx: 300, dy: 0, x: 20, y: 30 });
-    assert.deepEqual(window.sent[0].params, { type: 'mouseWheel', x: 10, y: 0, deltaX: 300, deltaY: 0, modifiers: 0, button: 'none' });
+    assert.deepEqual(window.sent[0].params, {
+      type: 'mouseWheel',
+      x: 10,
+      y: 0,
+      deltaX: 300,
+      deltaY: 0,
+      modifiers: 0,
+      button: 'none',
+    });
     assert.deepEqual(cursors.at(-1), ['thr_1', 120, 80, 'scroll']);
   } finally {
     delete globalThis.appWindows;
@@ -204,10 +231,19 @@ test('click presses count up for a double click and a move is one pointer move',
     assert.equal(answer.effect, 'delivered');
     assert.deepEqual(answer.cursor, { x: 120, y: 80 });
     const pressed = window.sent.filter((entry) => entry.params.type === 'mousePressed');
-    assert.deepEqual(pressed.map((entry) => [entry.params.button, entry.params.clickCount]), [['right', 1], ['right', 2]]);
+    assert.deepEqual(
+      pressed.map((entry) => [entry.params.button, entry.params.clickCount]),
+      [
+        ['right', 1],
+        ['right', 2],
+      ]
+    );
     window.sent.length = 0;
     await ask({ ...base(window), op: 'move', x: 20, y: 30 });
-    assert.deepEqual(window.sent.map((entry) => entry.params.type), ['mouseMoved']);
+    assert.deepEqual(
+      window.sent.map((entry) => entry.params.type),
+      ['mouseMoved']
+    );
   } finally {
     delete globalThis.appWindows;
   }

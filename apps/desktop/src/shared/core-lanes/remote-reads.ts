@@ -21,7 +21,11 @@ async function remoteValue(snapshot: DesktopSectionsSnapshot, call: CoreCall): P
 }
 
 /** A member of the `remote` section, paged in full when the section is a stub. */
-export async function remotePagedMember(snapshot: DesktopSectionsSnapshot, name: string, call: CoreCall): Promise<unknown> {
+export async function remotePagedMember(
+  snapshot: DesktopSectionsSnapshot,
+  name: string,
+  call: CoreCall
+): Promise<unknown> {
   return remoteMember(await remoteValue(snapshot, call), name);
 }
 
@@ -40,12 +44,18 @@ export function remoteDescriptor(value: Record<string, unknown>): unknown {
 /** Node: `remote.start(activate !== false)`, then `descriptor()`. The start that activates is `remoteAccess/activate`;
  *  it answers the section value as it stands afterwards. The core makes it a no-op while access is switched off, so
  *  it is not sent then, as Node's start returned before activating. */
-export async function remoteAccessInfo(snapshot: DesktopSectionsSnapshot, args: readonly unknown[], call: CoreCall): Promise<unknown> {
+export async function remoteAccessInfo(
+  snapshot: DesktopSectionsSnapshot,
+  args: readonly unknown[],
+  call: CoreCall
+): Promise<unknown> {
   const held = await remoteValue(snapshot, call);
   const activate = args[0] !== false && remoteMember(held, 'disabled') !== true;
   if (activate) return remoteDescriptor(record(await call('remoteAccess/activate', {})));
   // Node's descriptor asked the relay for its clients on every ask, so a listing that failed earlier was retried by this
   // one. The leg is up but has not answered a listing: ask the core to list now (`remoteAccess/state`).
   const info = record(remoteMember(held, 'info'));
-  return remoteDescriptor(info.enabled === true && info.connected !== true ? record(await call('remoteAccess/state', {})) : held);
+  return remoteDescriptor(
+    info.enabled === true && info.connected !== true ? record(await call('remoteAccess/state', {})) : held
+  );
 }

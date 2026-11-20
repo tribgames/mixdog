@@ -15,6 +15,8 @@ test('clipboard commands keep the session refs; window mutations retire them', (
     assert.ok(!retained.includes(action), `${action} retires refs`);
   }
   // The resident worker enforces the same list.
-  const embedded = /\$readActions = (@\([^)]*\))/.exec(PS_RUNTIME.slice(PS_RUNTIME.indexOf('function Invalidate-RefsForRequest')));
+  const embedded = /\$readActions = (@\([^)]*\))/.exec(
+    PS_RUNTIME.slice(PS_RUNTIME.indexOf('function Invalidate-RefsForRequest'))
+  );
   assert.ok(embedded && embedded[1].includes('clipboard_write'));
 });

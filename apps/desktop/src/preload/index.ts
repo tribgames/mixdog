@@ -4,7 +4,7 @@
 // core connection, not through main. Explicit method allow-list, no arbitrary invoke.
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
-import { type DesktopBootContext, type DesktopConnectionIdentity } from '../shared/contract';
+import type { DesktopBootContext, DesktopConnectionIdentity } from '../shared/contract';
 import { ipcErrorFromEnvelope } from '../shared/coded-error';
 import { createBrowserTextureBridge } from './browser-texture';
 import { installCorePort } from './core-port';
@@ -65,7 +65,13 @@ function subscribeIpc<Args extends unknown[]>(channel: string, listener: (...arg
   };
 }
 
-const host = createHostApi({ invokeIpc, subscribeIpc, ipcRenderer, webUtils, browserTexture: createBrowserTextureBridge() });
+const host = createHostApi({
+  invokeIpc,
+  subscribeIpc,
+  ipcRenderer,
+  webUtils,
+  browserTexture: createBrowserTextureBridge(),
+});
 
 contextBridge.exposeInMainWorld(
   'mixdogDesktopHost',

@@ -1139,7 +1139,10 @@ test('cleanup: a server cleaned remotely whose local forget failed says so and s
   await click(document.querySelector('.conn-dialog .conn-btn--danger'));
   await settle();
   const text = document.querySelector('.conn-dialog').textContent;
-  assert.match(text, /The server was cleaned up, but it could not be removed from this PC’s list\. Click Forget to try again\./);
+  assert.match(
+    text,
+    /The server was cleaned up, but it could not be removed from this PC’s list\. Click Forget to try again\./
+  );
   assert.match(text, /The host-key file could not be read\./);
   assert.doesNotMatch(text, /removed from the list/);
 });
@@ -1487,15 +1490,25 @@ test('a first connection that failed because an older version stays offers the c
   const calls = [];
   const { document } = await mountDialog(t, {
     ...NO_CONFIG,
-    sshConnect: () => Promise.resolve({ ok: false, failure: { kind: 'protocol-mismatch', message: 'protocol 3 vs 4', code: 'protocol-mismatch' } }),
+    sshConnect: () =>
+      Promise.resolve({
+        ok: false,
+        failure: { kind: 'protocol-mismatch', message: 'protocol 3 vs 4', code: 'protocol-mismatch' },
+      }),
     sshCleanupTarget: (target, request) => (calls.push([target, request]), Promise.resolve({ ok: true, hosts: [] })),
   });
   await startConnect(document, 'root@vps.example.com');
   await click(buttonNamed(document, 'Clean up the server…'));
-  assert.equal(document.querySelectorAll('input[type="checkbox"]').length, 1, 'only the work history is asked: there is no entry to remove');
+  assert.equal(
+    document.querySelectorAll('input[type="checkbox"]').length,
+    1,
+    'only the work history is asked: there is no entry to remove'
+  );
   await click(buttonNamed(document, 'Clean up'));
   await settle();
-  assert.deepEqual(calls, [['root@vps.example.com', { operationId: calls[0][1].operationId, removeUserData: false, forget: false }]]);
+  assert.deepEqual(calls, [
+    ['root@vps.example.com', { operationId: calls[0][1].operationId, removeUserData: false, forget: false }],
+  ]);
   await click(buttonNamed(document, 'Close'));
   assert.equal(document.querySelector('h3').textContent, 'The version on the server doesn’t match this app');
 });
@@ -1503,7 +1516,8 @@ test('a first connection that failed because an older version stays offers the c
 test('a failure with nothing an older version could cause offers no clean-up', async (t) => {
   const { document } = await mountDialog(t, {
     ...NO_CONFIG,
-    sshConnect: () => Promise.resolve({ ok: false, failure: { kind: 'failed', message: 'refused', code: 'ssh-transient' } }),
+    sshConnect: () =>
+      Promise.resolve({ ok: false, failure: { kind: 'failed', message: 'refused', code: 'ssh-transient' } }),
   });
   await startConnect(document, 'root@vps.example.com');
   assert.equal(buttonNamed(document, 'Clean up the server…'), undefined);
@@ -1525,5 +1539,3 @@ test('the log dialog says copies hide the server address and user name, while th
   );
   assert.equal(document.querySelector('pre.ssh-log').textContent, 'ssh root@vps.example.com');
 });
-
-

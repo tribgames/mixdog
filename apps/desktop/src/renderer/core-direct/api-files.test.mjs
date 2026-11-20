@@ -9,7 +9,10 @@ import { sessionLanesOf } from './api-sessions.ts';
 import { createDirectContext } from './context.ts';
 import { createRendererConnection } from './renderer-connection.ts';
 
-const refused = Object.assign(new Error('refused'), { name: 'ClientError', detail: { kind: 'rpc', data: { reason: 'permissionDenied' } } });
+const refused = Object.assign(new Error('refused'), {
+  name: 'ClientError',
+  detail: { kind: 'rpc', data: { reason: 'permissionDenied' } },
+});
 
 function fakeClient(answer) {
   const calls = [];
@@ -18,7 +21,12 @@ function fakeClient(answer) {
     calls,
     status: { state: 'ready' },
     server: { limits: {} },
-    store: { sections: () => [], section: () => undefined, appFeed: () => ({ epoch: 'e1' }), subscribe: () => () => undefined },
+    store: {
+      sections: () => [],
+      section: () => undefined,
+      appFeed: () => ({ epoch: 'e1' }),
+      subscribe: () => () => undefined,
+    },
     async call(method, params) {
       // Every file call of a window asks for `nodeErrors` (see file-errors.test.mjs); the calls below are compared without it.
       const { nodeErrors, ...rest } = params ?? {};
@@ -40,7 +48,8 @@ function fakeClient(answer) {
 }
 
 const defaults = (method, params) => {
-  if (method === 'project/directory') return { path: params.standalone ? params.path : `F:/${params.path}`, standalone: params.standalone === true };
+  if (method === 'project/directory')
+    return { path: params.standalone ? params.path : `F:/${params.path}`, standalone: params.standalone === true };
   if (method === 'project/recoveryDirectory') return { path: `F:/recovery/${params.path}` };
   return {};
 };
@@ -70,7 +79,9 @@ test('every key of the group is implemented', async () => {
 });
 
 test('project list and lifecycle', async () => {
-  const { api, sent } = await world((method) => (method === 'project/list' ? { projects: [{ name: 'a', path: 'P', alias: null, hidden: false }] } : {}));
+  const { api, sent } = await world((method) =>
+    method === 'project/list' ? { projects: [{ name: 'a', path: 'P', alias: null, hidden: false }] } : {}
+  );
   assert.deepEqual(await api.listProjects(), [{ name: 'a', path: 'P', alias: null }]);
   await api.addProject('C:/a');
   await api.renameProject('C:/a', 'A');
@@ -90,7 +101,10 @@ test('start calls compose the blank snapshot', async () => {
   });
   assert.equal((await api.startTask()).cwd, 'T');
   assert.equal((await api.startProject('C:/p')).currentProject, 'C:/p');
-  assert.deepEqual(sent().map(([m]) => m), ['project/taskWorkspace', 'project/create', 'project/touch']);
+  assert.deepEqual(
+    sent().map(([m]) => m),
+    ['project/taskWorkspace', 'project/create', 'project/touch']
+  );
 });
 
 test('file calls resolve the project folder first', async () => {
@@ -108,7 +122,10 @@ test('file calls resolve the project folder first', async () => {
   assert.deepEqual(calls, [
     ['projectFs/listDir', { root: 'F:/proj', rel: 'src' }],
     ['projectFs/readText', { root: 'F:/proj', rel: 'a.txt', maxChars: 2097152 }],
-    ['projectFs/writeText', { root: 'F:/proj', rel: 'a.txt', content: 'new', expectedContent: 'old', encoding: 'utf8' }],
+    [
+      'projectFs/writeText',
+      { root: 'F:/proj', rel: 'a.txt', content: 'new', expectedContent: 'old', encoding: 'utf8' },
+    ],
     ['projectFs/stat', { root: 'F:/proj', rel: 'a.txt' }],
     ['projectFs/create', { root: 'F:/proj', relDir: '', name: 'n', directory: true }],
     ['projectFs/rename', { root: 'F:/proj', rel: 'a', newName: 'b' }],
@@ -124,12 +141,22 @@ test('a file larger than one answer is read a window at a time from one read and
     { content: 'cd', encoding: 'utf8', readId: 'r1', nextChar: 4 },
     { content: 'e', encoding: 'utf8' },
   ];
-  const { api, sent } = await world((method, params) => (method === 'projectFs/readText' ? windows[params.fromChar === undefined ? 0 : params.fromChar / 2] : defaults(method, params)));
+  const { api, sent } = await world((method, params) =>
+    method === 'projectFs/readText'
+      ? windows[params.fromChar === undefined ? 0 : params.fromChar / 2]
+      : defaults(method, params)
+  );
   assert.deepEqual(await api.readProjectFile('C:/outside', 'big.txt', 'tok'), { content: 'abcde', encoding: 'utf8' });
   assert.deepEqual(sent(), [
     ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', maxChars: 2097152 }],
-    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 2, maxChars: 2097152 }],
-    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 4, maxChars: 2097152 }],
+    [
+      'projectFs/readText',
+      { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 2, maxChars: 2097152 },
+    ],
+    [
+      'projectFs/readText',
+      { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 4, maxChars: 2097152 },
+    ],
   ]);
 });
 
@@ -141,7 +168,10 @@ test('a one-file token goes to the core with the project path', async () => {
   await api.captureFileSnapshot('C:/outside', 'a.txt', 'tok');
   assert.deepEqual(sent(), [
     ['projectFs/readText', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok', maxChars: 2097152 }],
-    ['projectFs/writeText', { root: 'C:/outside', rel: 'a.txt', content: 'n', expectedContent: 'o', accessToken: 'tok' }],
+    [
+      'projectFs/writeText',
+      { root: 'C:/outside', rel: 'a.txt', content: 'n', expectedContent: 'o', accessToken: 'tok' },
+    ],
     ['projectFs/stat', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok' }],
     ['projectFs/captureSnapshot', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok' }],
   ]);
@@ -153,7 +183,10 @@ test('a path that is no Project answers as its own folder', async () => {
     return defaults(method, params);
   });
   await api.listProjectDir('C:/loose', '');
-  assert.deepEqual(sent().map(([m]) => m), ['project/directory', 'project/directory', 'projectFs/listDir']);
+  assert.deepEqual(
+    sent().map(([m]) => m),
+    ['project/directory', 'project/directory', 'projectFs/listDir']
+  );
   assert.deepEqual(sent()[1][1], { path: 'C:/loose', standalone: true });
   assert.deepEqual(sent()[2][1], { root: 'C:/loose', rel: '' });
 });
@@ -201,7 +234,9 @@ test('workspace search, replace, editor settings and recovery', async () => {
 });
 
 test('editor backups name the entry path', async () => {
-  const { api, sent } = await world((method, params) => (method === 'projectFs/entryPath' ? { path: 'F:/proj/a.txt' } : defaults(method, params)));
+  const { api, sent } = await world((method, params) =>
+    method === 'projectFs/entryPath' ? { path: 'F:/proj/a.txt' } : defaults(method, params)
+  );
   await api.readEditorBackup('proj', 'a.txt');
   await api.writeEditorBackup('proj', 'a.txt', 'c', 'e');
   await api.deleteEditorBackup('proj', 'a.txt', 'tok');
@@ -220,7 +255,10 @@ test('each window keeps its own search sessions, the @ palette apart', async () 
   const completing = (method, params, client) => {
     if (method === 'search/update') {
       queueMicrotask(() =>
-        client.emit({ type: 'notification', notification: { method: 'search/completed', params: { sessionId: params.sessionId, query: params.query } } })
+        client.emit({
+          type: 'notification',
+          notification: { method: 'search/completed', params: { sessionId: params.sessionId, query: params.query } },
+        })
       );
     }
     return {};
@@ -230,12 +268,30 @@ test('each window keeps its own search sessions, the @ palette apart', async () 
   assert.deepEqual(await one.api.searchProjectFiles('proj', 'q', undefined, false, true), []);
   assert.deepEqual(await one.api.searchProjectFiles('proj', 'q', 200), []);
   assert.deepEqual(await two.api.searchProjectFiles('proj', 'q', undefined, false, true), []);
-  const starts = (w) => w.sent().filter(([m]) => m === 'search/start').map(([, p]) => p);
+  const starts = (w) =>
+    w
+      .sent()
+      .filter(([m]) => m === 'search/start')
+      .map(([, p]) => p);
   const [mention, files] = starts(one);
   assert.match(mention.consumer, /^mention:[0-9a-f]{16}$/);
-  assert.deepEqual(mention, { sessionId: `search:${mention.consumer}`, roots: ['proj'], limit: 50, includeIgnored: false, includeDirectories: true, consumer: mention.consumer });
+  assert.deepEqual(mention, {
+    sessionId: `search:${mention.consumer}`,
+    roots: ['proj'],
+    limit: 50,
+    includeIgnored: false,
+    includeDirectories: true,
+    consumer: mention.consumer,
+  });
   assert.equal(files.consumer, `files:${mention.consumer.slice('mention:'.length)}`);
-  assert.deepEqual(files, { sessionId: `search:${files.consumer}`, roots: ['proj'], limit: 200, includeIgnored: false, includeDirectories: false, consumer: files.consumer });
+  assert.deepEqual(files, {
+    sessionId: `search:${files.consumer}`,
+    roots: ['proj'],
+    limit: 200,
+    includeIgnored: false,
+    includeDirectories: false,
+    consumer: files.consumer,
+  });
   assert.notEqual(starts(two)[0].sessionId, mention.sessionId);
 });
 
@@ -243,7 +299,12 @@ test('lsp, local file, star, office and feedback', async () => {
   const { api, sent } = await world();
   const doc = { kind: 'open', projectPath: 'proj', relPath: 'a.ts', languageId: 'typescript', version: 1 };
   await api.lspDocument(doc);
-  await api.lspRequest({ projectPath: 'proj', relPath: 'a.ts', languageId: 'typescript', method: 'textDocument/hover' });
+  await api.lspRequest({
+    projectPath: 'proj',
+    relPath: 'a.ts',
+    languageId: 'typescript',
+    method: 'textDocument/hover',
+  });
   await api.lspApplyWorkspaceEdit('proj', [{ relPath: 'a.ts', content: 'x', expectedContent: 'y' }]);
   await api.readLocalFile('C:/x.png');
   await api.githubStarStatus();
@@ -252,7 +313,14 @@ test('lsp, local file, star, office and feedback', async () => {
   const calls = sent().filter(([m]) => m !== 'project/directory' && m !== 'feed/subscribe');
   assert.deepEqual(calls, [
     ['lsp/document', { projectPath: 'proj', root: 'F:/proj', document: doc }],
-    ['lsp/request', { projectPath: 'proj', root: 'F:/proj', request: { relPath: 'a.ts', languageId: 'typescript', method: 'textDocument/hover', params: {} } }],
+    [
+      'lsp/request',
+      {
+        projectPath: 'proj',
+        root: 'F:/proj',
+        request: { relPath: 'a.ts', languageId: 'typescript', method: 'textDocument/hover', params: {} },
+      },
+    ],
     ['projectFs/writeTextBatch', { root: 'F:/proj', files: [{ relPath: 'a.ts', content: 'x', expectedContent: 'y' }] }],
     ['projectFs/readLocal', { path: 'C:/x.png' }],
     ['github/starStatus', {}],
@@ -268,7 +336,10 @@ test('folder watch events and lsp feed events reach their listeners', async () =
   await api.folderWatch('C:/w', true);
   const watch = client.calls.find((c) => c.method === 'fs/watch');
   assert.equal(watch.params.path, 'C:/w');
-  client.emit({ type: 'notification', notification: { method: 'fs/changed', params: { watchId: watch.params.watchId, changedPaths: ['C:/w/a'] } } });
+  client.emit({
+    type: 'notification',
+    notification: { method: 'fs/changed', params: { watchId: watch.params.watchId, changedPaths: ['C:/w/a'] } },
+  });
   assert.deepEqual(dirs, ['C:/w']);
   off();
   const diagnostics = [];
@@ -279,13 +350,19 @@ test('folder watch events and lsp feed events reach their listeners', async () =
   const event = { projectPath: 'proj', relPath: 'a.ts', uri: 'u', server: 's', diagnostics: [] };
   client.emit({
     type: 'notification',
-    notification: { method: 'lsp/diagnostics/updated', feed: { id: 'lsp:proj' }, params: { section: 'lspDiagnostics', key: 'u', revision: 1, value: event } },
+    notification: {
+      method: 'lsp/diagnostics/updated',
+      feed: { id: 'lsp:proj' },
+      params: { section: 'lspDiagnostics', key: 'u', revision: 1, value: event },
+    },
   });
   assert.deepEqual(diagnostics, [event]);
 });
 
 test('a core refusal comes out as the IPC path returned it', async () => {
-  const bad = Object.assign(new Error('x'), { detail: { kind: 'rpc', data: { reason: 'invalidParams', expected: 'limit is invalid.' } } });
+  const bad = Object.assign(new Error('x'), {
+    detail: { kind: 'rpc', data: { reason: 'invalidParams', expected: 'limit is invalid.' } },
+  });
   const { api } = await world(() => {
     throw bad;
   });
@@ -293,7 +370,13 @@ test('a core refusal comes out as the IPC path returned it', async () => {
 });
 
 test('a start call publishes its blank snapshot as the window shell snapshot', async () => {
-  const { api, ctx } = await world((method, params) => (method === 'project/taskWorkspace' ? { path: 'T' } : method === 'project/create' ? { project: { path: params.path } } : {}));
+  const { api, ctx } = await world((method, params) =>
+    method === 'project/taskWorkspace'
+      ? { path: 'T' }
+      : method === 'project/create'
+        ? { project: { path: params.path } }
+        : {}
+  );
   const seen = [];
   sessionLanesOf(ctx).shell.subscribe((snapshot) => seen.push(snapshot.cwd));
   await api.startTask();
@@ -303,7 +386,14 @@ test('a start call publishes its blank snapshot as the window shell snapshot', a
 
 test('a document preview is the hosts to convert and register in a server window too, never converted or read here', async () => {
   const asked = [];
-  const reply = { url: 'mixdog-media://preview/t/a.pdf', kind: 'pdf', mime: 'application/pdf', format: 'docx', mtimeMs: 1, size: 3 };
+  const reply = {
+    url: 'mixdog-media://preview/t/a.pdf',
+    kind: 'pdf',
+    mime: 'application/pdf',
+    format: 'docx',
+    mtimeMs: 1,
+    size: 3,
+  };
   const host = { previewConvertedDocument: async (...args) => (asked.push(args), reply) };
   await inServerWindow(async () => {
     const client = fakeClient(() => ({}));
@@ -312,12 +402,19 @@ test('a document preview is the hosts to convert and register in a server window
     const api = createFilesApi(createDirectContext(connection), { host });
     assert.deepEqual(await api.previewDocumentFile('proj', 'a.docx'), reply);
     assert.deepEqual(asked, [['proj', 'a.docx', undefined]]);
-    assert.equal(client.calls.some((c) => c.method === 'document/preview' || c.method === 'projectFs/previewRange'), false);
+    assert.equal(
+      client.calls.some((c) => c.method === 'document/preview' || c.method === 'projectFs/previewRange'),
+      false
+    );
   });
 });
 
 test('a window without the host cannot show a document preview and says so', async () => {
-  const { api } = await world((method, params) => (method === 'document/preview' ? { path: 'C:/cache/a.pdf', format: 'docx', mtimeMs: 1, size: 3 } : defaults(method, params)));
+  const { api } = await world((method, params) =>
+    method === 'document/preview'
+      ? { path: 'C:/cache/a.pdf', format: 'docx', mtimeMs: 1, size: 3 }
+      : defaults(method, params)
+  );
   await assert.rejects(() => api.previewDocumentFile('proj', 'a.docx'), /cannot show a document preview/);
 });
 
@@ -327,12 +424,19 @@ function windowedCore(total) {
     if (method !== 'projectFs/readText') return defaults(method, params);
     const from = params.fromChar ?? 0;
     const end = Math.min(total, from + params.maxChars);
-    return { content: 'x'.repeat(end - from), encoding: 'utf8', ...(end < total ? { readId: 'r', nextChar: end } : {}) };
+    return {
+      content: 'x'.repeat(end - from),
+      encoding: 'utf8',
+      ...(end < total ? { readId: 'r', nextChar: end } : {}),
+    };
   };
 }
 
 test('a 1 MiB text opens in one call and a 10 MB text in five', async () => {
-  for (const [chars, calls] of [[1_048_576, 1], [10_000_000, 5]]) {
+  for (const [chars, calls] of [
+    [1_048_576, 1],
+    [10_000_000, 5],
+  ]) {
     const { api, sent } = await world(windowedCore(chars));
     const file = await api.readProjectFile('C:/outside', 'big.txt', 'tok');
     assert.equal(file.content.length, chars);
@@ -342,7 +446,14 @@ test('a 1 MiB text opens in one call and a 10 MB text in five', async () => {
 
 test('a document preview in a PC window is the hosts conversion with the file token passed on', async () => {
   const asked = [];
-  const reply = { url: 'mixdog-media://preview/t/a.pdf', kind: 'pdf', mime: 'application/pdf', format: 'docx', mtimeMs: 1, size: 3 };
+  const reply = {
+    url: 'mixdog-media://preview/t/a.pdf',
+    kind: 'pdf',
+    mime: 'application/pdf',
+    format: 'docx',
+    mtimeMs: 1,
+    size: 3,
+  };
   const host = { previewConvertedDocument: async (...args) => (asked.push(args), reply) };
   const client = fakeClient(() => ({}));
   const connection = createRendererConnection({ open: async () => client });
@@ -350,7 +461,10 @@ test('a document preview in a PC window is the hosts conversion with the file to
   const api = createFilesApi(createDirectContext(connection), { host });
   assert.deepEqual(await api.previewDocumentFile('proj', 'a.docx', 'tok'), reply);
   assert.deepEqual(asked, [['proj', 'a.docx', 'tok']]);
-  assert.equal(client.calls.some((c) => c.method === 'document/preview'), false);
+  assert.equal(
+    client.calls.some((c) => c.method === 'document/preview'),
+    false
+  );
 });
 
 test('entry operations in a standalone folder go to the core with the folder as root, trash included', async () => {
@@ -365,7 +479,9 @@ test('entry operations in a standalone folder go to the core with the folder as 
   await api.moveProjectEntry(folder, 'b.txt', 'sub');
   await api.copyProjectEntry(folder, 'sub/b.txt', '');
   await api.trashProjectEntry(folder, 'sub/b.txt');
-  const roots = sent().filter(([m]) => m !== 'project/directory').map(([m, p]) => [m, p.root ?? p.path]);
+  const roots = sent()
+    .filter(([m]) => m !== 'project/directory')
+    .map(([m, p]) => [m, p.root ?? p.path]);
   assert.deepEqual(roots, [
     ['projectFs/listDir', folder],
     ['projectFs/create', folder],

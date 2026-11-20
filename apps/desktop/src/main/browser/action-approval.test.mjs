@@ -624,7 +624,12 @@ test('the shared classification corpus asks the same kinds for the same commands
       } else {
         await run();
         if (entry.expect.outcome === 'none') assert.equal(asked, undefined, entry.name);
-        else assert.deepEqual([asked.kinds, asked.payment === true], [entry.expect.kinds, entry.expect.payment], entry.name);
+        else
+          assert.deepEqual(
+            [asked.kinds, asked.payment === true],
+            [entry.expect.kinds, entry.expect.payment],
+            entry.name
+          );
       }
     }
   } finally {

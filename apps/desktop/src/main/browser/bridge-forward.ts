@@ -49,7 +49,11 @@ let nextSignal = 0;
 
 function failure(reply: BridgeReply): BridgeCommandFailure {
   const status = typeof reply.status === 'number' ? reply.status : undefined;
-  return new BridgeCommandFailure(typeof reply.error === 'string' && reply.error ? reply.error : 'browser command failed', reply.timing, status);
+  return new BridgeCommandFailure(
+    typeof reply.error === 'string' && reply.error ? reply.error : 'browser command failed',
+    reply.timing,
+    status
+  );
 }
 
 function answer(raw: unknown): unknown {
@@ -60,7 +64,8 @@ function answer(raw: unknown): unknown {
 
 /** The same check the bridge made of a turn's start or end before it marked it. */
 function turnParams(command: BrowserCommand & Record<string, unknown>): Record<string, unknown> {
-  const { session_id, turn_id, internalStep, unattended_run, unattended_agent, session_life, mail_link, ...input } = command;
+  const { session_id, turn_id, internalStep, unattended_run, unattended_agent, session_life, mail_link, ...input } =
+    command;
   if (internalStep !== undefined) throw new Error('internalStep is not a bridge input');
   assertBrowserTaskCleanupContext(session_id, turn_id, input);
   return {
@@ -72,7 +77,11 @@ function turnParams(command: BrowserCommand & Record<string, unknown>): Record<s
 }
 
 /** One command through the core; `signal` ending it (the runtime's connection dropped) stops the core's work too. */
-export function forwardBrowserCommand(request: CoreRequest, command: BrowserCommand, signal: AbortSignal): Promise<unknown> {
+export function forwardBrowserCommand(
+  request: CoreRequest,
+  command: BrowserCommand,
+  signal: AbortSignal
+): Promise<unknown> {
   const fields = command as BrowserCommand & Record<string, unknown>;
   const isTurn = fields.action === 'begin_turn' || fields.action === 'finish_turn';
   if (isTurn) {

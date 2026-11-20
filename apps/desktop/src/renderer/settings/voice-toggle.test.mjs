@@ -65,9 +65,10 @@ function context({ run, snapshot = null, voice = {}, api = {}, toolModules = {},
     ['getTidyEngineStatus', { toolsDir: '/tools', core: [], engines: [], installing: null }],
     ['getTidyInstallStatus', null],
   ]);
-  const read = (capability) => reads.has(capability)
-    ? { ok: true, value: reads.get(capability) }
-    : { ok: false, error: `Unsupported fixture read: ${capability}` };
+  const read = (capability) =>
+    reads.has(capability)
+      ? { ok: true, value: reads.get(capability) }
+      : { ok: false, error: `Unsupported fixture read: ${capability}` };
   modules.publish(feed ? heldModules : {});
   return {
     api: {
@@ -918,12 +919,15 @@ test('the same requested status supports a host without pushes, but not a host w
     calls.push([capability, args]);
     return { memory: { enabled: args[0], installed: true } };
   };
-  const render = (writable) => act(async () => {
-    root.render(React.createElement(CategoryPanel, {
-      category: 'builtins',
-      context: context({ run, feed: false, writable }),
-    }));
-  });
+  const render = (writable) =>
+    act(async () => {
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({ run, feed: false, writable }),
+        })
+      );
+    });
   try {
     await render(true);
     await openFeature('memory');
@@ -949,10 +953,20 @@ test('Tidy keeps the feature switch while partial engine replies suppress unsafe
   const catalog = {
     toolsDir: '/tools',
     core: ['ruff'],
-    engines: [{
-      id: 'ruff', title: 'ruff', languages: ['Python'], kind: ['linter'], version: '',
-      source: 'missing', managed: true, core: true, toolchain: false, installable: true,
-    }],
+    engines: [
+      {
+        id: 'ruff',
+        title: 'ruff',
+        languages: ['Python'],
+        kind: ['linter'],
+        version: '',
+        source: 'missing',
+        managed: true,
+        core: true,
+        toolchain: false,
+        installable: true,
+      },
+    ],
   };
   let engineStatus = { ...catalog, installing: null };
   const tidyDetail = () => document.querySelector('[data-feature-id="tidy"]');
@@ -963,21 +977,23 @@ test('Tidy keeps the feature switch while partial engine replies suppress unsafe
   };
   try {
     await act(async () => {
-      root.render(React.createElement(CategoryPanel, {
-        category: 'builtins',
-        context: context({
-          feed: false,
-          run: async (capability) => assert.fail(`Status read went through the command lane: ${capability}`),
-          api: {
-            readCapabilities: undefined,
-            invokeCapability: async ({ capability }) => {
-              reads.push(capability);
-              assert.equal(capability, 'getTidyEngineStatus');
-              return { value: engineStatus };
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({
+            feed: false,
+            run: async (capability) => assert.fail(`Status read went through the command lane: ${capability}`),
+            api: {
+              readCapabilities: undefined,
+              invokeCapability: async ({ capability }) => {
+                reads.push(capability);
+                assert.equal(capability, 'getTidyEngineStatus');
+                return { value: engineStatus };
+              },
             },
-          },
-        }),
-      }));
+          }),
+        })
+      );
     });
     await openFeature('tidy');
     assert.ok(reads.includes('getTidyEngineStatus'));

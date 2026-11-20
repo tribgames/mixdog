@@ -4,7 +4,10 @@
  * answer says it cannot be (`unavailable`) or was not ready in time (`timeout`); the core waits at most 900 ms and goes
  * on without the arrow, so input never depends on artwork.
  */
-import type { HostComputerCursorPrepareParams, HostComputerCursorPrepareResult } from '../../../../../packages/protocol/src/index.ts';
+import type {
+  HostComputerCursorPrepareParams,
+  HostComputerCursorPrepareResult,
+} from '../../../../../packages/protocol/src/index.ts';
 import { CURSOR_PREPARE_BUDGET_MS, prepareCursorFeedback } from '../computer/overlay/cursor-readiness';
 import type { ComputerScopes } from './computer-scope';
 import { HOST_INVALID_PARAMS, HostRpcError, type HostConnection, objectParams } from './connection';

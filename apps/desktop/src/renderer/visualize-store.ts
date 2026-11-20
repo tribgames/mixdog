@@ -558,7 +558,8 @@ export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[]
     if (was) next.set(id, was);
   }
   for (const state of shown) {
-    if (state.tabs.length || state.history?.length) next.set(state.sessionId, shareSession(states.get(state.sessionId), keptLocalActive(state)));
+    if (state.tabs.length || state.history?.length)
+      next.set(state.sessionId, shareSession(states.get(state.sessionId), keptLocalActive(state)));
   }
   const same = next.size === states.size && [...next].every(([id, state]) => states.get(id) === state);
   if (!same) replaceStates(next);

@@ -6,7 +6,9 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { terminalResizeRequest } from '../shared/terminal-protocol.ts';
 
-const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/terminal-resize/golden.json', import.meta.url), 'utf8'));
+const golden = JSON.parse(
+  readFileSync(new URL('../../../mobile/fixtures/terminal-resize/golden.json', import.meta.url), 'utf8')
+);
 const valueOf = (name) => {
   const input = golden.values.find((value) => value.name === name).value;
   return input?.absent ? undefined : input;
@@ -21,7 +23,13 @@ test("termResize sends the size Node's manager took for every recorded value, a 
     if (claim) {
       assert.equal(owners.length, 1, what);
       const [{ cols: c, rows: r, owner }] = owners;
-      assert.deepEqual(sent, owner === '' ? { tabId: 'term_resize', cols: 0, rows: 0, claim: true } : { tabId: 'term_resize', cols: c, rows: r, claim: true }, what);
+      assert.deepEqual(
+        sent,
+        owner === ''
+          ? { tabId: 'term_resize', cols: 0, rows: 0, claim: true }
+          : { tabId: 'term_resize', cols: c, rows: r, claim: true },
+        what
+      );
     } else {
       assert.deepEqual(sent, { tabId: 'term_resize', ...sizes[0] }, what);
     }

@@ -47,7 +47,9 @@ test('an extra line, corrupted text or changed colour in streamed output is refu
 
 test('the checkpoint applies a size-owner push before comparing later output', async () => {
   const reference = [trace({ stream: [data(text), resize, data('\x1b[HAfter')] })];
-  const { analyses: [analysis] } = await nodeView(reference, 'order');
+  const {
+    analyses: [analysis],
+  } = await nodeView(reference, 'order');
   assert.deepEqual(stateAt(analysis, 2, TAB).size, [100, 30]);
   await assert.rejects(
     compareTraces(trace({ stream: [data(text), resize, data('\x1b[HAfteR')] }), reference),
@@ -61,7 +63,9 @@ test('the result checkpoint catches title and scrollback changes that are absent
   // After the checkpoint, clear both the screen and scrollback and restore the same title.
   const after = [data(`\x1b[3J\x1b[2J\x1b[H${title('Final title')}finished`)];
   const reference = [trace({ stream: [data(output('Old line', 'Checkpoint title'))], after })];
-  const { analyses: [analysis] } = await nodeView(reference, 'order');
+  const {
+    analyses: [analysis],
+  } = await nodeView(reference, 'order');
   const checkpoint = stateAt(analysis, 1, TAB);
   assert.equal(checkpoint.title, 'Checkpoint title');
   assert.deepEqual(checkpoint['normal viewport'], [1, 1]);
@@ -72,7 +76,9 @@ test('the result checkpoint catches title and scrollback changes that are absent
     ['New line', 'Checkpoint title', 'normal line 0'],
   ]) {
     const got = trace({ stream: [data(output(first, heading))], after });
-    const { analyses: [candidate] } = await nodeView([got], 'order');
+    const {
+      analyses: [candidate],
+    } = await nodeView([got], 'order');
     assert.deepEqual(stateAt(candidate, 2, TAB), stateAt(analysis, 2, TAB));
     await assert.rejects(compareTraces(got, reference), new RegExp(`screen before entry 1[\\s\\S]*${unit}: got`));
   }
@@ -103,7 +109,7 @@ for (const [what, [left, right]] of Object.entries(visibly)) {
   });
 }
 
-test('no cursor escape and a blinking bar are the same screen: the view\'s own cursor', async () => {
+test("no cursor escape and a blinking bar are the same screen: the view's own cursor", async () => {
   await compareTraces(withOutput(`${text}\x1b[5 q`), baseline);
 });
 

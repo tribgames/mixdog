@@ -27,7 +27,12 @@ export async function processStats(pid, platform = process.platform) {
     if (platform === 'win32') {
       const { stdout } = await exec(
         'powershell.exe',
-        ['-NoLogo', '-NoProfile', '-Command', `$p = Get-Process -Id ${id} -ErrorAction Stop; [pscustomobject]@{ rss = $p.WorkingSet64; cpu = $p.TotalProcessorTime.TotalSeconds } | ConvertTo-Json -Compress`],
+        [
+          '-NoLogo',
+          '-NoProfile',
+          '-Command',
+          `$p = Get-Process -Id ${id} -ErrorAction Stop; [pscustomobject]@{ rss = $p.WorkingSet64; cpu = $p.TotalProcessorTime.TotalSeconds } | ConvertTo-Json -Compress`,
+        ],
         { windowsHide: true, timeout: 30_000 }
       );
       const row = JSON.parse(stdout);
@@ -106,14 +111,16 @@ export async function run({ env, idleMs = 10_000, loadMs = 30_000, args = parseL
   if (!pid) throw new Error('no core pid to measure');
   const idle = await measure(pid, { ms: idleMs });
   const loaded = await measure(pid, { ms: loadMs, during: (deadline) => exercise(env, deadline) });
-  const line = (label, m) => `${label}: rss peak ${m.rssPeakMb} MB (mean ${m.rssMeanMb}), cpu ${m.cpuPercentOfOneCore}% of one core over ${m.wallSeconds} s`;
+  const line = (label, m) =>
+    `${label}: rss peak ${m.rssPeakMb} MB (mean ${m.rssMeanMb}), cpu ${m.cpuPercentOfOneCore}% of one core over ${m.wallSeconds} s`;
   const load = loaded.load;
   const detail = `${line('idle', idle)}; ${line('browser snapshots', loaded)}; ${load?.ok ?? 0} calls answered, ${load?.failed ?? 0} failed${load?.firstError ? ` (first: ${load.firstError.slice(0, 200)})` : ''}`;
   const maxRss = Number(args['max-rss-mb']);
   const maxCpu = Number(args['max-cpu-percent']);
   const limited = Number.isFinite(maxRss) || Number.isFinite(maxCpu);
   const over = [];
-  if (Number.isFinite(maxRss) && Math.max(idle.rssPeakMb, loaded.rssPeakMb) > maxRss) over.push(`rss peak above ${maxRss} MB`);
+  if (Number.isFinite(maxRss) && Math.max(idle.rssPeakMb, loaded.rssPeakMb) > maxRss)
+    over.push(`rss peak above ${maxRss} MB`);
   if (Number.isFinite(maxCpu) && loaded.cpuPercentOfOneCore > maxCpu) over.push(`cpu above ${maxCpu}% of one core`);
   if (load?.error) throw new Error(`the load phase broke: ${load.error}; ${detail}`);
   if (over.length) throw new Error(`${over.join(', ')}; ${detail}`);

@@ -294,26 +294,38 @@ test('a last-turn review-bar parse cannot overwrite a newer scheduler answer', a
   let path = 'initial.ts';
   const view = mount(t, {
     gitStatus: async () => ({ repository: true, root: cwd, files: [] }),
-    invokeCapability: async () => ({ value: { supported: true, authoritative: true, files: [reviewFile(path)], patch: '' } }),
+    invokeCapability: async () => ({
+      value: { supported: true, authoritative: true, files: [reviewFile(path)], patch: '' },
+    }),
   });
   setSessionChangesSource('last-turn');
   const states = {};
   const Probe = probes(states);
   await act(async () => view.root.render(h(Probe, { name: 'a', cwd, sessionId, active: true })));
   await view.settle();
-  assert.deepEqual(states.a.rows.map((row) => row.path), ['initial.ts']);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['initial.ts']
+  );
   await act(async () => {
     const delayed = nextLastTurnRequest();
-    const older = adoptLastTurnReview(sessionId, {
-      files: [reviewFile('older.ts')],
-      leadPatch: sessionPatch('older.ts', 'x'.repeat(128 * 1024)),
-    }, nextLastTurnRequest());
+    const older = adoptLastTurnReview(
+      sessionId,
+      {
+        files: [reviewFile('older.ts')],
+        leadPatch: sessionPatch('older.ts', 'x'.repeat(128 * 1024)),
+      },
+      nextLastTurnRequest()
+    );
     path = 'fresh.ts';
     await states.a.refresh();
     await adoptLastTurnReview(sessionId, { files: [reviewFile('delayed.ts')], leadPatch: null }, delayed);
     await older;
   });
-  assert.deepEqual(states.a.rows.map((row) => row.path), ['fresh.ts']);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['fresh.ts']
+  );
 });
 
 test('workspace validation reveals the newest pending bar rows only for that workspace generation', async (t) => {
@@ -327,7 +339,9 @@ test('workspace validation reveals the newest pending bar rows only for that wor
       if (cwd === 'C:/abandoned') await abandoned.promise;
       return { repository: true, root: cwd, files: [] };
     },
-    invokeCapability: async () => ({ value: { supported: true, authoritative: true, files: [reviewFile(path)], patch: '' } }),
+    invokeCapability: async () => ({
+      value: { supported: true, authoritative: true, files: [reviewFile(path)], patch: '' },
+    }),
   });
   setSessionChangesSource('last-turn');
   const states = {};
@@ -351,7 +365,10 @@ test('workspace validation reveals the newest pending bar rows only for that wor
   gate.resolve();
   await view.settle();
   assert.equal(states.a.root, 'C:/new');
-  assert.deepEqual(states.a.rows.map((row) => row.path), ['bar.ts']);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['bar.ts']
+  );
 });
 
 test('closing the last reader while switching workspaces leaves no validation for a late bar reply', async (t) => {
@@ -379,7 +396,11 @@ test('closing the last reader while switching workspaces leaves no validation fo
   await render(next, true);
   await adoptLastTurnReview(sessionId, { files: [reviewFile('staged.ts')], leadPatch: null }, nextLastTurnRequest());
   await render('C:/turn-close-abandoned', false);
-  const reply = adoptLastTurnReview(sessionId, { files: [reviewFile('late.ts')], leadPatch: null }, nextLastTurnRequest());
+  const reply = adoptLastTurnReview(
+    sessionId,
+    { files: [reviewFile('late.ts')], leadPatch: null },
+    nextLastTurnRequest()
+  );
   assert.equal(reply, undefined, 'a late reply cannot stage rows for an abandoned workspace');
   await act(async () => validation.resolve());
   assert.deepEqual(states.a.rows, []);
@@ -403,10 +424,13 @@ test('closing workspace B drops its last-turn validation without interrupting wo
   setSessionChangesSource('last-turn');
   const states = {};
   const Probe = probes(states);
-  const render = (activeB) => act(async () => view.root.render([
-    h(Probe, { key: 'a', name: 'a', cwd: cwdA, sessionId, active: true }),
-    h(Probe, { key: 'b', name: 'b', cwd: cwdB, sessionId, active: activeB }),
-  ]));
+  const render = (activeB) =>
+    act(async () =>
+      view.root.render([
+        h(Probe, { key: 'a', name: 'a', cwd: cwdA, sessionId, active: true }),
+        h(Probe, { key: 'b', name: 'b', cwd: cwdB, sessionId, active: activeB }),
+      ])
+    );
   await render(false);
   await view.settle();
   assert.equal(states.a.rows[0]?.path, 'initial-a.ts');
@@ -416,7 +440,11 @@ test('closing workspace B drops its last-turn validation without interrupting wo
   let pendingB;
   await act(async () => {
     pendingB = states.b.refresh();
-    await adoptLastTurnReview(sessionId, { files: [reviewFile('staged-b.ts')], leadPatch: null }, nextLastTurnRequest());
+    await adoptLastTurnReview(
+      sessionId,
+      { files: [reviewFile('staged-b.ts')], leadPatch: null },
+      nextLastTurnRequest()
+    );
   });
   assert.equal(states.b.ready, false, 'B is still validating its repository');
   const lateBarTicket = nextLastTurnRequest();
@@ -430,7 +458,10 @@ test('closing workspace B drops its last-turn validation without interrupting wo
     assert.equal(await pendingB, false);
   });
   assert.equal(states.a.root, cwdA);
-  assert.deepEqual(states.a.rows.map((row) => row.path), ['refreshed-a.ts']);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['refreshed-a.ts']
+  );
   assert.deepEqual(states.b.rows, []);
 });
 
@@ -543,14 +574,20 @@ test('Changes and standalone share the displayed omitted-file read even when its
     await pendingList;
   });
   assert.equal(peekSessionDiff(sessionId), null);
-  assert.deepEqual(calls, [['getSessionReviewDiff', []], ['getSessionReviewFilePatch', ['omitted.ts']]]);
+  assert.deepEqual(calls, [
+    ['getSessionReviewDiff', []],
+    ['getSessionReviewFilePatch', ['omitted.ts']],
+  ]);
   await act(async () => {
     const standalone = fetchSessionDiffFilePatch(sessionId, 'omitted.ts');
     fileRead.resolve();
     assert.equal(await standalone, patch);
   });
   await view.settle(200);
-  assert.deepEqual(calls, [['getSessionReviewDiff', []], ['getSessionReviewFilePatch', ['omitted.ts']]]);
+  assert.deepEqual(calls, [
+    ['getSessionReviewDiff', []],
+    ['getSessionReviewFilePatch', ['omitted.ts']],
+  ]);
   assert.equal(drawn[0]?.parts[0]?.patch, patch);
 });
 
@@ -570,10 +607,13 @@ test('session Changes releases parsed rows after the last reader and ignores a l
   });
   const states = {};
   const Probe = probes(states);
-  const render = (a, b) => act(async () => view.root.render([
-    h(Probe, { key: 'a', name: 'a', cwd, sessionId, active: a }),
-    h(Probe, { key: 'b', name: 'b', cwd, sessionId, active: b }),
-  ]));
+  const render = (a, b) =>
+    act(async () =>
+      view.root.render([
+        h(Probe, { key: 'a', name: 'a', cwd, sessionId, active: a }),
+        h(Probe, { key: 'b', name: 'b', cwd, sessionId, active: b }),
+      ])
+    );
   setSessionChangesSource('session');
   await render(true, true);
   await view.settle();

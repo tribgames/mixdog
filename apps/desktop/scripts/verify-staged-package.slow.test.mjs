@@ -9,7 +9,12 @@ import { CORE_READS, ortBinaryDir, remoteJsRuntimeManifest } from './core-layout
 import { install, put } from './core-layout-fixture.mjs';
 import { DEFAULT_DELETION_LIST, parseDeletionList, verifyStagedResources } from './verify-staged-package.mjs';
 
-const SERVERS = [['linux', 'x64'], ['linux', 'arm64'], ['darwin', 'x64'], ['darwin', 'arm64']];
+const SERVERS = [
+  ['linux', 'x64'],
+  ['linux', 'arm64'],
+  ['darwin', 'x64'],
+  ['darwin', 'arm64'],
+];
 const sha256Of = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
 
 /** The header of a 64-bit little-endian ELF image for `machine` (0x3e x64, 0xb7 arm64): what the architecture check reads. */
@@ -39,7 +44,8 @@ function resources() {
     tree.writeServers();
     return bundle;
   };
-  tree.writeServers = () => put(join(root, 'server-cores', 'servers.json'), JSON.stringify({ binaries: tree.binaries }));
+  tree.writeServers = () =>
+    put(join(root, 'server-cores', 'servers.json'), JSON.stringify({ binaries: tree.binaries }));
   for (const [platform, arch] of SERVERS) {
     const key = `${platform}-${arch}`;
     tree.bundleDirs[key] = join(top, 'bundles', key);
@@ -51,11 +57,15 @@ function resources() {
   return tree;
 }
 
-const verify = (tree, extra = {}) => verifyStagedResources({ resources: tree.root, platform: 'linux', arch: 'x64', ...extra });
+const verify = (tree, extra = {}) =>
+  verifyStagedResources({ resources: tree.root, platform: 'linux', arch: 'x64', ...extra });
 const payloadOf = (tree, key) => join(tree.bundleDirs[key], 'payload');
 
-test('complete resources pass: the core, the unpacked root, the ONNX library and each server platform\'s bundle', () => {
-  assert.deepEqual(verify(resources()), SERVERS.map(([platform, arch]) => `${platform}-${arch}`));
+test("complete resources pass: the core, the unpacked root, the ONNX library and each server platform's bundle", () => {
+  assert.deepEqual(
+    verify(resources()),
+    SERVERS.map(([platform, arch]) => `${platform}-${arch}`)
+  );
 });
 
 test('resources missing what the core needs are refused', () => {
@@ -87,7 +97,10 @@ test('resources missing what the core needs are refused', () => {
 test('a package without the main-process native module, or with one built for another architecture, is refused', () => {
   const absent = resources();
   rmSync(join(absent.root, 'native-tools', 'mixdog_main_native.node'));
-  assert.throws(() => verify(absent), /the main-process native module .*mixdog_main_native\.node is not in the package/);
+  assert.throws(
+    () => verify(absent),
+    /the main-process native module .*mixdog_main_native\.node is not in the package/
+  );
 
   const foreign = resources();
   writeFileSync(join(foreign.root, 'native-tools', 'mixdog_main_native.node'), elfImage(0xb7));
@@ -118,12 +131,39 @@ test('each server bundle is unpacked and checked as the staging checked the payl
     tree.pack(key);
     assert.throws(() => verify(tree), pattern, key);
   };
-  damaged('linux-arm64', (_tree, payload) => rmSync(join(payload, 'js/node')), /linux-arm64: [\s\S]*interpreter .* does not exist/);
-  damaged('linux-x64', (_tree, payload) => rmSync(join(payload, 'js/pkg/node_modules/mixdog/src/workflows'), { recursive: true }), /linux-x64: [\s\S]*missing or empty src\/workflows/);
-  damaged('darwin-arm64', (_tree, payload) => rmSync(join(payload, 'js/pkg/node_modules/beta'), { recursive: true }), /darwin-arm64: [\s\S]*beta \(dependency of alpha\) is not installed/);
-  damaged('linux-x64', (_tree, payload) => rmSync(join(payload, remoteJsRuntimeManifest('linux', 'x64').ortLibrary)), /linux-x64: [\s\S]*ONNX Runtime library .* does not exist/);
-  damaged('linux-x64', (_tree, payload) => rmSync(join(payload, 'js/pkg/node_modules/onnxruntime-node', ortBinaryDir('linux', 'x64'), 'onnxruntime_binding.node')), /onnxruntime_binding\.node is missing beside/);
-  damaged('darwin-x64', (_tree, payload) => put(join(payload, 'js-runtime.json'), '{"program":"js/node"}'), /darwin-x64: [\s\S]*js-runtime\.json is/);
+  damaged(
+    'linux-arm64',
+    (_tree, payload) => rmSync(join(payload, 'js/node')),
+    /linux-arm64: [\s\S]*interpreter .* does not exist/
+  );
+  damaged(
+    'linux-x64',
+    (_tree, payload) => rmSync(join(payload, 'js/pkg/node_modules/mixdog/src/workflows'), { recursive: true }),
+    /linux-x64: [\s\S]*missing or empty src\/workflows/
+  );
+  damaged(
+    'darwin-arm64',
+    (_tree, payload) => rmSync(join(payload, 'js/pkg/node_modules/beta'), { recursive: true }),
+    /darwin-arm64: [\s\S]*beta \(dependency of alpha\) is not installed/
+  );
+  damaged(
+    'linux-x64',
+    (_tree, payload) => rmSync(join(payload, remoteJsRuntimeManifest('linux', 'x64').ortLibrary)),
+    /linux-x64: [\s\S]*ONNX Runtime library .* does not exist/
+  );
+  damaged(
+    'linux-x64',
+    (_tree, payload) =>
+      rmSync(
+        join(payload, 'js/pkg/node_modules/onnxruntime-node', ortBinaryDir('linux', 'x64'), 'onnxruntime_binding.node')
+      ),
+    /onnxruntime_binding\.node is missing beside/
+  );
+  damaged(
+    'darwin-x64',
+    (_tree, payload) => put(join(payload, 'js-runtime.json'), '{"program":"js/node"}'),
+    /darwin-x64: [\s\S]*js-runtime\.json is/
+  );
 
   const noBinary = resources();
   const noBinaryBundle = join(noBinary.root, 'server-cores', 'linux-x64', 'bundle.tgz');
@@ -139,18 +179,30 @@ test('each server bundle is unpacked and checked as the staging checked the payl
 
   const stale = resources();
   put(join(payloadOf(stale, 'linux-x64'), 'js/node'), 'changed after packing');
-  execFileSync('tar', ['-czf', join(stale.root, 'server-cores', 'linux-x64', 'bundle.tgz'), '-C', stale.bundleDirs['linux-x64'], 'mixdogd', 'payload']);
+  execFileSync('tar', [
+    '-czf',
+    join(stale.root, 'server-cores', 'linux-x64', 'bundle.tgz'),
+    '-C',
+    stale.bundleDirs['linux-x64'],
+    'mixdogd',
+    'payload',
+  ]);
   assert.throws(() => verify(stale), /linux-x64: bundle\.tgz does not match servers\.json/);
 });
 
 test('a file of the K1 deletion list in the unpacked package or a server bundle is refused', async () => {
-  const deleted = parseDeletionList('# header\nsrc/repl.mjs\n## KEEP: tests\nsrc/keep.test.mjs\n## DELETE: Node source\nsrc/app.mjs\n## MOVE (not deleted)\nsrc/moved.json\n');
+  const deleted = parseDeletionList(
+    '# header\nsrc/repl.mjs\n## KEEP: tests\nsrc/keep.test.mjs\n## DELETE: Node source\nsrc/app.mjs\n## MOVE (not deleted)\nsrc/moved.json\n'
+  );
   assert.deepEqual([...deleted], ['src/repl.mjs', 'src/app.mjs']);
   assert.equal(verify(resources(), { deleted }).length, SERVERS.length);
 
   const inUnpacked = resources();
   put(join(inUnpacked.modules, 'mixdog/src/app.mjs'));
-  assert.throws(() => verify(inUnpacked, { deleted }), /runtime\.asar\.unpacked.*packs 1 file\(s\) the K1 cut deletes, e\.g\. src\/app\.mjs/);
+  assert.throws(
+    () => verify(inUnpacked, { deleted }),
+    /runtime\.asar\.unpacked.*packs 1 file\(s\) the K1 cut deletes, e\.g\. src\/app\.mjs/
+  );
 
   const inBundle = resources();
   put(join(payloadOf(inBundle, 'linux-x64'), remoteJsRuntimeManifest('linux', 'x64').packageRoot, 'src/app.mjs'));
@@ -167,7 +219,10 @@ test('a package that ships runtime.asar is refused: nothing opens it and the cor
 test('the Linux package carries the WebAssembly sharp the Electron interpreter loads', () => {
   const tree = resources();
   rmSync(join(tree.modules, '@img/sharp-wasm32'), { recursive: true });
-  assert.throws(() => verify(tree, { deleted: new Set() }), /@img\/sharp-wasm32 \(reached from the remote entry points\) is not installed/);
+  assert.throws(
+    () => verify(tree, { deleted: new Set() }),
+    /@img\/sharp-wasm32 \(reached from the remote entry points\) is not installed/
+  );
 });
 
 test('the committed deletion list holds package paths and none a K1 survivor needs', () => {

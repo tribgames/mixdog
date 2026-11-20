@@ -132,7 +132,12 @@ export async function captureTiledDocument(
     const bitmap = Buffer.alloc(output.width * output.height * 4);
     for (let y = 0; y < rect.height; y += plan.height) {
       for (let x = 0; x < rect.width; x += plan.width) {
-        const band = { x, y, width: Math.min(plan.width, rect.width - x), height: Math.min(plan.height, rect.height - y) };
+        const band = {
+          x,
+          y,
+          width: Math.min(plan.width, rect.width - x),
+          height: Math.min(plan.height, rect.height - y),
+        };
         const view = await viewport({ x: rect.x + x, y: rect.y + y }, signal);
         // A phone that drops its fit, a resized pane, a pinch or a zoom change
         // moves the page under the plan; a stitched image would no longer be it.

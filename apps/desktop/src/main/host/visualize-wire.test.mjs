@@ -22,8 +22,19 @@ const fullTab = (id) => ({
     at: 1_700_000_000_000 + n,
     turns: Array.from({ length: 20 }, (_, t) => ({ since: 1_700_000_000_000 + t, end: 1_700_000_000_500 + t })),
   })),
-  problems: Array.from({ length: 20 }, () => ({ kind: 'asset-failed', message: 'm'.repeat(300), source: 's'.repeat(200), line: 12, count: 3, pane: 0 })),
-  annotations: Array.from({ length: 120 }, (_, n) => ({ id: `a${n}`, selector: 's'.repeat(500), label: 'l'.repeat(120) })),
+  problems: Array.from({ length: 20 }, () => ({
+    kind: 'asset-failed',
+    message: 'm'.repeat(300),
+    source: 's'.repeat(200),
+    line: 12,
+    count: 3,
+    pane: 0,
+  })),
+  annotations: Array.from({ length: 120 }, (_, n) => ({
+    id: `a${n}`,
+    selector: 's'.repeat(500),
+    label: 'l'.repeat(120),
+  })),
   restoreAssets: Array.from({ length: 50 }, (_, n) => `assets/file-${n}.png`),
   panes: Array.from({ length: 3 }, (_, n) => ({
     kind: n === 0 ? 'inline' : 'pdf',
@@ -39,7 +50,14 @@ const fullSession = (sessionId) => ({
   sessionId,
   active: 'v1',
   tabs: Array.from({ length: 8 }, (_, n) => fullTab(`v${n}`)),
-  history: Array.from({ length: 50 }, (_, n) => ({ id: `h${n}`, label: `history item ${n}`, kind: 'mermaid', versions: 2, at: 1_700_000_000_000, open: n < 8 })),
+  history: Array.from({ length: 50 }, (_, n) => ({
+    id: `h${n}`,
+    label: `history item ${n}`,
+    kind: 'mermaid',
+    versions: 2,
+    at: 1_700_000_000_000,
+    open: n < 8,
+  })),
 });
 
 function rig(states) {
@@ -57,7 +75,11 @@ function rig(states) {
     onClose() {},
   };
   const failures = [];
-  const host = createVisualizeHost(connection, () => ({ execute: async () => null, snapshot: () => states }), (error) => failures.push(error));
+  const host = createVisualizeHost(
+    connection,
+    () => ({ execute: async () => null, snapshot: () => states }),
+    (error) => failures.push(error)
+  );
   return { host, requests, failures, settle: () => new Promise((resolve) => setTimeout(resolve, 20)) };
 }
 
@@ -72,13 +94,19 @@ test('a snapshot of sessions filled to every cap is one value under the limit, w
   assert.equal(requests.length, 1, 'one atomic value');
   assert.ok(requests[0].bytes <= MAX_INBOUND_FRAME_BYTES, `${requests[0].bytes} bytes`);
   const sent = requests[0].params.value;
-  assert.deepEqual(sent.map((state) => state.sessionId), ['s0', 's1', 's2']);
+  assert.deepEqual(
+    sent.map((state) => state.sessionId),
+    ['s0', 's1', 's2']
+  );
   const text = JSON.stringify(sent);
   for (const gone of ['data:image/png', 'xxxx', 'assets/file-', 'ssss']) assert.ok(!text.includes(gone), gone);
   const tab = sent[0].tabs[0];
   assert.equal(tab.cwd, 'C:\\Users\\someone\\projects\\a-long-project-name\\subfolder');
   assert.deepEqual(tab.panes[0].inline, { kind: 'mermaid', source: '', title: 'T', deferred: true });
-  assert.deepEqual([tab.panes[1].kind, tab.panes[1].root], ['pdf', 'C:\\Users\\someone\\projects\\a-long-project-name']);
+  assert.deepEqual(
+    [tab.panes[1].kind, tab.panes[1].root],
+    ['pdf', 'C:\\Users\\someone\\projects\\a-long-project-name']
+  );
   assert.equal(sent[0].history.length, 50);
 });
 
@@ -110,7 +138,11 @@ function blobCore(states) {
     onClose() {},
   };
   const failures = [];
-  const host = createVisualizeHost(connection, () => ({ execute: async () => null, snapshot: () => states }), (error) => failures.push(error));
+  const host = createVisualizeHost(
+    connection,
+    () => ({ execute: async () => null, snapshot: () => states }),
+    (error) => failures.push(error)
+  );
   return { host, log, folded, failures };
 }
 
@@ -123,7 +155,10 @@ test('a snapshot of any size is one atomic value: over the frame budget it is up
   assert.ok(log.filter((method) => method === 'blob/put').length > 1, 'uploaded in chunks');
   assert.equal(log.filter((method) => method === 'host/state/set').length, 1, 'one call applies the whole snapshot');
   assert.equal(folded[0].length, 60);
-  assert.deepEqual(folded[0].map((state) => state.sessionId), states.map((state) => state.sessionId));
+  assert.deepEqual(
+    folded[0].map((state) => state.sessionId),
+    states.map((state) => state.sessionId)
+  );
 });
 
 test('a change published while a snapshot uploads is applied after it, not overwritten by it', async () => {

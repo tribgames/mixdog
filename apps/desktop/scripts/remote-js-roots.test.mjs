@@ -5,7 +5,16 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
-import { NOT_FOR_REMOTE, deriveRemoteRoots, fitsTarget, installedClosure, pruneInapplicable, remoteJsEntries, trimManifest, verifyInstalledTree } from './remote-js-roots.mjs';
+import {
+  NOT_FOR_REMOTE,
+  deriveRemoteRoots,
+  fitsTarget,
+  installedClosure,
+  pruneInapplicable,
+  remoteJsEntries,
+  trimManifest,
+  verifyInstalledTree,
+} from './remote-js-roots.mjs';
 
 const write = (root, file, text) => {
   mkdirSync(dirname(join(root, file)), { recursive: true });
@@ -14,9 +23,21 @@ const write = (root, file, text) => {
 
 test('roots are the packages the entry points reach: static, dynamic, createRequire and worker files', () => {
   const root = makeTempDirSync('roots');
-  write(root, 'src/runtime/office/authoring/pptx-script-entry.mjs', `import { a } from 'alpha';\nimport fs from 'node:fs';\nimport './runner.mjs';\n`);
-  write(root, 'src/runtime/office/authoring/runner.mjs', `export const load = () => import('@scope/beta/sub.js');\nconst w = new URL('../w.mjs', import.meta.url);\nimport { h } from '../../shared/helper.mjs';\n`);
-  write(root, 'src/runtime/office/w.mjs', `const r = createRequire(import.meta.url);\nr; const t = require('gamma');\n`);
+  write(
+    root,
+    'src/runtime/office/authoring/pptx-script-entry.mjs',
+    `import { a } from 'alpha';\nimport fs from 'node:fs';\nimport './runner.mjs';\n`
+  );
+  write(
+    root,
+    'src/runtime/office/authoring/runner.mjs',
+    `export const load = () => import('@scope/beta/sub.js');\nconst w = new URL('../w.mjs', import.meta.url);\nimport { h } from '../../shared/helper.mjs';\n`
+  );
+  write(
+    root,
+    'src/runtime/office/w.mjs',
+    `const r = createRequire(import.meta.url);\nr; const t = require('gamma');\n`
+  );
   // A helper outside the authoring script's directories: its packages count, its own imports are not followed.
   write(root, 'src/runtime/shared/helper.mjs', `import 'delta';\nimport './barrel.mjs';\n`);
   write(root, 'src/runtime/shared/barrel.mjs', `import 'never-reached';\n`);
@@ -31,13 +52,20 @@ test('roots are the packages the entry points reach: static, dynamic, createRequ
 test('the files an entry reaches are listed: its imports and helpers, not what nothing imports', () => {
   const root = makeTempDirSync('roots-reached');
   write(root, 'src/runtime/office/authoring/pptx-script-entry.mjs', `import './runner.mjs';\n`);
-  write(root, 'src/runtime/office/authoring/runner.mjs', `import { h } from '../../shared/helper.mjs';\nconst w = new URL('../w.mjs', import.meta.url);\n`);
+  write(
+    root,
+    'src/runtime/office/authoring/runner.mjs',
+    `import { h } from '../../shared/helper.mjs';\nconst w = new URL('../w.mjs', import.meta.url);\n`
+  );
   write(root, 'src/runtime/office/w.mjs', `export {};\n`);
   write(root, 'src/runtime/shared/helper.mjs', `import './barrel.mjs';\n`);
   write(root, 'src/runtime/shared/barrel.mjs', `export {};\n`);
   write(root, 'src/runtime/office/authoring/unused.mjs', `export {};\n`);
   write(root, 'src/runtime/office/authoring/x.e2e.test.mjs', `export {};\n`);
-  const { reached, files } = deriveRemoteRoots({ packageRootDir: root, entries: ['src/runtime/office/authoring/pptx-script-entry.mjs'] });
+  const { reached, files } = deriveRemoteRoots({
+    packageRootDir: root,
+    entries: ['src/runtime/office/authoring/pptx-script-entry.mjs'],
+  });
   // The helper is outside the authoring script's directories: reached, but its own imports are not followed.
   assert.deepEqual(reached, [
     'src/runtime/office/authoring/pptx-script-entry.mjs',
@@ -54,7 +82,16 @@ test('the real package: the 5 roots, nothing that only the agent runtime or the 
   for (const needed of ['sharp', 'pptxgenjs', '@napi-rs/canvas', 'jszip', 'yaml']) {
     assert.ok(names.includes(needed), needed);
   }
-  for (const absent of ['openai', 'electron', 'pdfjs-dist', 'pdf-lib', 'tesseract.js', 'puppeteer-core', 'jsdom', '@formulajs/formulajs']) {
+  for (const absent of [
+    'openai',
+    'electron',
+    'pdfjs-dist',
+    'pdf-lib',
+    'tesseract.js',
+    'puppeteer-core',
+    'jsdom',
+    '@formulajs/formulajs',
+  ]) {
     assert.equal(names.includes(absent), false, absent);
   }
 });
@@ -63,15 +100,23 @@ test('every shipped skill script is an entry: the packages it loads become roots
   const root = makeTempDirSync('roots-skills');
   write(root, 'src/runtime/office/authoring/pptx-script-entry.mjs', `import 'alpha';\n`);
   write(root, 'src/skill-script-entry.mjs', `export {};\n`);
-  write(root, 'src/defaults/skills/deck/scripts/review.mjs', `const { fetch } = await import('undici');\nimport './lib/helper.mjs';\n`);
+  write(
+    root,
+    'src/defaults/skills/deck/scripts/review.mjs',
+    `const { fetch } = await import('undici');\nimport './lib/helper.mjs';\n`
+  );
   write(root, 'src/defaults/skills/deck/scripts/lib/helper.mjs', `import '@scope/sdk';\n`);
   write(root, 'src/defaults/skills/deck/scripts/review.test.mjs', `import 'test-only';\n`);
   write(root, 'src/defaults/skills/deck/SKILL.md', 'x');
-  assert.deepEqual(remoteJsEntries(root).filter((entry) => entry.includes('skills')), [
-    'src/defaults/skills/deck/scripts/lib/helper.mjs',
-    'src/defaults/skills/deck/scripts/review.mjs',
+  assert.deepEqual(
+    remoteJsEntries(root).filter((entry) => entry.includes('skills')),
+    ['src/defaults/skills/deck/scripts/lib/helper.mjs', 'src/defaults/skills/deck/scripts/review.mjs']
+  );
+  assert.deepEqual([...deriveRemoteRoots({ packageRootDir: root }).roots.keys()].sort(), [
+    '@scope/sdk',
+    'alpha',
+    'undici',
   ]);
-  assert.deepEqual([...deriveRemoteRoots({ packageRootDir: root }).roots.keys()].sort(), ['@scope/sdk', 'alpha', 'undici']);
   const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
   const real = [...deriveRemoteRoots({ packageRootDir: repo }).roots.keys()];
   // yaml reaches the bundle only through a shipped skill script (skill-creator's validator), not the authoring script.
@@ -81,33 +126,76 @@ test('every shipped skill script is an entry: the packages it loads become roots
 test('the packages the authoring contract lets a script require are roots though nothing imports them', () => {
   const root = makeTempDirSync('roots-contract');
   write(root, 'src/runtime/office/authoring/pptx-script-entry.mjs', `import './pptx-script-contract.mjs';\n`);
-  write(root, 'src/runtime/office/authoring/pptx-script-contract.mjs', `export const CONTRACT = { require: ['pptxgenjs', '@scope/img', 'node:fs', 'node:path'] };\n`);
+  write(
+    root,
+    'src/runtime/office/authoring/pptx-script-contract.mjs',
+    `export const CONTRACT = { require: ['pptxgenjs', '@scope/img', 'node:fs', 'node:path'] };\n`
+  );
   write(root, 'src/skill-script-entry.mjs', `export {};\n`);
   assert.deepEqual([...deriveRemoteRoots({ packageRootDir: root }).roots.keys()].sort(), ['@scope/img', 'pptxgenjs']);
 });
 
 test('a reached dependency missing from the lockfile or the install fails; only inapplicable ones may be absent', () => {
-  const missingOptional = { ...lock, packages: { ...lock.packages, 'node_modules/a': { ...lock.packages['node_modules/a'], optionalDependencies: { ghost: '1' } } } };
-  assert.throws(() => trimManifest({ manifest, lock: missingOptional, roots: ['a'] }), /ghost \(optional dependency of node_modules\/a\) is reached but missing/);
-  const missingPeer = { ...lock, packages: { ...lock.packages, 'node_modules/b': { ...lock.packages['node_modules/b'], peerDependencies: { ghost: '1' } } } };
-  assert.throws(() => trimManifest({ manifest, lock: missingPeer, roots: ['a'] }), /ghost \(peer dependency of node_modules\/b\)/);
-  const optionalPeer = { ...lock, packages: { ...lock.packages, 'node_modules/b': { ...lock.packages['node_modules/b'], peerDependencies: { ghost: '1' }, peerDependenciesMeta: { ghost: { optional: true } } } } };
+  const missingOptional = {
+    ...lock,
+    packages: {
+      ...lock.packages,
+      'node_modules/a': { ...lock.packages['node_modules/a'], optionalDependencies: { ghost: '1' } },
+    },
+  };
+  assert.throws(
+    () => trimManifest({ manifest, lock: missingOptional, roots: ['a'] }),
+    /ghost \(optional dependency of node_modules\/a\) is reached but missing/
+  );
+  const missingPeer = {
+    ...lock,
+    packages: {
+      ...lock.packages,
+      'node_modules/b': { ...lock.packages['node_modules/b'], peerDependencies: { ghost: '1' } },
+    },
+  };
+  assert.throws(
+    () => trimManifest({ manifest, lock: missingPeer, roots: ['a'] }),
+    /ghost \(peer dependency of node_modules\/b\)/
+  );
+  const optionalPeer = {
+    ...lock,
+    packages: {
+      ...lock.packages,
+      'node_modules/b': {
+        ...lock.packages['node_modules/b'],
+        peerDependencies: { ghost: '1' },
+        peerDependenciesMeta: { ghost: { optional: true } },
+      },
+    },
+  };
   assert.doesNotThrow(() => trimManifest({ manifest, lock: optionalPeer, roots: ['a'] }));
 
   const pkg = makeTempDirSync('installed-tree');
   write(pkg, 'package.json', JSON.stringify({ dependencies: { a: '1' } }));
-  write(pkg, 'node_modules/a/package.json', JSON.stringify({ name: 'a', dependencies: { b: '1' }, optionalDependencies: { 'a-native': '1' } }));
+  write(
+    pkg,
+    'node_modules/a/package.json',
+    JSON.stringify({ name: 'a', dependencies: { b: '1' }, optionalDependencies: { 'a-native': '1' } })
+  );
   write(pkg, 'node_modules/b/package.json', JSON.stringify({ name: 'b' }));
-  assert.throws(() => verifyInstalledTree(pkg, new Set()), /a-native \(optional dependency of a\) is reached but not installed/);
+  assert.throws(
+    () => verifyInstalledTree(pkg, new Set()),
+    /a-native \(optional dependency of a\) is reached but not installed/
+  );
   assert.doesNotThrow(() => verifyInstalledTree(pkg, new Set(['a-native'])));
   rmSync(join(pkg, 'node_modules/b'), { recursive: true });
-  assert.throws(() => verifyInstalledTree(pkg, new Set(['a-native'])), /b \(dependency of a\) is reached but not installed/);
+  assert.throws(
+    () => verifyInstalledTree(pkg, new Set(['a-native'])),
+    /b \(dependency of a\) is reached but not installed/
+  );
 });
 
 test('platform exclusion follows the package own os/cpu/libc, plus exact names, never substrings', () => {
   const glibc = { os: 'linux', cpu: 'x64', libc: 'glibc' };
   const pkg = makeTempDirSync('prune');
-  const install = (name, manifest) => write(pkg, `node_modules/${name}/package.json`, JSON.stringify({ name, ...manifest }));
+  const install = (name, manifest) =>
+    write(pkg, `node_modules/${name}/package.json`, JSON.stringify({ name, ...manifest }));
   install('@img/sharp-linuxmusl-x64', { os: ['linux'], cpu: ['x64'], libc: ['musl'] });
   install('@img/sharp-linux-x64', { os: ['linux'], cpu: ['x64'], libc: ['glibc'] });
   install('@img/sharp-wasm32', {});
@@ -115,7 +203,11 @@ test('platform exclusion follows the package own os/cpu/libc, plus exact names, 
   install('plain-wasm32', {});
   install('@napi-rs/canvas-darwin-arm64', { os: ['darwin'], cpu: ['arm64'] });
   const removed = pruneInapplicable(join(pkg, 'node_modules'), glibc);
-  assert.deepEqual([...removed].sort(), ['@img/sharp-linuxmusl-x64', '@img/sharp-wasm32', '@napi-rs/canvas-darwin-arm64']);
+  assert.deepEqual([...removed].sort(), [
+    '@img/sharp-linuxmusl-x64',
+    '@img/sharp-wasm32',
+    '@napi-rs/canvas-darwin-arm64',
+  ]);
   assert.ok(existsSync(join(pkg, 'node_modules/musl-free-name')));
   assert.ok(existsSync(join(pkg, 'node_modules/plain-wasm32')));
   assert.ok(existsSync(join(pkg, 'node_modules/@img/sharp-linux-x64')));
@@ -126,7 +218,12 @@ test('the closure of an installed tree is found as Node resolves it, nested copi
   const modules = join(makeTempDirSync('closure'), 'node_modules');
   const pkg = (dir, manifest) => write(modules, `${dir}/package.json`, JSON.stringify(manifest));
   pkg('mixdog', {});
-  pkg('a', { dependencies: { b: '1' }, optionalDependencies: { 'a-linux-x64': '1', 'a-win32-x64': '1' }, peerDependencies: { p: '1', q: '1' }, peerDependenciesMeta: { q: { optional: true } } });
+  pkg('a', {
+    dependencies: { b: '1' },
+    optionalDependencies: { 'a-linux-x64': '1', 'a-win32-x64': '1' },
+    peerDependencies: { p: '1', q: '1' },
+    peerDependenciesMeta: { q: { optional: true } },
+  });
   pkg('b', { dependencies: { c: '2' } });
   pkg('b/node_modules/c', {});
   pkg('c', {});
@@ -137,7 +234,13 @@ test('the closure of an installed tree is found as Node resolves it, nested copi
   const { dirs, missing, skipped } = installedClosure(modules, ['a'], optionalOnly);
   assert.deepEqual(missing, []);
   assert.deepEqual([...skipped], ['a-win32-x64']);
-  assert.deepEqual([...dirs].map((dir) => dir.slice(modules.length + 1).replaceAll('\\', '/')).sort(), ['a', 'a-linux-x64', 'b', 'b/node_modules/c', 'p']);
+  assert.deepEqual([...dirs].map((dir) => dir.slice(modules.length + 1).replaceAll('\\', '/')).sort(), [
+    'a',
+    'a-linux-x64',
+    'b',
+    'b/node_modules/c',
+    'p',
+  ]);
   // A package may be absent only if the caller says so: a required dependency, a root and a peer are misses.
   rmSync(join(modules, 'a-linux-x64'), { recursive: true });
   rmSync(join(modules, 'p'), { recursive: true });
@@ -156,7 +259,16 @@ const lock = {
   lockfileVersion: 3,
   packages: {
     '': { name: 'x', dependencies: { a: '^1', unused: '^1' }, devDependencies: { dev: '1' } },
-    'node_modules/a': { version: '1.0.0', dependencies: { b: '^1' }, optionalDependencies: { 'a-linux-x64': '1', 'a-linuxmusl-x64': '1', 'a-darwin-arm64': '1', '@img/sharp-wasm32': '1' } },
+    'node_modules/a': {
+      version: '1.0.0',
+      dependencies: { b: '^1' },
+      optionalDependencies: {
+        'a-linux-x64': '1',
+        'a-linuxmusl-x64': '1',
+        'a-darwin-arm64': '1',
+        '@img/sharp-wasm32': '1',
+      },
+    },
     'node_modules/b': { version: '1.0.0', dependencies: { c: '^2' } },
     'node_modules/b/node_modules/c': { version: '2.0.0' },
     'node_modules/c': { version: '1.0.0' },
@@ -171,7 +283,13 @@ const manifest = { dependencies: { a: '^1', unused: '^1' }, overrides: { a: '^1'
 
 test('the trim keeps the roots and what they reach, resolving nested copies, for one platform', () => {
   const linux = trimManifest({ manifest, lock, roots: ['a'], target: { os: 'linux', cpu: 'x64', libc: 'glibc' } });
-  assert.deepEqual(Object.keys(linux.lock.packages).sort(), ['', 'node_modules/a', 'node_modules/a-linux-x64', 'node_modules/b', 'node_modules/b/node_modules/c']);
+  assert.deepEqual(Object.keys(linux.lock.packages).sort(), [
+    '',
+    'node_modules/a',
+    'node_modules/a-linux-x64',
+    'node_modules/b',
+    'node_modules/b/node_modules/c',
+  ]);
   assert.deepEqual(linux.manifest.dependencies, { a: '^1' });
   assert.deepEqual(linux.lock.packages[''].dependencies, { a: '^1' });
   assert.deepEqual(linux.manifest.overrides, { a: '^1' });
@@ -183,15 +301,31 @@ test('the trim keeps the roots and what they reach, resolving nested copies, for
 
 test('a reached package that is not a dependency, or not locked, stops the stage', () => {
   assert.throws(() => trimManifest({ manifest, lock, roots: ['ghost'] }), /ghost is reached .* not a dependency/);
-  assert.throws(() => trimManifest({ manifest: { dependencies: { ghost: '1' } }, lock, roots: ['ghost'] }), /ghost is reached .* not in package-lock/);
+  assert.throws(
+    () => trimManifest({ manifest: { dependencies: { ghost: '1' } }, lock, roots: ['ghost'] }),
+    /ghost is reached .* not in package-lock/
+  );
 });
 
 test('os, cpu and libc fields are honoured; the undeclared wasm build is excluded by exact name', () => {
-  assert.equal(fitsTarget('@img/sharp-linuxmusl-x64', { os: ['linux'], cpu: ['x64'], libc: ['musl'] }, { os: 'linux', cpu: 'x64', libc: 'glibc' }), false);
+  assert.equal(
+    fitsTarget(
+      '@img/sharp-linuxmusl-x64',
+      { os: ['linux'], cpu: ['x64'], libc: ['musl'] },
+      { os: 'linux', cpu: 'x64', libc: 'glibc' }
+    ),
+    false
+  );
   assert.equal(fitsTarget('@img/sharp-wasm32', {}, { os: 'linux', cpu: 'x64', libc: 'glibc' }), false);
   assert.equal(fitsTarget('some-musl-lib', {}, { os: 'linux', cpu: 'x64', libc: 'glibc' }), true);
-  assert.equal(fitsTarget('@img/sharp-linux-x64', { os: ['linux'], cpu: ['x64'] }, { os: 'linux', cpu: 'x64', libc: 'glibc' }), true);
-  assert.equal(fitsTarget('p', { os: ['linux'], cpu: ['x64'], libc: ['musl'] }, { os: 'linux', cpu: 'x64', libc: 'glibc' }), false);
+  assert.equal(
+    fitsTarget('@img/sharp-linux-x64', { os: ['linux'], cpu: ['x64'] }, { os: 'linux', cpu: 'x64', libc: 'glibc' }),
+    true
+  );
+  assert.equal(
+    fitsTarget('p', { os: ['linux'], cpu: ['x64'], libc: ['musl'] }, { os: 'linux', cpu: 'x64', libc: 'glibc' }),
+    false
+  );
   assert.equal(fitsTarget('p', { os: ['!win32'] }, { os: 'darwin', cpu: 'arm64' }), true);
   assert.equal(fitsTarget('p', { os: ['!win32'] }, { os: 'win32', cpu: 'x64' }), false);
 });

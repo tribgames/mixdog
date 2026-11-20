@@ -131,7 +131,11 @@ export function useSessionDiffRefresh({
         const omittedChanged =
           binding && binding.omitted.size > 0 && binding.revision !== sessionDiffBinding(shown.result)?.revision;
         if (
-          shown.sessionId !== sessionId || shown.loading || shown.error || omittedChanged || !sameDiff(shown.result, next)
+          shown.sessionId !== sessionId ||
+          shown.loading ||
+          shown.error ||
+          omittedChanged ||
+          !sameDiff(shown.result, next)
         ) {
           apply({ sessionId, result: next, loading: false, error: '' });
         }

@@ -892,7 +892,7 @@ test('a missing Google grant shows More access needed on the row and the full in
   // full text as title, and the tag follows it on the same title line; no
   // second status line and no inline reason.
   const title = row.querySelector('.sidebar-resource-title');
-  assert.equal(title.querySelector('b').title,'Google Calendar', 'the full name is the tooltip');
+  assert.equal(title.querySelector('b').title, 'Google Calendar', 'the full name is the tooltip');
   const tag = title.querySelector('.sidebar-resource-tag');
   assert.equal(tag?.textContent, 'More access needed');
   assert.equal(tag.previousElementSibling, title.querySelector('b'), 'right after the name');

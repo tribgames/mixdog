@@ -263,7 +263,10 @@ function recordCommandResponse(
  * to the core (`dev/computer/run`), and the response folded back into the
  * active metrics.
  */
-export function createScenarioCommand(session: string, transport: Pick<CommandTransport, 'runCommand'>): ScenarioCommand {
+export function createScenarioCommand(
+  session: string,
+  transport: Pick<CommandTransport, 'runCommand'>
+): ScenarioCommand {
   return async (
     input: Record<string, unknown>,
     sessionId = session,

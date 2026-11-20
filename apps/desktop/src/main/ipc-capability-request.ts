@@ -4,7 +4,8 @@ import { isAbsolute } from 'node:path';
 import type { DesktopCapabilityReadRequest, DesktopCapabilityRequest } from '../shared/contract';
 import { requiredCapabilityReadRequestsUsing, requiredCapabilityRequestUsing } from './ipc-validation';
 
-export const requiredDesktopCapabilityRequest = (value: unknown): DesktopCapabilityRequest => requiredCapabilityRequestUsing(value, isAbsolute);
+export const requiredDesktopCapabilityRequest = (value: unknown): DesktopCapabilityRequest =>
+  requiredCapabilityRequestUsing(value, isAbsolute);
 
 export const requiredDesktopCapabilityReadRequests = (value: unknown): DesktopCapabilityReadRequest[] =>
   requiredCapabilityReadRequestsUsing(value, isAbsolute);

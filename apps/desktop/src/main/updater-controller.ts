@@ -147,42 +147,43 @@ export function createUpdaterController(input: {
       return record?.version !== input.currentVersion ? record?.version : undefined;
     };
 
-    pending = Promise.resolve().then(async () => {
-      const initial = await preference();
-      if (!manualRequested && initial === false) return state;
-      if (!manualRequested && initial === undefined && (readyAtStart || !(await pendingVersion()))) {
-        if (!manualRequested) return state;
-      }
-      if (installing) return state;
-      // A downloaded target can become stale while the app stays open across
-      // rapid releases. Keep it installable during the recheck, then replace
-      // it only when the feed points at a different version.
-      if (!readyAtStart) transition({ status: 'checking' });
-      const result = await input.service.checkForUpdates();
-      if (installing) return state;
-      const version = result?.isUpdateAvailable ? result.updateInfo?.version : undefined;
-      if (version && readyAtStart?.version === version) return state;
+    pending = Promise.resolve()
+      .then(async () => {
+        const initial = await preference();
+        if (!manualRequested && initial === false) return state;
+        if (!manualRequested && initial === undefined && (readyAtStart || !(await pendingVersion()))) {
+          if (!manualRequested) return state;
+        }
+        if (installing) return state;
+        // A downloaded target can become stale while the app stays open across
+        // rapid releases. Keep it installable during the recheck, then replace
+        // it only when the feed points at a different version.
+        if (!readyAtStart) transition({ status: 'checking' });
+        const result = await input.service.checkForUpdates();
+        if (installing) return state;
+        const version = result?.isUpdateAvailable ? result.updateInfo?.version : undefined;
+        if (version && readyAtStart?.version === version) return state;
 
-      // A missing preference may recover an already recorded download, but cannot
-      // authorize replacing it with another release or clearing the record.
-      const current = await preference();
-      const recover =
-        current === undefined && !readyAtStart && version !== undefined && version === (await pendingVersion());
-      if (installing) return state;
-      if (!manualRequested && current !== true && !recover) {
-        return state.status === 'checking' ? transition(before) : state;
-      }
-      if (!version || version === input.currentVersion) {
-        await input.persistence.clear();
-        return transition({ status: 'up-to-date' });
-      }
+        // A missing preference may recover an already recorded download, but cannot
+        // authorize replacing it with another release or clearing the record.
+        const current = await preference();
+        const recover =
+          current === undefined && !readyAtStart && version !== undefined && version === (await pendingVersion());
+        if (installing) return state;
+        if (!manualRequested && current !== true && !recover) {
+          return state.status === 'checking' ? transition(before) : state;
+        }
+        if (!version || version === input.currentVersion) {
+          await input.persistence.clear();
+          return transition({ status: 'up-to-date' });
+        }
 
-      replacing = true;
-      transition({ status: 'downloading', version });
-      await input.service.downloadUpdate();
-      await input.persistence.set({ version });
-      return transition({ status: 'ready', version });
-    })
+        replacing = true;
+        transition({ status: 'downloading', version });
+        await input.service.downloadUpdate();
+        await input.persistence.set({ version });
+        return transition({ status: 'ready', version });
+      })
       .catch((error: unknown) => {
         if (readyAtStart && !replacing) {
           input.log?.('updater ready recheck failed', {

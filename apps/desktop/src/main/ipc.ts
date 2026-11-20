@@ -310,8 +310,7 @@ export function registerDesktopIpc(
     pcHost: connectionKind === 'local' ? undefined : pcHost,
     confirmAllowAllActions,
     prepareConfirmedAllowAllActions,
-    signInFocus:
-      connectionKind === 'local' ? createSignInFocus({ activate: () => raiseDesktopWindow(window) }) : null,
+    signInFocus: connectionKind === 'local' ? createSignInFocus({ activate: () => raiseDesktopWindow(window) }) : null,
   });
 
   const stateBridge = new DesktopStateBridge({

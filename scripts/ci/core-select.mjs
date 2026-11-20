@@ -83,9 +83,17 @@ export function readWorkspace({ root, metadata }) {
     JSON.parse(
       execFileSync(
         'cargo',
-        ['metadata', '--locked', '--no-deps', '--format-version', '1', '--manifest-path', join(root, 'native/core/Cargo.toml')],
-        { cwd: join(root, 'native/core'), encoding: 'utf8', maxBuffer: 1 << 28 },
-      ),
+        [
+          'metadata',
+          '--locked',
+          '--no-deps',
+          '--format-version',
+          '1',
+          '--manifest-path',
+          join(root, 'native/core/Cargo.toml'),
+        ],
+        { cwd: join(root, 'native/core'), encoding: 'utf8', maxBuffer: 1 << 28 }
+      )
     );
   const names = new Set(meta.packages.map((pkg) => pkg.name));
   return meta.packages.map((pkg) => ({
@@ -135,7 +143,8 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
       const minimum = form[0] === 'native' && form[1] === 'core' ? 4 : 2;
       for (let end = form.length; end >= minimum; end -= 1) plain.add(form.slice(0, end).join('/'));
       if (form.length === 1) plain.add(form[0]);
-      if (form.length >= 2 && minimum === 2) joined.push(new RegExp(`"${escapeRegExp(form[0])}"[\\s\\S]{0,160}?"${escapeRegExp(form[1])}"`));
+      if (form.length >= 2 && minimum === 2)
+        joined.push(new RegExp(`"${escapeRegExp(form[0])}"[\\s\\S]{0,160}?"${escapeRegExp(form[1])}"`));
     }
     return { plain: [...plain], joined };
   };
@@ -191,7 +200,10 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
       // Propagate all owned changes and include every visible source reader.
       propagate.add(crate.name);
       const found = readers(path);
-      for (const name of [...found.product, ...found.testOnly]) { direct.add(name); propagate.add(name); }
+      for (const name of [...found.product, ...found.testOnly]) {
+        direct.add(name);
+        propagate.add(name);
+      }
       continue;
     }
     // Paths outside a package can be constructed dynamically, scanned by a
@@ -217,7 +229,10 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
         if (!source) continue;
         const found = readers(source.dir);
         for (const reader of [...found.product, ...found.testOnly]) {
-          if (!reached.has(reader)) { reached.add(reader); grew = true; }
+          if (!reached.has(reader)) {
+            reached.add(reader);
+            grew = true;
+          }
         }
       }
       for (const crate of crates) {
@@ -236,7 +251,8 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
     if (packages.length) scope = 'packages';
   }
 
-  const selected = scope === 'all' ? crates.filter((crate) => crate.name !== HACK) : packages.map((name) => byName.get(name));
+  const selected =
+    scope === 'all' ? crates.filter((crate) => crate.name !== HACK) : packages.map((name) => byName.get(name));
   const tests = selected.reduce((sum, crate) => sum + textOf(crate).count, 0);
   const legs = scope === 'none' ? 0 : Math.min(MAX_LEGS, Math.max(1, Math.ceil(tests / TESTS_PER_LEG)));
 
@@ -244,19 +260,22 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
   const filter = scope === 'all' ? 'all()' : packages.map((name) => `package(=${name})`).join(' | ');
   // The relay's twin suites are built only with its test-support feature (required-features of its test targets); the feature
   // is named with its package, which cargo accepts only for a package the build selects.
-  const features = selected.flatMap((crate) => crate.requiredFeatures.map((feature) => `${crate.name}/${feature}`)).join(',');
+  const features = selected
+    .flatMap((crate) => crate.requiredFeatures.map((feature) => `${crate.name}/${feature}`))
+    .join(',');
   // The #[ignore]d tests that need a Postgres runtime run from the same archive, one leg per nextest profile and system; a
   // profile whose package is not in the archive has nothing to run, and `--no-tests=fail` would fail it. Linux always, macOS
   // when the run is not a pull request (`all`: a push to main or a manual run), where the runner minutes are the release's.
   const pgSystems = SYSTEMS.filter((system) => system.os === 'linux' || (all && system.os === 'macos'));
-  const pgMatrix = PG_PROFILES.filter((profile) => selected.some((crate) => crate.name === profile.package)).flatMap((profile) =>
-    pgSystems.map((system) => ({ ...system, profile: profile.name })),
+  const pgMatrix = PG_PROFILES.filter((profile) => selected.some((crate) => crate.name === profile.package)).flatMap(
+    (profile) => pgSystems.map((system) => ({ ...system, profile: profile.name }))
   );
 
   // The Linux entry scenarios run from the archive and drive the dev daemon even when no Node lane needs it.
   const needsMixdogdDev = mixdogdDev || selected.some((crate) => crate.name === 'mixdog-entry');
   // The Windows hidden-window app boot (desktop-computer) starts the app against this run's Windows dev daemon.
-  const wantsDaemon = (system) => (needsMixdogdDev && system.os === 'linux') || (mixdogdWindows && system.os === 'windows');
+  const wantsDaemon = (system) =>
+    (needsMixdogdDev && system.os === 'linux') || (mixdogdWindows && system.os === 'windows');
   const build = SYSTEMS.filter((system) => scope !== 'none' || wantsDaemon(system)).map((system) => ({
     ...system,
     tests: scope !== 'none',
@@ -315,6 +334,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
   const { reasons, ...outputs } = result;
   for (const reason of reasons) console.error(`[core-select] ${reason}`);
-  console.error(`[core-select] scope ${result.core_scope}: ${result.core_packages || '(every crate)'}; ${result.core_tests} tests, ${result.core_legs} leg(s) per system`);
+  console.error(
+    `[core-select] scope ${result.core_scope}: ${result.core_packages || '(every crate)'}; ${result.core_tests} tests, ${result.core_legs} leg(s) per system`
+  );
   for (const [name, value] of Object.entries(outputs)) console.log(`${name}=${value}`);
 }

@@ -37,7 +37,8 @@ function harness({ afterCommand, replyLine, fillStored, capture } = {}) {
   };
   const snapshot = {
     captureSnapshotPayload:
-      capture ?? (async (_guest, command) => (log.push(`capture ${command.action}`), { snapshotId: 'p1-s1', elements: [] })),
+      capture ??
+      (async (_guest, command) => (log.push(`capture ${command.action}`), { snapshotId: 'p1-s1', elements: [] })),
   };
   registerSignIn(connection, ctx, deps, snapshot);
   const call = (method, params) => handlers.get(`host/browser/${method}`)(params, new AbortController().signal);
@@ -45,12 +46,22 @@ function harness({ afterCommand, replyLine, fillStored, capture } = {}) {
 }
 
 test('the sign-in lane serves the three requests', () => {
-  assert.deepEqual([...harness().handlers.keys()].sort(), ['host/browser/credentials/fill', 'host/browser/signIn', 'host/browser/turn']);
+  assert.deepEqual([...harness().handlers.keys()].sort(), [
+    'host/browser/credentials/fill',
+    'host/browser/signIn',
+    'host/browser/turn',
+  ]);
 });
 
 test('the saved-login note is the first paragraph of a sign-in reply, and only when it is one of the two notes', () => {
-  assert.equal(savedSignInNote(`${SAVED_SIGN_IN_DONE}a.test with its saved login.\n\nPage: x`), `${SAVED_SIGN_IN_DONE}a.test with its saved login.`);
-  assert.equal(savedSignInNote(`${SAVED_SIGN_IN_NEEDS_USER}a.test: hand it over.\n\n`), `${SAVED_SIGN_IN_NEEDS_USER}a.test: hand it over.`);
+  assert.equal(
+    savedSignInNote(`${SAVED_SIGN_IN_DONE}a.test with its saved login.\n\nPage: x`),
+    `${SAVED_SIGN_IN_DONE}a.test with its saved login.`
+  );
+  assert.equal(
+    savedSignInNote(`${SAVED_SIGN_IN_NEEDS_USER}a.test: hand it over.\n\n`),
+    `${SAVED_SIGN_IN_NEEDS_USER}a.test: hand it over.`
+  );
   assert.equal(savedSignInNote('Page: x\n\nmore'), '');
   assert.equal(savedSignInNote(''), '');
 });
@@ -71,7 +82,9 @@ test('before an action the host notes the fields the agent names, for the turn t
 
 test('after a command a sign-in the host made answers its note, and the identity line rides with it', async () => {
   const h = harness({
-    afterCommand: async () => ({ text: `${SAVED_SIGN_IN_DONE}a.test with its saved login (the password never left the host).\n\n` }),
+    afterCommand: async () => ({
+      text: `${SAVED_SIGN_IN_DONE}a.test with its saved login (the password never left the host).\n\n`,
+    }),
     replyLine: async () => 'Linked sign-in: a.test used Google.',
   });
   const answer = await h.call('signIn', { sessionId: 'sess', pageId: 'p1', op: 'afterCommand', turn: 1 });
@@ -90,12 +103,20 @@ test('the observation the sign-in flow asks for is a capture of the page, and on
   });
   const answer = await refused.call('signIn', { sessionId: 'sess', pageId: 'p1', op: 'afterCommand', turn: 1 });
   assert.deepEqual(answer.note, undefined);
-  assert.ok(refused.log.includes('diagnostic browser-sign-in-observe-failed') && refused.log.includes('after sess 1 true'));
+  assert.ok(
+    refused.log.includes('diagnostic browser-sign-in-observe-failed') && refused.log.includes('after sess 1 true')
+  );
 });
 
 test('a command that filled a saved account itself is followed by no automatic sign-in', async () => {
   const h = harness();
-  const answer = await h.call('signIn', { sessionId: 'sess', pageId: 'p1', op: 'afterCommand', turn: 2, explicitFill: true });
+  const answer = await h.call('signIn', {
+    sessionId: 'sess',
+    pageId: 'p1',
+    op: 'afterCommand',
+    turn: 2,
+    explicitFill: true,
+  });
   assert.equal(answer.note, undefined);
   assert.deepEqual(h.log, ['begin sess 2', 'line 2']);
 });
@@ -113,13 +134,21 @@ test('a reply line that cannot be read is reported and the command still answers
 
 test('signIn needs a live page, a known op and a valid session', async () => {
   const h = harness();
-  await assert.rejects(h.call('signIn', { sessionId: 'sess', pageId: 'gone', op: 'afterCommand' }), (e) => e.code === -32011);
+  await assert.rejects(
+    h.call('signIn', { sessionId: 'sess', pageId: 'gone', op: 'afterCommand' }),
+    (e) => e.code === -32011
+  );
   await assert.rejects(h.call('signIn', { sessionId: 'sess', pageId: 'p1', op: 'nope' }), (e) => e.code === -32602);
-  await assert.rejects(h.call('signIn', { sessionId: 'bad id', pageId: 'p1', op: 'afterCommand' }), (e) => e.code === -32602);
+  await assert.rejects(
+    h.call('signIn', { sessionId: 'bad id', pageId: 'p1', op: 'afterCommand' }),
+    (e) => e.code === -32602
+  );
 });
 
 test('a saved account is written into the page and the form answer goes back', async () => {
-  const h = harness({ fillStored: async () => ({ usernameFilled: true, passwordFilled: false, reason: 'no-password-field' }) });
+  const h = harness({
+    fillStored: async () => ({ usernameFilled: true, passwordFilled: false, reason: 'no-password-field' }),
+  });
   const answer = await h.call('credentials/fill', { pageId: 'p1', account: 'work' });
   assert.deepEqual([answer.usernameFilled, answer.passwordFilled, answer.reason], [true, false, 'no-password-field']);
   await assert.rejects(h.call('credentials/fill', { pageId: 'p1' }), (e) => e.code === -32602);

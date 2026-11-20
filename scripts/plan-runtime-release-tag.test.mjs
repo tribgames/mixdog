@@ -65,11 +65,12 @@ test('malformed tags are rejected', () => {
 test('an occupied public tag does not prevent a later commit from releasing or resuming its own tag', () => {
   const occupied = { state: 'public', belongsToCommit: false };
   const own = { state: 'public', belongsToCommit: true };
-  const plan = (second) => selectRuntimeRelease({
-    requested: 'runtime-v0.4.1',
-    shipped: 'runtime-v0.4.1',
-    inspect: (tag) => ({ 'runtime-v0.4.2': occupied, 'runtime-v0.4.3': second })[tag],
-  });
+  const plan = (second) =>
+    selectRuntimeRelease({
+      requested: 'runtime-v0.4.1',
+      shipped: 'runtime-v0.4.1',
+      inspect: (tag) => ({ 'runtime-v0.4.2': occupied, 'runtime-v0.4.3': second })[tag],
+    });
   assert.deepEqual(plan({ state: 'none', belongsToCommit: true }), { tag: 'runtime-v0.4.3', mode: 'build' });
   assert.deepEqual(plan(own), { tag: 'runtime-v0.4.3', mode: 'recover' });
 });

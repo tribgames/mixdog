@@ -170,9 +170,7 @@ export function createBridgeServer(host: BridgeServerHost) {
   /** The host protocol's command and capture: the HTTP command's own allowance, refusal and abort handling, every worker
    *  request admitted through `endpoint`. */
   async function answerCommand(command: ComputerCommand, endpoint: CommandEndpoint): Promise<BridgeAnswer> {
-    return (
-      (await answerAdmittedCommand(host, state, command, endpoint)) ?? { ok: false, error: CAPACITY_REFUSAL }
-    );
+    return (await answerAdmittedCommand(host, state, command, endpoint)) ?? { ok: false, error: CAPACITY_REFUSAL };
   }
 
   return { startBridge, stopBridge: () => stopBridge(), answerCommand };

@@ -280,7 +280,8 @@ export type TakeoverStateReader = (secretRequestIds?: string[]) => Promise<CoreT
  */
 export function createTakeoverMirror(read: TakeoverStateReader) {
   let state: CoreTakeoverState = { held: [], secretSlots: [] };
-  const entryOf = (sessionId: string): CoreHeldTakeover | undefined => state.held.find((entry) => entry.sessionId === sessionId);
+  const entryOf = (sessionId: string): CoreHeldTakeover | undefined =>
+    state.held.find((entry) => entry.sessionId === sessionId);
   return {
     /** Reads the core's state now. */
     async refresh(): Promise<void> {

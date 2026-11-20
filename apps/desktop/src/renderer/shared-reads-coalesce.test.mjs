@@ -190,7 +190,9 @@ test('the Lead route follows the Lead preset while the host holds no shell snaps
   resetSidebarReferenceCache();
   const api = {
     getSnapshot: async () => null,
-    invokeCapability: async () => ({ value: [{ id: 'workflow-lead', provider: 'p', model: 'lead-model', effort: 'high' }] }),
+    invokeCapability: async () => ({
+      value: [{ id: 'workflow-lead', provider: 'p', model: 'lead-model', effort: 'high' }],
+    }),
   };
   const { dom } = installTestDom(null, {
     html: '<!doctype html><html><body><div id="root"></div></body></html>',

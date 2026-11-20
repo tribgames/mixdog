@@ -78,24 +78,27 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
   // a stale list or clears a newer error.
   const listRead = useRef(0);
   const refreshList = useRef<(() => void) | null>(null);
-  const reload = useCallback(async (signal: AbortSignal) => {
-    const read = ++listRead.current;
-    try {
-      const [vaultLogins, signedIn, linkedSignIns] = await Promise.all([
-        Promise.resolve(api.browserVaultLogins?.()).then((value) => value ?? []),
-        Promise.resolve(api.browserSignedInSites?.()).then((value) => value ?? []),
-        Promise.resolve(api.browserLinkedSignIns?.()).then((value) => value ?? []),
-      ]);
-      if (signal.aborted || read !== listRead.current) return;
-      setLogins(vaultLogins);
-      setSites(signedIn);
-      setLinked(linkedSignIns);
-      setReadError('');
-    } catch (reason) {
-      if (signal.aborted || read !== listRead.current) return;
-      setReadError(reason instanceof Error ? reason.message : String(reason));
-    }
-  }, [api]);
+  const reload = useCallback(
+    async (signal: AbortSignal) => {
+      const read = ++listRead.current;
+      try {
+        const [vaultLogins, signedIn, linkedSignIns] = await Promise.all([
+          Promise.resolve(api.browserVaultLogins?.()).then((value) => value ?? []),
+          Promise.resolve(api.browserSignedInSites?.()).then((value) => value ?? []),
+          Promise.resolve(api.browserLinkedSignIns?.()).then((value) => value ?? []),
+        ]);
+        if (signal.aborted || read !== listRead.current) return;
+        setLogins(vaultLogins);
+        setSites(signedIn);
+        setLinked(linkedSignIns);
+        setReadError('');
+      } catch (reason) {
+        if (signal.aborted || read !== listRead.current) return;
+        setReadError(reason instanceof Error ? reason.message : String(reason));
+      }
+    },
+    [api]
+  );
 
   // Every time the page is shown it re-reads the vault: the panel stays
   // mounted while hidden, so a mount-only load would keep a stale list.

@@ -8,7 +8,9 @@ import { MockNetwork } from '../../../../packages/protocol-client/src/mock.ts';
 import { phoneChatAdapter } from './remote-protocol-chat.ts';
 import { createRemoteSessionInbox } from './remote-session-inbox.ts';
 
-const protocolOptions = JSON.parse(readFileSync(new URL('../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8'));
+const protocolOptions = JSON.parse(
+  readFileSync(new URL('../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8')
+);
 const settled = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 /** The next connection a client opens over `net`: its handshake answered, then every request served. */
@@ -48,7 +50,16 @@ async function realClient(serve) {
   };
 }
 
-const row = (id) => ({ id, preview: '', title: '', updatedAt: 1, messageCount: 0, cwd: '/w', classification: {}, projectPath: null });
+const row = (id) => ({
+  id,
+  preview: '',
+  title: '',
+  updatedAt: 1,
+  messageCount: 0,
+  cwd: '/w',
+  classification: {},
+  projectPath: null,
+});
 
 /** A core: `thread/start` starts a new thread each time, `thread/resume` answers with a subscription and the thread's snapshot
  *  (`threadNotFound` for a thread in `gone`), and `thread/read` with an empty thread; anything else answers `{}`. */
@@ -68,22 +79,38 @@ function core() {
     if (holding.has(method)) return void held.push({ request, conn });
     if (method === 'thread/start') {
       const id = `t${++threads}`;
-      return conn.serverSend({ id: request.id, result: { thread: row(id), subscription: { id: `s${id}`, mode: 'snapshot', epoch: 'e0', startSeq: 1 } } });
+      return conn.serverSend({
+        id: request.id,
+        result: { thread: row(id), subscription: { id: `s${id}`, mode: 'snapshot', epoch: 'e0', startSeq: 1 } },
+      });
     }
     if (method === 'thread/resume' && gone.has(params.threadId)) {
-      return conn.serverSend({ id: request.id, error: { code: -32004, message: 'not found', data: { reason: 'threadNotFound' } } });
+      return conn.serverSend({
+        id: request.id,
+        error: { code: -32004, message: 'not found', data: { reason: 'threadNotFound' } },
+      });
     }
     if (method === 'thread/resume') {
       const epoch = `e${++epochs}`;
       epochOf.set(params.threadId, epoch);
-      conn.serverSend({ id: request.id, result: { thread: row(params.threadId), subscription: { id: `s${epochs}`, mode: 'snapshot', epoch, startSeq: 1 } } });
+      conn.serverSend({
+        id: request.id,
+        result: {
+          thread: row(params.threadId),
+          subscription: { id: `s${epochs}`, mode: 'snapshot', epoch, startSeq: 1 },
+        },
+      });
       return conn.serverSend({
         method: 'thread/snapshot',
         params: { thread: row(params.threadId), items, state: { title: 'T' }, hasOlder: false },
         feed: { id: params.threadId, epoch, seq: 1 },
       });
     }
-    if (method === 'thread/read') return conn.serverSend({ id: request.id, result: { thread: row(params.threadId), items: [], state: {}, hasOlder: false } });
+    if (method === 'thread/read')
+      return conn.serverSend({
+        id: request.id,
+        result: { thread: row(params.threadId), items: [], state: {}, hasOlder: false },
+      });
     conn.serverSend({ id: request.id, result: {} });
   };
   const answerHeld = () => {
@@ -127,8 +154,16 @@ const pageOf = (first) => {
 const GONE = (sessionId) => ({ sessionId, snapshot: null, frameSource: 'live', laneEnd: 'gone' });
 const UNLOADED = (sessionId) => ({ sessionId, snapshot: null, frameSource: 'live', laneEnd: 'unloaded' });
 const frame = (conn, c, threadId, title, seq) => {
-  conn.serverSend({ method: 'thread/name/updated', params: { threadId, title }, feed: { id: threadId, epoch: c.epochOf.get(threadId), seq } });
-  conn.serverSend({ method: 'thread/frame', params: { threadId, structureChanged: false }, feed: { id: threadId, epoch: c.epochOf.get(threadId), seq: seq + 1 } });
+  conn.serverSend({
+    method: 'thread/name/updated',
+    params: { threadId, title },
+    feed: { id: threadId, epoch: c.epochOf.get(threadId), seq },
+  });
+  conn.serverSend({
+    method: 'thread/frame',
+    params: { threadId, structureChanged: false },
+    feed: { id: threadId, epoch: c.epochOf.get(threadId), seq: seq + 1 },
+  });
 };
 const shownOf = (seen, threadId) => seen.filter((update) => update.sessionId === threadId);
 
@@ -138,13 +173,21 @@ test("the phone's calls that name no session ask the core for a control thread o
   const adapter = phoneChatAdapter();
   const { host } = pageOf(client);
   // A page load reads its settings in several calls at once, then more later; each call makes its own lane.
-  const reads = [{ capability: 'getAutoClear', args: [] }, { capability: 'getCompactionSettings', args: [] }];
+  const reads = [
+    { capability: 'getAutoClear', args: [] },
+    { capability: 'getCompactionSettings', args: [] },
+  ];
   await Promise.all([adapter.calls.readCapabilities([reads], host), adapter.calls.readCapabilities([reads], host)]);
   await adapter.calls.readCapabilities([reads], host);
   await adapter.calls.setFast([true], host);
   const starts = c.sent.filter((request) => request.method === 'thread/start');
-  assert.deepEqual(starts.map((request) => request.params.kind), ['control']);
-  const addressed = new Set(c.sent.filter((request) => request.params?.threadId).map((request) => request.params.threadId));
+  assert.deepEqual(
+    starts.map((request) => request.params.kind),
+    ['control']
+  );
+  const addressed = new Set(
+    c.sent.filter((request) => request.params?.threadId).map((request) => request.params.threadId)
+  );
   assert.deepEqual([...addressed], ['t1'], 'every call was addressed to that one thread');
   await client.close();
 });
@@ -177,7 +220,14 @@ test('the page is handed each state of a thread the phone follows: its first fol
 test('a large tool result reaches the page bounded with its truncation note, and "show full output" still returns all of it', async () => {
   const c = core();
   const whole = `${'head-'.repeat(2000)}${'x'.repeat(40_000)}-the-end`;
-  c.items.push({ id: 'call1', type: 'toolCall', name: 'read', input: { path: 'a.txt' }, output: whole, meta: { status: 'completed', at: 1 } });
+  c.items.push({
+    id: 'call1',
+    type: 'toolCall',
+    name: 'read',
+    input: { path: 'a.txt' },
+    output: whole,
+    meta: { status: 'completed', at: 1 },
+  });
   const phone = await realClient(c.serve);
   const adapter = phoneChatAdapter();
   const page = pageOf(phone.client);
@@ -206,7 +256,12 @@ test('a thread the core lost while the phone was away ends on the page as gone, 
   c.gone.add('t1');
   await phone.redial();
   await settled();
-  assert.deepEqual(shownOf(page.seen, 't1').at(-1), { sessionId: 't1', snapshot: null, frameSource: 'live', laneEnd: 'gone' });
+  assert.deepEqual(shownOf(page.seen, 't1').at(-1), {
+    sessionId: 't1',
+    snapshot: null,
+    frameSource: 'live',
+    laneEnd: 'gone',
+  });
   assert.equal(shownOf(page.seen, 't1').filter((update) => update.snapshot === null).length, 1);
   // The pane stops following `t2` (the view unsubscribes it, and the page's `setVisibleSessions` settles): its lane ends once,
   // however often the view settles after that.
@@ -263,8 +318,14 @@ test('two pages served at once are each handed their own client threads only', a
   await a.client.resumeThread('ta', { lastItems: 50 });
   await b.client.resumeThread('tb', { lastItems: 50 });
   await settled();
-  assert.deepEqual(pageA.seen.map((update) => update.sessionId), ['ta']);
-  assert.deepEqual(pageB.seen.map((update) => update.sessionId), ['tb']);
+  assert.deepEqual(
+    pageA.seen.map((update) => update.sessionId),
+    ['ta']
+  );
+  assert.deepEqual(
+    pageB.seen.map((update) => update.sessionId),
+    ['tb']
+  );
   // One page's release or close leaves the other page's follower as it was.
   stopA();
   frame(b.conn(), c, 'tb', 'still', 2);
@@ -338,10 +399,17 @@ test('a deletion after an unload still ends the retained lane as gone; a newer f
   await phone.client.resumeThread('t2', { lastItems: 50 });
   await settled();
   page.viewSettled();
-  assert.equal(shownOf(page.seen, 't2').at(-1).laneEnd, undefined, 'the newer follow is not ended by the earlier release');
+  assert.equal(
+    shownOf(page.seen, 't2').at(-1).laneEnd,
+    undefined,
+    'the newer follow is not ended by the earlier release'
+  );
   phone.conn().serverSend({ method: 'thread/deleted', params: { threadId: 't2' } });
   await settled();
-  assert.deepEqual(shownOf(page.seen, 't2').filter((update) => update.snapshot === null), [UNLOADED('t2'), GONE('t2')]);
+  assert.deepEqual(
+    shownOf(page.seen, 't2').filter((update) => update.snapshot === null),
+    [UNLOADED('t2'), GONE('t2')]
+  );
   stop();
   await phone.client.close();
 });
@@ -371,7 +439,11 @@ test("this page's delete ends its client's lane as gone; an answer that arrives 
   c.answerHeld();
   await deleting;
   await settled();
-  assert.deepEqual(shownOf(page.seen, 't5').slice(before), [], "the old client's answer does not end the new client's lane");
+  assert.deepEqual(
+    shownOf(page.seen, 't5').slice(before),
+    [],
+    "the old client's answer does not end the new client's lane"
+  );
   stop();
   await first.client.close();
   await second.client.close();

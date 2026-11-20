@@ -3,7 +3,7 @@ import { IMAGE_TYPES } from './image-types.generated';
 
 // The image media types are the generated table's (a browser-drawn type is served by its extension).
 const IMAGE_MIME_TYPES: Readonly<Record<string, string>> = Object.fromEntries(
-  IMAGE_TYPES.filter((type) => type.browserDraws).map((type) => [type.extension, type.mime]),
+  IMAGE_TYPES.filter((type) => type.browserDraws).map((type) => [type.extension, type.mime])
 );
 
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({

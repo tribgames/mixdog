@@ -13,8 +13,10 @@ export function releaseState(releases, tag) {
   return { state: found[0].draft ? 'draft' : 'public', release: found[0] };
 }
 
-const gh = (args) => execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });
-export const listReleases = (repo) => JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`])).flat();
+const gh = (args) =>
+  execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });
+export const listReleases = (repo) =>
+  JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`])).flat();
 
 /**
  * The hidden draft to fill for a tag at a commit: a public release is refused, one existing draft is resumed only if it names this
@@ -25,13 +27,33 @@ export function stageDraft(releases, tag, ref) {
   const { state, release } = releaseState(releases, tag);
   if (state === 'public') throw new Error(`${tag} is already a public release: it is never restaged`);
   if (state === 'none') return { action: 'create' };
-  if (release.target_commitish !== ref) throw new Error(`the draft ${release.id} of ${tag} targets ${release.target_commitish}, not ${ref}: it is not resumed`);
+  if (release.target_commitish !== ref)
+    throw new Error(
+      `the draft ${release.id} of ${tag} targets ${release.target_commitish}, not ${ref}: it is not resumed`
+    );
   return { action: 'resume', id: release.id };
 }
 
 export function ensureDraft(repo, tag, ref, releases = listReleases(repo)) {
   const decision = stageDraft(releases, tag, ref);
-  return decision.action === 'resume' ? decision.id : JSON.parse(gh(['api', '--method', 'POST', `repos/${repo}/releases`, '-f', `tag_name=${tag}`, '-f', `target_commitish=${ref}`, '-F', 'draft=true', '-F', 'prerelease=false'])).id;
+  return decision.action === 'resume'
+    ? decision.id
+    : JSON.parse(
+        gh([
+          'api',
+          '--method',
+          'POST',
+          `repos/${repo}/releases`,
+          '-f',
+          `tag_name=${tag}`,
+          '-f',
+          `target_commitish=${ref}`,
+          '-F',
+          'draft=true',
+          '-F',
+          'prerelease=false',
+        ])
+      ).id;
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {

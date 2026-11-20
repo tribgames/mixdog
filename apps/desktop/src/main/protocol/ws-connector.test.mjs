@@ -27,7 +27,10 @@ test('a socket the core closes is recorded once, with its code, reason, age and 
   });
   assert.deepEqual(await closed, { code: 4001, reason: 'pingDeadline' });
   await flush();
-  assert.deepEqual(lines.map((l) => l.event), ['core-socket-open', 'core-socket-close']);
+  assert.deepEqual(
+    lines.map((l) => l.event),
+    ['core-socket-open', 'core-socket-close']
+  );
   assert.equal(lines[1].code, 4001);
   assert.equal(lines[1].reason, 'pingDeadline');
   assert.equal(lines[1].initiator, 'core-or-network');
@@ -37,7 +40,7 @@ test('a socket the core closes is recorded once, with its code, reason, age and 
   core.close();
 });
 
-test('a close the desktop asks for is recorded as the desktop\'s, even when the log itself fails', async (t) => {
+test("a close the desktop asks for is recorded as the desktop's, even when the log itself fails", async (t) => {
   t.mock.method(console, 'error', () => {});
   const sockets = [];
   const core = await listener((socket) => sockets.push(socket));
@@ -68,7 +71,10 @@ test('a dial that cannot open is recorded as failed', async (t) => {
   const connector = createWsConnector(async () => ({ url, token: 't' }), log);
   await assert.rejects(connector.open({ id: 'core' }, { frame() {}, closed() {} }));
   await flush();
-  assert.deepEqual(lines.map((l) => l.event), ['core-socket-open-failed']);
+  assert.deepEqual(
+    lines.map((l) => l.event),
+    ['core-socket-open-failed']
+  );
 });
 
 test('progress: a large response is reported while it is still arriving, through the real socket, before the message is whole', async (t) => {
@@ -85,11 +91,14 @@ test('progress: a large response is reported while it is still arriving, through
   });
   const events = [];
   const connector = createWsConnector(async () => ({ url: core.url, token: 't' }), undefined);
-  const writer = await connector.open({ id: 'core' }, {
-    frame: () => events.push('frame'),
-    progress: () => events.push('progress'),
-    closed() {},
-  });
+  const writer = await connector.open(
+    { id: 'core' },
+    {
+      frame: () => events.push('frame'),
+      progress: () => events.push('progress'),
+      closed() {},
+    }
+  );
   writer.send('go');
   await new Promise((resolve) => {
     const timer = setInterval(() => events.includes('frame') && (clearInterval(timer), resolve()), 10);
@@ -135,7 +144,12 @@ test('socket-progress: the real ws library still exposes the raw socket this rel
   await new Promise((resolve, reject) => (client.once('open', resolve), client.once('error', reject)));
   assert.equal(typeof client._socket?.on, 'function', 'ws keeps the net socket it upgraded as _socket');
   let reports = 0;
-  observeSocketProgress(client, () => reports++, () => 0, 0);
+  observeSocketProgress(
+    client,
+    () => reports++,
+    () => 0,
+    0
+  );
   serverSide.send('x'.repeat(100_000));
   await new Promise((resolve) => client.once('message', resolve));
   assert.ok(reports >= 1, 'the bytes of the message were reported by the raw socket');

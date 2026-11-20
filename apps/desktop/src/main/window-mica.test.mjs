@@ -87,16 +87,25 @@ test('the bindings forward to the module and report a refused install', () => {
     uninstall: (hwnd) => calls.push(['uninstall', hwnd]) > 0,
     activate: (hwnd) => calls.push(['activate', hwnd]),
   };
-  const native = nativeMica('lib', (event, details) => reports.push({ event, ...details }), (library) => {
-    assert.equal(library, 'lib');
-    return module;
-  });
+  const native = nativeMica(
+    'lib',
+    (event, details) => reports.push({ event, ...details }),
+    (library) => {
+      assert.equal(library, 'lib');
+      return module;
+    }
+  );
   assert.equal(native.keepActive(7n), true);
   native.activate(7n);
   native.release(7n);
   accept = false;
   assert.equal(native.keepActive(8n), false);
-  assert.deepEqual(calls, [['install', 7n], ['activate', 7n], ['uninstall', 7n], ['install', 8n]]);
+  assert.deepEqual(calls, [
+    ['install', 7n],
+    ['activate', 7n],
+    ['uninstall', 7n],
+    ['install', 8n],
+  ]);
   assert.deepEqual(reports, [{ event: 'mica-native-install-failed', library: 'lib' }]);
 });
 

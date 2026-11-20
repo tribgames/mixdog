@@ -24,7 +24,11 @@ test('a write answer that arrives after a read sent later never replaces the rea
   await readDesktopStatus(api, 'settings');
   // The auto-sign-in write answers last, with the snapshot it produced before that change.
   write.resolve({ browserAutoSignIn: false, saveChatLogins: true });
-  assert.deepEqual(await writing, { browserAutoSignIn: false, saveChatLogins: true }, 'the caller still gets its answer');
+  assert.deepEqual(
+    await writing,
+    { browserAutoSignIn: false, saveChatLogins: true },
+    'the caller still gets its answer'
+  );
   assert.equal(getCachedDesktopStatus(api, 'settings').saveChatLogins, false);
 });
 

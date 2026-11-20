@@ -6,7 +6,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { FIXTURES, checkCoreRecording, harnessHashes, recorderHashes, verifiedFixture } from './remote-protocol-chat-fixtures.mjs';
+import {
+  FIXTURES,
+  checkCoreRecording,
+  harnessHashes,
+  recorderHashes,
+  verifiedFixture,
+} from './remote-protocol-chat-fixtures.mjs';
 
 for (const name of Object.keys(FIXTURES)) {
   test(`${name}: the fixture loads verified against its manifest`, () => {
@@ -50,22 +56,67 @@ test('a core recording is refused unless it binds this recorder, this harness an
   const hex = 'a'.repeat(64);
   const good = () => ({
     manifest: {
-      recorder: recorderHashes('live'), harness: harnessHashes(), binarySha256: hex, builtFrom: { sources: 1, sourceSha256: hex },
-      binary: 'mixdogd.exe', source: 'running mixdogd serve', clientVersion: JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version,
+      recorder: recorderHashes('live'),
+      harness: harnessHashes(),
+      binarySha256: hex,
+      builtFrom: { sources: 1, sourceSha256: hex },
+      binary: 'mixdogd.exe',
+      source: 'running mixdogd serve',
+      clientVersion: JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version,
     },
     projects: { a: 'C:\\mixdog-chat-record\\live-x1\\ws\\a' },
     steps: [{ listed: { data: [{ cwd: '\\\\?\\C:\\mixdog-chat-record\\live-x1\\ws\\a' }] } }],
   });
   checkCoreRecording('live', '01.json', good());
   const refused = {
-    'another recorder': [(m) => { m.manifest.recorder = { ...m.manifest.recorder, 'remote-protocol-chat-live.record.mjs': hex }; }, /another recorder/],
-    'another harness': [(m) => { m.manifest.harness = { ...m.manifest.harness, 'lib/env.mjs': hex }; }, /another public harness/],
-    'no source digest': [(m) => { delete m.manifest.builtFrom; }, /does not bind/],
-    'a path as the binary': [(m) => { m.manifest.binary = 'C:/x/mixdogd.exe'; }, /bare file name/],
-    'another client version': [(m) => { m.manifest.clientVersion = '0.0.0'; }, /another client version/],
-    'a drive path in a raw reply': [(m) => { m.steps[0].listed.data[0].cwd = ['D:', 'elsewhere', 'x'].join('\\'); }, /private path/],
-    'the system temp in a raw reply': [(m) => { m.projects.a = ['C:', 'Users', 'someone', 'AppData', 'Local', 'Temp', 'ws'].join('\\'); }, /private path/],
-    'a UNC path in a key': [(m) => { m.projects['\\\\host\\share\\x'] = 'x'; }, /private path/],
+    'another recorder': [
+      (m) => {
+        m.manifest.recorder = { ...m.manifest.recorder, 'remote-protocol-chat-live.record.mjs': hex };
+      },
+      /another recorder/,
+    ],
+    'another harness': [
+      (m) => {
+        m.manifest.harness = { ...m.manifest.harness, 'lib/env.mjs': hex };
+      },
+      /another public harness/,
+    ],
+    'no source digest': [
+      (m) => {
+        delete m.manifest.builtFrom;
+      },
+      /does not bind/,
+    ],
+    'a path as the binary': [
+      (m) => {
+        m.manifest.binary = 'C:/x/mixdogd.exe';
+      },
+      /bare file name/,
+    ],
+    'another client version': [
+      (m) => {
+        m.manifest.clientVersion = '0.0.0';
+      },
+      /another client version/,
+    ],
+    'a drive path in a raw reply': [
+      (m) => {
+        m.steps[0].listed.data[0].cwd = ['D:', 'elsewhere', 'x'].join('\\');
+      },
+      /private path/,
+    ],
+    'the system temp in a raw reply': [
+      (m) => {
+        m.projects.a = ['C:', 'Users', 'someone', 'AppData', 'Local', 'Temp', 'ws'].join('\\');
+      },
+      /private path/,
+    ],
+    'a UNC path in a key': [
+      (m) => {
+        m.projects['\\\\host\\share\\x'] = 'x';
+      },
+      /private path/,
+    ],
   };
   for (const [kind, [change, message]] of Object.entries(refused)) {
     const m = good();

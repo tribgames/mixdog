@@ -5,7 +5,16 @@ import * as support from './desktop-support.ts';
 import * as shared from '../shared/desktop-transcript-limits.ts';
 
 // Node's own byte count (Buffer.byteLength) is the reference: the web-safe count must be identical for every string.
-const SAMPLES = ['', 'plain', 'héllo wörld', '日本語のテキスト', '😀 pair', 'a\u2028b', '\ud800 lone', 'x'.repeat(1000) + '\u{1F600}'.repeat(50)];
+const SAMPLES = [
+  '',
+  'plain',
+  'héllo wörld',
+  '日本語のテキスト',
+  '😀 pair',
+  'a\u2028b',
+  '\ud800 lone',
+  'x'.repeat(1000) + '\u{1F600}'.repeat(50),
+];
 test('the transcript byte count equals Buffer.byteLength for every kind of text', () => {
   const encoder = new TextEncoder();
   for (const text of SAMPLES) {

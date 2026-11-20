@@ -15,5 +15,3 @@ export function useAutoEffortStatus(fallback?: unknown): RecordValue {
   }, [entry, live]);
   return live;
 }
-
-

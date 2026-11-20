@@ -391,7 +391,10 @@ export function createPowerShellComputerHost(
   return {
     readAuthorization: authorization.read,
     answerBridgeCommand: (command, signal) =>
-      bridge.answerCommand(command, switchEndpoint(signal, () => bridgeWanted && !disposed)),
+      bridge.answerCommand(
+        command,
+        switchEndpoint(signal, () => bridgeWanted && !disposed)
+      ),
     answerScopedCommand: bridge.answerCommand,
     updateAuthorization: authorization.update,
     authorizationWindows: authorization.windows,

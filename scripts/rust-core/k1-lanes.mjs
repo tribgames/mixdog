@@ -23,25 +23,74 @@ const CORE = resolve(dirname(fileURLToPath(import.meta.url)), '../../native/core
 // `compact` used to select compact_handoff and compact_summary: those modules are cfg(node_twin) (they compare with the
 // Node recording), so the lane keeps the compaction tests that run in a clean checkout.
 export const LANES = {
-  'shell-direct-exe': { replaces: 'scripts/suite-shell-direct-exe-test.mjs', pkg: 'mixdog-tools', filters: ['exec::direct::tests'] },
-  'advisory-lock': { replaces: 'advisory-lock.slow.test.mjs (release-gate runtime-slow)', pkg: 'mixdog-tools', filters: ['the_advisory_lock_waits_for_a_live_holder', 'edit_and_apply_patch_wait_for_the_advisory_lock'] },
-  'patch-bytes': { replaces: 'scripts/native-edit-wire-test.mjs, scripts/patch-replay.mjs', pkg: 'mixdog-tools', filters: ['fs::tests'] },
-  'provider-contract': { replaces: 'scripts/provider-contract-test.mjs, provider-stream-outcome-test.mjs, cursor-provider-test.mjs, openai-codex-identity.test.mjs, openai-ws-delta-parity.test.mjs', pkg: 'mixdog-ai', filters: [] },
-  'daemon-bootstrap': { replaces: 'scripts/daemon-bootstrap-test.mjs, src/standalone/session-runtime-inline-host.test.mjs', pkg: 'mixdog-app-server-daemon', filters: ['boot_coordinator', 'server_ensure::tests::a_run_that_meets_a_live_install_before_its_core_is_published', 'server_ensure::tests::a_published_core_that_does_not_answer', 'server_ensure::tests::a_core_that_accepts_the_probe_and_stays_silent', 'server_ensure::tests::a_core_that_answers_slowly_within_the_idle_limit', 'server_ensure::tests::a_core_that_accepts_the_stop_and_stays_silent', 'server_ensure::tests::a_core_that_answers_the_stop_slowly_within_the_stop_limit', 'server_ensure::tests::a_core_that_accepts_the_hold_and_stays_silent'] },
+  'shell-direct-exe': {
+    replaces: 'scripts/suite-shell-direct-exe-test.mjs',
+    pkg: 'mixdog-tools',
+    filters: ['exec::direct::tests'],
+  },
+  'advisory-lock': {
+    replaces: 'advisory-lock.slow.test.mjs (release-gate runtime-slow)',
+    pkg: 'mixdog-tools',
+    filters: ['the_advisory_lock_waits_for_a_live_holder', 'edit_and_apply_patch_wait_for_the_advisory_lock'],
+  },
+  'patch-bytes': {
+    replaces: 'scripts/native-edit-wire-test.mjs, scripts/patch-replay.mjs',
+    pkg: 'mixdog-tools',
+    filters: ['fs::tests'],
+  },
+  'provider-contract': {
+    replaces:
+      'scripts/provider-contract-test.mjs, provider-stream-outcome-test.mjs, cursor-provider-test.mjs, openai-codex-identity.test.mjs, openai-ws-delta-parity.test.mjs',
+    pkg: 'mixdog-ai',
+    filters: [],
+  },
+  'daemon-bootstrap': {
+    replaces: 'scripts/daemon-bootstrap-test.mjs, src/standalone/session-runtime-inline-host.test.mjs',
+    pkg: 'mixdog-app-server-daemon',
+    filters: [
+      'boot_coordinator',
+      'server_ensure::tests::a_run_that_meets_a_live_install_before_its_core_is_published',
+      'server_ensure::tests::a_published_core_that_does_not_answer',
+      'server_ensure::tests::a_core_that_accepts_the_probe_and_stays_silent',
+      'server_ensure::tests::a_core_that_answers_slowly_within_the_idle_limit',
+      'server_ensure::tests::a_core_that_accepts_the_stop_and_stays_silent',
+      'server_ensure::tests::a_core_that_answers_the_stop_slowly_within_the_stop_limit',
+      'server_ensure::tests::a_core_that_accepts_the_hold_and_stays_silent',
+    ],
+  },
   'native-assets': {
-    replaces: 'scripts/prepare-native-assets.mjs, scripts/prepare-native-assets-test.mjs (fetch + verify of the native tool binaries)',
+    replaces:
+      'scripts/prepare-native-assets.mjs, scripts/prepare-native-assets-test.mjs (fetch + verify of the native tool binaries)',
     pkg: 'mixdog-services',
     filters: ['native_asset::tests'],
-    unproven: "the npm postinstall's all-or-nothing staging of graph, patch, spawn and supervisor into the package's tools directory: the Rust product has no such step (the desktop stages mixdogd; the graph binary is fetched on first use, and a failed fetch leaves no file: download-fails, bad-checksum)",
+    unproven:
+      "the npm postinstall's all-or-nothing staging of graph, patch, spawn and supervisor into the package's tools directory: the Rust product has no such step (the desktop stages mixdogd; the graph binary is fetched on first use, and a failed fetch leaves no file: download-fails, bad-checksum)",
   },
-  'compact': {
-    replaces: 'scripts/compact-smoke.mjs (a fresh session compacts, the commit and marker rows are written, pressure and images are handled)',
+  compact: {
+    replaces:
+      'scripts/compact-smoke.mjs (a fresh session compacts, the commit and marker rows are written, pressure and images are handled)',
     pkg: 'mixdog-agent',
-    filters: ['compact_fresh', 'compact_commit', 'compact_session', 'compact_marker', 'compact_pressure', 'compact_image'],
-    unproven: 'the handoff and summary wording (compact_handoff, compact_summary): they assert the Node recording byte for byte and are compiled only with --cfg node_twin',
+    filters: [
+      'compact_fresh',
+      'compact_commit',
+      'compact_session',
+      'compact_marker',
+      'compact_pressure',
+      'compact_image',
+    ],
+    unproven:
+      'the handoff and summary wording (compact_handoff, compact_summary): they assert the Node recording byte for byte and are compiled only with --cfg node_twin',
   },
-  'turn-contract': { replaces: 'scripts/run-advisory-spec.mjs (runtime-turn-contract-test.mjs)', pkg: 'mixdog-agent', filters: ['run_loop', 'turns::'] },
-  'request-snapshot': { replaces: 'benchmarks/terminal-bench-2.1/analysis/contract-hash.mjs', pkg: 'mixdog-core', filters: ['run_host::request_snapshot'] },
+  'turn-contract': {
+    replaces: 'scripts/run-advisory-spec.mjs (runtime-turn-contract-test.mjs)',
+    pkg: 'mixdog-agent',
+    filters: ['run_loop', 'turns::'],
+  },
+  'request-snapshot': {
+    replaces: 'benchmarks/terminal-bench-2.1/analysis/contract-hash.mjs',
+    pkg: 'mixdog-core',
+    filters: ['run_host::request_snapshot'],
+  },
 };
 
 /** One cargo run of `lane` for one libtest filter (cargo takes a single filter per run). */
@@ -58,10 +107,21 @@ const DEADLINE_MS = 3_600_000;
 const CHILD_ENV = { ...process.env, MIXDOG_SKIP_USER_DATA_BACKUP: '1' };
 
 /** One cargo command of a lane, to its exit, under the deadline; `label` names the lane and the step in a failure. */
-export function runChild(program, args, { label = `${program} ${args.join(' ')}`, cwd = CORE, deadlineMs = DEADLINE_MS, inherit = false } = {}) {
+export function runChild(
+  program,
+  args,
+  { label = `${program} ${args.join(' ')}`, cwd = CORE, deadlineMs = DEADLINE_MS, inherit = false } = {}
+) {
   // MIXDOG_CARGO is a command line (a program with its own arguments), which only a shell splits.
   const gate = program === 'cargo' ? process.env.MIXDOG_CARGO : undefined;
-  return runTree(gate || program, args, { label, cwd, env: CHILD_ENV, deadlineMs, inherit, shell: Boolean(gate) || (SHELL && program === 'cargo') });
+  return runTree(gate || program, args, {
+    label,
+    cwd,
+    env: CHILD_ENV,
+    deadlineMs,
+    inherit,
+    shell: Boolean(gate) || (SHELL && program === 'cargo'),
+  });
 }
 
 /** The test binaries in the output of `cargo test --no-run --message-format=json` (its `compiler-artifact` messages). */
@@ -79,9 +139,15 @@ export function testBinariesOf(buildStdout) {
  * are left out, so a filter whose only match is ignored selects nothing.
  */
 export function testsOfList(listStdout, ignoredStdout, srcPath) {
-  const names = (stdout) => stdout.split(/\r?\n/).filter((line) => line.endsWith(': test')).map((line) => line.slice(0, -': test'.length));
+  const names = (stdout) =>
+    stdout
+      .split(/\r?\n/)
+      .filter((line) => line.endsWith(': test'))
+      .map((line) => line.slice(0, -': test'.length));
   const ignored = new Set(names(ignoredStdout));
-  return names(listStdout).filter((name) => !ignored.has(name)).map((name) => ({ name, srcPath }));
+  return names(listStdout)
+    .filter((name) => !ignored.has(name))
+    .map((name) => ({ name, srcPath }));
 }
 /**
  * The tests one lane filter selects that the run will run, each with the test binary (its source path) that holds it.
@@ -93,13 +159,24 @@ export function testsOfList(listStdout, ignoredStdout, srcPath) {
  */
 export async function selectedTests(lane, filter = null, { pkg = LANES[lane].pkg, ...options } = {}) {
   const label = `lane ${lane} (filter ${filter ?? '(all)'}, preflight listing)`;
-  const build = await runChild('cargo', ['test', '-p', pkg, '--locked', '--no-run', '--message-format=json'], { label: `${label} build`, ...options });
-  if (build.status !== 0) throw new Error(`cargo test --no-run failed for lane ${lane} (filter ${filter ?? '(all)'})\n${build.stderr}`);
+  const build = await runChild('cargo', ['test', '-p', pkg, '--locked', '--no-run', '--message-format=json'], {
+    label: `${label} build`,
+    ...options,
+  });
+  if (build.status !== 0)
+    throw new Error(`cargo test --no-run failed for lane ${lane} (filter ${filter ?? '(all)'})\n${build.stderr}`);
   const selected = [];
   for (const binary of testBinariesOf(build.stdout)) {
     const list = async (...mode) => {
-      const listed = await runChild(binary.executable, ['--list', ...mode, ...(filter ? [filter] : [])], { label: `${label} of ${binary.target.name}`, cwd: dirname(binary.manifest_path), ...options });
-      if (listed.status !== 0) throw new Error(`${binary.target.name} --list ${mode.join(' ')} failed for lane ${lane} (filter ${filter ?? '(all)'})\n${listed.stderr}`);
+      const listed = await runChild(binary.executable, ['--list', ...mode, ...(filter ? [filter] : [])], {
+        label: `${label} of ${binary.target.name}`,
+        cwd: dirname(binary.manifest_path),
+        ...options,
+      });
+      if (listed.status !== 0)
+        throw new Error(
+          `${binary.target.name} --list ${mode.join(' ')} failed for lane ${lane} (filter ${filter ?? '(all)'})\n${listed.stderr}`
+        );
       return listed.stdout;
     };
     selected.push(...testsOfList(await list(), await list('--ignored'), binary.target.src_path));
@@ -171,7 +248,8 @@ export function isInstalledBy(file, { name, srcPath }) {
 }
 
 /** The installing tests among the selected `tests` (`{ name, srcPath }`), decided by the binary each is in. */
-export const installersIn = (tests) => tests.filter((test) => BACKEND_INSTALLERS.some((file) => isInstalledBy(file, test)));
+export const installersIn = (tests) =>
+  tests.filter((test) => BACKEND_INSTALLERS.some((file) => isInstalledBy(file, test)));
 
 /** The command line: lane names (positional), `--runner <cmd>`, `--list`, `--dry-run`. */
 export function parseArgs(argv) {
@@ -192,9 +270,11 @@ export function parseArgs(argv) {
 
 async function main(argv) {
   const { runner, list, dryRun, names } = parseArgs(argv);
-  for (const name of names) if (!Object.hasOwn(LANES, name)) throw new Error(`unknown lane ${name}; known: ${Object.keys(LANES).join(', ')}`);
+  for (const name of names)
+    if (!Object.hasOwn(LANES, name)) throw new Error(`unknown lane ${name}; known: ${Object.keys(LANES).join(', ')}`);
   if (list) {
-    for (const [name, lane] of Object.entries(LANES)) console.log(`${name}\t${lane.replaces}${lane.unproven ? `\tunproven: ${lane.unproven}` : ''}`);
+    for (const [name, lane] of Object.entries(LANES))
+      console.log(`${name}\t${lane.replaces}${lane.unproven ? `\tunproven: ${lane.unproven}` : ''}`);
     return 0;
   }
   const selected = names.length ? names : Object.keys(LANES);
@@ -208,20 +288,28 @@ async function main(argv) {
       }
       const selectedNames = await selectedTests(name, filter);
       if (selectedNames.length === 0) {
-        console.error(`lane ${name}: filter ${filter ?? '(all)'} selects no test that runs (ignored tests are not counted)`);
+        console.error(
+          `lane ${name}: filter ${filter ?? '(all)'} selects no test that runs (ignored tests are not counted)`
+        );
         return 1;
       }
       const installers = installersIn(selectedNames);
       if (installers.length && !runner.includes('nextest')) {
-        console.error(`lane ${name}: filter ${filter ?? '(all)'} selects tests that install an executor backend of their own (${installers.slice(0, 3).join(', ')}), which only pass in a process each: run the lane with --runner "cargo nextest run"`);
+        console.error(
+          `lane ${name}: filter ${filter ?? '(all)'} selects tests that install an executor backend of their own (${installers.slice(0, 3).join(', ')}), which only pass in a process each: run the lane with --runner "cargo nextest run"`
+        );
         return 1;
       }
       console.log(`== ${name}: ${run.program} ${run.args.join(' ')}  (${selectedNames.length} tests)`);
-      const result = await runChild(run.program, run.args, { label: `lane ${name} (filter ${filter ?? '(all)'})`, inherit: true });
+      const result = await runChild(run.program, run.args, {
+        label: `lane ${name} (filter ${filter ?? '(all)'})`,
+        inherit: true,
+      });
       if (result.status !== 0) return result.status ?? 1;
     }
   }
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main(process.argv.slice(2));
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))
+  process.exitCode = await main(process.argv.slice(2));

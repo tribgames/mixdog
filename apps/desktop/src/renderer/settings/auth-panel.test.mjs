@@ -527,7 +527,7 @@ test('automatic cookie import shows the bound profile as missing instead of subs
   };
   const dom = await mount(t, api);
   const doc = dom.window.document;
-  assert.ok(doc.body.textContent.includes('Profile 1 (profile not found)'), 'the runs\' target is named, as missing');
+  assert.ok(doc.body.textContent.includes('Profile 1 (profile not found)'), "the runs' target is named, as missing");
   assert.ok(!/\bMe\b/.test(doc.body.textContent), 'the first listed profile is not shown in its place');
 });
 

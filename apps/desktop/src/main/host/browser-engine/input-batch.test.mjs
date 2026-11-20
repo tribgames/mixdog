@@ -61,11 +61,18 @@ function harness({ script, guardVerdict = { blocked: false }, stateOverride, eva
   };
   registerInputBatch(connection, ctx);
   const call = (params, signal = new AbortController().signal) =>
-    handlers.get(METHOD)({ pageId: 'p1', stopOnDialog: true, timeoutMs: 0, expect: { documentId: 'p1:1' }, ...params }, signal);
+    handlers.get(METHOD)(
+      { pageId: 'p1', stopOnDialog: true, timeoutMs: 0, expect: { documentId: 'p1:1' }, ...params },
+      signal
+    );
   return { call, sent, state };
 }
 
-const keys = (sent) => sent.filter((event) => event.type === 'keyDown').map((event) => event.key).join('');
+const keys = (sent) =>
+  sent
+    .filter((event) => event.type === 'keyDown')
+    .map((event) => event.key)
+    .join('');
 
 test('a dialog stops the batch: the keys after it are never sent', async () => {
   const h = harness({ script: (event) => (event.type === 'keyDown' && event.key === 'c' ? 'dialog' : undefined) });
@@ -78,7 +85,10 @@ test('a dialog stops the batch: the keys after it are never sent', async () => {
   assert.equal(keys(h.sent), 'abc');
   assert.equal(result.outcome, 'dialog');
   assert.equal(result.completedSteps, 0);
-  assert.equal(h.sent.some((event) => event.key === 'Enter'), false);
+  assert.equal(
+    h.sent.some((event) => event.key === 'Enter'),
+    false
+  );
   assert.equal(result.facts.pageId, 'p1');
 });
 
@@ -91,10 +101,19 @@ test('a dialog already open stops the batch before anything is sent', async () =
 
 test('stopOnDialog false lets the remaining steps run', async () => {
   const h = harness({ script: (event) => (event.type === 'rawKeyDown' && event.key === 'a' ? 'dialog' : undefined) });
-  const result = await h.call({ stopOnDialog: false, steps: [{ op: 'press', key: 'a' }, { op: 'press', key: 'b' }] });
+  const result = await h.call({
+    stopOnDialog: false,
+    steps: [
+      { op: 'press', key: 'a' },
+      { op: 'press', key: 'b' },
+    ],
+  });
   assert.equal(result.outcome, 'completed');
   assert.equal(result.completedSteps, 2);
-  assert.equal(h.sent.some((event) => event.key === 'b'), true);
+  assert.equal(
+    h.sent.some((event) => event.key === 'b'),
+    true
+  );
 });
 
 test('a cancel in the middle of the batch reports how far it got', async () => {
@@ -105,7 +124,13 @@ test('a cancel in the middle of the batch reports how far it got', async () => {
     },
   });
   const result = await h.call(
-    { steps: [{ op: 'type', text: 'ab' }, { op: 'type', text: 'cd' }, { op: 'press', key: 'Enter' }] },
+    {
+      steps: [
+        { op: 'type', text: 'ab' },
+        { op: 'type', text: 'cd' },
+        { op: 'press', key: 'Enter' },
+      ],
+    },
     controller.signal
   );
   assert.equal(result.outcome, 'cancelled');
@@ -116,7 +141,15 @@ test('a cancel in the middle of the batch reports how far it got', async () => {
 test('a person taking the page (abort reason -32012) is outcome userInput', async () => {
   const controller = new AbortController();
   const h = harness({ script: () => controller.abort(new HostRpcError(-32012, 'the person holds the page')) });
-  const result = await h.call({ steps: [{ op: 'press', key: 'a' }, { op: 'press', key: 'b' }] }, controller.signal);
+  const result = await h.call(
+    {
+      steps: [
+        { op: 'press', key: 'a' },
+        { op: 'press', key: 'b' },
+      ],
+    },
+    controller.signal
+  );
   assert.equal(result.outcome, 'userInput');
   assert.equal(result.completedSteps, 0);
 });
@@ -127,7 +160,10 @@ test('a hit guard that did not hit its element is outcome hitGuard and the step 
   const result = await h.call({ steps: [step, { op: 'press', key: 'Enter' }] });
   assert.equal(result.outcome, 'hitGuard');
   assert.equal(result.completedSteps, 0);
-  assert.equal(h.sent.some((event) => event.key === 'Enter'), false);
+  assert.equal(
+    h.sent.some((event) => event.key === 'Enter'),
+    false
+  );
   const clean = await harness().call({ steps: [step] });
   assert.deepEqual([clean.outcome, clean.completedSteps], ['completed', 1]);
 });
@@ -144,18 +180,32 @@ test('expect is checked again right before a pointer press', async () => {
   await assert.rejects(
     h.call({
       expect: { documentId: 'p1:1' },
-      steps: [{ op: 'press', key: 'a' }, { op: 'pointer', kind: 'click', x: 5, y: 5 }],
+      steps: [
+        { op: 'press', key: 'a' },
+        { op: 'pointer', kind: 'click', x: 5, y: 5 },
+      ],
     }),
     (e) => e.code === -32010 && e.data.reason === 'document'
   );
-  assert.equal(h.sent.some((event) => event.type === 'mousePressed'), false);
+  assert.equal(
+    h.sent.some((event) => event.type === 'mousePressed'),
+    false
+  );
 });
 
 test('non-ASCII text goes in by insertText per character, ASCII by key events, and the counts are reported', async () => {
   const h = harness();
-  const result = await h.call({ steps: [{ op: 'type', text: 'a한' }, { op: 'insertText', text: 'x' }, { op: 'pointer', kind: 'click', x: 3, y: 4 }] });
+  const result = await h.call({
+    steps: [
+      { op: 'type', text: 'a한' },
+      { op: 'insertText', text: 'x' },
+      { op: 'pointer', kind: 'click', x: 3, y: 4 },
+    ],
+  });
   assert.deepEqual(
-    h.sent.map((event) => event.method + (event.text ? `:${event.text}` : '')).filter((entry) => entry.startsWith('Input.insertText')),
+    h.sent
+      .map((event) => event.method + (event.text ? `:${event.text}` : ''))
+      .filter((entry) => entry.startsWith('Input.insertText')),
     ['Input.insertText:한', 'Input.insertText:x']
   );
   assert.equal(result.timing.keyEvents, 4);
@@ -173,7 +223,14 @@ test('down, move and up carry the held button, and a malformed step is -32602', 
       { op: 'pointer', kind: 'up', x: 9, y: 9 },
     ],
   });
-  assert.deepEqual(h.sent.map((event) => [event.type, event.buttons]), [['mousePressed', 1], ['mouseMoved', 1], ['mouseReleased', 0]]);
+  assert.deepEqual(
+    h.sent.map((event) => [event.type, event.buttons]),
+    [
+      ['mousePressed', 1],
+      ['mouseMoved', 1],
+      ['mouseReleased', 0],
+    ]
+  );
   await assert.rejects(h.call({ steps: [{ op: 'pointer', kind: 'dragTo', x: 1, y: 1 }] }), (e) => e.code === -32602);
   await assert.rejects(h.call({ steps: [{ op: 'swipe' }] }), (e) => e.code === -32602);
 });
@@ -205,7 +262,10 @@ test('ControlOrMeta is the shortcut modifier of the host machine', async () => {
 
 test('a batch bound to no state is refused as document in engine mode, and nothing is sent', async () => {
   const h = harness();
-  await assert.rejects(h.call({ steps: [{ op: 'press', key: 'Enter' }], expect: undefined }), (e) => e.code === -32010 && e.data.reason === 'document');
+  await assert.rejects(
+    h.call({ steps: [{ op: 'press', key: 'Enter' }], expect: undefined }),
+    (e) => e.code === -32010 && e.data.reason === 'document'
+  );
   assert.equal(h.sent.length, 0);
 });
 

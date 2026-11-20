@@ -328,7 +328,6 @@ test('detectPublished retries API errors with backoff, recovers, and otherwise f
   assert.deepEqual(sleeps, [10, 20, 40]);
 });
 
-
 test('npm checks all published platform packages and reports a missing native package even when the launcher is published', async () => {
   const requested = [];
   const problems = await waitForNpmPackages({
@@ -342,7 +341,12 @@ test('npm checks all published platform packages and reports a missing native pa
     },
   });
   assert.deepEqual(requested.map((url) => new URL(url).pathname.split('/')[1]).sort(), [
-    'mixdog', 'mixdog-darwin-arm64', 'mixdog-darwin-x64', 'mixdog-linux-arm64', 'mixdog-linux-x64', 'mixdog-win32-x64',
+    'mixdog',
+    'mixdog-darwin-arm64',
+    'mixdog-darwin-x64',
+    'mixdog-linux-arm64',
+    'mixdog-linux-x64',
+    'mixdog-win32-x64',
   ]);
   assert.equal(problems.length, 1);
   assert.match(problems[0], /mixdog-linux-arm64@1\.2\.3 not resolvable/);

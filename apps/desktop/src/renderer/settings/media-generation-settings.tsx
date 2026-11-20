@@ -120,7 +120,9 @@ export function useMediaGeneration(api: StudioApi | undefined, active: boolean):
       }
       if (!withAccounts) return;
       const providers = [
-        ...new Set(rows.filter((lane) => lane.authType === 'oauth' && lane.authenticated).map((lane) => lane.authProvider)),
+        ...new Set(
+          rows.filter((lane) => lane.authType === 'oauth' && lane.authenticated).map((lane) => lane.authProvider)
+        ),
       ];
       await Promise.all(
         providers.map(async (provider) => {

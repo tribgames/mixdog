@@ -129,7 +129,12 @@ async function shellFirst(request) {
   );
   // An explicit reload is the version-refusal recovery. Don't answer it
   // with the same cached client while the matching release is fetched.
-  if (request.cache !== 'reload' && request.cache !== 'no-cache' && hit && (await shellAssetsReady(cachedBody, key).catch(() => false))) {
+  if (
+    request.cache !== 'reload' &&
+    request.cache !== 'no-cache' &&
+    hit &&
+    (await shellAssetsReady(cachedBody, key).catch(() => false))
+  ) {
     return { response: hit, maintenance: settled };
   }
   const result = await settled;

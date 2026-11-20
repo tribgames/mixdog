@@ -164,9 +164,10 @@ async function mountCard(sessionId) {
   const buttons = () => [...host.querySelectorAll('.approval-prompt .approval-buttons .approval-button')];
   return { show, buttons, host, done: () => act(async () => root.unmount()) };
 }
-const click = (node) => act(async () => node.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 1 })));
+const click = (node) =>
+  act(async () => node.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 1 })));
 
-test('after a refusal the core did not confirm, the card shows the client\'s current truth: gone when no longer held', async () => {
+test("after a refusal the core did not confirm, the card shows the client's current truth: gone when no longer held", async () => {
   answer = async () => false;
   const ui = await mountCard('s1');
   try {

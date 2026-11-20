@@ -50,10 +50,13 @@ export function registerNotificationHost(connection: HostConnection, presenter: 
   });
   // What Node's `notificationStatus` host method answered (main/index.ts at b6f10295a): paired devices hold their pushes
   // while this PC is in use.
-  connection.handleRequest(HOST_METHOD.notificationStatus, async (): Promise<HostNotificationStatus> => ({
-    supported: presenter.isSupported(),
-    idleSeconds: presenter.idleSeconds(),
-  }));
+  connection.handleRequest(
+    HOST_METHOD.notificationStatus,
+    async (): Promise<HostNotificationStatus> => ({
+      supported: presenter.isSupported(),
+      idleSeconds: presenter.idleSeconds(),
+    })
+  );
   connection.handleNotification(HOST_METHOD.notificationShow, (params) => {
     const { title, body, threadId, connectionId, sound, volume } = objectParams<HostNotificationShowParams>(
       params,
@@ -70,7 +73,8 @@ export function registerNotificationHost(connection: HostConnection, presenter: 
     // here can only suppress presentation; throwing cannot become the request's result.
     if (!presenter.isSupported()) return report('suppressed', { reason: 'unsupported' });
     // This PC's own overlay shows the session: what the main window shows is the core's screen set, this one is the host's.
-    if (thread && !server && presenter.showsThread?.(thread)) return report('suppressed', { reason: 'foreground-visible' });
+    if (thread && !server && presenter.showsThread?.(thread))
+      return report('suppressed', { reason: 'foreground-visible' });
     let notification: Pick<Notification, 'on' | 'show' | 'close'>;
     try {
       notification = presenter.createNotification({
@@ -102,7 +106,9 @@ export function registerNotificationHost(connection: HostConnection, presenter: 
       void presenter
         .playSound?.(typeof volume === 'number' ? volume : undefined)
         .then((result) => report('sound', { result }))
-        .catch((error: unknown) => report('sound-failed', { error: error instanceof Error ? error.message : String(error) }));
+        .catch((error: unknown) =>
+          report('sound-failed', { error: error instanceof Error ? error.message : String(error) })
+        );
     });
     notification.on('close', () => report('closed'));
     notification.on('failed', (_event: unknown, error: unknown) => report('failed', { error }));

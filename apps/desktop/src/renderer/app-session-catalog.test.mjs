@@ -111,8 +111,18 @@ test('a first page adds and updates rows but never removes the cached ones; the 
   window.localStorage.clear();
   const row = (id, title = id) => ({ id, title, preview: 'p', archived: false });
   writeCachedSessionCatalog([row('a'), row('z', 'cached later page')]);
-  const answers = [markPartialCatalog([row('a', 'fresh'), row('b')]), new Error('connection lost'), [row('a', 'fresh'), row('b'), row('z')]];
-  window.mixdogDesktop = { listSessions: async () => { const next = answers.shift(); if (next instanceof Error) throw next; return next; } };
+  const answers = [
+    markPartialCatalog([row('a', 'fresh'), row('b')]),
+    new Error('connection lost'),
+    [row('a', 'fresh'), row('b'), row('z')],
+  ];
+  window.mixdogDesktop = {
+    listSessions: async () => {
+      const next = answers.shift();
+      if (next instanceof Error) throw next;
+      return next;
+    },
+  };
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);

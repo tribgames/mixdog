@@ -15,18 +15,27 @@ const settle = async () => {
   for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
 };
 
-test('a call of one group waits in the connection\'s queue behind an unfinished call of another group', async () => {
+test("a call of one group waits in the connection's queue behind an unfinished call of another group", async () => {
   const connected = Promise.withResolvers();
   const synced = Promise.withResolvers();
   const release = Promise.withResolvers();
   const log = [];
-  const chat = { group: 'chat', calls: { renameSession: async () => (log.push('rename started'), await release.promise, log.push('rename done')) } };
+  const chat = {
+    group: 'chat',
+    calls: { renameSession: async () => (log.push('rename started'), await release.promise, log.push('rename done')) },
+  };
   const host = {
     ctx: { phone: { start: () => connected.promise, synced: () => synced.promise } },
     client: () => ({ call: async (method) => (log.push(method), {}), notify() {} }),
     declareLane() {},
   };
-  const router = createProtocolRouter([filesAdapter, terminalAdapter, chat], { host, started: () => connected.promise, synced: () => synced.promise, probe() {}, silentSince: () => false });
+  const router = createProtocolRouter([filesAdapter, terminalAdapter, chat], {
+    host,
+    started: () => connected.promise,
+    synced: () => synced.promise,
+    probe() {},
+    silentSince: () => false,
+  });
   connected.resolve();
   synced.resolve();
   const first = router.call('renameSession', ['s1', 'x']);
@@ -54,14 +63,23 @@ test('keystrokes and resizes go out once the connection is up, without waiting f
     }),
     declareLane() {},
   };
-  const router = createProtocolRouter([terminalAdapter], { host, started: () => connected.promise, synced: () => synced.promise, probe() {}, silentSince: () => false });
+  const router = createProtocolRouter([terminalAdapter], {
+    host,
+    started: () => connected.promise,
+    synced: () => synced.promise,
+    probe() {},
+    silentSince: () => false,
+  });
   router.fire('termWrite', ['t', 'x']);
   router.fire('termResize', ['t', 80, 24, true]);
   log.push('connection up');
   connected.resolve();
-  await bounded(delivered.promise, 'both terminal calls to be sent once the connection is up, with the view sync still unfinished', 10_000);
+  await bounded(
+    delivered.promise,
+    'both terminal calls to be sent once the connection is up, with the view sync still unfinished',
+    10_000
+  );
   // Node's fire waits for the connection and sends (remote-shim-calls.ts:354); the core's frame names are the spec table's, so there is no
   // Node output of these entries to record: the order is the assertion (the lane's own order is recorded in phone-order/golden.json).
   assert.deepEqual(log, ['connection up', 'terminal/input', 'terminal/resize']);
 });
-

@@ -58,7 +58,10 @@ const buildFixture = () =>
           name: 'worker-stub',
           setup(builder) {
             builder.onResolve({ filter: /\?worker$/ }, (args) => ({ path: args.path, namespace: 'worker-stub' }));
-            builder.onLoad({ filter: /.*/, namespace: 'worker-stub' }, () => ({ contents: 'export default class {};', loader: 'js' }));
+            builder.onLoad({ filter: /.*/, namespace: 'worker-stub' }, () => ({
+              contents: 'export default class {};',
+              loader: 'js',
+            }));
           },
         },
       ],
@@ -67,7 +70,8 @@ const buildFixture = () =>
       stdin: {
         resolveDir,
         loader: 'css',
-        contents: '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";',
+        contents:
+          '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";',
       },
       outfile: 'agent-chat-band-stability.css',
       bundle: true,
@@ -112,7 +116,10 @@ for (const [label, viewport] of [
     const { short, long, deciding } = sizes;
     assert.ok(Math.abs(long.band - short.band) <= 0.5, `long name band ${long.band}px vs ${short.band}px`);
     assert.ok(Math.abs(deciding.band - short.band) <= 0.5, `hand-off band ${deciding.band}px vs ${short.band}px`);
-    assert.ok(Math.abs(long.name - short.name) <= 0.5 && Math.abs(deciding.name - short.name) <= 0.5, 'one name line each');
+    assert.ok(
+      Math.abs(long.name - short.name) <= 0.5 && Math.abs(deciding.name - short.name) <= 0.5,
+      'one name line each'
+    );
     assert.ok(short.name > 0, 'the name line has height');
     // The long name is cut, not wrapped, and stays whole for hover and assistive technology.
     assert.equal(long.clipped, true);

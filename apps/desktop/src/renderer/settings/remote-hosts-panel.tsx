@@ -25,10 +25,15 @@ export function useRemoteHosts(api: CapabilityApi): { hosts: DesktopRemoteHost[]
     const list = api.listRemoteHosts;
     if (!list) return undefined;
     let live = true;
-    const recovery = startSettingsReadRecovery(async (signal) => {
-      const next = await list();
-      if (live && !signal.aborted && next) setHosts(next);
-    }, 10_000, true, true);
+    const recovery = startSettingsReadRecovery(
+      async (signal) => {
+        const next = await list();
+        if (live && !signal.aborted && next) setHosts(next);
+      },
+      10_000,
+      true,
+      true
+    );
     recoveryRef.current = recovery.replace;
     const stopLink = followSettingsReadConnection(window.mixdogDesktop, recovery);
     const unsubscribe = api.subscribeHostListsChanged?.(refresh);

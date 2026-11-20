@@ -24,7 +24,8 @@ const observedOf = (record, platform, slot) => ({
   id: record.id,
   platform,
   slot,
-  kind: record.status === 'ignored' ? 'ignored' : record.status === 'todo' || record.status === 'xfail' ? 'todo' : 'skip',
+  kind:
+    record.status === 'ignored' ? 'ignored' : record.status === 'todo' || record.status === 'xfail' ? 'todo' : 'skip',
   reasonCode: record.reasonCode ?? 'uncoded',
   reasonText: record.reasonText ?? '',
 });
@@ -41,18 +42,25 @@ export function receiptsProblems(paths, exceptions, platform = process.platform,
     }
     for (const text of receiptProblems(receipt)) problems.push(`${path}: the receipt ${text}`);
     if (receipt.id) {
-      if (ids.has(receipt.id)) problems.push(`${path}: the receipt id ${receipt.id} is also the id of ${ids.get(receipt.id)}: a receipt is not reused`);
+      if (ids.has(receipt.id))
+        problems.push(
+          `${path}: the receipt id ${receipt.id} is also the id of ${ids.get(receipt.id)}: a receipt is not reused`
+        );
       else ids.set(receipt.id, path);
     }
-    if (receipt.platform && receipt.platform !== platform) problems.push(`${path}: the receipt is from ${receipt.platform}, this check runs on ${platform}`);
+    if (receipt.platform && receipt.platform !== platform)
+      problems.push(`${path}: the receipt is from ${receipt.platform}, this check runs on ${platform}`);
     for (const record of receipt.records ?? []) {
-      if (record.status === 'fail' || record.status === 'cancelled') problems.push(`${path}: ${JSON.stringify(record.id)} ${record.status}`);
+      if (record.status === 'fail' || record.status === 'cancelled')
+        problems.push(`${path}: ${JSON.stringify(record.id)} ${record.status}`);
       if (record.status === 'pass') continue;
       if (record.status === 'fail' || record.status === 'cancelled') continue;
       const where = `${path}: ${record.kind} ${JSON.stringify(record.id)} ${record.status}${record.reasonText ? ` (${record.reasonText})` : ''}`;
       if (strict) problems.push(`${where} where no skip is accepted`);
-      else if (record.kind === 'suite') problems.push(`${where}: a skipped suite has no reviewed exception: skip its cases, not the suite`);
-      else if (!exceptions.exceptions.some((tuple) => allows(tuple, observedOf(record, os, receipt.envelope?.slot)))) problems.push(`${where} on ${os} has no reviewed exception`);
+      else if (record.kind === 'suite')
+        problems.push(`${where}: a skipped suite has no reviewed exception: skip its cases, not the suite`);
+      else if (!exceptions.exceptions.some((tuple) => allows(tuple, observedOf(record, os, receipt.envelope?.slot))))
+        problems.push(`${where} on ${os} has no reviewed exception`);
     }
   }
   return problems;
@@ -62,7 +70,8 @@ export function receiptsProblems(paths, exceptions, platform = process.platform,
 export function matchingTests(list) {
   if (!list || typeof list['rust-suites'] !== 'object') throw new Error('not a nextest list: no "rust-suites"');
   let count = 0;
-  for (const suite of Object.values(list['rust-suites'])) for (const test of Object.values(suite.testcases ?? {})) if (test['filter-match']?.status === 'matches') count += 1;
+  for (const suite of Object.values(list['rust-suites']))
+    for (const test of Object.values(suite.testcases ?? {})) if (test['filter-match']?.status === 'matches') count += 1;
   return count;
 }
 
@@ -79,7 +88,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(pathToFi
   const problems = receiptsProblems([file, ...rest], loadExceptions(loadPlan()), process.platform, { strict });
   for (const problem of problems) console.error(problem);
   if (problems.length) {
-    console.error(`${problems.length} problem(s): a missing or damaged receipt, or a skip with no exact reviewed exception (scripts/ci/coverage/exceptions.json; docs/testing.md)`);
+    console.error(
+      `${problems.length} problem(s): a missing or damaged receipt, or a skip with no exact reviewed exception (scripts/ci/coverage/exceptions.json; docs/testing.md)`
+    );
     process.exit(1);
   }
   console.log('check-skips receipts: ok');

@@ -264,14 +264,19 @@ export function ImageCheckStatus({ sessionId }: { sessionId: string }) {
     return (
       <div className="image-check-status" role="status">
         {gate.total > 0
-          ? t('Checking the images in this conversation: {{done}} of {{total}}.', { done: gate.done, total: gate.total })
+          ? t('Checking the images in this conversation: {{done}} of {{total}}.', {
+              done: gate.done,
+              total: gate.total,
+            })
           : t('Checking the images in this conversation…')}
         {stored}
       </div>
     );
   }
   const blockers: ImageRefusalBlocker[] = gate.images.flatMap((image) =>
-    image.part === null ? [] : [{ messageId: image.messageId, part: image.part, name: '', message: image.message, actions: image.actions }]
+    image.part === null
+      ? []
+      : [{ messageId: image.messageId, part: image.part, name: '', message: image.message, actions: image.actions }]
   );
   const numberOf = (blocker: ImageRefusalBlocker) =>
     gate.images.findIndex((image) => image.messageId === blocker.messageId && image.part === blocker.part);

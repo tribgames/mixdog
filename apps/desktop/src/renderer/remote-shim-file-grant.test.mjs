@@ -10,7 +10,9 @@ import test from 'node:test';
 import { withPhoneApi } from './test-support/phone-api-rig.mjs';
 import { wholeOutcome } from './test-support/whole-outcome.mjs';
 
-const { input, observed } = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-shim/golden.json', import.meta.url), 'utf8')).grant;
+const { input, observed } = JSON.parse(
+  readFileSync(new URL('../../../mobile/fixtures/phone-shim/golden.json', import.meta.url), 'utf8')
+).grant;
 
 async function openAfterRefusal(refusal) {
   let reads = 0;
