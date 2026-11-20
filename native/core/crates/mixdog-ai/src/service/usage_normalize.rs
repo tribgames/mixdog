@@ -10,7 +10,7 @@ use sha2::Sha256;
 
 pub type Obj = Map<String, Value>;
 
-// -- JS primitives (`lib/usage-primitives.mjs`) -------------------------------
+// JS primitives (`lib/usage-primitives.mjs`)
 
 /// The first present, non-null value (`a ?? b ?? c`).
 pub fn first<'a>(v: &'a Value, keys: &[&str]) -> Option<&'a Value> {
@@ -148,7 +148,7 @@ fn obj(pairs: Vec<(&str, Value)>) -> Value {
     Value::Object(pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
 }
 
-// -- Codex ----------------------------------------------------------------------
+// Codex
 
 fn balance_from_credits(credits: Option<&Value>, source: &str) -> Value {
     let Some(c @ Value::Object(_)) = credits else { return Value::Null };
@@ -319,7 +319,7 @@ pub fn normalize_codex_reset_credits(data: Option<&Value>, account_id: &str, now
     Some(Value::Object(out))
 }
 
-// -- Anthropic ------------------------------------------------------------------
+// Anthropic
 
 fn money_value(value: Option<&Value>) -> Option<f64> {
     match value {
@@ -517,7 +517,7 @@ pub fn normalize_anthropic_usage(data: &Value, source: &str, now_ms: i64) -> Opt
     ]))
 }
 
-// -- Grok Build billing ---------------------------------------------------------
+// Grok Build billing
 
 /// `(label, period)` of the billing cadence; `None` where Node's `grokBillingCadence` throws.
 ///

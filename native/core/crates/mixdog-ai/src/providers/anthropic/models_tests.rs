@@ -69,9 +69,7 @@ fn a_retired_id_resolves_to_its_family_s_newest_listed_id() {
     assert_eq!(resolve_after_404(&rows, "claude-opus-4-1").as_deref(), Some("claude-opus-4-7"));
 }
 
-// ---------------------------------------------------------------------------
 // Row normalization
-// ---------------------------------------------------------------------------
 
 fn rows_of(flavor: Flavor, rows: Value, catalog: &CapsLookup) -> Vec<AnthropicModel> {
     parse_listing(&serde_json::to_vec(&json!({ "data": rows })).unwrap(), flavor, catalog).expect("listing")

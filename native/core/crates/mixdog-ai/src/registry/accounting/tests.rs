@@ -450,7 +450,7 @@ mod through_the_registry {
     }
 }
 
-// ---- the rows of one send, with inline usage ------------------------------------------------------------------------
+// the rows of one send, with inline usage
 
 struct DefaultRoster;
 

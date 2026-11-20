@@ -198,15 +198,12 @@ async fn a_payload_without_output_takes_four_600_second_stream_attempts_then_one
     assert!(!stderr.iter().any(|line| line.contains("recovered via non-streaming")), "the recovery failed");
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // The other ladders: which failures the connection ladder (ten attempts) retries, which end the send at once, and what
 // the stream ladder (four attempts, 1/2/4 s, then one non-streaming request) does after the response opened.
-// ---------------------------------------------------------------------------------------------------------------------
 
 /// How a scripted body ends once its chunks are read.
 #[derive(Clone, Copy)]
 enum End {
-    Silence,
     Reset,
     Closed,
 }
@@ -222,7 +219,6 @@ impl BodyStream for Chunks {
         match self.chunks.pop_front() {
             Some(chunk) => Some(Ok(chunk)),
             None => match self.end {
-                End::Silence => std::future::pending().await,
                 End::Reset => Some(Err(TransportFault::Reset)),
                 End::Closed => None,
             },

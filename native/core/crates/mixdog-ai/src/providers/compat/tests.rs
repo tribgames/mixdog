@@ -104,9 +104,7 @@ fn stop_of(events: &[StreamEvent]) -> StopReason {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Dialects
-// ---------------------------------------------------------------------------
 
 #[test]
 fn reasoning_text_is_kept_and_replayed_under_the_key_it_arrived_on() {
@@ -393,9 +391,7 @@ fn calls_sharing_an_id_are_dispatched_once_and_returned_both() {
     assert_eq!(returned, [("c".to_owned(), json!({"key": "a"})), ("c".to_owned(), json!({"key": "b"}))]);
 }
 
-// ---------------------------------------------------------------------------
 // Retry policy rows
-// ---------------------------------------------------------------------------
 
 fn profiles() -> Vec<CompatProfile> {
     vec![
@@ -539,9 +535,7 @@ fn tiered_system_messages_go_out_as_node_sends_them() {
     assert_eq!(body_of(&codec, &request)["messages"], recorded);
 }
 
-// ---------------------------------------------------------------------------
 // Responses wire against the recorded heads
-// ---------------------------------------------------------------------------
 
 mod responses_heads {
     use super::*;
@@ -622,9 +616,7 @@ mod responses_heads {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Liveness: no content timer, half-open links end by keepalive (SPEC §4.9)
-// ---------------------------------------------------------------------------
 
 mod liveness {
     use super::*;
@@ -942,13 +934,9 @@ fn per_status_caps_are_carried_as_data() {
     assert_eq!(CompatProfile::mimo_oauth().retry_policy().status.caps, [(429, 5)]);
 }
 
-// ---------------------------------------------------------------------------
 // Chat Completions: recorded bodies and streams
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
 // Intercepted providers: MiMo and Command Code
-// ---------------------------------------------------------------------------
 
 /// The real-turn harness's provider (`lib/fake-provider.mjs`, `scenarios.mjs` `toolCall`): the
 /// call's JSON arguments cut in half over two `index: 0` deltas, the second carrying no id or

@@ -37,7 +37,7 @@ fn lead_config() -> Obj {
     }))
 }
 
-// ---- the default provider ------------------------------------------------------------------------------------------
+// the default provider
 
 #[test]
 fn the_default_provider_is_the_default_presets_when_it_is_known_else_the_built_in_one() {
@@ -59,7 +59,7 @@ fn the_validator_is_asked_about_the_trimmed_preset_provider_with_the_saved_confi
     assert_eq!(seen.into_inner(), [("box".to_owned(), Some(json!(1)))]);
 }
 
-// ---- resolve_route ---------------------------------------------------------------------------------------------------
+// resolve_route
 
 #[test]
 fn a_request_naming_nothing_follows_the_default_preset_with_its_values() {
@@ -143,7 +143,7 @@ fn a_context_choice_is_a_percent_in_ten_point_steps_or_a_token_count_never_both(
     assert_eq!(ask(json!({"contextPercent": 500}))["contextPercent"], 100);
 }
 
-// ---- saving ----------------------------------------------------------------------------------------------------------
+// saving
 
 fn route_of(value: Value) -> Obj {
     obj(value)
@@ -193,7 +193,7 @@ fn a_route_without_a_model_saves_nothing() {
     assert!(config.is_empty());
 }
 
-// ---- context windows -------------------------------------------------------------------------------------------------
+// context windows
 
 fn state(route: Value, meta: Value) -> ContextState {
     resolve_route_context_state(&obj(route), Some(&meta))
@@ -229,7 +229,7 @@ fn a_token_count_never_selects_less_than_a_tenth_of_the_largest_window() {
     assert_eq!(tiny.selected_context_window, Some(100_000.0));
 }
 
-// ---- what a selection may say ----------------------------------------------------------------------------------------
+// what a selection may say
 
 #[test]
 fn a_valid_selection_comes_back_trimmed_with_only_what_it_stated() {
@@ -304,7 +304,7 @@ fn a_free_form_sentence_is_not_a_model_selector_but_an_id_or_a_preset_is() {
     );
 }
 
-// ---- workflow routes -------------------------------------------------------------------------------------------------
+// workflow routes
 
 #[test]
 fn a_workflow_route_is_normalized_to_the_choices_it_states() {
@@ -356,7 +356,7 @@ fn a_workflow_slot_has_one_preset_that_a_new_route_replaces() {
     assert!(scout[0].get("fast").is_none(), "another slot keeps its shape");
 }
 
-// ---- the Lead route --------------------------------------------------------------------------------------------------
+// the Lead route
 
 #[test]
 fn re_tuning_the_live_model_is_not_a_main_model_choice() {
@@ -394,7 +394,7 @@ fn an_adopted_model_becomes_the_lead_unless_the_selection_keeps_the_main_model()
     assert_eq!(main_is_other["default"], "workflow-lead");
 }
 
-// ---- chain entries ---------------------------------------------------------------------------------------------------
+// chain entries
 
 #[test]
 fn a_chain_entry_inherits_the_stored_choices_of_the_same_model_only() {
@@ -441,7 +441,7 @@ fn a_chain_entrys_token_count_is_clamped_to_the_models_window() {
     assert_eq!(out["contextTokens"], 400_000);
 }
 
-// ---- display and refresh ---------------------------------------------------------------------------------------------
+// display and refresh
 
 #[test]
 fn a_routes_display_name_prefers_the_users_alias_then_the_catalogs_names() {

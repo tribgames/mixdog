@@ -44,9 +44,7 @@ pub enum CredentialError {
     GatewayOutsideAllowlist,
 }
 
-// ---------------------------------------------------------------------------
 // MiMo
-// ---------------------------------------------------------------------------
 
 pub const MIMO_DEFAULT_BASE_URL: &str = "https://api.xiaomimimo.com/v1";
 pub const MIMO_PLATFORM_ORIGIN: &str = "https://platform.xiaomimimo.com";
@@ -198,9 +196,7 @@ pub fn mimo_authorize_url(public_key_b64: &str, redirect_uri: &str, key_name: &s
     url.into()
 }
 
-// ---------------------------------------------------------------------------
 // Command Code, Muse Code, OpenCode Go
-// ---------------------------------------------------------------------------
 
 pub const COMMAND_CODE_API_ORIGIN: &str = "https://api.commandcode.ai";
 pub const COMMAND_CODE_STUDIO_ORIGIN: &str = "https://commandcode.ai";

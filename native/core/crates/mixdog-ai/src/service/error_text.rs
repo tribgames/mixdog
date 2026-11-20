@@ -362,9 +362,7 @@ fn err_text_json(value: &Value) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
 // safeErrorDetails
-// ---------------------------------------------------------------------------
 
 /// Diagnostic text made safe to show: control sequences, credentials and image data removed.
 pub fn safe_error_details(value: &str) -> String {
@@ -391,9 +389,7 @@ pub fn safe_error_details(value: &str) -> String {
     text.to_owned()
 }
 
-// ---------------------------------------------------------------------------
 // transportErrorText
-// ---------------------------------------------------------------------------
 
 const LOST_CODES: &[&str] = &[
     "ECONNRESET",
@@ -583,9 +579,7 @@ pub fn transport_error_text(input: &TransportInput) -> Option<String> {
     Some(if detail.is_empty() { format!("{sentence}.") } else { format!("{sentence} ({detail}).") })
 }
 
-// ---------------------------------------------------------------------------
 // describeError
-// ---------------------------------------------------------------------------
 
 struct Presentation {
     kind: &'static str,
@@ -825,9 +819,7 @@ fn describe_error(view: &ErrorView) -> Presentation {
     Presentation { kind, summary, provider_kind: descriptor.kind, retry_after_ms }
 }
 
-// ---------------------------------------------------------------------------
 // presentErrorText helpers
-// ---------------------------------------------------------------------------
 
 fn kind_line(provider_kind: &str, retry_after_ms: Option<u64>) -> Option<String> {
     Some(match provider_kind {

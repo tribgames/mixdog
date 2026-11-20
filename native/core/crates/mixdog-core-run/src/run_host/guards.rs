@@ -114,8 +114,6 @@ pub fn strip_mcp(name: &str) -> &str {
     name.strip_prefix(MCP_TOOL_PREFIX).unwrap_or(name)
 }
 
-// ---- mutation classes ----
-
 pub fn is_shell_tool(name: &str) -> bool {
     matches!(strip_mcp(name), "shell" | "bash_session")
 }

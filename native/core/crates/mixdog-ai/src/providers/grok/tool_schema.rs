@@ -38,9 +38,7 @@ fn reading_null(key: &str) -> TypeError {
     TypeError(format!("Cannot read properties of null (reading '{key}')"))
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // JavaScript values
-// ---------------------------------------------------------------------------------------------------------------------
 
 /// ECMAScript `Number::toString(x)`: the shortest digits that read back as `x`, in plain notation from 1e-6 up to 1e21,
 /// otherwise as `d.ddde±n`; `-0` is `0`.
@@ -402,9 +400,7 @@ fn every_reading(values: &[Value], key: &str, test: impl Fn(usize, &Value) -> bo
     Ok(true)
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // grok-tool-schema.mjs
-// ---------------------------------------------------------------------------------------------------------------------
 
 fn get<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
     value.as_object().and_then(|map| map.get(key))
@@ -591,9 +587,7 @@ fn is_object_branch(branch: &Value) -> bool {
     branch.is_object() && (type_includes(branch, "object") || get(branch, "properties").is_some_and(|p| p.is_object() || p.is_array()))
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // action-input-contract.mjs `actionInputContract`
-// ---------------------------------------------------------------------------------------------------------------------
 
 /// V8's message for `new Set(value)` of a value that is not iterable.
 fn not_iterable(value: &Value) -> TypeError {
@@ -664,9 +658,7 @@ fn action_input_contract(schema: &Value, marker: &str) -> Js<String> {
     Ok(format!("Allowed input by action (* required): {}.", rows.join("; ")))
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // grok-tool-schema.mjs (continued)
-// ---------------------------------------------------------------------------------------------------------------------
 
 fn merged_schema_properties(root: &Map<String, Value>, object_branches: &[Value], marker: &str) -> Js<Option<Props>> {
     let root_properties = root.get("properties").filter(|p| truthy(Some(p)));

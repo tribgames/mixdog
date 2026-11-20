@@ -152,7 +152,7 @@ fn json_value_len(rest: &str) -> Option<usize> {
     (len > 0).then_some(len)
 }
 
-// -- the JSON path ---------------------------------------------------------------------
+// the JSON path
 
 /// A parsed JSON value that keeps what `JSON.parse` + `JSON.stringify` keep: number source text, and
 /// an object's property order (array-index keys first, ascending).

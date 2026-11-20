@@ -67,7 +67,7 @@ fn is_undefined_or_null(v: Option<&Value>) -> bool {
     matches!(v, None | Some(Value::Null))
 }
 
-// -- effort ---------------------------------------------------------------------------
+// effort
 
 pub use crate::effort::normalize_effort_input;
 pub use crate::effort::normalize_saved_effort;
@@ -76,7 +76,7 @@ fn opt_str(v: Option<String>) -> Value {
     v.map_or(Value::Null, Value::String)
 }
 
-// -- context window -------------------------------------------------------------------
+// context window
 
 /// `normalizeContextTokens`.
 pub fn normalize_context_tokens(value: Option<&Value>) -> Option<f64> {
@@ -157,7 +157,7 @@ pub fn resolve_route_context_state(route: &Obj, window_meta: Option<&Value>) -> 
     }
 }
 
-// -- presets and saved settings -------------------------------------------------------
+// presets and saved settings
 
 /// `routeFastKey`.
 pub fn route_fast_key(provider: Option<&Value>, model: Option<&Value>) -> String {
@@ -271,7 +271,7 @@ pub fn model_meta_looks_resolved(meta: Option<&Value>) -> bool {
     meta.and_then(Value::as_object).is_some_and(|o| o.keys().any(|k| k != "id" && k != "provider"))
 }
 
-// -- resolveRoute ---------------------------------------------------------------------
+// resolveRoute
 
 /// The provider a provider-less Main selector falls to; `is_known(provider, config)` is
 /// `isKnownProvider`.
@@ -370,7 +370,7 @@ pub fn resolve_route(config: &Obj, request: &Obj, is_known: &dyn Fn(&str, &Obj) 
     Ok(build(p, explicit_model, None, saved))
 }
 
-// -- saveModelSettings ----------------------------------------------------------------
+// saveModelSettings
 
 /// `saveModelSettings(cfgMod, route, { fastCapable })` applied to `config` in place.
 pub fn save_model_settings(config: &mut Obj, route: &Obj, fast_capable: bool) {
@@ -427,7 +427,7 @@ pub fn save_model_settings(config: &mut Obj, route: &Obj, fast_capable: bool) {
     config.insert("modelSettings".into(), Value::Object(settings));
 }
 
-// -- workflow routes ------------------------------------------------------------------
+// workflow routes
 
 /// `workflowPresetId`.
 pub fn workflow_preset_id(slot: &str) -> String {
@@ -505,7 +505,7 @@ pub fn normalize_workflow_route(route: &Value, fallback: &Value, strict: bool) -
     result
 }
 
-// -- refreshRouteEffort ---------------------------------------------------------------------
+// refreshRouteEffort
 
 /// `routeModelDisplay(config, route, meta)` (route-state.mjs:46).
 pub fn route_model_display(config: &Obj, route: &Obj, meta: Option<&Value>) -> String {
@@ -679,7 +679,7 @@ pub fn upsert_workflow_preset(presets: &Value, slot: &str, route: &Value) -> Res
     Ok(Value::Array(next))
 }
 
-// -- selection validation and the Lead route ------------------------------------------
+// selection validation and the Lead route
 
 const MODEL_SELECTION_KEYS: [&str; 10] =
     ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens", "fallbacks", "onlyIfEmpty"];
@@ -793,7 +793,7 @@ pub fn persist_lead_route(config: &mut Obj, route: &Value) -> Result<Option<Valu
     Ok(Some(lead))
 }
 
-// -- selection fast clamp, chain entries, Lead persistence -----------------------------
+// selection fast clamp, chain entries, Lead persistence
 /// `selectionFastCapable(provider, meta, effort, params)`: placeholder metadata is unknown,
 /// not "no Fast". `catalog_capable` is `fastCapableFor(...)`, asked only for resolved rows.
 pub fn selection_fast_capable(meta: Option<&Value>, catalog_capable: impl FnOnce() -> bool) -> bool {

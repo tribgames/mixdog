@@ -88,7 +88,7 @@ fn requests(world: &World) -> usize {
     world.net.seen.lock().unwrap().len()
 }
 
-// ---- Command Code ---------------------------------------------------------------------------------------------------
+// Command Code
 
 const CC_KEY: &str = "cc-key-0123456789abcdef";
 
@@ -187,7 +187,7 @@ async fn command_code_without_a_stored_key_is_signed_out_and_sends_nothing() {
     }
 }
 
-// ---- Antigravity ----------------------------------------------------------------------------------------------------
+// Antigravity
 
 fn bucket(id: &str, window: &str, remaining: f64, reset: Option<&str>) -> Value {
     let mut bucket = json!({ "bucketId": id, "window": window, "remainingFraction": remaining });
@@ -351,7 +351,7 @@ async fn antigravity_failures_name_the_status_cut_the_detail_and_never_reflect_a
     assert_eq!(requests(&signed_out), 0);
 }
 
-// ---- OpenCode Go ----------------------------------------------------------------------------------------------------
+// OpenCode Go
 
 fn meters(five: Value, week: Value, month: Value) -> Value {
     json!({ "access": { "meters": { "fiveHour": five, "week": week, "month": month } } })
@@ -523,7 +523,7 @@ async fn opencode_go_asks_the_sign_in_again_when_the_refresh_is_rejected_and_doe
     assert_eq!(urls(&busy).len(), 2);
 }
 
-// ---- Muse Code ------------------------------------------------------------------------------------------------------
+// Muse Code
 
 fn subs_payload() -> Value {
     json!({
@@ -685,7 +685,7 @@ async fn a_muse_code_answer_that_is_not_a_valid_payload_reads_as_the_last_good_o
     assert_eq!(world.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default").await.unwrap(), None);
 }
 
-// ---- Cursor ---------------------------------------------------------------------------------------------------------
+// Cursor
 
 fn varint(mut value: u64) -> Vec<u8> {
     let mut out = Vec::new();

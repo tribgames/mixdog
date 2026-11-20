@@ -13,9 +13,7 @@ use crate::providers::connect::pb::PbError;
 use crate::providers::connect::pb::Reader;
 use crate::providers::connect::pb::Writer;
 
-// ---------------------------------------------------------------------------
 // google.protobuf.Value as Cursor writes tool schemas and reads MCP arguments
-// ---------------------------------------------------------------------------
 
 fn json_value(w: &mut Writer, value: &Value) {
     match value {
@@ -98,9 +96,7 @@ pub fn decode_json_value(bytes: &[u8]) -> Result<Value, PbError> {
     Ok(out)
 }
 
-// ---------------------------------------------------------------------------
 // Client messages
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct McpToolDefinition {
@@ -436,9 +432,7 @@ pub fn interaction_response(id: u64, reply: QueryReply, reason: &str) -> Vec<u8>
     message.finish()
 }
 
-// ---------------------------------------------------------------------------
 // Server messages
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct InteractionUpdate {

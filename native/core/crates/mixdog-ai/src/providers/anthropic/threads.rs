@@ -81,9 +81,7 @@ pub fn account_key(provider: &str, parts: &[&str]) -> String {
     sha(&all.join("\u{0}"))
 }
 
-// ---------------------------------------------------------------------------
 // What the server holds, as digests
-// ---------------------------------------------------------------------------
 
 fn without_block_marker(block: &Value) -> Value {
     match block {
@@ -174,9 +172,7 @@ fn truthy(value: &Value) -> bool {
     !matches!(value, Value::Null | Value::Bool(false)) && value.as_str() != Some("") && value.as_f64() != Some(0.0)
 }
 
-// ---------------------------------------------------------------------------
 // The store
-// ---------------------------------------------------------------------------
 
 #[derive(Clone)]
 struct State {
@@ -722,9 +718,7 @@ impl Plan {
     }
 }
 
-// ---------------------------------------------------------------------------
 // The streamed response as the API stores it
-// ---------------------------------------------------------------------------
 
 /// The response id, whether `message_stop` arrived (and when), and every content block exactly as the API
 /// stored it. `opaque` marks anything the recording cannot reproduce exactly (an unknown delta, an unparsable

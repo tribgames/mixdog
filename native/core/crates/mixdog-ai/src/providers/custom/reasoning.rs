@@ -221,9 +221,7 @@ pub fn resolve(protocol: &Protocol, row: &ReasoningRow, effort: Option<&str>, ba
     Resolved { level, fields, thinking, replay: chat && flag && thinking != Some(Thinking::Off) }
 }
 
-// ---------------------------------------------------------------------------
 // Config
-// ---------------------------------------------------------------------------
 
 /// Canonical level for `raw` (alias-aware), or `None` when unknown.
 pub fn canonical_level(raw: &str) -> Option<&'static str> {

@@ -80,9 +80,7 @@ pub fn content_text(content: &Content) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Tool-call ids at the wire
-// ---------------------------------------------------------------------------
 
 /// Stand-ins for the ids the Responses wire refuses; a valid id passes
 /// unchanged and a call and its result always map to the same value.
@@ -97,9 +95,7 @@ fn wire_id_map(messages: &[Message]) -> HashMap<String, String> {
     tool_call_ids::wire_id_map(ids, OPENAI_RESPONSES_IDS)
 }
 
-// ---------------------------------------------------------------------------
 // Content
-// ---------------------------------------------------------------------------
 
 fn text_part(assistant: bool, text: impl Into<String>) -> Value {
     json!({"type": if assistant { "output_text" } else { "input_text" }, "text": text.into()})
@@ -167,9 +163,7 @@ fn tool_output(content: &Content) -> Value {
     if has_media { Value::Array(items) } else { Value::String(content_text(content)) }
 }
 
-// ---------------------------------------------------------------------------
 // Items
-// ---------------------------------------------------------------------------
 
 fn phase_str(phase: Phase) -> &'static str {
     match phase {

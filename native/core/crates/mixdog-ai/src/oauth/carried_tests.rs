@@ -186,7 +186,7 @@ fn text_with_no_credential_is_not_held() {
     assert_eq!(stream.push(b"event: content_block_delta\ndata: plain"), b"event: content_block_delta\ndata: plain");
 }
 
-// ---- the generated test ----------------------------------------------------------------------------------------------
+// the generated test
 
 /// xorshift64*: a seeded, reproducible stream.
 struct Rng(u64);
@@ -453,7 +453,7 @@ fn generated_encodings_never_leave_the_credential_and_never_touch_other_text() {
     }
 }
 
-// ---- the registry ------------------------------------------------------------------------------------------------------
+// the registry
 
 fn registry(retired: usize, carried: usize) -> Arc<Registry> {
     Arc::new(Registry::new(retired, carried))

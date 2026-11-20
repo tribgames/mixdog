@@ -61,9 +61,7 @@ const MAX_TOKENS_FLOOR: u32 = 8192;
 const MAX_TOKENS_SAFETY_CAP: u32 = 65536;
 const MIN_THINKING_BUDGET: u64 = 1024;
 
-// ---------------------------------------------------------------------------
 // Cache strategy
-// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CacheTtl {
@@ -134,9 +132,7 @@ impl CacheStrategy {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Configuration and result
-// ---------------------------------------------------------------------------
 
 pub(crate) struct BodyConfig<'a> {
     pub flavor: Flavor,
@@ -217,9 +213,7 @@ fn local_error(message: impl Into<String>) -> ProviderError {
     err
 }
 
-// ---------------------------------------------------------------------------
 // System blocks
-// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tier {
@@ -294,9 +288,7 @@ fn system_blocks(flavor: Flavor, items: &[(String, Tier)], cache: &CacheStrategy
     blocks
 }
 
-// ---------------------------------------------------------------------------
 // Message-tail cache breakpoint
-// ---------------------------------------------------------------------------
 
 fn is_cache_eligible(block: &Value) -> bool {
     match block.get("type").and_then(Value::as_str) {
@@ -381,9 +373,7 @@ fn mark_block(message: &mut WireMessage, block_index: usize, ttl: CacheTtl) {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Tools
-// ---------------------------------------------------------------------------
 
 /// Anthropic forbids `oneOf`/`anyOf`/`allOf` at the top level of
 /// `input_schema`: such a schema is flattened into one object schema.
@@ -553,9 +543,7 @@ fn tool_choice(choice: Option<&str>, thinking: bool, disable_parallel: bool) -> 
     choice
 }
 
-// ---------------------------------------------------------------------------
 // max_tokens and reasoning
-// ---------------------------------------------------------------------------
 
 fn max_tokens(cfg: &BodyConfig<'_>, request: &ModelRequest) -> u32 {
     let options = &request.options;
@@ -683,9 +671,7 @@ fn reasoning(cfg: &BodyConfig<'_>, request: &ModelRequest, effort: Option<&str>,
     Ok(Reasoning { thinking, ..Reasoning::default() })
 }
 
-// ---------------------------------------------------------------------------
 // Assembly
-// ---------------------------------------------------------------------------
 
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result<BuiltBody, ProviderError> {

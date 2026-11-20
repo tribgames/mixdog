@@ -20,7 +20,7 @@ use mixdog_ai::service::admin_route::Obj;
 use serde_json::Value;
 use serde_json::json;
 
-// ---- availability --------------------------------------------------------------------------------------------------
+// availability
 
 #[test]
 fn only_the_client_value_of_the_proxy_switch_turns_remote_client_mode_on() {
@@ -64,7 +64,7 @@ fn the_unavailable_message_names_the_provider_and_the_switched_off_option() {
     );
 }
 
-// ---- order ---------------------------------------------------------------------------------------------------------
+// order
 
 fn ids(rows: &[Value]) -> Vec<String> {
     rows.iter().map(|r| format!("{}/{}", r["provider"].as_str().unwrap(), r["id"].as_str().unwrap())).collect()
@@ -120,7 +120,7 @@ fn rows_equal_in_every_rule_fall_back_to_their_labels() {
     assert_eq!(sorted(rows, "p"), ["p/a", "p/b"]);
 }
 
-// ---- which rows are language models --------------------------------------------------------------------------------
+// which rows are language models
 
 #[test]
 fn language_models_are_selectable() {
@@ -165,7 +165,7 @@ fn media_embedding_and_moderation_models_are_not_selectable() {
     }
 }
 
-// ---- the cached row ------------------------------------------------------------------------------------------------
+// the cached row
 
 #[test]
 fn a_sparse_model_becomes_a_fully_defaulted_row() {
@@ -255,7 +255,7 @@ fn a_custom_providers_row_keeps_its_own_names_flags_and_reasoning_but_a_first_pa
     }
 }
 
-// ---- the provider scope of a request ---------------------------------------------------------------------------------
+// the provider scope of a request
 
 #[test]
 fn a_provider_scope_picks_the_rows_of_that_provider() {
@@ -269,7 +269,7 @@ fn a_provider_scope_picks_the_rows_of_that_provider() {
     assert!(pick("gemini").is_empty());
 }
 
-// ---- hydration -------------------------------------------------------------------------------------------------------
+// hydration
 
 #[derive(Default)]
 struct Facts {
@@ -383,7 +383,7 @@ fn auto_effort_is_offered_when_the_effort_configuration_allows_it() {
     assert_eq!(hydrate_provider_model_row(&Obj::new(), &row, &Facts { auto_by_mode: true, ..Facts::default() })["autoEffortCapable"], true);
 }
 
-// ---- a partial catalog -----------------------------------------------------------------------------------------------
+// a partial catalog
 
 #[test]
 fn rows_of_a_partial_answer_say_what_is_missing_and_when_to_retry() {

@@ -145,9 +145,7 @@ fn plain_body(request: &WireRequest) -> Value {
     serde_json::from_slice(&request.body).expect("a plain JSON body")
 }
 
-// ---------------------------------------------------------------------------
 // The model listing request and configured headers
-// ---------------------------------------------------------------------------
 
 fn count_of(request: &WireRequest, name: &str) -> usize {
     request.headers.iter().filter(|(k, _)| k.eq_ignore_ascii_case(name)).count()
@@ -192,9 +190,7 @@ async fn configured_extra_headers_replace_the_default_version_and_key_but_never_
     assert!(!header(messages, "anthropic-beta").unwrap_or_default().contains("extra-beta"), "{:?}", header(messages, "anthropic-beta"));
 }
 
-// ---------------------------------------------------------------------------
 // Request compression
-// ---------------------------------------------------------------------------
 
 fn gunzip(request: &WireRequest) -> Vec<u8> {
     let mut out = Vec::new();
@@ -266,9 +262,7 @@ async fn a_refused_compressed_body_is_sent_once_plain_and_compression_stays_off_
     mixdog_ai::reset_process_state();
 }
 
-// ---------------------------------------------------------------------------
 // Fast speed refused by the fast pool
-// ---------------------------------------------------------------------------
 
 const FAST_MODEL: &str = "claude-opus-4-8";
 
@@ -370,9 +364,7 @@ async fn a_model_the_catalog_does_not_mark_fast_is_never_sent_at_fast_speed() {
     assert!(!has_fast_beta(&endpoint.sent()[0]));
 }
 
-// ---------------------------------------------------------------------------
 // A version-floor feature the model refuses
-// ---------------------------------------------------------------------------
 
 fn display_caps() -> ModelCaps {
     ModelCaps {
@@ -468,9 +460,7 @@ async fn a_refused_turn_scoped_reminder_is_replayed_and_the_model_stays_off_it()
     assert_eq!(other.sent().len(), 1);
 }
 
-// ---------------------------------------------------------------------------
 // SSE framing of the stream decoder (Node `lib/sse-framing.mjs`)
-// ---------------------------------------------------------------------------
 
 fn delta(text: &str) -> String {
     json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}).to_string()
@@ -531,9 +521,7 @@ fn a_malformed_record_does_not_discard_the_well_formed_record_beside_it() {
     assert_eq!(texts_of_regions(&[&region]), [vec!["kept"]]);
 }
 
-// ---------------------------------------------------------------------------
 // Server-side fallback (Node `anthropic-server-fallback.mjs`)
-// ---------------------------------------------------------------------------
 
 const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 
@@ -681,9 +669,7 @@ async fn a_streaming_404_is_reissued_without_streaming_and_its_fallback_block_is
     );
 }
 
-// ---------------------------------------------------------------------------
 // Replay blocks (Node `lib/anthropic-replay-blocks.mjs`)
-// ---------------------------------------------------------------------------
 
 fn think(tag: &str) -> Value {
     json!({"type": "thinking", "thinking": tag, "signature": "sig"})
@@ -732,9 +718,7 @@ fn entries_are_ordered_by_their_stream_index_before_they_are_reduced_and_the_thi
     assert_eq!(run, [think("t0")]);
 }
 
-// ---------------------------------------------------------------------------
 // A computer frame the desktop already fitted to its capture size
-// ---------------------------------------------------------------------------
 
 #[test]
 fn a_bound_computer_frame_goes_out_with_its_bytes_and_media_type_unchanged() {
@@ -764,9 +748,7 @@ fn a_bound_computer_frame_goes_out_with_its_bytes_and_media_type_unchanged() {
     }
 }
 
-// ---------------------------------------------------------------------------
 // The Anthropic SDK's header spelling on the wire of a gateway engine
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn a_gateway_messages_post_carries_the_sdks_headers_in_the_sdks_spelling_and_order() {

@@ -207,9 +207,7 @@ fn with_failure_hint(mut error: ProviderError) -> ProviderError {
     error
 }
 
-// ---------------------------------------------------------------------------
 // Adapter
-// ---------------------------------------------------------------------------
 
 pub struct CursorAdapter {
     id: ProviderId,
@@ -531,9 +529,7 @@ impl WireCodec for CursorCodec {
         http_status_error(response.status.unwrap_or(0), &response.headers)
     }
 }
-// ---------------------------------------------------------------------------
 // The open run
-// ---------------------------------------------------------------------------
 
 struct CursorStream {
     body: Box<dyn BodyStream>,

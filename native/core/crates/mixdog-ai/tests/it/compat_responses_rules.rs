@@ -26,7 +26,7 @@ use mixdog_core_api::domain::provider::WireCodec;
 use serde_json::Value;
 use serde_json::json;
 
-// ---- which wire a model is reached on -------------------------------------------------------------------------
+// which wire a model is reached on
 
 /// A gateway that offers Chat and Responses, defaults to Chat, and started pre-table sessions on Chat.
 fn gateway() -> CompatProfile {
@@ -115,7 +115,7 @@ fn each_real_gateway_resolves_by_its_own_table() {
     }
 }
 
-// ---- the request head --------------------------------------------------------------------------------------------
+// the request head
 
 struct MapEnv(HashMap<String, String>);
 
@@ -317,7 +317,7 @@ fn muse_code_places_reasoning_by_its_own_levels_and_caches_by_the_given_key_or_t
     assert_eq!(kept.as_str().unwrap().len(), 64, "up to 64 units it is kept");
 }
 
-// ---- the xAI cache key ----------------------------------------------------------------------------------------------
+// the xAI cache key
 
 fn xai_key(env: &[(&str, &str)], mut request: ModelRequest, tweak: impl FnOnce(&mut RequestOptions)) -> Option<String> {
     tweak(&mut request.options);

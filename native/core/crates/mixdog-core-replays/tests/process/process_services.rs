@@ -49,8 +49,6 @@ fn this_machine_is_read_as_libuv_does() {
     }
 }
 
-// ---- KeychainVault -----------------------------------------------------------------------
-
 /// `PS_PROTECT` / `PS_UNPROTECT` of `lib/keychain-cjs.cjs`, verbatim, and the powershell.exe
 /// invocation of its `powershell()`: the DPAPI call Node's vault makes on Windows. A blob only
 /// decrypts for the user who made it, so the tests make theirs with this call at run time.
@@ -84,8 +82,6 @@ async fn a_failing_keychain_is_the_vaults_error_with_node_s_message() {
     assert!(!vault.is_fallback("a").await.unwrap());
 }
 
-// ---- ManagedLocalModels ------------------------------------------------------------------
-
 struct NoDocs;
 
 #[async_trait]
@@ -118,8 +114,6 @@ impl AttachmentFacts for NoFacts {
         None
     }
 }
-
-// ---- ProcessServices::production -----------------------------------------------------------
 
 struct Offline;
 
@@ -242,5 +236,3 @@ async fn the_media_layer_passes_a_text_request_through() {
     let prepared = media.prepare_pdf_text(messages.clone()).await.unwrap();
     assert_eq!(prepared, messages);
 }
-
-// ---- HostInfo ----------------------------------------------------------------------------

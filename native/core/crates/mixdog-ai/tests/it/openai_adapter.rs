@@ -49,7 +49,7 @@ use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_protocol::ProviderId;
 use tokio_tungstenite::tungstenite::http::Response;
 
-// ---- scripted seams -------------------------------------------------------
+// scripted seams
 
 struct VecBody(VecDeque<Bytes>);
 
@@ -274,7 +274,7 @@ fn text_of(events: &[StreamEvent]) -> String {
         .collect()
 }
 
-// ---- HTTP -------------------------------------------------------------------
+// HTTP
 
 #[tokio::test]
 async fn http_attempt_sends_credentials_and_streams_the_answer() {
@@ -427,7 +427,7 @@ async fn an_http_resend_without_the_effort_update_raises_requesting_as_a_first_a
     assert_eq!(sent.options.send_identity.take_stages(), vec![("requesting", Some(first.clone())), ("requesting", Some(first))]);
 }
 
-// ---- WebSocket --------------------------------------------------------------
+// WebSocket
 
 fn frame(json: &str) -> Message {
     Message::text(json.to_owned())
@@ -521,7 +521,7 @@ fn key_adapter_in(
     )
 }
 
-// ---- the initial-response window (stall-policy.mjs:98, provider-http-response-timeout) ------------------------------
+// the initial-response window (stall-policy.mjs:98, provider-http-response-timeout)
 
 /// A transport whose every turn request is never answered (the warm-up HEAD is answered empty): the timer that ends it is the
 /// driver's, installed on the request's attempt.
@@ -538,7 +538,7 @@ impl HttpSend for Stalling {
     }
 }
 
-// ---- the connection warm-up (shared/llm/http-agent.mjs:496-527, openai-oauth.mjs:106, :170) --------------------------
+// the connection warm-up (shared/llm/http-agent.mjs:496-527, openai-oauth.mjs:106, :170)
 
 fn clocked(now: &Arc<std::sync::atomic::AtomicU64>, var: Option<(&'static str, &'static str)>) -> Arc<SessionContext> {
     let now = now.clone();
@@ -642,7 +642,7 @@ async fn the_warm_up_goes_through_the_proxy_the_network_setting_names() {
     assert_eq!(line, "CONNECT chatgpt.com:443 HTTP/1.1");
 }
 
-// ---- the error cases of a turn, on both routes and both transports -----------------------------------------------------
+// the error cases of a turn, on both routes and both transports
 
 const BAD_INPUT: &str = r#"{"error":{"message":"Invalid 'input': expected a string.","type":"invalid_request_error","param":"input","code":null}}"#;
 const INVALID_KEY: &str = r#"{"error":{"message":"Incorrect API key provided.","type":"invalid_request_error","code":"invalid_api_key"}}"#;
@@ -765,4 +765,4 @@ async fn the_initial_response_window_follows_the_setting_on_both_routes() {
     }
 }
 
-// ---- the recorded error cases, replayed whole (providers-intercepted) -----------------------------------------------
+// the recorded error cases, replayed whole (providers-intercepted)

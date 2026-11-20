@@ -600,7 +600,7 @@ impl ResponsesDecoder {
                 || event.pointer("/response/output").and_then(Value::as_array).is_some_and(|items| items.iter().any(server_item));
     }
 
-    // -- framing ------------------------------------------------------------
+    // framing
 
     fn feed_sse(&mut self, unit: &[u8], out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
         self.line_buf.extend_from_slice(unit);
@@ -658,7 +658,7 @@ impl ResponsesDecoder {
         }
     }
 
-    // -- events -------------------------------------------------------------
+    // events
 
     fn handle(&mut self, event: &Value, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
         self.observe_server_effects(event);
@@ -1110,7 +1110,7 @@ impl ResponsesDecoder {
         }
     }
 
-    // -- terminal frames ----------------------------------------------------
+    // terminal frames
 
     fn unresolved_call(&self) -> bool {
         self.tools.values().any(|t| t.deferred_args.is_some() && (t.call_id.is_empty() || t.name.is_empty()) && !t.done)

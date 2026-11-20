@@ -20,7 +20,7 @@ use crate::oauth::pace::SystemPace;
 use crate::warmer::gate::{AccountGate, GateTarget, ProviderSwitch, QuotaResumes, UsageSnapshots, WarmGate};
 use crate::warmer::send::{Deadlines, WarmContext};
 
-// ---- the scripted POST -------------------------------------------------------------------------
+// the scripted POST
 
 enum Reply {
     Sse(Vec<Vec<u8>>),
@@ -81,7 +81,7 @@ impl BodyStream for ChunkBody {
     }
 }
 
-// ---- the process seams -------------------------------------------------------------------------
+// the process seams
 
 struct NoProbe;
 
@@ -305,7 +305,7 @@ impl crate::registry::accounting::UsagePricing for NoPrice {
     }
 }
 
-// ---- the account gate and the warm's own outcomes ----------------------------------------------
+// the account gate and the warm's own outcomes
 
 fn frame(event: Value) -> Vec<u8> {
     format!("data: {event}\n\n").into_bytes()
@@ -536,7 +536,7 @@ async fn a_caller_abort_ends_the_warm_with_the_abort_text_carries_the_usage_and_
     assert_eq!(failure.message, "This operation was aborted");
 }
 
-// ---- the lane's clock: the advised wait, its extension and the recovery ------------------------
+// the lane's clock: the advised wait, its extension and the recovery
 //
 // The lane reads `tokio::time::Instant`, the clock the runtime's virtual clock drives, so these tests move time
 // with `tokio::time::advance`. 1.4.5 (`admission-scheduler.mjs` `_recordFailure`): a 429 on an adaptive lane

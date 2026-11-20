@@ -664,9 +664,7 @@ async fn the_pinned_modes_do_not_fall_back() {
     assert!(http.seen.lock().unwrap().is_empty());
 }
 
-// ---------------------------------------------------------------------------
 // The unknown-model refresh over the whole stream outcome (`openai-oauth.mjs:317-326`)
-// ---------------------------------------------------------------------------
 
 /// A roster that counts its refreshes and offers `access_programs` once it has been read again: a request encoded from
 /// the refreshed roster differs from one encoded before it.
