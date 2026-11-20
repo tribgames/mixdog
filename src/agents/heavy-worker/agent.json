@@ -1,6 +1,6 @@
 {
   "id": "heavy-worker",
   "name": "Heavy Worker",
-  "description": "Use when the answer has to be found before it can be built: a change across interacting concurrency, lifetime or state invariants, a choice between conflicting correctness or compatibility requirements, or a cause ordinary debugging does not narrow down. Also takes over a scope rejected twice because the problem was hard, not because work was missed. Size or file count alone does not qualify.",
+  "description": "Use when the answer must be found before it can be built: interacting concurrency, lifetime or state invariants, conflicting correctness or compatibility requirements, a cause debugging does not narrow down, or a scope rejected twice because it was hard. Size alone does not qualify.",
   "entry": "AGENT.md"
 }

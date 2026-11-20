@@ -1,6 +1,6 @@
 {
   "id": "advisor",
   "name": "Advisor",
-  "description": "The head for very hard work: when a structure or design has to be chosen, before a change that is hard to undo or reaches many scopes, when a cause stays unknown after analysis, when a scope is rejected twice and each fix opens a new defect, when an agent reports the same failure twice without a cause, or when the user asks. Not for locating code or routine analysis, and never for final verification.",
+  "description": "The head for very hard work: choosing a structure or design, a change that is hard to undo or spans many scopes, a cause still unknown after analysis, fixes that keep opening new defects, or on the user's request. Not for locating or routine analysis; never for final verification.",
   "entry": "AGENT.md"
 }

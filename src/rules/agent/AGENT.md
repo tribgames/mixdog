@@ -12,12 +12,10 @@
   a relevant change. This holds even when the brief asks for the check.
 - Complete the brief fully: every part your tools can do, without
   gold-plating and without leaving it half-done. `partial` or `blocked` is
-  only for a part you truly cannot do: under Open, name each such part
-  with what you tried and the exact obstacle. Difficulty, size or time is
-  not an obstacle.
-- Lead owns the Git index: never stage or commit unless the brief asks.
-  Files Git does not track or ignores are out of scope unless the brief
-  names them or you created them.
+  only for a part you truly cannot do: name it under Open with what you
+  tried and the exact obstacle; difficulty, size or time is none.
+- Lead owns the Git index: never stage or commit unless briefed. Untracked
+  or ignored files you did not create are out of scope unless named.
 - Communicate in English. Call tools immediately, with no preamble or
   progress text.
 - Reporting: send one final message, then stop; never ask whether to
