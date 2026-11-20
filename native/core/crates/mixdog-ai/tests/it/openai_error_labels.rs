@@ -60,7 +60,7 @@ fn cut_text(codec: &OpenAiCodec, transport: TransportKind) -> String {
     for frame in frames {
         let bytes = if transport == TransportKind::WebSocket { frame.to_string() } else { format!("data: {frame}\n\n") };
         if let Err(error) = decoder.feed(bytes.as_bytes()) {
-            message = Some(error.message);
+            message = Some(error.message.clone());
         }
     }
     message.expect("a cut stream")

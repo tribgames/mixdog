@@ -106,6 +106,11 @@ impl File {
         self.0.unlock()
     }
 
+    /// The wrapped [`std::fs::File`], for a call that reads the handle's identity (its path, its link count) and never its bytes.
+    pub fn as_std(&self) -> &std::fs::File {
+        &self.0
+    }
+
     /// The `std` handle, for a caller that hands it to an API that takes one.
     pub fn into_std(self) -> std::fs::File {
         self.0
@@ -230,10 +235,31 @@ impl OpenOptions {
         self
     }
 
+    /// Unix `open(2)` flags beyond the access mode (`O_NOFOLLOW`, `O_NONBLOCK`).
+    #[cfg(unix)]
+    pub fn custom_flags(&mut self, flags: i32) -> &mut Self {
+        std::os::unix::fs::OpenOptionsExt::custom_flags(&mut self.0, flags);
+        self
+    }
+
     /// Windows `dwFlagsAndAttributes` bits of the open.
     #[cfg(windows)]
     pub fn custom_flags(&mut self, flags: u32) -> &mut Self {
         std::os::windows::fs::OpenOptionsExt::custom_flags(&mut self.0, flags);
+        self
+    }
+
+    /// Windows `dwDesiredAccess` of the open, in place of the access the read/write flags imply.
+    #[cfg(windows)]
+    pub fn access_mode(&mut self, access: u32) -> &mut Self {
+        std::os::windows::fs::OpenOptionsExt::access_mode(&mut self.0, access);
+        self
+    }
+
+    /// Windows `dwShareMode` of the open.
+    #[cfg(windows)]
+    pub fn share_mode(&mut self, share: u32) -> &mut Self {
+        std::os::windows::fs::OpenOptionsExt::share_mode(&mut self.0, share);
         self
     }
 

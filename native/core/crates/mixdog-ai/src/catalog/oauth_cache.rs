@@ -266,7 +266,6 @@ type Slot = (Roster, String);
 /// What a refresh settled to, shared by every caller that waited on it.
 type Flight = futures::future::Shared<futures::future::BoxFuture<'static, Result<Arc<Refreshed>, mixdog_core_api::domain::provider::ProviderError>>>;
 
-#[derive(Default)]
 struct RosterState {
     /// The identity key each route's listing last sampled (a reader of the files goes by it).
     current: std::sync::Mutex<std::collections::HashMap<Roster, String>>,
@@ -275,8 +274,22 @@ struct RosterState {
     flights: std::sync::Mutex<std::collections::HashMap<Slot, (u64, Flight)>>,
     /// The ticket of the newest refresh each roster file was written by, held across the check and the write so that an
     /// older refresh finishing last never replaces a newer one.
-    published: tokio::sync::Mutex<std::collections::HashMap<Slot, u64>>,
+    published: std::sync::Mutex<std::collections::HashMap<Slot, u64>>,
+    /// The one permit that holds the publication across the check and the write (and across the awaits between them).
+    publishing: tokio::sync::Semaphore,
     tickets: std::sync::atomic::AtomicU64,
+}
+
+impl Default for RosterState {
+    fn default() -> Self {
+        Self {
+            current: Default::default(),
+            flights: Default::default(),
+            published: Default::default(),
+            publishing: tokio::sync::Semaphore::new(1),
+            tickets: Default::default(),
+        }
+    }
 }
 
 /// The identity each route's roster is currently read under, as the last listing sampled it, and the refreshes in flight.
@@ -410,7 +423,7 @@ impl OauthModelCache {
         // the others are discarded. Under the publication guard: a publish checks the key and writes under it too, so a
         // write checked before the change cannot land after the discard.
         {
-            let _published = self.accounts.0.published.lock().await;
+            let _publishing = self.accounts.0.publishing.acquire().await.expect("the publication gate is never closed");
             if self.accounts.note(self.roster, key.as_deref()) {
                 self.accounts.0.flights.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|(roster, _), _| *roster != self.roster);
                 self.discard_others(key.as_deref()).await;
@@ -425,17 +438,16 @@ impl OauthModelCache {
         let (dir, stem, keep) = (self.dir.clone(), self.roster.file().trim_end_matches(".json").to_owned(), keep.map(|key| self.roster.keyed_file(key)));
         let discarded = self
             .io
-            .write_job(move |_| {
-                let entries = match std::fs::read_dir(&dir) {
-                    Ok(entries) => entries,
+            .write_job(move |lane| {
+                let names = match mixdog_statefile::list_dir(lane, &dir) {
+                    Ok(names) => names,
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
                     Err(error) => return Err(error),
                 };
-                for entry in entries {
-                    let name = entry?.file_name().to_string_lossy().into_owned();
+                for name in names {
                     let keyed = name.strip_prefix(&stem).and_then(|rest| rest.strip_prefix('.')).and_then(|rest| rest.strip_suffix(".json"));
                     if keyed.is_some_and(|key| !key.is_empty()) && keep.as_deref() != Some(name.as_str()) {
-                        match std::fs::remove_file(dir.join(&name)) {
+                        match mixdog_statefile::remove_file(lane, &dir.join(&name)) {
                             Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
                             _ => {}
                         }
@@ -533,11 +545,11 @@ impl OauthModelCache {
             return Published::Empty;
         }
         let slot = (self.roster, key.clone());
-        let mut published = self.accounts.0.published.lock().await;
+        let _publishing = self.accounts.0.publishing.acquire().await.expect("the publication gate is never closed");
         if self.accounts.get(self.roster).as_deref() != Some(key.as_str()) {
             return Published::AccountChanged;
         }
-        if published.get(&slot).is_some_and(|newest| *newest > ticket) {
+        if self.accounts.0.published.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&slot).is_some_and(|newest| *newest > ticket) {
             return Published::Superseded;
         }
         let path = self.path_of(&key);
@@ -571,7 +583,7 @@ impl OauthModelCache {
             .io
             .write_job(move |lane| {
                 mixdog_statefile::write_json(lane, &path, &record, &opts).map(drop).map_err(std::io::Error::other)?;
-                match std::fs::remove_file(&legacy) {
+                match mixdog_statefile::remove_file(lane, &legacy) {
                     Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
                     _ => Ok(()),
                 }
@@ -579,7 +591,7 @@ impl OauthModelCache {
             .await;
         match written {
             Ok(()) => {
-                published.insert(slot, ticket);
+                self.accounts.0.published.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(slot, ticket);
                 Published::Written
             }
             Err(error) => {

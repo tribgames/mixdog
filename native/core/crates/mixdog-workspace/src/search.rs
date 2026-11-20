@@ -67,10 +67,15 @@ fn index_key(root: &Path, config: &SessionConfig) -> IndexKey {
     (comparable(root), config.include_ignored, config.scan_cap.unwrap_or(INDEX_MAX_ENTRIES).max(1))
 }
 
-#[derive(Default)]
 struct IndexSlot {
-    building: tokio::sync::Mutex<()>,
+    building: tokio::sync::Semaphore,
     current: Mutex<Option<(Arc<()>, Arc<Index>)>>,
+}
+
+impl Default for IndexSlot {
+    fn default() -> Self {
+        Self { building: tokio::sync::Semaphore::new(1), current: Mutex::default() }
+    }
 }
 
 struct Session {
@@ -213,7 +218,7 @@ impl SearchSessions {
             }
             indexes.entry(key).or_default().clone()
         };
-        let _build = slot.building.lock().await;
+        let _build = slot.building.acquire().await.expect("the build gate is never closed");
         if session.generation.load(Ordering::SeqCst) != generation {
             return Ok(None);
         }

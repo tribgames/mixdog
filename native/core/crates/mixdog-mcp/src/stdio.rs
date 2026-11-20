@@ -162,18 +162,19 @@ async fn leader_exited(child: &mut Child) -> bool {
     // Registered before the first look, so an exit between a look and the wait still wakes it.
     let mut exits = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child()).ok();
     loop {
-        // SAFETY: an all-zero `siginfo_t` is a valid value of the plain C struct.
-        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-        // SAFETY: `info` is a valid out-parameter; `WNOWAIT` leaves the child waitable, `WNOHANG` returns at once.
-        let looked = unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOHANG | libc::WNOWAIT) };
-        if looked != 0 {
-            if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
-                continue;
-            }
-            return false;
-        }
-        if info.si_signo == libc::SIGCHLD {
-            return true;
+        // `siginfo_t` holds a raw pointer, so it must not live across the await below (the future is spawned and must be `Send`).
+        let state = {
+            // SAFETY: an all-zero `siginfo_t` is a valid value of the plain C struct.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            // SAFETY: `info` is a valid out-parameter; `WNOWAIT` leaves the child waitable, `WNOHANG` returns at once.
+            let looked = unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOHANG | libc::WNOWAIT) };
+            if looked != 0 { Err(std::io::Error::last_os_error().raw_os_error()) } else { Ok(info.si_signo == libc::SIGCHLD) }
+        };
+        match state {
+            Err(Some(libc::EINTR)) => continue,
+            Err(_) => return false,
+            Ok(true) => return true,
+            Ok(false) => {}
         }
         // Without the signal (not registered, or its stream ended) the next look comes after a short pause.
         let woke = match exits.as_mut() {

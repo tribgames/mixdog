@@ -28,7 +28,7 @@ pub struct MediaFailure {
     pub message: String,
     pub code: Option<String>,
     /// What the provider reported before the request failed: still billed.
-    pub usage: Option<Value>,
+    pub usage: Option<Box<Value>>,
     /// Nothing was sent because of the reference images: every blocker, which the job's snapshot names one by one.
     pub refusal: Option<Box<mixdog_image_egress::NotSent>>,
 }
@@ -357,7 +357,7 @@ impl MediaJobs {
         // recorded only when the provider reported usage for it.
         match &result {
             Ok(media) => self.bill(&resolved, media.usage.as_ref(), &who).await,
-            Err(failure) if failure.usage.is_some() => self.bill(&resolved, failure.usage.as_ref(), &who).await,
+            Err(failure) if failure.usage.is_some() => self.bill(&resolved, failure.usage.as_deref(), &who).await,
             Err(_) => {}
         }
         let described = (resolved.lane.clone(), resolved.model.clone(), resolved.kind.clone());
@@ -680,7 +680,7 @@ mod tests {
     async fn a_failure_is_billed_only_when_the_provider_reported_usage() {
         let usage = json!({"inputTokens": 4});
         let mut failure = MediaFailure::new("no image", "MEDIA_EMPTY_RESULT");
-        failure.usage = Some(usage.clone());
+        failure.usage = Some(Box::new(usage.clone()));
         let (_d, jobs, _g, rows) = billed_jobs(Err(failure), None);
         let id = jobs.start(&request()).await.unwrap()["id"].as_str().unwrap().to_owned();
         assert_eq!(settled(&jobs, &id).await["status"], "failed");

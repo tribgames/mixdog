@@ -192,7 +192,7 @@ pub(super) fn namespaced(path: &Path) -> PathBuf {
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    std::fs::File::open(namespaced(path))?.take(MAX_REFERENCE_BYTES as u64 + 1).read_to_end(&mut bytes)?;
+    mixdog_fsio::File::open(&mixdog_fsio::Unlaned, namespaced(path))?.take(MAX_REFERENCE_BYTES as u64 + 1).read_to_end(&mut bytes)?;
     Ok(bytes)
 }
 

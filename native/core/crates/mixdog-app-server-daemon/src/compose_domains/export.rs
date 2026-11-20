@@ -78,6 +78,22 @@ impl ExportRenderer for HostExportRenderer {
     }
 }
 
+/// The sessions' stored headers as the cwd source: a header's `cwd` text.
+pub struct HeaderCwds(pub Arc<dyn mixdog_core::run_host::config_hosts::ThreadHeaders>);
+#[async_trait]
+impl SessionCwds for HeaderCwds {
+    async fn cwd(&self, session_id: &str) -> Result<Option<String>, mixdog_core_api::CoreError> {
+        let Some(header) = self.0.header(&session_id.into()).await? else { return Ok(None) };
+        Ok(header.get("cwd").and_then(Value::as_str).map(str::to_owned))
+    }
+}
+#[async_trait]
+impl mixdog_scm::service::ThreadWorktrees for HeaderCwds {
+    async fn cwd(&self, thread: &mixdog_core_api::ids::ThreadId) -> Result<Option<String>, mixdog_core_api::CoreError> {
+        SessionCwds::cwd(self, thread.as_str()).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use mixdog_core_api::mock::MockHostChannel;
@@ -180,22 +196,5 @@ mod tests {
         let cwds = HeaderCwds(Arc::new(Headers));
         assert_eq!(cwds.cwd("s").await.unwrap().as_deref(), Some("/work"));
         assert_eq!(cwds.cwd("other").await.unwrap(), None);
-    }
-}
-
-
-/// The sessions' stored headers as the cwd source: a header's `cwd` text.
-pub struct HeaderCwds(pub Arc<dyn mixdog_core::run_host::config_hosts::ThreadHeaders>);
-#[async_trait]
-impl SessionCwds for HeaderCwds {
-    async fn cwd(&self, session_id: &str) -> Result<Option<String>, mixdog_core_api::CoreError> {
-        let Some(header) = self.0.header(&session_id.into()).await? else { return Ok(None) };
-        Ok(header.get("cwd").and_then(Value::as_str).map(str::to_owned))
-    }
-}
-#[async_trait]
-impl mixdog_scm::service::ThreadWorktrees for HeaderCwds {
-    async fn cwd(&self, thread: &mixdog_core_api::ids::ThreadId) -> Result<Option<String>, mixdog_core_api::CoreError> {
-        SessionCwds::cwd(self, thread.as_str()).await
     }
 }

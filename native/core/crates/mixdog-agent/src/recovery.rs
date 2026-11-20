@@ -176,13 +176,13 @@ pub(crate) fn repair_rejected_thinking(messages: &mut Vec<AgentMessage>) -> bool
 pub(crate) fn drop_stale_thinking(messages: &mut Vec<AgentMessage>, from: usize, end_round: bool, repair: bool) -> bool {
     let mut stripped = Vec::new();
     let mut changed = false;
-    for index in from..messages.len() {
-        let had = has_signed_thinking(&messages[index]);
+    for (index, message) in messages.iter_mut().enumerate().skip(from) {
+        let had = has_signed_thinking(message);
         if !had && !repair {
             continue;
         }
-        if let Some(repaired) = without_thinking_replay(&messages[index]) {
-            messages[index] = repaired;
+        if let Some(repaired) = without_thinking_replay(message) {
+            *message = repaired;
             changed = true;
             if had {
                 stripped.push(index);

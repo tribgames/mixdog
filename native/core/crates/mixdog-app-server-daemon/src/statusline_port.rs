@@ -147,20 +147,6 @@ impl DomainService for StatuslineService {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn status_files_dir_is_the_mixdog_variable_else_the_dot_mixdog_of_the_home() {
-        let var = |value: Option<&'static str>| move |name: &str| if name == "MIXDOG_CONFIG_DIR" { value.map(std::ffi::OsString::from) } else { None };
-        assert_eq!(StatuslineService::claude_config_dir(&var(Some("D:/cc")), Some("C:/home".into())), PathBuf::from("D:/cc"));
-        assert_eq!(StatuslineService::claude_config_dir(&var(Some("")), Some("C:/home".into())), PathBuf::from("C:/home").join(".mixdog"));
-        assert_eq!(StatuslineService::claude_config_dir(&var(None), Some("C:/home".into())), PathBuf::from("C:/home").join(".mixdog"));
-    }
-}
-
-
 fn now_ms() -> f64 {
     std::time::SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64)
 }
@@ -232,5 +218,18 @@ impl Inner {
         let limits_input = LimitsInput { gateway: raw.get("gateway").unwrap_or(&empty), agent: agent_config_section(raw), events: &events, now };
         let limits = self.usage.with_route_section(|section| build_gateway_limits(&limits_input, section, &status, params.provider_out.as_ref(), params.usage_snapshot.as_ref()));
         StatuslineReadResult { status: Some(status), limits: Some(limits) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_files_dir_is_the_mixdog_variable_else_the_dot_mixdog_of_the_home() {
+        let var = |value: Option<&'static str>| move |name: &str| if name == "MIXDOG_CONFIG_DIR" { value.map(std::ffi::OsString::from) } else { None };
+        assert_eq!(StatuslineService::claude_config_dir(&var(Some("D:/cc")), Some("C:/home".into())), PathBuf::from("D:/cc"));
+        assert_eq!(StatuslineService::claude_config_dir(&var(Some("")), Some("C:/home".into())), PathBuf::from("C:/home").join(".mixdog"));
+        assert_eq!(StatuslineService::claude_config_dir(&var(None), Some("C:/home".into())), PathBuf::from("C:/home").join(".mixdog"));
     }
 }

@@ -88,7 +88,7 @@ async fn serving_core(dir: &Path) -> (Serving, oneshot::Receiver<()>, std::path:
     .unwrap();
     serving.lifecycle.set_serving().unwrap();
     let writer = serving.discovery.clone();
-    tokio::task::spawn_blocking(move || writer.flush()).await.unwrap();
+    writer.flush();
     (serving, exit, root)
 }
 
@@ -270,7 +270,7 @@ fn an_ssh_attached_session_survives_the_disconnect_and_the_core_ends_itself_only
             tokio::time::sleep(Duration::from_secs(12)).await;
             assert!(exit.try_recv().is_err(), "no early exit inside the remote grace");
             tokio::time::timeout(Duration::from_secs(20), &mut exit).await.expect("the core ends itself once the remote grace is over").unwrap();
-            let last: serde_json::Value = serde_json::from_slice(&tokio::fs::read(root.join("last-exit.json")).await.unwrap()).unwrap();
+            let last: serde_json::Value = serde_json::from_slice(&mixdog_fsio::read(&mixdog_fsio::Unlaned, root.join("last-exit.json")).unwrap()).unwrap();
             assert_eq!(last["reason"], "noClients", "the end was the no-clients shutdown, not a stop request");
         },
     );
@@ -284,14 +284,14 @@ fn an_ordinary_loopback_desktop_leaving_ends_the_core_on_the_local_grace() {
         tokio::runtime::Builder::new_multi_thread(),
         |dir| async move {
             let (serving, exit, root) = serving_core(&dir).await;
-            let document: serde_json::Value = serde_json::from_slice(&tokio::fs::read(crate::discovery::path(&root)).await.unwrap()).unwrap();
+            let document: serde_json::Value = serde_json::from_slice(&mixdog_fsio::read(&mixdog_fsio::Unlaned, crate::discovery::path(&root)).unwrap()).unwrap();
             let token = document["endpoints"]["session"]["token"].as_str().unwrap().to_owned();
             let rpc = u16::try_from(document["core"]["rpc"]["port"].as_u64().unwrap()).unwrap();
             let socket = attach(rpc, &token).await;
             assert_eq!(serving.lifecycle.status().clients, 1);
             drop(socket);
-            tokio::time::timeout(Duration::from_secs(20), exit).await.expect("the local grace is 10 s").unwrap();
-            let last: serde_json::Value = serde_json::from_slice(&tokio::fs::read(root.join("last-exit.json")).await.unwrap()).unwrap();
+            mixdog_rt::time::timeout(Duration::from_secs(20), exit).await.expect("the local grace is 10 s").unwrap();
+            let last: serde_json::Value = serde_json::from_slice(&mixdog_fsio::read(&mixdog_fsio::Unlaned, root.join("last-exit.json")).unwrap()).unwrap();
             assert_eq!(last["reason"], "noClients");
         },
     );

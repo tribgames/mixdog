@@ -227,7 +227,7 @@ fn parse_remote_output(stdout: &str) -> Result<ParsedOutput, RemoteBootstrapErro
             && let Some((code, message)) = rest.split_once(' ').filter(|(code, _)| !code.is_empty() && !code.contains(char::is_whitespace))
         {
             let mut error = RemoteBootstrapError::from_wire(code, message, parse_drain_line(&lines));
-            error.notice = parse_notice_line(&lines);
+            error.notice = parse_notice_line(&lines).map(Box::new);
             return Err(error);
         }
         let Some(result) = line.strip_prefix("MIXDOG_RESULT ") else { continue };
@@ -363,7 +363,7 @@ impl Remote<'_> {
                 said.message.params.insert("detail".to_owned(), detail);
             }
             let mut error = RemoteBootstrapError::from_wire(REMOTE_SHELL, said.english, None);
-            error.notice = Some(said.message);
+            error.notice = Some(Box::new(said.message));
             return Err(error.into());
         }
         let ParsedOutput { value, platform } = parse_remote_output(&run.stdout)?;
@@ -459,7 +459,7 @@ fn ready(report: RemoteReport) -> Result<RemoteReport, ConnectError> {
     }
     let said = crate::said::SERVER_NOT_READY_UNNAMED.plain();
     let mut error = RemoteBootstrapError::from_wire(DAEMON_UNHEALTHY, said.english, None);
-    error.notice = Some(said.message);
+    error.notice = Some(Box::new(said.message));
     Err(error.into())
 }
 
@@ -507,7 +507,7 @@ pub async fn bootstrap(
         Ok(ensured) => ensured,
         Err(error) => {
             if let ConnectError::Bootstrap(RemoteBootstrapError { detail: Some(drain), .. }) = &error {
-                PENDING_DRAINS.lock().unwrap_or_else(PoisonError::into_inner).insert(key, drain.clone());
+                PENDING_DRAINS.lock().unwrap_or_else(PoisonError::into_inner).insert(key, (**drain).clone());
             }
             return Err(error);
         }

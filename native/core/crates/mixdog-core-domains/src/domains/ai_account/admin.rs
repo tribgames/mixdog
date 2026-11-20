@@ -750,7 +750,7 @@ impl ProviderAdmin {
                 return Err(Failure::error("Vertex AI express mode takes an API key, not a JSON key file"));
             }
             if !adc && !express {
-                parse_service_account(&value).map_err(|e| Failure::error(e.message))?;
+                parse_service_account(&value).map_err(|e| Failure::error(e.into_message()))?;
             }
             // Only a location the user chose is saved: an empty one is unset.
             let location_option = options.get("location");

@@ -363,6 +363,105 @@ pub struct Telemetry {
     watch: Mutex<Option<notify::RecommendedWatcher>>,
 }
 
+impl Telemetry {
+    /// `store`, `lane` and `cancel` are the sampler's (the data directory, the maintenance lane, the daemon's run token);
+    /// `context` is what a kept window adds (`|| Value::Null` for nothing).
+    pub fn new(seams: Seams, store: Arc<dyn ProfileStore>, profile_dir: PathBuf, lane: MaintenanceIo, cancel: CancellationToken, context: Context) -> Arc<Self> {
+        let sampler = Arc::new(Sampler { store, lane, cancel, context, profile_dir, pending: AtomicBool::new(false), state: Mutex::new((false, String::new())), flag: Mutex::new(false), flag_stale: AtomicBool::new(true) });
+        Arc::new(Self { seams, activity: AtomicBool::new(false), sampler, watch: Mutex::new(None) })
+    }
+
+    /// `emit('boot')`: the line written once when the daemon is ready, with or without activity. It leaves the activity of
+    /// the first window as it is.
+    pub fn boot(&self) {
+        let work = (self.seams.work)();
+        (self.seams.log)(&format_line(Reason::Boot, (self.seams.now_ms)(), self.seams.pid, (self.seams.memory)(), work));
+    }
+
+    /// The daemon did work: the next window writes its memory and work line.
+    pub fn note_activity(&self) {
+        self.activity.store(true, Ordering::Release);
+    }
+
+    /// One window's end: the memory and work line when there was activity, `event-loop lag` when the window was late, and the
+    /// sampler's pass (spawned: the loop's timer keeps firing while it waits for the lane).
+    pub fn tick(self: &Arc<Self>, lag: LagWindow) {
+        let work = (self.seams.work)();
+        let at_ms = (self.seams.now_ms)();
+        if self.activity.swap(false, Ordering::AcqRel) {
+            (self.seams.log)(&format_line(Reason::Periodic, at_ms, self.seams.pid, (self.seams.memory)(), work));
+        }
+        if lag.p99_ms >= LAG_LOG_P99_MS {
+            (self.seams.log)(&format!("event-loop lag p95={}ms p99={}ms max={}ms", lag.p95_ms, lag.p99_ms, lag.max_ms));
+        }
+        let this = Arc::clone(self);
+        tokio::spawn(async move { this.sample(at_ms, lag, work).await });
+    }
+
+    /// The flag file may have been created or removed: the next pass reads it again.
+    pub fn flag_changed(&self) {
+        self.sampler.flag_stale.store(true, Ordering::Release);
+    }
+
+    /// Starts watching the folder of the flag file: a change to the file re-reads it and runs a sampler pass at once (so
+    /// "enabled" or "disabled" is said when the file appears or goes, as Node said it on the watch event). Without a watch
+    /// the file is read once, at the start, and said so.
+    fn watch_flag(self: &Arc<Self>) {
+        use notify::Watcher;
+        let Some(dir) = self.sampler.store.watch_dir() else { return };
+        let (weak, runtime) = (Arc::downgrade(self), tokio::runtime::Handle::current());
+        let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+            let concerns_flag = match &event {
+                Ok(event) => event.paths.iter().any(|path| path.file_name().is_some_and(|name| name == LAG_PROFILE_FLAG_FILE)),
+                Err(_) => true,
+            };
+            if !concerns_flag {
+                return;
+            }
+            let Some(this) = weak.upgrade() else { return };
+            this.flag_changed();
+            let (at_ms, work) = ((this.seams.now_ms)(), (this.seams.work)());
+            runtime.spawn(async move { this.sample(at_ms, LagWindow::default(), work).await });
+        });
+        match watcher.and_then(|mut watcher| watcher.watch(&dir, notify::RecursiveMode::NonRecursive).map(|()| watcher)) {
+            Ok(watcher) => *self.watch.lock().unwrap_or_else(PoisonError::into_inner) = Some(watcher),
+            Err(error) => (self.seams.log)(&format!("lag-profile: the data folder cannot be watched, so the flag file is read only at start: {error}")),
+        }
+    }
+
+    /// The sampler's pass for one window.
+    pub async fn sample(&self, at_ms: i64, lag: LagWindow, work: WorkCounts) -> SamplerOutcome {
+        self.sampler.window(at_ms, lag, work, Arc::clone(&self.seams.log)).await
+    }
+
+    /// The loop: a sampler pass at once (`onStart`: with the flag there, the sampler says it is on from the start), then every
+    /// [`LAG_PROBE`] the lateness of the timer is recorded and every [`INTERVAL`] the window is closed. Its timer is unrefed, as
+    /// Node's was. Ends when `cancel` is cancelled.
+    pub async fn run(self: Arc<Self>, cancel: CancellationToken) {
+        self.watch_flag();
+        let this = Arc::clone(&self);
+        let work = (self.seams.work)();
+        let at_ms = (self.seams.now_ms)();
+        tokio::spawn(async move { this.sample(at_ms, LagWindow::default(), work).await });
+        let start = Instant::now();
+        let mut probe = mixdog_rt::time::interval_at_unrefed(start + LAG_PROBE, LAG_PROBE);
+        probe.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut next_window = start + INTERVAL;
+        let mut late_ms: Vec<u64> = Vec::new();
+        while !cancel.is_cancelled() {
+            let due = probe.tick().await;
+            let now = Instant::now();
+            late_ms.push(u64::try_from(now.saturating_duration_since(due).as_millis()).unwrap_or(u64::MAX));
+            if now >= next_window {
+                self.tick(LagWindow::from_samples(&late_ms));
+                late_ms.clear();
+                next_window = now + INTERVAL;
+            }
+        }
+        drop(self.watch.lock().unwrap_or_else(PoisonError::into_inner).take());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -556,105 +655,5 @@ mod tests {
         let f = fixture();
         f.telemetry.sampler.pending.store(true, Ordering::SeqCst);
         assert_eq!(f.telemetry.sample(0, BAD, WorkCounts::default()).await, SamplerOutcome::Busy);
-    }
-}
-
-
-impl Telemetry {
-    /// `store`, `lane` and `cancel` are the sampler's (the data directory, the maintenance lane, the daemon's run token);
-    /// `context` is what a kept window adds (`|| Value::Null` for nothing).
-    pub fn new(seams: Seams, store: Arc<dyn ProfileStore>, profile_dir: PathBuf, lane: MaintenanceIo, cancel: CancellationToken, context: Context) -> Arc<Self> {
-        let sampler = Arc::new(Sampler { store, lane, cancel, context, profile_dir, pending: AtomicBool::new(false), state: Mutex::new((false, String::new())), flag: Mutex::new(false), flag_stale: AtomicBool::new(true) });
-        Arc::new(Self { seams, activity: AtomicBool::new(false), sampler, watch: Mutex::new(None) })
-    }
-
-    /// `emit('boot')`: the line written once when the daemon is ready, with or without activity. It leaves the activity of
-    /// the first window as it is.
-    pub fn boot(&self) {
-        let work = (self.seams.work)();
-        (self.seams.log)(&format_line(Reason::Boot, (self.seams.now_ms)(), self.seams.pid, (self.seams.memory)(), work));
-    }
-
-    /// The daemon did work: the next window writes its memory and work line.
-    pub fn note_activity(&self) {
-        self.activity.store(true, Ordering::Release);
-    }
-
-    /// One window's end: the memory and work line when there was activity, `event-loop lag` when the window was late, and the
-    /// sampler's pass (spawned: the loop's timer keeps firing while it waits for the lane).
-    pub fn tick(self: &Arc<Self>, lag: LagWindow) {
-        let work = (self.seams.work)();
-        let at_ms = (self.seams.now_ms)();
-        if self.activity.swap(false, Ordering::AcqRel) {
-            (self.seams.log)(&format_line(Reason::Periodic, at_ms, self.seams.pid, (self.seams.memory)(), work));
-        }
-        if lag.p99_ms >= LAG_LOG_P99_MS {
-            (self.seams.log)(&format!("event-loop lag p95={}ms p99={}ms max={}ms", lag.p95_ms, lag.p99_ms, lag.max_ms));
-        }
-        let this = Arc::clone(self);
-        tokio::spawn(async move { this.sample(at_ms, lag, work).await });
-    }
-
-    /// The flag file may have been created or removed: the next pass reads it again.
-    pub fn flag_changed(&self) {
-        self.sampler.flag_stale.store(true, Ordering::Release);
-    }
-
-    /// Starts watching the folder of the flag file: a change to the file re-reads it and runs a sampler pass at once (so
-    /// "enabled" or "disabled" is said when the file appears or goes, as Node said it on the watch event). Without a watch
-    /// the file is read once, at the start, and said so.
-    fn watch_flag(self: &Arc<Self>) {
-        use notify::Watcher;
-        let Some(dir) = self.sampler.store.watch_dir() else { return };
-        let (weak, runtime) = (Arc::downgrade(self), tokio::runtime::Handle::current());
-        let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-            let concerns_flag = match &event {
-                Ok(event) => event.paths.iter().any(|path| path.file_name().is_some_and(|name| name == LAG_PROFILE_FLAG_FILE)),
-                Err(_) => true,
-            };
-            if !concerns_flag {
-                return;
-            }
-            let Some(this) = weak.upgrade() else { return };
-            this.flag_changed();
-            let (at_ms, work) = ((this.seams.now_ms)(), (this.seams.work)());
-            runtime.spawn(async move { this.sample(at_ms, LagWindow::default(), work).await });
-        });
-        match watcher.and_then(|mut watcher| watcher.watch(&dir, notify::RecursiveMode::NonRecursive).map(|()| watcher)) {
-            Ok(watcher) => *self.watch.lock().unwrap_or_else(PoisonError::into_inner) = Some(watcher),
-            Err(error) => (self.seams.log)(&format!("lag-profile: the data folder cannot be watched, so the flag file is read only at start: {error}")),
-        }
-    }
-
-    /// The sampler's pass for one window.
-    pub async fn sample(&self, at_ms: i64, lag: LagWindow, work: WorkCounts) -> SamplerOutcome {
-        self.sampler.window(at_ms, lag, work, Arc::clone(&self.seams.log)).await
-    }
-
-    /// The loop: a sampler pass at once (`onStart`: with the flag there, the sampler says it is on from the start), then every
-    /// [`LAG_PROBE`] the lateness of the timer is recorded and every [`INTERVAL`] the window is closed. Its timer is unrefed, as
-    /// Node's was. Ends when `cancel` is cancelled.
-    pub async fn run(self: Arc<Self>, cancel: CancellationToken) {
-        self.watch_flag();
-        let this = Arc::clone(&self);
-        let work = (self.seams.work)();
-        let at_ms = (self.seams.now_ms)();
-        tokio::spawn(async move { this.sample(at_ms, LagWindow::default(), work).await });
-        let start = Instant::now();
-        let mut probe = mixdog_rt::time::interval_at_unrefed(start + LAG_PROBE, LAG_PROBE);
-        probe.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        let mut next_window = start + INTERVAL;
-        let mut late_ms: Vec<u64> = Vec::new();
-        while !cancel.is_cancelled() {
-            let due = probe.tick().await;
-            let now = Instant::now();
-            late_ms.push(u64::try_from(now.saturating_duration_since(due).as_millis()).unwrap_or(u64::MAX));
-            if now >= next_window {
-                self.tick(LagWindow::from_samples(&late_ms));
-                late_ms.clear();
-                next_window = now + INTERVAL;
-            }
-        }
-        drop(self.watch.lock().unwrap_or_else(PoisonError::into_inner).take());
     }
 }

@@ -1855,6 +1855,15 @@ pub struct SearchCursor {
     pub id_key: Vec<u8>,
 }
 
+/// What a read-only look at the SQLite file at `path` finds: its `application_id` and the number of objects in `sqlite_master`, each as SQLite
+/// answered it; `None` when the file cannot be opened at all. Changes nothing.
+pub fn read_only_identity(path: &Path) -> Option<(rusqlite::Result<i64>, rusqlite::Result<i64>)> {
+    let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    let id = conn.pragma_query_value(None, "application_id", |r| r.get(0));
+    let objects = conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0));
+    Some((id, objects))
+}
+
 impl SqliteStore {
     /// The one entry point of the index: opens `<data>/index/store.sqlite` and starts its
     /// writer thread; reads run as jobs on `read_lane`. A missing or unreadable file, or

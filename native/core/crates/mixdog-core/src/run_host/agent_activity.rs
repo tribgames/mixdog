@@ -46,13 +46,16 @@ impl ActivitySink for LateDirectory {
     }
 }
 
+/// Cancels the agent jobs a session started, by session id.
+pub type CancelJobs = Arc<dyn Fn(&str) + Send + Sync>;
+
 pub struct AgentActivity {
     sink: Arc<dyn ActivitySink>,
     /// Woken by every signal, loaded owners or not: the `agentPool` section re-lists on it.
     changed: Arc<Notify>,
     /// Cancels the agent jobs a session started (`cancelBackgroundTasks({ surface: 'agent', callerSessionId, reason })`); bound
     /// once the job board exists, which is built over this listener.
-    cancel_jobs: std::sync::OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
+    cancel_jobs: std::sync::OnceLock<CancelJobs>,
 }
 
 impl AgentActivity {
@@ -61,7 +64,7 @@ impl AgentActivity {
     }
 
     /// Binds the cancel of a session's agent jobs; a second bind is refused.
-    pub fn bind_cancel_jobs(&self, cancel: Arc<dyn Fn(&str) + Send + Sync>) -> Result<(), Arc<dyn Fn(&str) + Send + Sync>> {
+    pub fn bind_cancel_jobs(&self, cancel: CancelJobs) -> Result<(), CancelJobs> {
         self.cancel_jobs.set(cancel)
     }
 

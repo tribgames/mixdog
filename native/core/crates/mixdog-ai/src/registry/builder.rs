@@ -283,6 +283,9 @@ impl DefaultProviderBuilder {
     }
 }
 
+/// The key a custom provider read last (`None`: none) and the engine built with it.
+type PinnedEngine = (Option<String>, Arc<dyn ProviderAdapter>);
+
 /// A custom provider's primary key as its pool sends with it: the key the configuration resolves to (settings, the
 /// named environment variable, the keychain) is read once per request, and the request goes out on an engine built
 /// with that key alone, so a key saved meanwhile reaches the next request and never this one's refresh.
@@ -295,7 +298,7 @@ struct CustomOwnKey {
     keyless: Arc<dyn ProviderAdapter>,
     rejected_history: Arc<custom::responses::RejectedHistory>,
     /// The key read last (`None`: none) and the engine built with it.
-    pinned: std::sync::Mutex<Option<(Option<String>, Arc<dyn ProviderAdapter>)>>,
+    pinned: std::sync::Mutex<Option<PinnedEngine>>,
 }
 
 #[async_trait]
@@ -1307,12 +1310,12 @@ impl DefaultProviderBuilder {
         }
         let credential = if mode == Some("adc") {
             match self.adc_text().await? {
-                AdcRead::Found { raw, path } => vertex::parse_adc(&raw, &path).map_err(|e| e.message)?,
+                AdcRead::Found { raw, path } => vertex::parse_adc(&raw, &path).map_err(|e| e.into_message())?,
                 AdcRead::NoLogin => return self.build_vertex_metadata(cfg).await,
             }
         } else {
             let raw = self.env.keys.resolve(name, &key_config(cfg)).await.map_err(|e| unread_key(name, &e))?;
-            vertex::parse_service_account(&raw).map_err(|e| e.message)?
+            vertex::parse_service_account(&raw).map_err(|e| e.into_message())?
         };
         let env = self.env.env.clone();
         let project = match text(cfg, "projectId") {
@@ -1388,7 +1391,7 @@ impl DefaultProviderBuilder {
             self.env.env.var("MIXDOG_ANTIGRAVITY_FC_MODE").as_deref(),
         )
         .await
-        .map_err(|e| e.message)?;
+        .map_err(|e| e.into_message())?;
         // Node's cache is always in the plugin data folder (`makeModelCache`'s `getPluginData()`), whatever
         // `ANTIGRAVITY_OAUTH_CREDENTIALS_PATH` says about the credential file.
         let cache = crate::providers::google::roster_cache::RosterCache::new(self.env.accounts.data_dir().to_path_buf(), self.env.io);
@@ -1427,8 +1430,8 @@ impl DefaultProviderBuilder {
         let served = custom_wires(cfg, &protocol, protocol_wire)?;
         let model_wires = custom_model_wires(cfg, &protocol, &served)?;
         let object = |key: &str| cfg.get(key).and_then(Value::as_object).cloned().unwrap_or_default();
-        let headers = custom::normalize_headers(&object("headers"), "headers", &[]).map_err(|e| e.message)?;
-        let request_body = custom::normalize_request_body(&object("requestBody"), "requestBody").map_err(|e| e.message)?;
+        let headers = custom::normalize_headers(&object("headers"), "headers", &[]).map_err(|e| e.into_message())?;
+        let request_body = custom::normalize_request_body(&object("requestBody"), "requestBody").map_err(|e| e.into_message())?;
         // `createCustomProvider` takes the model overrides from `normalizeCustomProviderConfig(config)`, which makes an
         // unversioned entry's `models` manual overrides (`migrateLegacy`) and hides the ids discovered beside them.
         let entry = &normalized;
@@ -1437,12 +1440,12 @@ impl DefaultProviderBuilder {
         for (model, over) in entry.get("modelOverrides").and_then(Value::as_object).cloned().unwrap_or_default() {
             if let Some(body) = over.get("requestBody").and_then(Value::as_object).filter(|b| !b.is_empty()) {
                 let label = format!("modelOverrides[{model}].requestBody");
-                model_body.insert(model.clone(), Value::Object(custom::normalize_request_body(body, &label).map_err(|e| e.message)?));
+                model_body.insert(model.clone(), Value::Object(custom::normalize_request_body(body, &label).map_err(|e| e.into_message())?));
             }
             // `resolveCustomRequestExtras`: the override's `requestHeaders`.
             if let Some(h) = over.get("requestHeaders").and_then(Value::as_object).filter(|h| !h.is_empty()) {
                 let label = format!("modelOverrides[{model}].requestHeaders");
-                model_headers.push((model.clone(), custom::normalize_model_headers(h, &label).map_err(|e| e.message)?));
+                model_headers.push((model.clone(), custom::normalize_model_headers(h, &label).map_err(|e| e.into_message())?));
             }
         }
         // `auth: none` is authoritative: no key is read and no credential sent.

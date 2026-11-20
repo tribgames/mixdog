@@ -262,9 +262,9 @@ pub struct RemoteDrain {
 pub struct RemoteBootstrapError {
     pub code: String,
     pub message: String,
-    pub detail: Option<RemoteDrain>,
+    pub detail: Option<Box<RemoteDrain>>,
     /// The message by code (a `MIXDOG_NOTICE` line of the server program, or this desktop's own sentence).
-    pub notice: Option<mixdog_app_protocol::v2::connections::SshMessage>,
+    pub notice: Option<Box<mixdog_app_protocol::v2::connections::SshMessage>>,
 }
 
 impl RemoteBootstrapError {
@@ -274,12 +274,12 @@ impl RemoteBootstrapError {
 
     /// A desktop-side failure that says `said`.
     pub fn said(code: BootstrapCode, said: mixdog_app_protocol::message::Said) -> Self {
-        Self { code: code.as_str().to_owned(), message: said.english, detail: None, notice: Some(said.message) }
+        Self { code: code.as_str().to_owned(), message: said.english, detail: None, notice: Some(Box::new(said.message)) }
     }
 
     /// A code read off the wire, known or not.
     pub fn from_wire(code: &str, message: impl Into<String>, detail: Option<RemoteDrain>) -> Self {
-        Self { code: code.to_owned(), message: message.into(), detail, notice: None }
+        Self { code: code.to_owned(), message: message.into(), detail: detail.map(Box::new), notice: None }
     }
 
     pub fn is_terminal(&self) -> bool {

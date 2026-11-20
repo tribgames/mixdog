@@ -109,6 +109,41 @@ impl Bound for ConnectionOwnersCell {
     }
 }
 
+impl ConnectionOwners {
+    #[allow(clippy::too_many_arguments, reason = "Keep the existing composed connection-owner boundary and explicit owner lifetimes unchanged.")]
+    pub fn new(
+        terminal: Arc<TerminalService>,
+        screen: Arc<ScreenSessions>,
+        workspace: Arc<WorkspaceService>,
+        system: Arc<SystemService>,
+        devices: Arc<DeviceRegistry>,
+        live_view: Arc<crate::live_view::LiveViewService>,
+        scm: Arc<ScmService>,
+        browser_engine: Arc<crate::browser_engine_service::BrowserEngineService>,
+    ) -> Self {
+        Self { owners: vec![terminal, screen, workspace, system, devices, live_view, scm, browser_engine] }
+    }
+
+    /// One more owner of per-connection state, released after the others (the connections service: a window's connect attempts and
+    /// its view of a server's ports).
+    pub fn with_owner(mut self, owner: Arc<dyn ConnectionOwner>) -> Self {
+        self.owners.push(owner);
+        self
+    }
+
+    /// Every owner releases what `connection` held, in a fixed order.
+    pub fn connection_closed(&self, connection: ConnectionId) {
+        for owner in &self.owners {
+            owner.connection_closed(connection);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn of(owners: Vec<Arc<dyn ConnectionOwner>>) -> Self {
+        Self { owners }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -199,40 +234,5 @@ mod tests {
         assert_eq!(*recorder.0.lock().unwrap(), vec![ConnectionId(6), ConnectionId(5)], "every owner is told, once per close");
         terminal.tabs().dispose_all();
         mixdog_rt::time::sleep(Duration::from_millis(10)).await;
-    }
-}
-
-impl ConnectionOwners {
-    #[allow(clippy::too_many_arguments, reason = "Keep the existing composed connection-owner boundary and explicit owner lifetimes unchanged.")]
-    pub fn new(
-        terminal: Arc<TerminalService>,
-        screen: Arc<ScreenSessions>,
-        workspace: Arc<WorkspaceService>,
-        system: Arc<SystemService>,
-        devices: Arc<DeviceRegistry>,
-        live_view: Arc<crate::live_view::LiveViewService>,
-        scm: Arc<ScmService>,
-        browser_engine: Arc<crate::browser_engine_service::BrowserEngineService>,
-    ) -> Self {
-        Self { owners: vec![terminal, screen, workspace, system, devices, live_view, scm, browser_engine] }
-    }
-
-    /// One more owner of per-connection state, released after the others (the connections service: a window's connect attempts and
-    /// its view of a server's ports).
-    pub fn with_owner(mut self, owner: Arc<dyn ConnectionOwner>) -> Self {
-        self.owners.push(owner);
-        self
-    }
-
-    /// Every owner releases what `connection` held, in a fixed order.
-    pub fn connection_closed(&self, connection: ConnectionId) {
-        for owner in &self.owners {
-            owner.connection_closed(connection);
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn of(owners: Vec<Arc<dyn ConnectionOwner>>) -> Self {
-        Self { owners }
     }
 }

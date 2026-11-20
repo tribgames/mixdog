@@ -106,6 +106,108 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
+/// The runtime of the install `exe` belongs to; `path` is the `PATH` a bare program name is
+/// searched on. A missing manifest, or one that names something missing, is an error.
+///
+/// Probes the file system: it runs in the lane job of [`resolve_current_on`], or before any
+/// runtime exists ([`resolve_current`]).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "runs in the lane job of `resolve_current_on`, or before any runtime exists in `resolve_current`"
+)]
+pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeError> {
+    let (dir, manifest_path, manifest) = read_manifest(exe)?;
+    let program = if manifest.program.contains(['/', '\\']) {
+        dir.join(&manifest.program)
+    } else {
+        which(&manifest.program, path).unwrap_or_else(|| PathBuf::from(&manifest.program))
+    };
+    if !program.is_file() {
+        return Err(JsRuntimeError::MissingProgram { program, manifest: manifest_path });
+    }
+    let package_root = dir.join(&manifest.package_root);
+    if !package_present(&package_root) {
+        return Err(JsRuntimeError::MissingPackage { root: package_root, manifest: manifest_path });
+    }
+    Ok(JsRuntime { program, package_root, electron: manifest.electron, core_program: exe.to_path_buf(),
+        node_version: manifest.node_version,
+        #[cfg(test)]
+        ext_worker: None,
+    })
+}
+/// The ONNX Runtime library of the install `exe` belongs to: the manifest's `ortLibrary`, which
+/// must exist. `None` when the manifest names none (an install without ONNX Runtime).
+///
+/// Probes the file system, like [`resolve`].
+#[allow(clippy::disallowed_methods, reason = "runs in the lane job of `resolve_ort_library_current_on`")]
+pub fn resolve_ort_library(exe: &Path) -> Result<Option<PathBuf>, JsRuntimeError> {
+    let (dir, manifest_path, manifest) = read_manifest(exe)?;
+    let Some(library) = manifest.ort_library else {
+        return Ok(None);
+    };
+    let library = dir.join(library);
+    if !library.is_file() {
+        return Err(JsRuntimeError::MissingOrtLibrary { library, manifest: manifest_path });
+    }
+    Ok(Some(library))
+}
+fn current_exe() -> Result<PathBuf, JsRuntimeError> {
+    std::env::current_exe().map_err(|source| JsRuntimeError::Read { path: PathBuf::from("<current exe>"), source })
+}
+/// The runtime of the running binary's install, for a caller that has no runtime yet.
+pub fn resolve_current() -> Result<JsRuntime, JsRuntimeError> {
+    resolve(&current_exe()?, std::env::var_os("PATH").as_deref())
+}
+/// [`resolve_ort_library`] of the running binary's install.
+pub fn resolve_ort_library_current() -> Result<Option<PathBuf>, JsRuntimeError> {
+    resolve_ort_library(&current_exe()?)
+}
+/// [`resolve_current`] as a job of `lane`, for a caller on the async runtime.
+pub async fn resolve_current_on(lane: impl LaneToken) -> Result<JsRuntime, JsRuntimeError> {
+    on_lane(lane, resolve_current).await
+}
+/// [`resolve_ort_library_current`] as a job of `lane`, for a caller on the async runtime.
+pub async fn resolve_ort_library_current_on(lane: impl LaneToken) -> Result<Option<PathBuf>, JsRuntimeError> {
+    on_lane(lane, resolve_ort_library_current).await
+}
+/// A package root inside an `.asar` archive is readable only by Electron, so only the archive
+/// file is checked; any other root must hold the skill entry.
+#[allow(clippy::disallowed_methods, reason = "runs only inside `resolve`")]
+fn package_present(root: &Path) -> bool {
+    match root.ancestors().find(|p| p.extension().is_some_and(|e| e == "asar")) {
+        Some(archive) => archive.is_file(),
+        None => root.join(SKILL_ENTRY).is_file(),
+    }
+}
+#[allow(clippy::disallowed_methods, reason = "runs only inside `resolve`")]
+fn which(name: &str, path: Option<&OsStr>) -> Option<PathBuf> {
+    let suffixes: &[&str] = if cfg!(windows) { &["", ".exe", ".cmd"] } else { &[""] };
+    std::env::split_paths(path?)
+        .flat_map(|dir| suffixes.iter().map(move |suffix| dir.join(format!("{name}{suffix}"))))
+        .find(|candidate| candidate.is_file())
+}
+/// A test install under `root`: a manifest, an interpreter file and a package root holding the
+/// skill entry and `package.json`, resolved through [`resolve`] as a product install is.
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test setup writes the install on the test thread")]
+pub(crate) fn fixture(root: &Path) -> JsRuntime {
+    let core = root.join("core");
+    let package = root.join("js");
+    std::fs::create_dir_all(&core).unwrap();
+    std::fs::create_dir_all(package.join("src")).unwrap();
+    std::fs::write(core.join("node"), "").unwrap();
+    std::fs::write(package.join(SKILL_ENTRY), "").unwrap();
+    // The tree's own manifest: the composition reads its ersion (package_version).
+    std::fs::write(package.join("package.json"), include_str!("../../../../../package.json")).unwrap();
+    // The shipped files the composition reads from <packageRoot>/src: prompt rules, output styles, agents, defaults, workflow packs, orchestration texts and the voice manifest.
+    let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../src");
+    for dir in ["rules", "output-styles", "agents", "defaults", "workflows", "orchestration", "runtime/channels/data"] {
+        copy_dir(&shipped.join(dir), &package.join("src").join(dir));
+    }
+    std::fs::write(core.join(MANIFEST_FILE), r#"{"program":"./node","packageRoot":"../js"}"#).unwrap();
+    resolve(&core.join("mixdogd"), None).unwrap()
+}
+
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "tests write their install on the test thread")]
 mod tests {
@@ -211,107 +313,4 @@ mod tests {
         let (_root, exe) = install(r#"{"program":"x"}"#);
         assert!(matches!(resolve(&exe, None), Err(JsRuntimeError::Parse { .. })));
     }
-}
-
-
-/// The runtime of the install `exe` belongs to; `path` is the `PATH` a bare program name is
-/// searched on. A missing manifest, or one that names something missing, is an error.
-///
-/// Probes the file system: it runs in the lane job of [`resolve_current_on`], or before any
-/// runtime exists ([`resolve_current`]).
-#[allow(
-    clippy::disallowed_methods,
-    reason = "runs in the lane job of `resolve_current_on`, or before any runtime exists in `resolve_current`"
-)]
-pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeError> {
-    let (dir, manifest_path, manifest) = read_manifest(exe)?;
-    let program = if manifest.program.contains(['/', '\\']) {
-        dir.join(&manifest.program)
-    } else {
-        which(&manifest.program, path).unwrap_or_else(|| PathBuf::from(&manifest.program))
-    };
-    if !program.is_file() {
-        return Err(JsRuntimeError::MissingProgram { program, manifest: manifest_path });
-    }
-    let package_root = dir.join(&manifest.package_root);
-    if !package_present(&package_root) {
-        return Err(JsRuntimeError::MissingPackage { root: package_root, manifest: manifest_path });
-    }
-    Ok(JsRuntime { program, package_root, electron: manifest.electron, core_program: exe.to_path_buf(),
-        node_version: manifest.node_version,
-        #[cfg(test)]
-        ext_worker: None,
-    })
-}
-/// The ONNX Runtime library of the install `exe` belongs to: the manifest's `ortLibrary`, which
-/// must exist. `None` when the manifest names none (an install without ONNX Runtime).
-///
-/// Probes the file system, like [`resolve`].
-#[allow(clippy::disallowed_methods, reason = "runs in the lane job of `resolve_ort_library_current_on`")]
-pub fn resolve_ort_library(exe: &Path) -> Result<Option<PathBuf>, JsRuntimeError> {
-    let (dir, manifest_path, manifest) = read_manifest(exe)?;
-    let Some(library) = manifest.ort_library else {
-        return Ok(None);
-    };
-    let library = dir.join(library);
-    if !library.is_file() {
-        return Err(JsRuntimeError::MissingOrtLibrary { library, manifest: manifest_path });
-    }
-    Ok(Some(library))
-}
-fn current_exe() -> Result<PathBuf, JsRuntimeError> {
-    std::env::current_exe().map_err(|source| JsRuntimeError::Read { path: PathBuf::from("<current exe>"), source })
-}
-/// The runtime of the running binary's install, for a caller that has no runtime yet.
-pub fn resolve_current() -> Result<JsRuntime, JsRuntimeError> {
-    resolve(&current_exe()?, std::env::var_os("PATH").as_deref())
-}
-/// [`resolve_ort_library`] of the running binary's install.
-pub fn resolve_ort_library_current() -> Result<Option<PathBuf>, JsRuntimeError> {
-    resolve_ort_library(&current_exe()?)
-}
-/// [`resolve_current`] as a job of `lane`, for a caller on the async runtime.
-pub async fn resolve_current_on(lane: impl LaneToken) -> Result<JsRuntime, JsRuntimeError> {
-    on_lane(lane, resolve_current).await
-}
-/// [`resolve_ort_library_current`] as a job of `lane`, for a caller on the async runtime.
-pub async fn resolve_ort_library_current_on(lane: impl LaneToken) -> Result<Option<PathBuf>, JsRuntimeError> {
-    on_lane(lane, resolve_ort_library_current).await
-}
-/// A package root inside an `.asar` archive is readable only by Electron, so only the archive
-/// file is checked; any other root must hold the skill entry.
-#[allow(clippy::disallowed_methods, reason = "runs only inside `resolve`")]
-fn package_present(root: &Path) -> bool {
-    match root.ancestors().find(|p| p.extension().is_some_and(|e| e == "asar")) {
-        Some(archive) => archive.is_file(),
-        None => root.join(SKILL_ENTRY).is_file(),
-    }
-}
-#[allow(clippy::disallowed_methods, reason = "runs only inside `resolve`")]
-fn which(name: &str, path: Option<&OsStr>) -> Option<PathBuf> {
-    let suffixes: &[&str] = if cfg!(windows) { &["", ".exe", ".cmd"] } else { &[""] };
-    std::env::split_paths(path?)
-        .flat_map(|dir| suffixes.iter().map(move |suffix| dir.join(format!("{name}{suffix}"))))
-        .find(|candidate| candidate.is_file())
-}
-/// A test install under `root`: a manifest, an interpreter file and a package root holding the
-/// skill entry and `package.json`, resolved through [`resolve`] as a product install is.
-#[cfg(test)]
-#[allow(clippy::disallowed_methods, reason = "test setup writes the install on the test thread")]
-pub(crate) fn fixture(root: &Path) -> JsRuntime {
-    let core = root.join("core");
-    let package = root.join("js");
-    std::fs::create_dir_all(&core).unwrap();
-    std::fs::create_dir_all(package.join("src")).unwrap();
-    std::fs::write(core.join("node"), "").unwrap();
-    std::fs::write(package.join(SKILL_ENTRY), "").unwrap();
-    // The tree's own manifest: the composition reads its ersion (package_version).
-    std::fs::write(package.join("package.json"), include_str!("../../../../../package.json")).unwrap();
-    // The shipped files the composition reads from <packageRoot>/src: prompt rules, output styles, agents, defaults, workflow packs, orchestration texts and the voice manifest.
-    let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../src");
-    for dir in ["rules", "output-styles", "agents", "defaults", "workflows", "orchestration", "runtime/channels/data"] {
-        copy_dir(&shipped.join(dir), &package.join("src").join(dir));
-    }
-    std::fs::write(core.join(MANIFEST_FILE), r#"{"program":"./node","packageRoot":"../js"}"#).unwrap();
-    resolve(&core.join("mixdogd"), None).unwrap()
 }

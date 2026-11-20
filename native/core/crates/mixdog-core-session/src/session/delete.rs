@@ -234,9 +234,13 @@ async fn idle_refusal(
     Ok(Ok(meta))
 }
 
+/// One idle delete a test holds: its session, the `arrived` sender and the `go` receiver.
+#[cfg(any(test, feature = "test-support"))]
+type JudgedHold = (String, tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>);
+
 /// The idle deletes a test holds right after their archive judgment, by session: `arrived` is told, then `go` is awaited.
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) static JUDGED_HOLDS: std::sync::Mutex<Vec<(String, tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>> =
+pub(crate) static JUDGED_HOLDS: std::sync::Mutex<Vec<JudgedHold>> =
     std::sync::Mutex::new(Vec::new());
 
 #[cfg(any(test, feature = "test-support"))]

@@ -145,9 +145,9 @@ impl GrokFlow {
                 GROK_DISCOVERY,
             )
             .await
-            .map_err(|error| failed("grok_discovery_failed", error.message))?;
+            .map_err(|error| failed("grok_discovery_failed", error.into_message()))?;
         let success = response.is_success();
-        let body = response.read_all().await.map_err(|error| failed("grok_discovery_failed", error.message))?.body;
+        let body = response.read_all().await.map_err(|error| failed("grok_discovery_failed", error.into_message()))?.body;
         let document: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
         let endpoint = |key: &str| document.get(key).and_then(Value::as_str).map(str::to_owned);
         match (success, endpoint("authorization_endpoint"), endpoint("token_endpoint")) {
@@ -166,11 +166,11 @@ impl LoginFlow for GrokFlow {
     async fn start(&self) -> Result<Box<dyn LoginSession>, LoginError> {
         let (authorization, token) = self.endpoints().await?;
         let login = GrokLogin::new(Arc::clone(&self.http), self.file.clone(), &authorization, &token)
-            .map_err(|error| failed("grok_discovery_failed", error.message))?;
+            .map_err(|error| failed("grok_discovery_failed", error.into_message()))?;
         let browser = PkceLoginFlow::new(self.target.clone(), Arc::new(login));
         let Some(pace) = &self.device else { return browser.start().await };
         let device = GrokDeviceLogin::new(Arc::clone(&self.http), self.file.clone(), Arc::clone(pace), &token, Arc::new(browser))
-            .map_err(|error| failed("grok_discovery_failed", error.message))?;
+            .map_err(|error| failed("grok_discovery_failed", error.into_message()))?;
         device.start().await
     }
 }
@@ -265,7 +265,7 @@ impl OAuthProvider for FileOAuth {
         let session = mixdog_ai::providers::anthropic::OAuthSession::new(self.file(account)?, Arc::clone(&self.wiring.http))
             .with_cli_version_source(self.wiring.versions.claude())
             .with_clock(Arc::new(move || u64::try_from(now()).unwrap_or(0)));
-        session.ensure_lease(minimum_validity_ms).await.map(drop).map_err(|error| error.message)
+        session.ensure_lease(minimum_validity_ms).await.map(drop).map_err(|error| error.into_message())
     }
     fn login_flow(&self, account: &str) -> Option<Arc<dyn LoginFlow>> {
         self.flow(account, true)

@@ -27,6 +27,7 @@ mixdog-app-server = { workspace = true }
 mixdog-ledger = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-remote = { workspace = true }
+mixdog-fsio = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-statefile = { workspace = true }
 mixdog-store = { workspace = true }

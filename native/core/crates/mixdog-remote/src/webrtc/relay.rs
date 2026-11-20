@@ -80,7 +80,6 @@ struct State {
 const SCREEN_REPLAY_LIMIT: usize = 64;
 const SCREEN_RESYNC: &str = "Screen signaling needs resynchronization. Reconnect before starting another screen viewer.";
 
-#[derive(Default)]
 struct ScreenReplay {
     // Attempt IDs are unique within the authenticated origin, but execution
     // order is not guaranteed. Only known cancellations enter the exact ranges.
@@ -89,7 +88,19 @@ struct ScreenReplay {
     early_closes: Vec<(String, u64)>,
     needs_resync: bool,
     // Only this connection's final screen handoffs are serialized, never ICE or authorization.
-    handoff: Arc<tokio::sync::Mutex<()>>,
+    handoff: Arc<tokio::sync::Semaphore>,
+}
+
+impl Default for ScreenReplay {
+    fn default() -> Self {
+        Self {
+            starts: HashMap::new(),
+            retired: Vec::new(),
+            early_closes: Vec::new(),
+            needs_resync: false,
+            handoff: Arc::new(tokio::sync::Semaphore::new(1)),
+        }
+    }
 }
 
 impl ScreenReplay {
@@ -252,7 +263,7 @@ impl<D: RelayDeps> Relay<D> {
                 if !self.deps.screen_authorized(client, origin).await {
                     return Err(SCREEN_REFUSED.to_owned());
                 }
-                let _handoff = handoff.lock().await;
+                let _handoff = handoff.acquire().await.expect("the handoff gate is never closed");
                 let source_key = source.key();
                 let key = key(client, &source_key);
                 {
@@ -332,7 +343,7 @@ impl<D: RelayDeps> Relay<D> {
             return Ok(());
         }
         let allowed = authorized().await;
-        let _handoff = if let Some(handoff) = &handoff { Some(handoff.lock().await) } else { None };
+        let _handoff = if let Some(handoff) = &handoff { Some(handoff.acquire().await.expect("the handoff gate is never closed")) } else { None };
         if !allowed {
             if !current() {
                 return Ok(());

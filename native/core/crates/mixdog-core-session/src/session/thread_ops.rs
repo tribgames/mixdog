@@ -49,7 +49,7 @@ pub(crate) enum OpCall {
     /// Answer once a running execution of the op has settled (at once when none runs).
     Await(OpId),
     /// Append an `op` record.
-    Record { op: OpRef, state: Logged, detail: Option<Value> },
+    Record { op: Box<OpRef>, state: Logged, detail: Option<Value> },
 }
 
 /// The op a record applies, whichever record carries it.
@@ -169,7 +169,7 @@ impl OpStore for ThreadOpStore {
             result: result.and_then(|value| Json::try_from(value).ok()),
         };
         let handle = self.dir.op_target(&self.thread).await?;
-        handle.op_call(OpCall::Record { op, state, detail }).await.map(drop)
+        handle.op_call(OpCall::Record { op: Box::new(op), state, detail }).await.map(drop)
     }
 
     /// Thread scopes keep no watermark.

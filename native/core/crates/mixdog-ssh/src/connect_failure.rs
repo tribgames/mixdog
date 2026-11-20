@@ -62,7 +62,7 @@ pub struct SshFailureLite {
 impl SshFailureLite {
     /// The wire form, with `code`.
     pub fn into_failure(self) -> SshFailure {
-        SshFailure { kind: self.kind, notice: self.notice, code: Some(self.code) }
+        SshFailure { kind: self.kind, notice: self.notice.map(Box::new), code: Some(self.code) }
     }
 
     /// The view's own name (`auth`, `host-key-changed`, `failed`, ...).
@@ -149,8 +149,8 @@ pub fn failure_of(error: &ConnectError, target: &SshTarget, platform: Platform) 
     };
     let settings_required = matches!(kind, SshFailureKind::HostKeyChanged { .. } | SshFailureKind::Auth { .. });
     let notice = match error {
-        ConnectError::Bootstrap(bootstrap) => bootstrap.notice.clone(),
-        ConnectError::Ssh(ssh) => ssh.notice.clone(),
+        ConnectError::Bootstrap(bootstrap) => bootstrap.notice.as_deref().cloned(),
+        ConnectError::Ssh(ssh) => ssh.notice.as_deref().cloned(),
     };
     SshFailureLite { kind, code, message: shown, settings_required, notice }
 }

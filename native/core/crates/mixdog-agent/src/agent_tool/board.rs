@@ -35,6 +35,8 @@ use crate::env::Clock;
 
 /// A job's report renderer.
 type RenderFn = Arc<dyn Fn(&Value) -> String + Send + Sync>;
+/// The text appended to a job's report once the session its meta names is known.
+type Appendix = Arc<dyn Fn(Option<&str>) -> String + Send + Sync>;
 /// A listener told a task id.
 type NameListener = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -200,7 +202,7 @@ struct Record {
     /// The bot-chain hop of the turn that started the job; its completion returns at it (0: none).
     hop: u32,
     /// Given the session the job's meta names when the report is built (a spawn gets it while it runs).
-    appendix: Option<Arc<dyn Fn(Option<&str>) -> String + Send + Sync>>,
+    appendix: Option<Appendix>,
     cwd: Option<String>,
     terminal_reason: Option<String>,
     render: Option<RenderFn>,
@@ -687,7 +689,7 @@ impl JobBoard {
         }
     }
 
-    pub fn set_report_appendix(&self, task_id: &str, appendix: Arc<dyn Fn(Option<&str>) -> String + Send + Sync>) {
+    pub fn set_report_appendix(&self, task_id: &str, appendix: Appendix) {
         if let Some(task) = self.lock().tasks.iter_mut().find(|t| t.task_id == task_id) {
             task.appendix = Some(appendix);
         }

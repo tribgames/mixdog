@@ -30,10 +30,12 @@ use mixdog_imaging::validate::with_base64;
 use mixdog_rt::InLane;
 use mixdog_statefile::Access;
 use mixdog_statefile::IoLane;
+use mixdog_statefile::read_content;
 use mixdog_store::blobs::BlobStore;
 use mixdog_store::blobs::digest_of;
 use mixdog_store::blobs::digest_of_reference;
 use mixdog_store::blobs::hex;
+use mixdog_store::fsio::create_dir_durable;
 use mixdog_store::fsio::publish_file_with;
 
 const DIR: &str = "image-vault";
@@ -142,19 +144,19 @@ impl ImageVault {
     /// The manifest of `original` (64 hex) at the current validator version.
     pub fn lookup(&self, original: &str) -> Lookup {
         let current = self.manifest_path(original, VALIDATOR_VERSION);
-        match std::fs::read_to_string(&current) {
-            Ok(text) => match Manifest::decode(&text) {
+        match read_content(&current).map(|bytes| bytes.map(String::from_utf8)) {
+            Ok(Some(Ok(text))) => match Manifest::decode(&text) {
                 Some(manifest) if manifest.original == original && manifest.validator_version == VALIDATOR_VERSION => Lookup::Found(manifest),
                 _ => Lookup::Damaged,
             },
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => self.older(original),
-            Err(_) => Lookup::Damaged,
+            Ok(None) => self.older(original),
+            Ok(Some(Err(_))) | Err(_) => Lookup::Damaged,
         }
     }
 
     fn older(&self, original: &str) -> Lookup {
         for version in (1..VALIDATOR_VERSION).rev() {
-            if self.manifest_path(original, version).exists() {
+            if read_content(&self.manifest_path(original, version)).is_ok_and(|content| content.is_some()) {
                 return Lookup::Stale { version };
             }
         }
@@ -215,7 +217,7 @@ impl ImageVault {
             Err(_) => return Err(ImportError::Transient(AdmitError::Busy)),
         };
         let manifest = Manifest { validator_version: VALIDATOR_VERSION, original: original.to_owned(), name: name.to_owned(), encoded_len, outcome };
-        std::fs::create_dir_all(&self.dir).map_err(|e| storage("image-vault dir", e))?;
+        create_dir_durable(&self.dir).map_err(|e| storage("image-vault dir", e))?;
         publish_file_with(&self.manifest_path(original, VALIDATOR_VERSION), manifest.encode().as_bytes(), Access::Inherit).map_err(|e| storage("manifest", e))?;
         Ok(manifest)
     }

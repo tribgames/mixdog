@@ -242,6 +242,236 @@ pub fn ready_lines(port: u16, pid: u32, ms: f64) -> [String; 2] {
     [format!("ready port={port} pid={pid} in {ms:.0}ms"), format!("boot-phase phase=daemon-ready status=mark totalMs={}", (ms * 10.0).round() / 10.0)]
 }
 
+impl DaemonLog {
+    /// The daemon's log at `path` (`<data>/daemon.log`): the system clock, the process's stderr
+    /// before ready, the file's I/O on `lane`. `cancel` is the daemon's run token.
+    pub fn new(path: PathBuf, lane: MaintenanceIo, cancel: CancellationToken) -> Self {
+        let stderr: StderrSink = Arc::new(|text| {
+            use std::io::Write;
+            let _ = std::io::stderr().write_all(text.as_bytes());
+        });
+        Self::with_parts(Arc::new(DiskLogFile::new(path)), lane, cancel, Arc::new(system_now_ms), stderr)
+    }
+
+    pub fn with_parts(file: Arc<dyn LogFile>, lane: MaintenanceIo, cancel: CancellationToken, clock: Clock, stderr: StderrSink) -> Self {
+        Self {
+            shared: Arc::new(Shared {
+                file,
+                lane,
+                cancel,
+                clock,
+                stderr,
+                state: Mutex::new(State::default()),
+                file_bytes: Mutex::new(None),
+                idle: Notify::new(),
+                memory: Mutex::new(None),
+                topics: Mutex::new(Vec::new()),
+            }),
+        }
+    }
+
+    /// `enableFileLogging`: from the next line on, the file has the log and stderr none of it.
+    pub fn enable_file_logging(&self) {
+        locked(&self.shared.state).file_logging = true;
+        // The boot's marks before this went to stderr only, which nothing keeps: they go to the file now, in order.
+        let held = std::mem::take(&mut *BOOT_MARKS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+        for line in held {
+            self.append(&line);
+        }
+    }
+
+    /// A boot step's mark: `boot-phase phase=<phase> status=mark totalMs=<ms since the first mark>`, so a slow start shows
+    /// which step held it (the start had only its `daemon-ready` total before).
+    pub fn boot_mark(&self, phase: &str) {
+        static BOOT_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        let start = *BOOT_START.get_or_init(std::time::Instant::now);
+        let line = format!("boot-phase phase={phase} status=mark totalMs={}", start.elapsed().as_millis());
+        if !locked(&self.shared.state).file_logging {
+            let mut held = BOOT_MARKS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if held.len() < 256 {
+                held.push(format!("[daemon] {line}"));
+            }
+        }
+        self.log(&line);
+    }
+
+    /// `log(line)`.
+    pub fn log(&self, line: &str) {
+        let text = format!("[daemon] {line}");
+        if !locked(&self.shared.state).file_logging {
+            (self.shared.stderr)(&format!("{text}\n"));
+            return;
+        }
+        self.append(&text);
+    }
+
+    /// One chunk of redirected stderr/stdout: trimmed at the end, empty ones ignored, and no
+    /// `[daemon]` tag.
+    pub fn raw(&self, chunk: &str) {
+        // `trimEnd`: Unicode white space and the BOM, but not U+0085.
+        let text = chunk.trim_end_matches(|c: char| (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}');
+        if !text.is_empty() {
+            self.append(text);
+        }
+    }
+
+    /// `console.warn(line)` once `installRedirect` has run (the daemon's): `[console.warn] <line>`, the
+    /// line bounded as the redirect bounds an argument, then as any log line, without the `[daemon]` tag
+    /// (`fixtures/console-redirect/golden.json`, from the real redirect).
+    pub fn console_warn(&self, line: &str) {
+        self.console("warn", line);
+    }
+
+    /// `console.<method>(line)` once `installRedirect` has run, as [`Self::console_warn`] for any method.
+    pub fn console(&self, method: &str, line: &str) {
+        self.raw(&format!("[console.{method}] {}", bounded_text(line)));
+    }
+
+    /// The memory worker's stderr: `memory-runtime-proxy.log`, which the daemon's proxy appends `[<ISO>] <chunk>` rows to.
+    /// `memory` is flushed whenever this log is.
+    pub fn attach_memory_log(&self, memory: DaemonLog) {
+        *locked(&self.shared.memory) = Some(memory);
+    }
+
+    /// `logSchedule` / `logWebhook` (`scheduler.mjs`, `webhook/log.mjs`): the scheduler and the webhook listener write each line to
+    /// their stderr as `<prefix><msg>` and to their own file as `[<ISO>] <msg>`, whatever the stderr redirect. The Rust services emit
+    /// the stderr line; this appends `<msg>` to `topic` (`<data>/schedule.log`, `<data>/webhook.log`) for every line with `prefix`.
+    pub fn attach_topic_log(&self, prefix: &'static str, topic: DaemonLog) {
+        locked(&self.shared.topics).push((prefix, topic));
+    }
+
+    /// The topic logs a Daemon stderr line belongs to, written off the caller (the lane drains them).
+    fn route_topics(&self, line: &str) {
+        for (prefix, topic) in locked(&self.shared.topics).iter() {
+            if let Some(message) = line.strip_prefix(prefix) {
+                topic.append(message);
+            }
+        }
+    }
+
+    /// Where the lines Node writes to its stderr go once the daemon runs (`mixdog_rt::node_log`): what `installRedirect`
+    /// does with a `process.stderr.write` chunk or a `console` call, and the memory worker's stderr mirror.
+    pub fn node_sink(&self) -> mixdog_rt::node_log::Sink {
+        use mixdog_rt::node_log::Origin;
+        let daemon = self.clone();
+        let memory = locked(&self.shared.memory).clone().unwrap_or_else(|| self.clone());
+        Arc::new(move |origin, channel, line| {
+            if origin == Origin::Daemon {
+                daemon.route_topics(line);
+            }
+            match (origin, channel.console_method()) {
+                (Origin::MemoryWorker, _) => memory.raw(line),
+                (Origin::Daemon, Some(method)) => daemon.console(method, line),
+                (Origin::Daemon, None) => daemon.raw(line),
+            }
+        })
+    }
+
+    /// The destination of Node stderr lines while the daemon's own stderr is not redirected (before ready, and for good under
+    /// `MIXDOG_DAEMON_ALLOW_STDERR=1`): the memory worker's stderr is a pipe the spawner mirrors into its proxy log whatever the daemon's
+    /// readiness (`daemon-spawn.mjs:108-116`), and every daemon line is written bare to the descriptor.
+    pub fn memory_sink(&self) -> mixdog_rt::node_log::Sink {
+        use mixdog_rt::node_log::Origin;
+        let daemon = self.clone();
+        let memory = locked(&self.shared.memory).clone().unwrap_or_else(|| self.clone());
+        Arc::new(move |origin, _, line| match origin {
+            Origin::MemoryWorker => memory.raw(line),
+            Origin::Daemon => {
+                daemon.route_topics(line);
+                (daemon.shared.stderr)(&mixdog_rt::node_log::bare(line));
+            }
+        })
+    }
+
+    /// `console_warn` as a seam a `Fn(&str)` consumer takes.
+    pub fn console_warn_sink(&self) -> Arc<dyn Fn(&str) + Send + Sync> {
+        let log = self.clone();
+        Arc::new(move |line| log.console_warn(line))
+    }
+
+    /// `ResumeLog` for the quota-resume scheduler, and any other `Fn(&str)` log seam.
+    pub fn line_log(&self) -> Arc<dyn Fn(&str) + Send + Sync> {
+        let log = self.clone();
+        Arc::new(move |line| log.log(line))
+    }
+
+    /// `flush`: returns once every line logged before the call is written (or lost to a failed
+    /// write). A lane that refuses the drainer leaves the lines queued for the next line's try.
+    pub async fn flush(&self) {
+        let memory = locked(&self.shared.memory).clone();
+        self.flush_own().await;
+        if let Some(memory) = memory {
+            memory.flush_own().await;
+        }
+        // The topic logs (`schedule.log`, `webhook.log`) are not waited for: Node appended them without awaiting anything at exit,
+        // and a stuck write there must never hold the shutdown (its 5 s wait and 15 s backstop). A normal run still gets its lines
+        // written in order by their own drainer.
+    }
+
+    /// Returns once every topic line logged before the call is written. Not part of [`Self::flush`], so no exit waits for it.
+    #[cfg(test)]
+    async fn flush_topics(&self) {
+        let topics: Vec<DaemonLog> = locked(&self.shared.topics).iter().map(|(_, topic)| topic.clone()).collect();
+        for topic in topics {
+            topic.flush_own().await;
+        }
+    }
+
+    async fn flush_own(&self) {
+        loop {
+            let notified = self.shared.idle.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let schedule = {
+                let mut state = locked(&self.shared.state);
+                if state.queue.is_empty() && state.dropped == 0 && !state.scheduled {
+                    return;
+                }
+                // A cancelled run drops its drainer unstarted; asking again would be answered the same.
+                if self.shared.cancel.is_cancelled() && !state.scheduled {
+                    return;
+                }
+                !std::mem::replace(&mut state.scheduled, true)
+            };
+            if schedule && !self.submit_drainer() {
+                return;
+            }
+            notified.await;
+        }
+    }
+
+    fn append(&self, text: &str) {
+        let line = format!("[{}] {}\n", iso_from_ms((self.shared.clock)()), bounded_text(text));
+        let schedule = {
+            let mut state = locked(&self.shared.state);
+            if line.len() > QUEUE_MAX_BYTES || state.queue_bytes + line.len() > QUEUE_MAX_BYTES {
+                state.dropped += 1;
+            } else {
+                state.queue_bytes += line.len();
+                state.queue.push(line);
+            }
+            !std::mem::replace(&mut state.scheduled, true)
+        };
+        if schedule {
+            self.submit_drainer();
+        }
+    }
+
+    /// Queues the drainer job; `scheduled` is already set. A refused or cancelled job clears it
+    /// (its [`Scheduled`] drops with the job).
+    fn submit_drainer(&self) -> bool {
+        let job_shared = self.shared.clone();
+        let mut guard = Scheduled { shared: Some(self.shared.clone()) };
+        self.shared
+            .lane
+            .submit(&self.shared.cancel, move |lane| {
+                drain(lane, &job_shared);
+                guard.shared.take();
+            })
+            .is_ok()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -385,7 +615,7 @@ mod tests {
         use mixdog_rt::node_log::Origin::Daemon;
         let dir = tempfile::tempdir().unwrap();
         let big = vec![b'x'; LOG_MAX_BYTES as usize + 1];
-        std::fs::write(dir.path().join("schedule.log"), &big).unwrap();
+        mixdog_fsio::write(&mixdog_fsio::Unlaned, dir.path().join("schedule.log"), &big).unwrap();
         let sink: StderrSink = Arc::new(|_| {});
         let log = DaemonLog::with_parts(Arc::new(DiskLogFile::new(dir.path().join("daemon.log"))), tokens().maintenance_io, CancellationToken::new(), Arc::new(system_now_ms), sink);
         let cancel = CancellationToken::new();
@@ -393,8 +623,8 @@ mod tests {
         let data = dir.path().to_path_buf();
         let rotated = lane.submit(&cancel, move |lane| rotate_topic_logs(lane, &data)).unwrap();
         rotated.await.unwrap();
-        assert_eq!(std::fs::metadata(dir.path().join("schedule.log.1")).unwrap().len(), big.len() as u64);
-        assert!(!dir.path().join("schedule.log").exists());
+        assert_eq!(mixdog_fsio::metadata(&mixdog_fsio::Unlaned, dir.path().join("schedule.log.1")).unwrap().len(), big.len() as u64);
+        assert!(!mixdog_fsio::exists(&mixdog_fsio::Unlaned, dir.path().join("schedule.log")).unwrap());
         attach_topic_logs(&log, dir.path(), lane, &cancel);
         for node in [log.memory_sink(), log.node_sink()] {
             node(Daemon, Stderr, "mixdog scheduler: firing nightly");
@@ -450,7 +680,7 @@ mod tests {
         drop(release);
         worker.join().unwrap();
         assert!(flushed.is_ok(), "the flush waited for the stuck topic write");
-        assert!(std::fs::read_to_string(dir.path().join("daemon.log")).unwrap().contains("[daemon] daemon line"));
+        assert!(mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, dir.path().join("daemon.log")).unwrap().contains("[daemon] daemon line"));
     }
 
     /// The `[<ISO>] ` stamps of `text` replaced by `[<ISO>] `, each checked for the exact `toISOString` shape first.
@@ -708,236 +938,5 @@ mod tests {
             assert_eq!(read("daemon.log").map(|text| mask_stamps(&text)).as_deref(), want["daemonLog"].as_str(), "{scenario}: daemon.log");
             assert_eq!(mask_stamps(&read("memory-runtime-proxy.log").unwrap()), want["memoryProxyLog"].as_str().unwrap(), "{scenario}: memory-runtime-proxy.log");
         }
-    }
-}
-
-
-impl DaemonLog {
-    /// The daemon's log at `path` (`<data>/daemon.log`): the system clock, the process's stderr
-    /// before ready, the file's I/O on `lane`. `cancel` is the daemon's run token.
-    pub fn new(path: PathBuf, lane: MaintenanceIo, cancel: CancellationToken) -> Self {
-        let stderr: StderrSink = Arc::new(|text| {
-            use std::io::Write;
-            let _ = std::io::stderr().write_all(text.as_bytes());
-        });
-        Self::with_parts(Arc::new(DiskLogFile::new(path)), lane, cancel, Arc::new(system_now_ms), stderr)
-    }
-
-    pub fn with_parts(file: Arc<dyn LogFile>, lane: MaintenanceIo, cancel: CancellationToken, clock: Clock, stderr: StderrSink) -> Self {
-        Self {
-            shared: Arc::new(Shared {
-                file,
-                lane,
-                cancel,
-                clock,
-                stderr,
-                state: Mutex::new(State::default()),
-                file_bytes: Mutex::new(None),
-                idle: Notify::new(),
-                memory: Mutex::new(None),
-                topics: Mutex::new(Vec::new()),
-            }),
-        }
-    }
-
-    /// `enableFileLogging`: from the next line on, the file has the log and stderr none of it.
-    pub fn enable_file_logging(&self) {
-        locked(&self.shared.state).file_logging = true;
-        // The boot's marks before this went to stderr only, which nothing keeps: they go to the file now, in order.
-        let held = std::mem::take(&mut *BOOT_MARKS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
-        for line in held {
-            self.append(&line);
-        }
-    }
-
-    /// A boot step's mark: `boot-phase phase=<phase> status=mark totalMs=<ms since the first mark>`, so a slow start shows
-    /// which step held it (the start had only its `daemon-ready` total before).
-    pub fn boot_mark(&self, phase: &str) {
-        static BOOT_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-        let start = *BOOT_START.get_or_init(std::time::Instant::now);
-        let line = format!("boot-phase phase={phase} status=mark totalMs={}", start.elapsed().as_millis());
-        if !locked(&self.shared.state).file_logging {
-            let mut held = BOOT_MARKS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            if held.len() < 256 {
-                held.push(format!("[daemon] {line}"));
-            }
-        }
-        self.log(&line);
-    }
-
-    /// `log(line)`.
-    pub fn log(&self, line: &str) {
-        let text = format!("[daemon] {line}");
-        if !locked(&self.shared.state).file_logging {
-            (self.shared.stderr)(&format!("{text}\n"));
-            return;
-        }
-        self.append(&text);
-    }
-
-    /// One chunk of redirected stderr/stdout: trimmed at the end, empty ones ignored, and no
-    /// `[daemon]` tag.
-    pub fn raw(&self, chunk: &str) {
-        // `trimEnd`: Unicode white space and the BOM, but not U+0085.
-        let text = chunk.trim_end_matches(|c: char| (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}');
-        if !text.is_empty() {
-            self.append(text);
-        }
-    }
-
-    /// `console.warn(line)` once `installRedirect` has run (the daemon's): `[console.warn] <line>`, the
-    /// line bounded as the redirect bounds an argument, then as any log line, without the `[daemon]` tag
-    /// (`fixtures/console-redirect/golden.json`, from the real redirect).
-    pub fn console_warn(&self, line: &str) {
-        self.console("warn", line);
-    }
-
-    /// `console.<method>(line)` once `installRedirect` has run, as [`Self::console_warn`] for any method.
-    pub fn console(&self, method: &str, line: &str) {
-        self.raw(&format!("[console.{method}] {}", bounded_text(line)));
-    }
-
-    /// The memory worker's stderr: `memory-runtime-proxy.log`, which the daemon's proxy appends `[<ISO>] <chunk>` rows to.
-    /// `memory` is flushed whenever this log is.
-    pub fn attach_memory_log(&self, memory: DaemonLog) {
-        *locked(&self.shared.memory) = Some(memory);
-    }
-
-    /// `logSchedule` / `logWebhook` (`scheduler.mjs`, `webhook/log.mjs`): the scheduler and the webhook listener write each line to
-    /// their stderr as `<prefix><msg>` and to their own file as `[<ISO>] <msg>`, whatever the stderr redirect. The Rust services emit
-    /// the stderr line; this appends `<msg>` to `topic` (`<data>/schedule.log`, `<data>/webhook.log`) for every line with `prefix`.
-    pub fn attach_topic_log(&self, prefix: &'static str, topic: DaemonLog) {
-        locked(&self.shared.topics).push((prefix, topic));
-    }
-
-    /// The topic logs a Daemon stderr line belongs to, written off the caller (the lane drains them).
-    fn route_topics(&self, line: &str) {
-        for (prefix, topic) in locked(&self.shared.topics).iter() {
-            if let Some(message) = line.strip_prefix(prefix) {
-                topic.append(message);
-            }
-        }
-    }
-
-    /// Where the lines Node writes to its stderr go once the daemon runs (`mixdog_rt::node_log`): what `installRedirect`
-    /// does with a `process.stderr.write` chunk or a `console` call, and the memory worker's stderr mirror.
-    pub fn node_sink(&self) -> mixdog_rt::node_log::Sink {
-        use mixdog_rt::node_log::Origin;
-        let daemon = self.clone();
-        let memory = locked(&self.shared.memory).clone().unwrap_or_else(|| self.clone());
-        Arc::new(move |origin, channel, line| {
-            if origin == Origin::Daemon {
-                daemon.route_topics(line);
-            }
-            match (origin, channel.console_method()) {
-                (Origin::MemoryWorker, _) => memory.raw(line),
-                (Origin::Daemon, Some(method)) => daemon.console(method, line),
-                (Origin::Daemon, None) => daemon.raw(line),
-            }
-        })
-    }
-
-    /// The destination of Node stderr lines while the daemon's own stderr is not redirected (before ready, and for good under
-    /// `MIXDOG_DAEMON_ALLOW_STDERR=1`): the memory worker's stderr is a pipe the spawner mirrors into its proxy log whatever the daemon's
-    /// readiness (`daemon-spawn.mjs:108-116`), and every daemon line is written bare to the descriptor.
-    pub fn memory_sink(&self) -> mixdog_rt::node_log::Sink {
-        use mixdog_rt::node_log::Origin;
-        let daemon = self.clone();
-        let memory = locked(&self.shared.memory).clone().unwrap_or_else(|| self.clone());
-        Arc::new(move |origin, _, line| match origin {
-            Origin::MemoryWorker => memory.raw(line),
-            Origin::Daemon => {
-                daemon.route_topics(line);
-                (daemon.shared.stderr)(&mixdog_rt::node_log::bare(line));
-            }
-        })
-    }
-
-    /// `console_warn` as a seam a `Fn(&str)` consumer takes.
-    pub fn console_warn_sink(&self) -> Arc<dyn Fn(&str) + Send + Sync> {
-        let log = self.clone();
-        Arc::new(move |line| log.console_warn(line))
-    }
-
-    /// `ResumeLog` for the quota-resume scheduler, and any other `Fn(&str)` log seam.
-    pub fn line_log(&self) -> Arc<dyn Fn(&str) + Send + Sync> {
-        let log = self.clone();
-        Arc::new(move |line| log.log(line))
-    }
-
-    /// `flush`: returns once every line logged before the call is written (or lost to a failed
-    /// write). A lane that refuses the drainer leaves the lines queued for the next line's try.
-    pub async fn flush(&self) {
-        let memory = locked(&self.shared.memory).clone();
-        self.flush_own().await;
-        if let Some(memory) = memory {
-            memory.flush_own().await;
-        }
-        // The topic logs (`schedule.log`, `webhook.log`) are not waited for: Node appended them without awaiting anything at exit,
-        // and a stuck write there must never hold the shutdown (its 5 s wait and 15 s backstop). A normal run still gets its lines
-        // written in order by their own drainer.
-    }
-
-    /// Returns once every topic line logged before the call is written. Not part of [`Self::flush`], so no exit waits for it.
-    #[cfg(test)]
-    async fn flush_topics(&self) {
-        let topics: Vec<DaemonLog> = locked(&self.shared.topics).iter().map(|(_, topic)| topic.clone()).collect();
-        for topic in topics {
-            topic.flush_own().await;
-        }
-    }
-
-    async fn flush_own(&self) {
-        loop {
-            let notified = self.shared.idle.notified();
-            tokio::pin!(notified);
-            notified.as_mut().enable();
-            let schedule = {
-                let mut state = locked(&self.shared.state);
-                if state.queue.is_empty() && state.dropped == 0 && !state.scheduled {
-                    return;
-                }
-                // A cancelled run drops its drainer unstarted; asking again would be answered the same.
-                if self.shared.cancel.is_cancelled() && !state.scheduled {
-                    return;
-                }
-                !std::mem::replace(&mut state.scheduled, true)
-            };
-            if schedule && !self.submit_drainer() {
-                return;
-            }
-            notified.await;
-        }
-    }
-
-    fn append(&self, text: &str) {
-        let line = format!("[{}] {}\n", iso_from_ms((self.shared.clock)()), bounded_text(text));
-        let schedule = {
-            let mut state = locked(&self.shared.state);
-            if line.len() > QUEUE_MAX_BYTES || state.queue_bytes + line.len() > QUEUE_MAX_BYTES {
-                state.dropped += 1;
-            } else {
-                state.queue_bytes += line.len();
-                state.queue.push(line);
-            }
-            !std::mem::replace(&mut state.scheduled, true)
-        };
-        if schedule {
-            self.submit_drainer();
-        }
-    }
-
-    /// Queues the drainer job; `scheduled` is already set. A refused or cancelled job clears it
-    /// (its [`Scheduled`] drops with the job).
-    fn submit_drainer(&self) -> bool {
-        let job_shared = self.shared.clone();
-        let mut guard = Scheduled { shared: Some(self.shared.clone()) };
-        self.shared
-            .lane
-            .submit(&self.shared.cancel, move |lane| {
-                drain(lane, &job_shared);
-                guard.shared.take();
-            })
-            .is_ok()
     }
 }

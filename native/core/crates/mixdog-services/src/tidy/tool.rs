@@ -997,7 +997,7 @@ impl TidyTool {
                 if !prefixes.is_empty() {
                     for field in ["applied", "rejected"] {
                         if let Some(rows) = structural.get_mut(field).and_then(Value::as_array_mut) {
-                            rows.retain(|row| row["file"].as_str().is_some_and(&matches_path));
+                            rows.retain(|row| row["file"].as_str().is_some_and(matches_path));
                         }
                     }
                 }

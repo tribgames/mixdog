@@ -203,7 +203,7 @@ mod tests {
     async fn a_body_fault_reads_as_undicis_terminated() {
         let mut plain = DecodedStream::new(Box::new(Cut(Some(TransportFault::Closed))), Box::new(Silent));
         let cut = plain.next().await.expect("an item").expect_err("the cut");
-        assert_eq!((cut.message.as_str(), cut.transport), ("terminated", Some(TransportFault::Closed)));
+        assert_eq!((cut.message.as_str(), cut.transport.clone()), ("terminated", Some(TransportFault::Closed)));
         assert!(plain.next().await.is_none(), "the stream ends with its fault");
         let mut devin = DecodedStream::new(Box::new(Cut(Some(TransportFault::Reset))), Box::new(Silent)).with_fault_prefix("Devin connection failed: ");
         assert_eq!(devin.next().await.expect("an item").expect_err("the cut").message, "Devin connection failed: terminated");

@@ -119,27 +119,6 @@ impl PrewarmWorld for DaemonPrewarmWorld {
         tracing::debug!(event, detail, "boot profile");
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use mixdog_services::task_reports::runtime_state::RuntimeEntry;
-
-    /// The deferred channel start and every warm-up ask `busy_reason`; a turn the session runtime has
-    /// dispatched, or one whose runtime entry is in flight, is `turn-active` (the directory is not asked).
-    #[test]
-    fn a_running_turn_is_turn_active_and_an_idle_runtime_is_not_asked_for_one() {
-        let liveness = RuntimeLiveness::new();
-        let directory = LateDirectory::default();
-        let guard = liveness.dispatched("s1");
-        assert_eq!(busy_reason(&liveness, &directory), Some("turn-active"));
-        drop(guard);
-        liveness.set_entry("s2", RuntimeEntry { stage: Some("streaming".into()), ..RuntimeEntry::default() });
-        assert_eq!(busy_reason(&liveness, &directory), Some("turn-active"));
-        liveness.set_entry("s2", RuntimeEntry { stage: Some("idle".into()), ..RuntimeEntry::default() });
-        assert!(liveness.in_flight_session_activity().working.is_empty());
-    }
-}
-
 
 /// Node's `createWarmupSchedulers` (`warmup-schedulers.mjs:12`): the daemon's five warm-ups behind the calls the boot
 /// (`boot/session.mjs:121-125`), the turn settle (`refreshStatuslineUsageAfterTurn`) and the wakes
@@ -245,5 +224,26 @@ impl mixdog_core_domains::domains::ai_admin::provider_warmup::ProviderInit for D
     async fn ensure_providers_ready(&self) -> Result<(), String> {
         let providers = self.loaded.get().get("providers").and_then(serde_json::Value::as_object).cloned().unwrap_or_default();
         self.readiness.ensure_providers_ready(Some(providers)).await.map(drop).map_err(|error| error.message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mixdog_services::task_reports::runtime_state::RuntimeEntry;
+
+    /// The deferred channel start and every warm-up ask `busy_reason`; a turn the session runtime has
+    /// dispatched, or one whose runtime entry is in flight, is `turn-active` (the directory is not asked).
+    #[test]
+    fn a_running_turn_is_turn_active_and_an_idle_runtime_is_not_asked_for_one() {
+        let liveness = RuntimeLiveness::new();
+        let directory = LateDirectory::default();
+        let guard = liveness.dispatched("s1");
+        assert_eq!(busy_reason(&liveness, &directory), Some("turn-active"));
+        drop(guard);
+        liveness.set_entry("s2", RuntimeEntry { stage: Some("streaming".into()), ..RuntimeEntry::default() });
+        assert_eq!(busy_reason(&liveness, &directory), Some("turn-active"));
+        liveness.set_entry("s2", RuntimeEntry { stage: Some("idle".into()), ..RuntimeEntry::default() });
+        assert!(liveness.in_flight_session_activity().working.is_empty());
     }
 }

@@ -904,7 +904,7 @@ impl mixdog_core_api::domain::cache_warm::CacheWarmSend for KeyPoolAdapter {
             "" => home.clone(),
             named => named.to_owned(),
         };
-        let engine = self.pool.engines.pinned(&account).await.map_err(|error| WarmFailure::new(error.message))?;
+        let engine = self.pool.engines.pinned(&account).await.map_err(|error| WarmFailure::new(error.into_message()))?;
         let Some(warm) = engine.cache_warm() else { return Err(WarmFailure::new("provider has no cache-warm mode")) };
         let request = self.pool.history_for(&Arc::new(request.clone()), &account, &home);
         warm.send_cache_warm(&request, ctx, cancel, on_usage).await

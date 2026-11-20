@@ -90,7 +90,7 @@ impl<'a> Block<'a> {
         match &self.lines {
             Lines::Lone(only) => line(only),
             Lines::Run(source) => (self.start..=self.end).for_each(|n| line(source[&n].as_str())),
-            Lines::Mixed(lines) => lines.iter().for_each(|l| line(*l)),
+            Lines::Mixed(lines) => lines.iter().for_each(|l| line(l)),
         }
     }
 

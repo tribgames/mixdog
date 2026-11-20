@@ -156,7 +156,7 @@ fn a_turn_cut_by_the_length_limit_with_calls_fails_with_the_calls_held_and_none_
     let (events, error) = run(&mut decoder(&["lookup"]), &wire);
     assert!(dispatched(&events).is_empty(), "nothing of a cut turn runs");
     let error = error.expect("the turn fails");
-    assert_eq!((error.kind, error.code.as_deref(), error.transport), (ErrorKind::Unknown, Some("PROVIDER_INCOMPLETE"), None));
+    assert_eq!((error.kind, error.code.as_deref(), error.transport.clone()), (ErrorKind::Unknown, Some("PROVIDER_INCOMPLETE"), None));
     assert_eq!(error.message, "gateway response incomplete: finish_reason=length");
     assert_eq!(error.partial_tool_calls.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["call_1"]);
     assert_eq!(error.partial_usage.as_ref().map(|u| (u.input_tokens, u.output_tokens)), Some((9, 4)), "what was spent is not lost");
@@ -247,7 +247,7 @@ fn compatible_chat_reports_the_last_observed_usage_on_error_or_truncated_eof() {
     for tail in ["", "data: {\"error\":{\"message\":\"refused\"}}\n\n"] {
         let (_, err) = run(&mut decoder(&[]), &[usage(10), usage(40), tail.to_owned()]);
         let err = err.expect("no clean completion");
-        let bill = err.partial_usage.expect("the last report, not the sum");
+        let bill = err.partial_usage.clone().expect("the last report, not the sum");
         assert_eq!((bill.input_tokens, bill.cache_read_tokens), (80, 40));
         assert_eq!(err.partial_model.as_deref(), Some("actually-served"));
     }

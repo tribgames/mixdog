@@ -224,7 +224,7 @@ pub async fn generate_video(
                 usage.insert("resolution".into(), json!(resolution));
                 let usage = Value::Object(usage);
                 let with_usage = |mut error: AdapterError| {
-                    error.usage = reported_usage(Some(usage.clone()));
+                    error.usage = reported_usage(Some(usage.clone())).map(Box::new);
                     error
                 };
                 if !truthy(video.get("url")) {
@@ -237,7 +237,7 @@ pub async fn generate_video(
                 let code = data.get("error").and_then(|e| e.get("code")).filter(|c| truthy(Some(c))).map(value_to_string);
                 let suffix = code.map(|c| format!(": {c}")).unwrap_or_default();
                 let mut error = media(format!("xAI video {status}{suffix}"), "MEDIA_UPSTREAM_FAILED", 502);
-                error.usage = reported_usage(xai_usage(data.get("usage").unwrap_or(&Value::Null)));
+                error.usage = reported_usage(xai_usage(data.get("usage").unwrap_or(&Value::Null))).map(Box::new);
                 return Err(error);
             }
             _ => {}

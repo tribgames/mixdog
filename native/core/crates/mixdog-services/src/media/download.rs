@@ -21,7 +21,7 @@ pub struct AdapterError {
     pub code: Option<String>,
     pub status: Option<u16>,
     /// What the provider reported before the request failed (withReportedUsage).
-    pub usage: Option<serde_json::Value>,
+    pub usage: Option<Box<serde_json::Value>>,
     /// When a usage window reopens (rr.resetsAt, an ISO time).
     pub resets_at: Option<String>,
     /// Nothing was sent because of the reference images: every blocker, as the job reports it.

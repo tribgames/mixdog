@@ -80,7 +80,7 @@ fn adapter(chat: &Arc<Refusing>, messages: &Arc<Refusing>, overrides: &[(&str, W
 }
 
 fn message_of(result: Result<Box<dyn ModelStream>, ProviderError>) -> String {
-    result.err().expect("a refusal").message
+    result.err().expect("a refusal").into_message()
 }
 
 #[tokio::test]

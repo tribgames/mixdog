@@ -180,7 +180,7 @@ fn decide_host_key(inspection: &HostKeyInspection, request: &SshConnectRequest) 
             Some(SshMissing { command }) => refusal(SshFailureKind::SshMissing { command: command.clone() }, "ssh-missing"),
             None => Decision::Refused(SshConnectResult::failed(SshFailure {
                 kind: SshFailureKind::Failed { message: message.clone() },
-                notice: notice.clone(),
+                notice: notice.clone().map(Box::new),
                 code: Some("host-key-unreachable".to_owned()),
             })),
         },
@@ -437,7 +437,7 @@ impl Connect {
         };
         let window_created = match self.show(&record, ownership, Some(attempt)).await {
             Ok(created) => created,
-            Err(result) => return Ok(result),
+            Err(result) => return Ok(*result),
         };
         // Either cancel wins and we roll back, or commit wins and cancel cannot detach during the save.
         if !attempt.commit() {
@@ -492,16 +492,16 @@ impl Connect {
         }
     }
 
-    async fn show(&self, record: &SshHostRecord, ownership: LinkOpen, attempt: Option<&Arc<Attempt>>) -> Result<bool, SshConnectResult> {
+    async fn show(&self, record: &SshHostRecord, ownership: LinkOpen, attempt: Option<&Arc<Attempt>>) -> Result<bool, Box<SshConnectResult>> {
         if attempt.is_some_and(|attempt| attempt.cancelled()) {
             self.rollback(record, ownership, false).await;
-            return Err(cancelled());
+            return Err(Box::new(cancelled()));
         }
         match self.windows.open(&record.id, &record.name).await {
             Ok(created) => Ok(created),
             Err(message) => {
                 self.rollback(record, ownership, false).await;
-                Err(failed(SshFailureKind::Failed { message }, "window-open"))
+                Err(Box::new(failed(SshFailureKind::Failed { message }, "window-open")))
             }
         }
     }
@@ -529,7 +529,7 @@ impl Connect {
         };
         let created = match self.show(&record, ownership, None).await {
             Ok(created) => created,
-            Err(result) => return Ok(result),
+            Err(result) => return Ok(*result),
         };
         let saved = self.saved(&record).await;
         if saved.is_err() {
@@ -557,7 +557,7 @@ impl Connect {
         };
         Ok(match self.show(&record, ownership, None).await {
             Ok(_) => SshConnectResult::connected((self.view)(&record)),
-            Err(result) => result,
+            Err(result) => *result,
         })
     }
 }

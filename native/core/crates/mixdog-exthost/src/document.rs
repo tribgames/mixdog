@@ -26,14 +26,14 @@ use mixdog_core_api::service::Admit;
 use mixdog_protocol::ThreadId;
 use serde_json::Value;
 use serde_json::json;
-use tokio::sync::Mutex as AsyncMutex;
-use tokio::sync::OwnedMutexGuard;
+use tokio::sync::OwnedSemaphorePermit;
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 pub struct DocumentService {
     pool: Arc<dyn ExtPool>,
     /// The document each running call is on (see [`Self::turn`]).
-    turns: StdMutex<HashMap<String, Arc<AsyncMutex<()>>>>,
+    turns: StdMutex<HashMap<String, Arc<Semaphore>>>,
     /// Where converted PDFs and rasterized pages are cached (the runtime keeps its own subfolders).
     cache_root: String,
     /// What a paired phone may render as pages; without it a relay connection renders nothing.
@@ -517,7 +517,7 @@ impl DocumentService {
     /// publishes atomically (`mixdog-office-pdf` `preview/convert.rs`), so a cancelled call that releases its turn before its
     /// worker has stopped, or a path spelled another way, can only cost a duplicate conversion. Each call looks at the file when
     /// it starts, so none is answered with an older version than the one it asked for.
-    async fn turn(&self, cancel: &CancellationToken, root: &str, rel: &str) -> Result<OwnedMutexGuard<()>, CoreError> {
+    async fn turn(&self, cancel: &CancellationToken, root: &str, rel: &str) -> Result<OwnedSemaphorePermit, CoreError> {
         // The path the worker resolves to (`.` and `..` folded away), so `a.docx` and `./a.docx` take one turn.
         let mut parts: Vec<String> = Vec::new();
         for part in format!("{}/{}", root.replace('\\', "/"), rel.replace('\\', "/")).split('/') {
@@ -535,12 +535,12 @@ impl DocumentService {
             let mut turns = self.turns.lock().unwrap_or_else(PoisonError::into_inner);
             // Only a document someone is on or waits for keeps an entry.
             turns.retain(|_, lock| Arc::strong_count(lock) > 1);
-            Arc::clone(turns.entry(key).or_default())
+            Arc::clone(turns.entry(key).or_insert_with(|| Arc::new(Semaphore::new(1))))
         };
         tokio::select! {
             biased;
             () = cancel.cancelled() => Err(CoreError::Cancelled { by: "caller".into() }),
-            guard = lock.lock_owned() => Ok(guard),
+            guard = lock.acquire_owned() => Ok(guard.expect("a document turn gate is never closed")),
         }
     }
 

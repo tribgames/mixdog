@@ -22,6 +22,7 @@ mixdog-core-prompt = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-mcp = { workspace = true }
+mixdog-fsio = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-statefile = { workspace = true }
 mixdog-ledger = { workspace = true }

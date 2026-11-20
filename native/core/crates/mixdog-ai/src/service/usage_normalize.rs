@@ -471,7 +471,7 @@ fn scoped_anthropic_windows(data: &Value, source: &str, now_ms: i64) -> Vec<Valu
                 let family = scope
                     .and_then(|s| s.get("model"))
                     .filter(|m| truthy(Some(m)))
-                    .and_then(|_| name)
+                    .and(name)
                     .and_then(|n| n.split_whitespace().next())
                     .unwrap_or("");
                 put(label, bind_inference_family(w, family, true));

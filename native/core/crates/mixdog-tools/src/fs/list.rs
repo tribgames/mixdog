@@ -118,13 +118,9 @@ fn is_noise(name: &str) -> bool {
     }
 }
 
-/// The entries `walkDir` visits in a folder: no dotted name unless `hidden`, no noise directory unless `include_noise`.
-fn visible(entries: Vec<DirEntry>, hidden: bool, include_noise: bool) -> Vec<DirEntry> {
-    visible_counting(entries, hidden, include_noise, &mut 0)
-}
-
-/// [`visible`], adding to `noise` the entries only the noise filter removed (a hidden name the `hidden` filter drops
-/// anyway is not one of them).
+/// The entries `walkDir` visits in a folder: no dotted name unless `hidden`, no noise directory unless `include_noise`;
+/// adds to `noise` the entries only the noise filter removed (a hidden name the `hidden` filter drops anyway is not one
+/// of them).
 fn visible_counting(entries: Vec<DirEntry>, hidden: bool, include_noise: bool, noise: &mut usize) -> Vec<DirEntry> {
     entries
         .into_iter()

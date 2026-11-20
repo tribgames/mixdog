@@ -325,22 +325,22 @@ pub(super) enum Waiting {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct HistoryRevision {
+pub(crate) struct HistoryRevision {
     log_id: String,
     end: u64,
     revision: u64,
 }
 
-pub(super) struct ForkSource {
+pub(crate) struct ForkSource {
     pub revision: HistoryRevision,
     pub header: Header,
     pub active_input: Option<mixdog_core_api::ids::ItemId>,
     /// The gate held this plan and holds the thread's turns for its clear ([`Waiting::Plan`]) until this is dropped.
-    pub hold: Option<ClearHold>,
+    pub _hold: Option<ClearHold>,
 }
 
 /// A clear the gate released is under way: dropped when it ended, however it ended, an answer nobody read included.
-pub(super) struct ClearHold(mpsc::UnboundedSender<JobDone>);
+pub(crate) struct ClearHold(mpsc::UnboundedSender<JobDone>);
 
 impl Drop for ClearHold {
     fn drop(&mut self) {
@@ -348,7 +348,7 @@ impl Drop for ClearHold {
     }
 }
 
-pub(super) struct RewindPreview {
+pub(crate) struct RewindPreview {
     pub revision: HistoryRevision,
     pub item: mixdog_core_api::ids::ItemId,
     pub text: String,
@@ -1520,7 +1520,7 @@ struct ProducerPlaces {
 }
 
 enum PreparedProducer {
-    Message(ProducerMsg),
+    Message(Box<ProducerMsg>),
     Job(Box<JobDone>),
 }
 
@@ -3118,12 +3118,11 @@ impl SessionActor {
             JobDone::Encoded { id, result } => {
                 match result {
                     Ok((encoded, shown, stored)) => {
-                        if let Some(entry) = self.outbox.get_mut(id) {
-                            if let Change::Record { display, .. } = &mut entry.change
-                                && !shown.is_empty()
-                            {
-                                *display = Display::Items(shown);
-                            }
+                        if let Some(entry) = self.outbox.get_mut(id)
+                            && let Change::Record { display, .. } = &mut entry.change
+                            && !shown.is_empty()
+                        {
+                            *display = Display::Items(shown);
                         }
                         self.outbox.encoded(id, encoded, stored);
                         // Encoded behind records a failed barrier held (it was still encoding when it failed): Node's next
@@ -3330,7 +3329,7 @@ impl SessionActor {
                 }
                 self.retry_provenance = Some(provenance);
                 self.retry_prior = prior;
-                self.start_run_with(input, body, op_ref, reply, prompt, wake, work);
+                self.start_run_with(DeferredStart { input, body, op_ref, reply, prompt, wake, retried: false, work });
             }
             JobDone::Replied { op, tx, result } => self.replied(op, tx, result),
             JobDone::Compacted { op, tx, result, recover } => self.compacted(op, tx, result, recover),
@@ -3727,7 +3726,7 @@ impl SessionActor {
         // drain that waited goes on (once the core's hold is open too).
         if !self.starts_gated() {
             if let Some(start) = self.deferred_start.take() {
-                self.start_run_with(start.input, start.body, start.op_ref, start.reply, start.prompt, start.wake, start.work);
+                self.start_run_with(start);
             } else if !self.drain_gated() && std::mem::take(&mut self.drain_held) {
                 self.start_next_queued();
             }
@@ -4495,7 +4494,7 @@ impl SessionActor {
         // so per delta that is the reply's length again (quadratic in the reply). The feed serves an attach the last view and
         // the frames after it, as Codex streams deltas without a snapshot per delta. The view is rebuilt on any other note and
         // at least every `VIEW_DEFER_MS` or `VIEW_DEFER_FRAMES`, which bounds how far `thread/read` lags a stream.
-        let now = self.deps.clock.now_ms() as i64;
+        let now = self.deps.clock.now_ms();
         let streaming_only = !notes.is_empty() && notes.iter().all(|note| STREAMING_DELTAS.contains(&note.method));
         if streaming_only
             && self.feed.defers()
@@ -5565,7 +5564,7 @@ impl SessionActor {
         // The entry's identity is its queue id, allocated when it was queued; it keeps the submission it answers.
         let submissions = next.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned).into_iter().collect();
         let work = self.work_of(next.qid.clone(), vec![next.qid.clone()], submissions, &input, false);
-        self.start_run_with(input, body, None, None, None, false, work);
+        self.start_run_with(DeferredStart { input, body, op_ref: None, reply: None, prompt: None, wake: false, retried: false, work });
     }
 
     /// The entry the drain takes next: the most urgent, the earliest of its priority (`dequeueQueueBatch`). A slash command is the
@@ -5635,7 +5634,7 @@ impl SessionActor {
         // The batch is one work: named by its first completion, and recreatable through every original completion queue id.
         let qids: Vec<String> = batch.iter().map(|next| next.qid.clone()).collect();
         let work = WorkRef { id: qids.first().cloned().unwrap_or_else(new_id), qids, submissions: Vec::new(), handback: None };
-        self.start_run_with(input, row, None, None, None, true, work);
+        self.start_run_with(DeferredStart { input, body: row, op_ref: None, reply: None, prompt: None, wake: true, retried: false, work });
     }
 
     /// The queued entry as it is delivered: one that waited more than thirty minutes since before this process owned
@@ -5885,7 +5884,7 @@ impl SessionActor {
             // Its prompt is runtime-synthetic, shown as no user row.
             let input = TurnInput { prompt: PromptContent::Text(completions::text(&entry)), options: None };
             let work = WorkRef { id: new_id(), ..Default::default() };
-            self.start_run_with(input, super::goal_lane::input_row(&entry), None, None, None, false, work);
+            self.start_run_with(DeferredStart { input, body: super::goal_lane::input_row(&entry), op_ref: None, reply: None, prompt: None, wake: false, retried: false, work });
             return;
         }
         self.start_next_queued();
@@ -6148,7 +6147,7 @@ impl SessionActor {
             other if self.producers.places.is_empty() => self.apply_producer(other),
             other => {
                 let place = self.producers.reserve();
-                self.producers.put(place, PreparedProducer::Message(other));
+                self.producers.put(place, PreparedProducer::Message(Box::new(other)));
             }
         }
     }
@@ -6156,7 +6155,7 @@ impl SessionActor {
     fn apply_ready_producers(&mut self) {
         while self.outbox.producer_room() {
             match self.producers.pop() {
-                Some(PreparedProducer::Message(msg)) => self.apply_producer(msg),
+                Some(PreparedProducer::Message(msg)) => self.apply_producer(*msg),
                 Some(PreparedProducer::Job(job)) => self.apply_job(*job),
                 None => break,
             }
@@ -6806,7 +6805,7 @@ impl SessionActor {
                 self.usage_incremental = true;
                 let books = self.deps.compaction.books(&self.id, &self.projected.header);
                 let pressure_usage = mixdog_agent::compact::pressure::with_prompt_cache_evidence(&self.projected.header, &usage, &report.usage);
-                let change = super::usage_books::usage_change(&self.projected.header, report.input_excludes_cache, &pressure_usage, &report.outgoing, &report.send_tools, books.as_ref(), report.sent_at_ms as f64, now as f64);
+                let change = super::usage_books::usage_change(&self.projected.header, report.input_excludes_cache, &pressure_usage, &report.outgoing, &report.send_tools, books.as_ref(), (report.sent_at_ms as f64, now as f64));
                 let change = super::usage_books::with_tail_book(change, report.tail_book.as_ref());
                 // The request's reading goes out with the run's next draft write, as Node's checkpoint carries the session's
                 // context-pressure baseline (`turn-checkpoint-context.mjs` `contextCheckpointState`); recovery restores it.
@@ -7368,7 +7367,7 @@ impl SessionActor {
                     return;
                 }
                 let record = Record::Op(mixdog_store::schema::record::OpRecord {
-                    op,
+                    op: *op,
                     state,
                     at: self.deps.clock.now_ms(),
                     detail: detail.map(Slot::Inline),
@@ -7848,7 +7847,7 @@ impl SessionActor {
             revision,
             header: self.acked.header.clone(),
             active_input: self.run.as_ref().map(|run| run.input_item.clone()),
-            hold: None,
+            _hold: None,
         })
     }
 
@@ -7856,7 +7855,7 @@ impl SessionActor {
     pub(super) fn held_plan(&mut self) -> Result<ForkSource, CoreError> {
         let plan = self.fork_plan(true)?;
         self.clear_holds += 1;
-        Ok(ForkSource { hold: Some(ClearHold(self.jobs_tx.clone())), ..plan })
+        Ok(ForkSource { _hold: Some(ClearHold(self.jobs_tx.clone())), ..plan })
     }
 
     fn history_revision(&self, idle: bool) -> Result<HistoryRevision, CoreError> {
@@ -8697,7 +8696,7 @@ impl SessionActor {
         // A direct start's identity is allocated here, at its admission, not when its input row is read.
         let submissions = submission_id(&input).map(str::to_owned).into_iter().collect();
         let work = self.work_of(new_id(), Vec::new(), submissions, &input, false);
-        self.start_run_with(input, body, op_ref, reply, prompt, false, work);
+        self.start_run_with(DeferredStart { input, body, op_ref, reply, prompt, wake: false, retried: false, work });
     }
 
     /// `awaitPreviousTurnDurable` (`ask-turn-open.mjs:41`), which every ask passes: the previous turn's records
@@ -8721,16 +8720,8 @@ impl SessionActor {
 
     /// [`Self::start_run`] over an input row already built. `wake`: a completion wake, which
     /// continues the turn that launched the worker (`ask('', {continueTurn: true})`).
-    fn start_run_with(
-        &mut self,
-        input: TurnInput,
-        mut body: Value,
-        op_ref: Option<OpRef>,
-        reply: Option<Effect>,
-        prompt: Option<String>,
-        wake: bool,
-        work: WorkRef,
-    ) {
+    fn start_run_with(&mut self, start: DeferredStart) {
+        let DeferredStart { input, mut body, op_ref, reply, prompt, wake, retried: _, work } = start;
         // A turn ran: the thread keeps `idleEvictMs` from here on (`arm_idle_evict`).
         self.only_read = false;
         // Work a user Stop froze never runs, whichever stage resumes it (a deferred start released, a provenance read back): it

@@ -433,7 +433,7 @@ impl SessionHandle {
         // The count waits for a held store (a save that failed), which the whole read does not: a count that does not come at
         // once reads the whole conversation, the answer the tail would have given.
         let len = match wanted {
-            Some(_) => match tokio::time::timeout(TAIL_COUNT_WAIT, context.len()).await {
+            Some(_) => match mixdog_rt::time::timeout(TAIL_COUNT_WAIT, context.len()).await {
                 Ok(len) => len?,
                 Err(_) => 0,
             },

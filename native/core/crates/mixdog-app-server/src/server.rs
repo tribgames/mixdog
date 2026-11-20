@@ -199,6 +199,9 @@ pub type OriginOf = Arc<dyn Fn(ConnectionId) -> Option<Origin> + Send + Sync>;
 
 /// The desktop window a registered connection is the socket of, `None` for any other connection (the transport's
 /// `ConnectionHub::connection_origin(id)` read as a [`WindowScope`]). Asked on every request.
+/// The sink of the connection open/close lines.
+pub type ConnectionLog = Arc<dyn Fn(&str) + Send + Sync>;
+
 pub type WindowOf = Arc<dyn Fn(ConnectionId) -> Option<WindowScope> + Send + Sync>;
 
 /// The server: shared by every connection.
@@ -248,7 +251,7 @@ impl AppServer {
     }
 
     /// Where the connection open/close lines go (the daemon log); set once. A server without it logs nothing.
-    pub fn set_connection_log(&self, log: Arc<dyn Fn(&str) + Send + Sync>) -> Result<(), Arc<dyn Fn(&str) + Send + Sync>> {
+    pub fn set_connection_log(&self, log: ConnectionLog) -> Result<(), ConnectionLog> {
         self.shared.connection_log.set(log)
     }
 
@@ -373,7 +376,7 @@ pub(crate) struct Shared {
     origin_of: OriginOf,
     /// Set once by the composition; a server without it has no window connections.
     window_of: OnceLock<WindowOf>,
-    connection_log: OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
+    connection_log: OnceLock<ConnectionLog>,
     config: ServerConfig,
     lifecycle: watch::Receiver<CoreState>,
     queues: KeyedQueues,

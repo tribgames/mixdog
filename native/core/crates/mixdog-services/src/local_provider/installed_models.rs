@@ -49,7 +49,7 @@ impl InstalledModels for ManagedRuntime {
 struct Slot {
     inference: super::model_state::Inference,
     cancel: CancellationToken,
-    cleanup: Arc<tokio::sync::Mutex<()>>,
+    cleanup: Arc<tokio::sync::Semaphore>,
     _release: tokio::sync::oneshot::Sender<()>,
 }
 
@@ -58,7 +58,7 @@ impl Inference for Slot {
         Some(self.cancel.clone())
     }
 
-    fn attempt_cleanup(&self) -> Option<Arc<tokio::sync::Mutex<()>>> {
+    fn attempt_cleanup(&self) -> Option<Arc<tokio::sync::Semaphore>> {
         Some(self.cleanup.clone())
     }
 
@@ -83,7 +83,7 @@ impl LocalRuntime for ManagedRuntime {
         let (release, released) = tokio::sync::oneshot::channel::<()>();
         let queue = self.0.queue.clone();
         let refused = turn.clone();
-        let cleanup = Arc::new(tokio::sync::Mutex::new(()));
+        let cleanup = Arc::new(tokio::sync::Semaphore::new(1));
         let worker_cleanup = cleanup.clone();
         tokio::spawn(async move {
             let started = queue
@@ -95,7 +95,7 @@ impl LocalRuntime for ManagedRuntime {
                         }
                         // Stop retires an idle retry group immediately, but an active worker
                         // still owns the queue lane until it has dropped its body.
-                        let _cleaned = worker_cleanup.lock().await;
+                        let _cleaned = worker_cleanup.acquire().await.expect("the cleanup gate is never closed");
                     }
                 })
                 .await;
@@ -140,7 +140,7 @@ mod tests {
         let runtime = ManagedRuntime(provider.clone());
         let slot = runtime.begin("old").await.unwrap();
         let stop_signal = slot.startup_cancel().unwrap();
-        let cleanup = slot.attempt_cleanup().unwrap().lock_owned().await;
+        let cleanup = slot.attempt_cleanup().unwrap().acquire_owned().await.unwrap();
         let mut stopping = Box::pin(provider.queue.stop());
         tokio::select! {
             biased;

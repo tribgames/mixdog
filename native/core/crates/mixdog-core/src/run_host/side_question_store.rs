@@ -347,9 +347,9 @@ impl SideQuestions for SideQuestionService {
                 }
                 Ok(_) => return Err(SideFailure::Aborted),
                 Err(_) if cancel.is_cancelled() => return Err(SideFailure::Aborted),
-                Err(error) => match error.tail_refusal {
-                    Some(refusal) => (refusal, error.message),
-                    None => return Err(SideFailure::Failed(error.message)),
+                Err(mut error) => match error.tail_refusal.take() {
+                    Some(refusal) => (refusal, error.into_message()),
+                    None => return Err(SideFailure::Failed(error.into_message())),
                 },
             };
             let decline = |message: &str| {

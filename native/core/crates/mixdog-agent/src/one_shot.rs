@@ -310,7 +310,7 @@ fn falls_to_next_route(error: &ProviderError) -> bool {
 fn summary_failure(error: AgentError) -> SummaryFailure {
     match error {
         AgentError::Aborted => SummaryFailure::Aborted,
-        AgentError::Provider(e) if falls_to_next_route(&e) => SummaryFailure::NextRoute(e.message),
+        AgentError::Provider(e) if falls_to_next_route(&e) => SummaryFailure::NextRoute(e.into_message()),
         AgentError::Provider(e) => SummaryFailure::Failed(mixdog_ai::service::error_text::provider_error_text(&e, "agent")),
         AgentError::ContextOverflow(o) => {
             let text = o.cause.clone().unwrap_or_else(|| AgentError::ContextOverflow(o).to_string());

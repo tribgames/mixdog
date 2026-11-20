@@ -58,24 +58,6 @@ fn installed_version(path: &std::path::Path) -> String {
         .unwrap_or_else(|| UNKNOWN_VERSION.to_owned())
 }
 
-#[cfg(test)]
-mod version_tests {
-    use super::installed_version;
-
-    #[test]
-    fn a_damaged_or_missing_version_file_reads_as_zero() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("package.json");
-        assert_eq!(installed_version(&path), "0.0.0");
-        for body in ["{ not json", "{}", r#"{"version":""}"#, r#"{"version":7}"#] {
-            std::fs::write(&path, body).unwrap();
-            assert_eq!(installed_version(&path), "0.0.0", "{body}");
-        }
-        std::fs::write(&path, r#"{"version":"1.5.0"}"#).unwrap();
-        assert_eq!(installed_version(&path), "1.5.0");
-    }
-}
-
 pub(super) struct Rows {
     pub services: Vec<Arc<dyn DomainService>>,
     pub transfer_sources: Vec<Arc<dyn TransferSource>>,
@@ -183,4 +165,22 @@ pub(super) async fn build(
     let system = mixdog_spawn::service::SystemService::new(inputs.scoped_feeds.clone());
     services.push(system.clone());
     Ok(Rows { services, transfer_sources, system, host, update, package_version: current_version })
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::installed_version;
+
+    #[test]
+    fn a_damaged_or_missing_version_file_reads_as_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("package.json");
+        assert_eq!(installed_version(&path), "0.0.0");
+        for body in ["{ not json", "{}", r#"{"version":""}"#, r#"{"version":7}"#] {
+            mixdog_fsio::write(&mixdog_fsio::Unlaned, &path, body).unwrap();
+            assert_eq!(installed_version(&path), "0.0.0", "{body}");
+        }
+        mixdog_fsio::write(&mixdog_fsio::Unlaned, &path, r#"{"version":"1.5.0"}"#).unwrap();
+        assert_eq!(installed_version(&path), "1.5.0");
+    }
 }

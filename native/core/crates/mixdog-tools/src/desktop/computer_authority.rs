@@ -208,10 +208,10 @@ impl Authority {
     pub fn record_revocation(&self, executor: &str, mut report: RevocationReport) {
         let mut inner = locked(&self.0.inner);
         if let Some(earlier) = inner.reports.get(executor) {
-            if let (Some(held), Some(new)) = (earlier.revision, report.revision) {
-                if new <= held {
-                    return;
-                }
+            if let (Some(held), Some(new)) = (earlier.revision, report.revision)
+                && new <= held
+            {
+                return;
             }
             report.unfinished_at_closure = earlier.unfinished_at_closure.or(report.unfinished_at_closure);
             report.admission_closed |= earlier.admission_closed;

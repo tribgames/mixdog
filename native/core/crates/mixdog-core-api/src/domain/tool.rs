@@ -463,7 +463,7 @@ pub enum ToolErrorCode {
     McpError {
         server: String,
         rpc_code: Option<i64>,
-        data: Option<JsonValue>,
+        data: Option<Box<JsonValue>>,
     },
     /// The operation ran and failed (a command, request or action the tool performed). `reason`
     /// is the failure text exactly as today's model text shows it; the model text renders it
@@ -478,7 +478,8 @@ pub struct ToolError {
     /// Set when a write may have happened before the failure.
     pub outcome_unknown: bool,
     /// Partial output kept with `DeadlineExceeded{partial: true}`.
-    pub partial: Option<ToolOutput>,
+    /// Boxed to keep `ToolOutcome` small.
+    pub partial: Option<Box<ToolOutput>>,
 }
 
 impl ToolError {

@@ -519,7 +519,7 @@ fn project_unions(result: &mut Map<String, Value>) {
 fn size_bound(value: &Value) -> Option<u64> {
     value.as_u64().or_else(|| {
         let n = value.as_f64()?;
-        (n >= 0.0 && n < u64::MAX as f64 && n.fract() == 0.0).then(|| n as u64)
+        (n >= 0.0 && n < u64::MAX as f64 && n.fract() == 0.0).then_some(n as u64)
     })
 }
 

@@ -190,6 +190,8 @@ impl EventSink for ChannelEventSink {
     }
 }
 
+impl std::error::Error for RouteError {}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -271,6 +273,3 @@ mod tests {
         }
     }
 }
-
-
-impl std::error::Error for RouteError {}

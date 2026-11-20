@@ -73,513 +73,6 @@ pub(crate) fn ct_eq(a: &str, b: &str) -> bool {
     diff == 0
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::lifecycle::model::ActivityKind;
-
-    fn work(kind: ActivityKind) -> ActivityInfo {
-        ActivityInfo { kind, thread_id: Some("t".into()), turn_id: Some("u".into()), title: "x".into() }
-    }
-
-    fn releases(effects: &[Effect]) -> usize {
-        effects.iter().filter(|e| matches!(e, Effect::BeginRelease(_))).count()
-    }
-
-    /// Node's `maybeSelfShutdown` texts (`daemon.mjs:1245`, `:917`, `:1159`, `:556`), each before the release it names.
-    fn node_triggers(effects: &[Effect]) -> Vec<&'static str> {
-        effects
-            .iter()
-            .filter_map(|e| match e {
-                Effect::NodeTrigger(text) => Some(*text),
-                _ => None,
-            })
-            .collect()
-    }
-
-    #[test]
-    fn ct_eq_compares_whole_strings() {
-        assert!(ct_eq("abc", "abc"));
-        assert!(!ct_eq("abc", "abd"));
-        assert!(!ct_eq("abc", "abcd"));
-        assert!(ct_eq("", ""));
-    }
-
-
-    fn machine() -> Machine {
-        let mut m = Machine::new("inst".into(), "1.4.6".into());
-        m.set_serving().unwrap();
-        m.take_effects();
-        m
-    }
-    fn drain_token(m: &Machine) -> String {
-        m.status().drain.unwrap().confirm_token
-    }
-    #[test]
-    fn last_client_leaving_an_idle_core_releases_at_once() {
-        let mut m = machine();
-        m.client_opened();
-        m.client_closed(ClientKind::Session);
-        let effects = m.take_effects();
-        assert_eq!(releases(&effects), 1);
-        assert!(matches!(
-            effects.iter().find_map(|e| match e {
-                Effect::BeginRelease(c) => Some(*c),
-                _ => None,
-            }),
-            Some(ReleaseCause::Stop(StopReason::NoClients))
-        ));
-        assert_eq!(m.status().state, StateName::Draining);
-    }
-    #[test]
-    fn the_self_shutdown_names_the_registry_that_emptied_or_the_work_that_settled() {
-        for (kind, text) in [
-            (ClientKind::Session, "no live session clients"),
-            (ClientKind::Channel, "no live channel clients"),
-            (ClientKind::Remote, "remote clients changed"),
-        ] {
-            let mut m = machine();
-            m.client_opened();
-            m.client_closed(kind);
-            let effects = m.take_effects();
-            assert_eq!(node_triggers(&effects), [text]);
-            let trigger = effects.iter().position(|e| matches!(e, Effect::NodeTrigger(_))).unwrap();
-            let begin = effects.iter().position(|e| matches!(e, Effect::BeginRelease(_))).unwrap();
-            assert!(trigger < begin, "the text is noted before the release begins");
-        }
-        let mut m = machine();
-        m.client_opened();
-        let id = m.begin_activity(work(ActivityKind::Turn));
-        m.client_closed(ClientKind::Session);
-        assert!(node_triggers(&m.take_effects()).is_empty(), "work keeps it alive: no trigger yet");
-        m.end_activity(id);
-        assert_eq!(node_triggers(&m.take_effects()), ["busy service work settled"]);
-    }
-    #[test]
-    fn a_core_nobody_reached_is_not_stopped_by_work_ending() {
-        let mut m = machine();
-        let id = m.begin_activity(work(ActivityKind::ScheduledRun));
-        m.end_activity(id);
-        assert_eq!(releases(&m.take_effects()), 0);
-        assert_eq!(m.status().state, StateName::Serving);
-    }
-    #[test]
-    fn running_work_keeps_the_core_alive_after_the_last_client_leaves() {
-        let mut m = machine();
-        m.client_opened();
-        let id = m.begin_activity(work(ActivityKind::Turn));
-        m.client_closed(ClientKind::Session);
-        assert_eq!(m.status().state, StateName::Serving);
-        m.end_activity(id);
-        assert_eq!(releases(&m.take_effects()), 1);
-    }
-    #[test]
-    fn goals_schedules_and_channels_keep_it_alive_but_do_not_hold_a_stop() {
-        for kind in [ActivityKind::Goal, ActivityKind::Schedule, ActivityKind::Channel] {
-            let mut m = machine();
-            m.client_opened();
-            let id = m.begin_activity(work(kind));
-            m.client_closed(ClientKind::Session);
-            assert_eq!(m.status().state, StateName::Serving, "{kind:?}");
-            assert_eq!(releases(&m.take_effects()), 0);
-            m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
-            assert_eq!(releases(&m.take_effects()), 1, "{kind:?}");
-            m.end_activity(id);
-        }
-    }
-    #[test]
-    fn stop_waits_for_the_busy_set_and_runs_one_release() {
-        let mut m = machine();
-        let a = m.begin_activity(work(ActivityKind::Turn));
-        let b = m.begin_activity(work(ActivityKind::BackgroundShell));
-        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        let effects = m.take_effects();
-        assert_eq!(releases(&effects), 0);
-        assert!(effects.iter().any(|e| matches!(e, Effect::DrainNotice(n) if n.running.len() == 2)));
-        m.end_activity(a);
-        assert_eq!(releases(&m.take_effects()), 0);
-        m.end_activity(b);
-        assert_eq!(releases(&m.take_effects()), 1);
-        m.fence(FenceReason::LockLost);
-        assert_eq!(releases(&m.take_effects()), 0, "one release only");
-    }
-    /// `drainDeferral` (`daemon-drain-policy.mjs:9-16`): a `Quit` waits for the service calls in flight; a stop that skips it (the
-    /// user's stop, Node's `/stop {force:true}`) and a confirmed abort do not, and a cancelled drain counts them again.
-    #[test]
-    fn only_a_quit_waits_for_the_service_calls_in_flight() {
-        let mut m = machine();
-        m.call_started();
-        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        assert_eq!(releases(&m.take_effects()), 0, "a quit waits for the call");
-        let token = drain_token(&m);
-        m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&token)).unwrap();
-        assert_eq!(releases(&m.take_effects()), 1, "the confirmed abort does not");
-        m.call_ended();
-        assert_eq!(releases(&m.take_effects()), 0, "one release only");
-
-        for held in [false, true] {
-            let mut m = machine();
-            m.call_started();
-            if held {
-                m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-                assert_eq!(releases(&m.take_effects()), 0);
-            }
-            m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
-            assert_eq!(releases(&m.take_effects()), 1, "the user's stop does not wait for the call (in a quit's drain: {held})");
-        }
-
-        let mut m = machine();
-        m.call_started();
-        let turn = m.begin_activity(work(ActivityKind::Turn));
-        m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
-        let id = m.status().drain.unwrap().drain_id;
-        m.cancel_drain(&id).unwrap();
-        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        m.end_activity(turn);
-        assert_eq!(releases(&m.take_effects()), 0, "after the cancelled drain the call holds the quit again");
-        m.call_ended();
-        assert_eq!(releases(&m.take_effects()), 1);
-    }
-    #[test]
-    fn abort_needs_the_drain_token_and_never_precedes_a_drain() {
-        let mut m = machine();
-        let _a = m.begin_activity(work(ActivityKind::Turn));
-        assert_eq!(
-            m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some("x")),
-            Err(CommandError::NotDraining)
-        );
-        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        m.take_effects();
-        assert_eq!(
-            m.stop(StopMode::AbortConfirmed, StopReason::Quit, None),
-            Err(CommandError::ConfirmationInvalid)
-        );
-        assert_eq!(
-            m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some("nope")),
-            Err(CommandError::ConfirmationInvalid)
-        );
-        let token = drain_token(&m);
-        m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&token)).unwrap();
-        let effects = m.take_effects();
-        assert!(effects.iter().any(|e| matches!(e, Effect::CancelRunning(r) if r.len() == 1)));
-    }
-    /// Node's forced `shutdown()` closes its work gate (`daemonWorkGate.shutdown()`): a drain alone closes no turn start, a confirmed
-    /// abort closes them for good.
-    #[test]
-    fn a_confirmed_abort_closes_the_turn_starts() {
-        let mut m = machine();
-        let _a = m.begin_activity(work(ActivityKind::Turn));
-        m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
-        assert_eq!(m.starts_closed(), None, "the drain alone");
-        let token = drain_token(&m);
-        m.stop(StopMode::AbortConfirmed, StopReason::UserStop, Some(&token)).unwrap();
-        assert_eq!(m.starts_closed(), Some(mixdog_protocol::DrainReason::Quit));
-        let id = m.status().drain.unwrap().drain_id;
-        assert_eq!(m.cancel_drain(&id), Err(CommandError::PastIdleWait));
-    }
-    #[test]
-    fn a_turn_finishing_keeps_the_token_valid_for_the_rest() {
-        let mut m = machine();
-        let a = m.begin_activity(work(ActivityKind::Turn));
-        let _b = m.begin_activity(work(ActivityKind::Turn));
-        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        let token = drain_token(&m);
-        m.end_activity(a);
-        m.take_effects();
-        m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&token)).unwrap();
-        assert!(m.take_effects().iter().any(|e| matches!(e, Effect::CancelRunning(r) if r.len() == 1)));
-    }
-    #[test]
-    fn a_token_of_another_drain_is_refused() {
-        let mut m = machine();
-        let _a = m.begin_activity(work(ActivityKind::Turn));
-        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        let first = drain_token(&m);
-        let id = m.status().drain.unwrap().drain_id;
-        m.cancel_drain(&id).unwrap();
-        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        assert_eq!(
-            m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&first)),
-            Err(CommandError::ConfirmationInvalid)
-        );
-    }
-    #[test]
-    fn cancel_drain_restores_serving_only_while_idle_waiting() {
-        let mut m = machine();
-        let a = m.begin_activity(work(ActivityKind::Turn));
-        m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
-        let id = m.status().drain.unwrap().drain_id;
-        assert_eq!(m.cancel_drain("other"), Err(CommandError::DrainMismatch));
-        m.take_effects();
-        m.cancel_drain(&id).unwrap();
-        assert_eq!(m.status().state, StateName::Serving);
-        assert!(matches!(
-            m.take_effects().as_slice(),
-            [Effect::Discovery(d)] if d.phase == DiscoveryPhase::Serving
-        ));
-        m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
-        m.end_activity(a);
-        let id = m.status().drain.unwrap().drain_id;
-        assert_eq!(m.cancel_drain(&id), Err(CommandError::PastIdleWait));
-    }
-    #[test]
-    fn a_second_stop_leaves_the_first_drain_alone() {
-        let mut m = machine();
-        let _a = m.begin_activity(work(ActivityKind::Turn));
-        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        let first = m.status().drain.unwrap();
-        m.take_effects();
-        m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
-        assert_eq!(m.status().drain.unwrap(), first);
-        assert!(m.take_effects().is_empty());
-    }
-    #[test]
-    fn hold_is_dropped_by_the_drain_commit() {
-        let mut m = machine();
-        m.hold(true, None).unwrap();
-        assert!(m.hold_on());
-        let _a = m.begin_activity(work(ActivityKind::Turn));
-        m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
-        assert!(!m.hold_on());
-        assert_eq!(m.starts_closed(), Some(mixdog_protocol::DrainReason::Update), "what it held is refused");
-        assert_eq!(m.hold(true, None), Err(CommandError::WindingDown));
-        let id = m.status().drain.unwrap().drain_id;
-        m.cancel_drain(&id).unwrap();
-        assert_eq!(m.starts_closed(), None, "a cancelled drain opens it again");
-        // A hold released before the commit drops nothing: the starts it let go start.
-        m.hold(true, None).unwrap();
-        m.hold(false, None).unwrap();
-        m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
-        assert_eq!(m.starts_closed(), None);
-    }
-    fn hold_timers(effects: &[Effect]) -> Vec<(u64, std::time::Duration)> {
-        effects.iter().filter_map(|e| if let Effect::ArmHold { generation, delay } = e { Some((*generation, *delay)) } else { None }).collect()
-    }
-    /// `daemon-work-gate.mjs` `hold`: running work keeps admission open (and opens a hold already taken), an idle core holds it.
-    #[test]
-    fn a_hold_is_taken_only_when_nothing_runs() {
-        let mut m = machine();
-        let a = m.begin_activity(work(ActivityKind::Turn));
-        m.hold(true, None).unwrap();
-        assert!(!m.hold_on(), "busy leaves admission open");
-        assert!(hold_timers(&m.take_effects()).is_empty());
-        m.end_activity(a);
-        m.hold(true, None).unwrap();
-        assert!(m.hold_on());
-        let _b = m.begin_activity(work(ActivityKind::Turn));
-        m.take_effects();
-        m.hold(true, None).unwrap();
-        assert!(!m.hold_on(), "a hold asked for while work runs is released");
-        assert!(m.take_effects().contains(&Effect::CancelHold));
-    }
-    /// The TTL: 120 s by default, at least 1 s, at most 5 minutes; a lapse of a replaced or released hold is stale.
-    #[test]
-    fn a_hold_lapses_by_its_ttl() {
-        use std::time::Duration;
-        let mut m = machine();
-        m.hold(true, None).unwrap();
-        assert_eq!(hold_timers(&m.take_effects()), [(1, Duration::from_secs(120))]);
-        m.hold(true, Some(Duration::from_millis(5))).unwrap();
-        assert_eq!(hold_timers(&m.take_effects()), [(2, Duration::from_secs(1))]);
-        m.hold_expired(1);
-        assert!(m.hold_on(), "the first hold's timer is stale");
-        m.hold(true, Some(Duration::from_secs(3600))).unwrap();
-        assert_eq!(hold_timers(&m.take_effects()), [(3, Duration::from_secs(300))]);
-        m.hold_expired(3);
-        assert!(!m.hold_on(), "the TTL released the hold");
-        m.hold(true, None).unwrap();
-        m.hold(false, None).unwrap();
-        m.hold_expired(4);
-        assert!(!m.hold_on());
-        assert!(m.take_effects().contains(&Effect::CancelHold));
-    }
-    #[test]
-    fn stop_is_refused_during_migration_and_after_the_end() {
-        let mut m = Machine::new("i".into(), "1".into());
-        m.set_migrating(Migration { kind: "sessions".into(), done: 1, total: 2 }).unwrap();
-        assert_eq!(m.stop(StopMode::WhenIdle, StopReason::Quit, None), Err(CommandError::Migrating));
-        m.set_serving().unwrap();
-        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        m.mark_stopped();
-        assert_eq!(m.stop(StopMode::WhenIdle, StopReason::Quit, None), Err(CommandError::Stopped));
-    }
-    /// Node's `/shutdown` waits for a new task's call (`drainDeferral`, `daemon.mjs:533-536`); its `/stop {force:true}` cuts the attempt
-    /// and does not wait for its request.
-    #[test]
-    fn a_quit_stop_waits_for_a_new_task_and_a_user_stop_cuts_it() {
-        let mut m = Machine::new("i".into(), "1".into());
-        m.set_serving().unwrap();
-        m.new_task_started();
-        m.take_effects();
-        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        let effects = m.take_effects();
-        assert!(!effects.iter().any(|e| matches!(e, Effect::CutNewTasks)), "{effects:?}");
-        assert_eq!(releases(&effects), 0);
-        m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
-        let effects = m.take_effects();
-        assert!(effects.iter().any(|e| matches!(e, Effect::CutNewTasks)), "{effects:?}");
-        assert_eq!(releases(&effects), 1);
-    }
-    #[test]
-    fn a_blocked_core_stops_without_waiting() {
-        let mut m = Machine::new("i".into(), "1".into());
-        m.set_blocked(Blocked::WaitExit { pid: 9 }).unwrap();
-        m.take_effects();
-        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        assert_eq!(releases(&m.take_effects()), 1);
-    }
-    #[test]
-    fn release_decision_needs_its_token_and_an_undecidable_owner() {
-        let mut m = Machine::new("i".into(), "1".into());
-        assert_eq!(m.release_decision(5, "x"), Err(CommandError::NotBlocked));
-        m.set_blocked(Blocked::WaitExit { pid: 5 }).unwrap();
-        assert_eq!(m.release_decision(5, "x"), Err(CommandError::NotBlocked));
-        m.set_blocked(Blocked::Undecidable {
-            pid: 5,
-            image: "node".into(),
-            command_line: "node daemon.mjs".into(),
-            start_time: "t".into(),
-        })
-        .unwrap();
-        let token = m.status().blocked.unwrap().confirm_token.unwrap();
-        assert_eq!(m.release_decision(6, &token), Err(CommandError::ConfirmationInvalid));
-        assert_eq!(m.release_decision(5, "bad"), Err(CommandError::ConfirmationInvalid));
-        m.take_effects();
-        m.release_decision(5, &token).unwrap();
-        assert_eq!(m.take_effects(), vec![Effect::ReleaseDecision { pid: 5 }]);
-    }
-    #[test]
-    fn fence_closes_without_waiting_for_work() {
-        let mut m = machine();
-        let _a = m.begin_activity(work(ActivityKind::Turn));
-        m.fence(FenceReason::DataDirReplaced);
-        let effects = m.take_effects();
-        assert_eq!(releases(&effects), 1);
-        assert_eq!(m.status().state, StateName::Fenced);
-        assert_eq!(m.core_state(), CoreState::Stopped);
-    }
-    #[test]
-    fn terminate_token_is_bound_to_the_instance() {
-        let a = Machine::new("a".into(), "1".into());
-        let token = a.terminate_token();
-        assert!(a.check_terminate(&token).is_ok());
-        assert!(a.check_terminate("bad").is_err());
-        let b = Machine::new("a".into(), "1".into());
-        assert!(b.check_terminate(&token).is_err(), "tokens do not cross processes");
-    }
-    fn graced() -> Machine {
-        let mut m = Machine::new("inst".into(), "1.4.6".into()).with_client_grace(ClientGrace::node());
-        m.set_serving().unwrap();
-        m.take_effects();
-        m
-    }
-    fn armed(effects: &[Effect]) -> Vec<(u64, std::time::Duration)> {
-        effects
-            .iter()
-            .filter_map(|e| match e {
-                Effect::ArmGrace { generation, delay } => Some((*generation, *delay)),
-                _ => None,
-            })
-            .collect()
-    }
-    /// `client-grace.mjs:56-75`: the last client leaving arms the grace and stops nothing; a client attaching inside it cancels it
-    /// (`:86-91`); a timer that was cancelled never acts; the next emptying arms a full grace again.
-    #[test]
-    fn a_client_back_inside_the_grace_keeps_the_core_up() {
-        let mut m = graced();
-        m.client_opened();
-        m.client_closed(ClientKind::Session);
-        let effects = m.take_effects();
-        assert_eq!(armed(&effects), [(1, ClientGrace::NODE_LOCAL)]);
-        assert_eq!(releases(&effects), 0);
-        assert_eq!(m.status().state, StateName::Serving);
-        m.client_opened();
-        assert_eq!(m.take_effects(), [Effect::CancelGrace]);
-        m.grace_expired(1);
-        assert_eq!(releases(&m.take_effects()), 0, "the timer of a cancelled grace is stale");
-        m.client_closed(ClientKind::Session);
-        assert_eq!(armed(&m.take_effects()), [(2, ClientGrace::NODE_LOCAL)], "a full grace again");
-        m.grace_expired(1);
-        assert_eq!(releases(&m.take_effects()), 0);
-        m.grace_expired(2);
-        let effects = m.take_effects();
-        assert_eq!(releases(&effects), 1);
-        assert_eq!(node_triggers(&effects), ["no live session clients"]);
-        assert_eq!(m.status().state, StateName::Draining);
-    }
-    /// An armed grace is not pushed out by a later close (`client-grace.mjs:62-66`), and the remote client's is the long one.
-    #[test]
-    fn the_grace_follows_the_client_that_left_last_and_is_armed_once() {
-        let remote = ClientGrace { local: ClientGrace::NODE_LOCAL, remote: Some(ClientGrace::NODE_REMOTE) };
-        assert_eq!(remote.after(ClientKind::Remote), std::time::Duration::from_secs(1800));
-        assert_eq!(remote.after(ClientKind::Channel), std::time::Duration::from_secs(10));
-        let mut m = Machine::new("i".into(), "1".into()).with_client_grace(remote);
-        m.set_serving().unwrap();
-        m.take_effects();
-        m.client_opened();
-        m.client_opened();
-        m.client_closed(ClientKind::Remote);
-        assert!(armed(&m.take_effects()).is_empty(), "one client is still attached");
-        m.client_closed(ClientKind::Remote);
-        assert_eq!(armed(&m.take_effects()), [(1, ClientGrace::NODE_REMOTE)]);
-        m.client_opened();
-        m.client_closed(ClientKind::Session);
-        m.take_effects();
-        m.grace_expired(2);
-        assert_eq!(releases(&m.take_effects()), 1);
-    }
-    /// The grace ending while a turn runs is a self-shutdown deferred by the work (`maybeSelfShutdown`): the turn is not cut, and the
-    /// stop follows its end; a client attaching meanwhile keeps the core up for good.
-    #[test]
-    fn the_grace_ending_over_a_running_turn_waits_for_it_and_a_client_cancels_the_stop() {
-        let mut m = graced();
-        m.client_opened();
-        let turn = m.begin_activity(work(ActivityKind::Turn));
-        m.client_closed(ClientKind::Session);
-        m.take_effects();
-        m.grace_expired(1);
-        let effects = m.take_effects();
-        assert_eq!(releases(&effects), 0);
-        assert!(!effects.iter().any(|e| matches!(e, Effect::CancelRunning(_))));
-        assert_eq!(m.status().state, StateName::Serving);
-        m.client_opened();
-        m.end_activity(turn);
-        assert_eq!(releases(&m.take_effects()), 0, "a client is attached again");
-        m.client_closed(ClientKind::Session);
-        m.grace_expired(2);
-        assert_eq!(releases(&m.take_effects()), 1, "idle, nobody attached, the grace is over");
-    }
-    #[test]
-    fn the_stop_after_the_grace_waits_for_the_running_turn_and_names_it() {
-        let mut m = graced();
-        m.client_opened();
-        let turn = m.begin_activity(work(ActivityKind::Turn));
-        m.client_closed(ClientKind::Session);
-        m.grace_expired(1);
-        m.take_effects();
-        m.end_activity(turn);
-        let effects = m.take_effects();
-        assert_eq!(releases(&effects), 1);
-        assert_eq!(node_triggers(&effects), ["busy service work settled"]);
-    }
-    /// A client arriving once the drain is committed does not undo it: the release runs once.
-    #[test]
-    fn a_client_arriving_in_the_drain_does_not_undo_it() {
-        let mut m = graced();
-        m.client_opened();
-        m.client_closed(ClientKind::Session);
-        m.take_effects();
-        m.grace_expired(1);
-        assert_eq!(releases(&m.take_effects()), 1);
-        m.client_opened();
-        assert_eq!(m.status().state, StateName::Draining);
-        m.client_closed(ClientKind::Session);
-        m.grace_expired(1);
-        assert_eq!(releases(&m.take_effects()), 0, "one release only");
-    }
-}
-
-
 /// Node's hold TTL: `HOLD_DEFAULT_MS`, the floor of `Math.max(1_000, ..)` and `HOLD_MAX_MS` (`daemon-work-gate.mjs`).
 const HOLD_DEFAULT: std::time::Duration = std::time::Duration::from_millis(120_000);
 const HOLD_MIN: std::time::Duration = std::time::Duration::from_millis(1_000);
@@ -1254,5 +747,511 @@ impl Machine {
             hasher.update(part);
         }
         hex(&hasher.finalize())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lifecycle::model::ActivityKind;
+
+    fn work(kind: ActivityKind) -> ActivityInfo {
+        ActivityInfo { kind, thread_id: Some("t".into()), turn_id: Some("u".into()), title: "x".into() }
+    }
+
+    fn releases(effects: &[Effect]) -> usize {
+        effects.iter().filter(|e| matches!(e, Effect::BeginRelease(_))).count()
+    }
+
+    /// Node's `maybeSelfShutdown` texts (`daemon.mjs:1245`, `:917`, `:1159`, `:556`), each before the release it names.
+    fn node_triggers(effects: &[Effect]) -> Vec<&'static str> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::NodeTrigger(text) => Some(*text),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ct_eq_compares_whole_strings() {
+        assert!(ct_eq("abc", "abc"));
+        assert!(!ct_eq("abc", "abd"));
+        assert!(!ct_eq("abc", "abcd"));
+        assert!(ct_eq("", ""));
+    }
+
+
+    fn machine() -> Machine {
+        let mut m = Machine::new("inst".into(), "1.4.6".into());
+        m.set_serving().unwrap();
+        m.take_effects();
+        m
+    }
+    fn drain_token(m: &Machine) -> String {
+        m.status().drain.unwrap().confirm_token
+    }
+    #[test]
+    fn last_client_leaving_an_idle_core_releases_at_once() {
+        let mut m = machine();
+        m.client_opened();
+        m.client_closed(ClientKind::Session);
+        let effects = m.take_effects();
+        assert_eq!(releases(&effects), 1);
+        assert!(matches!(
+            effects.iter().find_map(|e| match e {
+                Effect::BeginRelease(c) => Some(*c),
+                _ => None,
+            }),
+            Some(ReleaseCause::Stop(StopReason::NoClients))
+        ));
+        assert_eq!(m.status().state, StateName::Draining);
+    }
+    #[test]
+    fn the_self_shutdown_names_the_registry_that_emptied_or_the_work_that_settled() {
+        for (kind, text) in [
+            (ClientKind::Session, "no live session clients"),
+            (ClientKind::Channel, "no live channel clients"),
+            (ClientKind::Remote, "remote clients changed"),
+        ] {
+            let mut m = machine();
+            m.client_opened();
+            m.client_closed(kind);
+            let effects = m.take_effects();
+            assert_eq!(node_triggers(&effects), [text]);
+            let trigger = effects.iter().position(|e| matches!(e, Effect::NodeTrigger(_))).unwrap();
+            let begin = effects.iter().position(|e| matches!(e, Effect::BeginRelease(_))).unwrap();
+            assert!(trigger < begin, "the text is noted before the release begins");
+        }
+        let mut m = machine();
+        m.client_opened();
+        let id = m.begin_activity(work(ActivityKind::Turn));
+        m.client_closed(ClientKind::Session);
+        assert!(node_triggers(&m.take_effects()).is_empty(), "work keeps it alive: no trigger yet");
+        m.end_activity(id);
+        assert_eq!(node_triggers(&m.take_effects()), ["busy service work settled"]);
+    }
+    #[test]
+    fn a_core_nobody_reached_is_not_stopped_by_work_ending() {
+        let mut m = machine();
+        let id = m.begin_activity(work(ActivityKind::ScheduledRun));
+        m.end_activity(id);
+        assert_eq!(releases(&m.take_effects()), 0);
+        assert_eq!(m.status().state, StateName::Serving);
+    }
+    #[test]
+    fn running_work_keeps_the_core_alive_after_the_last_client_leaves() {
+        let mut m = machine();
+        m.client_opened();
+        let id = m.begin_activity(work(ActivityKind::Turn));
+        m.client_closed(ClientKind::Session);
+        assert_eq!(m.status().state, StateName::Serving);
+        m.end_activity(id);
+        assert_eq!(releases(&m.take_effects()), 1);
+    }
+    #[test]
+    fn goals_schedules_and_channels_keep_it_alive_but_do_not_hold_a_stop() {
+        for kind in [ActivityKind::Goal, ActivityKind::Schedule, ActivityKind::Channel] {
+            let mut m = machine();
+            m.client_opened();
+            let id = m.begin_activity(work(kind));
+            m.client_closed(ClientKind::Session);
+            assert_eq!(m.status().state, StateName::Serving, "{kind:?}");
+            assert_eq!(releases(&m.take_effects()), 0);
+            m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
+            assert_eq!(releases(&m.take_effects()), 1, "{kind:?}");
+            m.end_activity(id);
+        }
+    }
+    #[test]
+    fn stop_waits_for_the_busy_set_and_runs_one_release() {
+        let mut m = machine();
+        let a = m.begin_activity(work(ActivityKind::Turn));
+        let b = m.begin_activity(work(ActivityKind::BackgroundShell));
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        let effects = m.take_effects();
+        assert_eq!(releases(&effects), 0);
+        assert!(effects.iter().any(|e| matches!(e, Effect::DrainNotice(n) if n.running.len() == 2)));
+        m.end_activity(a);
+        assert_eq!(releases(&m.take_effects()), 0);
+        m.end_activity(b);
+        assert_eq!(releases(&m.take_effects()), 1);
+        m.fence(FenceReason::LockLost);
+        assert_eq!(releases(&m.take_effects()), 0, "one release only");
+    }
+    /// `drainDeferral` (`daemon-drain-policy.mjs:9-16`): a `Quit` waits for the service calls in flight; a stop that skips it (the
+    /// user's stop, Node's `/stop {force:true}`) and a confirmed abort do not, and a cancelled drain counts them again.
+    #[test]
+    fn only_a_quit_waits_for_the_service_calls_in_flight() {
+        let mut m = machine();
+        m.call_started();
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        assert_eq!(releases(&m.take_effects()), 0, "a quit waits for the call");
+        let token = drain_token(&m);
+        m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&token)).unwrap();
+        assert_eq!(releases(&m.take_effects()), 1, "the confirmed abort does not");
+        m.call_ended();
+        assert_eq!(releases(&m.take_effects()), 0, "one release only");
+
+        for held in [false, true] {
+            let mut m = machine();
+            m.call_started();
+            if held {
+                m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+                assert_eq!(releases(&m.take_effects()), 0);
+            }
+            m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
+            assert_eq!(releases(&m.take_effects()), 1, "the user's stop does not wait for the call (in a quit's drain: {held})");
+        }
+
+        let mut m = machine();
+        m.call_started();
+        let turn = m.begin_activity(work(ActivityKind::Turn));
+        m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
+        let id = m.status().drain.unwrap().drain_id;
+        m.cancel_drain(&id).unwrap();
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        m.end_activity(turn);
+        assert_eq!(releases(&m.take_effects()), 0, "after the cancelled drain the call holds the quit again");
+        m.call_ended();
+        assert_eq!(releases(&m.take_effects()), 1);
+    }
+    #[test]
+    fn abort_needs_the_drain_token_and_never_precedes_a_drain() {
+        let mut m = machine();
+        let _a = m.begin_activity(work(ActivityKind::Turn));
+        assert_eq!(
+            m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some("x")),
+            Err(CommandError::NotDraining)
+        );
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        m.take_effects();
+        assert_eq!(
+            m.stop(StopMode::AbortConfirmed, StopReason::Quit, None),
+            Err(CommandError::ConfirmationInvalid)
+        );
+        assert_eq!(
+            m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some("nope")),
+            Err(CommandError::ConfirmationInvalid)
+        );
+        let token = drain_token(&m);
+        m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&token)).unwrap();
+        let effects = m.take_effects();
+        assert!(effects.iter().any(|e| matches!(e, Effect::CancelRunning(r) if r.len() == 1)));
+    }
+    /// Node's forced `shutdown()` closes its work gate (`daemonWorkGate.shutdown()`): a drain alone closes no turn start, a confirmed
+    /// abort closes them for good.
+    #[test]
+    fn a_confirmed_abort_closes_the_turn_starts() {
+        let mut m = machine();
+        let _a = m.begin_activity(work(ActivityKind::Turn));
+        m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
+        assert_eq!(m.starts_closed(), None, "the drain alone");
+        let token = drain_token(&m);
+        m.stop(StopMode::AbortConfirmed, StopReason::UserStop, Some(&token)).unwrap();
+        assert_eq!(m.starts_closed(), Some(mixdog_protocol::DrainReason::Quit));
+        let id = m.status().drain.unwrap().drain_id;
+        assert_eq!(m.cancel_drain(&id), Err(CommandError::PastIdleWait));
+    }
+    #[test]
+    fn a_turn_finishing_keeps_the_token_valid_for_the_rest() {
+        let mut m = machine();
+        let a = m.begin_activity(work(ActivityKind::Turn));
+        let _b = m.begin_activity(work(ActivityKind::Turn));
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        let token = drain_token(&m);
+        m.end_activity(a);
+        m.take_effects();
+        m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&token)).unwrap();
+        assert!(m.take_effects().iter().any(|e| matches!(e, Effect::CancelRunning(r) if r.len() == 1)));
+    }
+    #[test]
+    fn a_token_of_another_drain_is_refused() {
+        let mut m = machine();
+        let _a = m.begin_activity(work(ActivityKind::Turn));
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        let first = drain_token(&m);
+        let id = m.status().drain.unwrap().drain_id;
+        m.cancel_drain(&id).unwrap();
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        assert_eq!(
+            m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&first)),
+            Err(CommandError::ConfirmationInvalid)
+        );
+    }
+    #[test]
+    fn cancel_drain_restores_serving_only_while_idle_waiting() {
+        let mut m = machine();
+        let a = m.begin_activity(work(ActivityKind::Turn));
+        m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
+        let id = m.status().drain.unwrap().drain_id;
+        assert_eq!(m.cancel_drain("other"), Err(CommandError::DrainMismatch));
+        m.take_effects();
+        m.cancel_drain(&id).unwrap();
+        assert_eq!(m.status().state, StateName::Serving);
+        assert!(matches!(
+            m.take_effects().as_slice(),
+            [Effect::Discovery(d)] if d.phase == DiscoveryPhase::Serving
+        ));
+        m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
+        m.end_activity(a);
+        let id = m.status().drain.unwrap().drain_id;
+        assert_eq!(m.cancel_drain(&id), Err(CommandError::PastIdleWait));
+    }
+    #[test]
+    fn a_second_stop_leaves_the_first_drain_alone() {
+        let mut m = machine();
+        let _a = m.begin_activity(work(ActivityKind::Turn));
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        let first = m.status().drain.unwrap();
+        m.take_effects();
+        m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
+        assert_eq!(m.status().drain.unwrap(), first);
+        assert!(m.take_effects().is_empty());
+    }
+    #[test]
+    fn hold_is_dropped_by_the_drain_commit() {
+        let mut m = machine();
+        m.hold(true, None).unwrap();
+        assert!(m.hold_on());
+        let _a = m.begin_activity(work(ActivityKind::Turn));
+        m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
+        assert!(!m.hold_on());
+        assert_eq!(m.starts_closed(), Some(mixdog_protocol::DrainReason::Update), "what it held is refused");
+        assert_eq!(m.hold(true, None), Err(CommandError::WindingDown));
+        let id = m.status().drain.unwrap().drain_id;
+        m.cancel_drain(&id).unwrap();
+        assert_eq!(m.starts_closed(), None, "a cancelled drain opens it again");
+        // A hold released before the commit drops nothing: the starts it let go start.
+        m.hold(true, None).unwrap();
+        m.hold(false, None).unwrap();
+        m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
+        assert_eq!(m.starts_closed(), None);
+    }
+    fn hold_timers(effects: &[Effect]) -> Vec<(u64, std::time::Duration)> {
+        effects.iter().filter_map(|e| if let Effect::ArmHold { generation, delay } = e { Some((*generation, *delay)) } else { None }).collect()
+    }
+    /// `daemon-work-gate.mjs` `hold`: running work keeps admission open (and opens a hold already taken), an idle core holds it.
+    #[test]
+    fn a_hold_is_taken_only_when_nothing_runs() {
+        let mut m = machine();
+        let a = m.begin_activity(work(ActivityKind::Turn));
+        m.hold(true, None).unwrap();
+        assert!(!m.hold_on(), "busy leaves admission open");
+        assert!(hold_timers(&m.take_effects()).is_empty());
+        m.end_activity(a);
+        m.hold(true, None).unwrap();
+        assert!(m.hold_on());
+        let _b = m.begin_activity(work(ActivityKind::Turn));
+        m.take_effects();
+        m.hold(true, None).unwrap();
+        assert!(!m.hold_on(), "a hold asked for while work runs is released");
+        assert!(m.take_effects().contains(&Effect::CancelHold));
+    }
+    /// The TTL: 120 s by default, at least 1 s, at most 5 minutes; a lapse of a replaced or released hold is stale.
+    #[test]
+    fn a_hold_lapses_by_its_ttl() {
+        use std::time::Duration;
+        let mut m = machine();
+        m.hold(true, None).unwrap();
+        assert_eq!(hold_timers(&m.take_effects()), [(1, Duration::from_secs(120))]);
+        m.hold(true, Some(Duration::from_millis(5))).unwrap();
+        assert_eq!(hold_timers(&m.take_effects()), [(2, Duration::from_secs(1))]);
+        m.hold_expired(1);
+        assert!(m.hold_on(), "the first hold's timer is stale");
+        m.hold(true, Some(Duration::from_secs(3600))).unwrap();
+        assert_eq!(hold_timers(&m.take_effects()), [(3, Duration::from_secs(300))]);
+        m.hold_expired(3);
+        assert!(!m.hold_on(), "the TTL released the hold");
+        m.hold(true, None).unwrap();
+        m.hold(false, None).unwrap();
+        m.hold_expired(4);
+        assert!(!m.hold_on());
+        assert!(m.take_effects().contains(&Effect::CancelHold));
+    }
+    #[test]
+    fn stop_is_refused_during_migration_and_after_the_end() {
+        let mut m = Machine::new("i".into(), "1".into());
+        m.set_migrating(Migration { kind: "sessions".into(), done: 1, total: 2 }).unwrap();
+        assert_eq!(m.stop(StopMode::WhenIdle, StopReason::Quit, None), Err(CommandError::Migrating));
+        m.set_serving().unwrap();
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        m.mark_stopped();
+        assert_eq!(m.stop(StopMode::WhenIdle, StopReason::Quit, None), Err(CommandError::Stopped));
+    }
+    /// Node's `/shutdown` waits for a new task's call (`drainDeferral`, `daemon.mjs:533-536`); its `/stop {force:true}` cuts the attempt
+    /// and does not wait for its request.
+    #[test]
+    fn a_quit_stop_waits_for_a_new_task_and_a_user_stop_cuts_it() {
+        let mut m = Machine::new("i".into(), "1".into());
+        m.set_serving().unwrap();
+        m.new_task_started();
+        m.take_effects();
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        let effects = m.take_effects();
+        assert!(!effects.iter().any(|e| matches!(e, Effect::CutNewTasks)), "{effects:?}");
+        assert_eq!(releases(&effects), 0);
+        m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
+        let effects = m.take_effects();
+        assert!(effects.iter().any(|e| matches!(e, Effect::CutNewTasks)), "{effects:?}");
+        assert_eq!(releases(&effects), 1);
+    }
+    #[test]
+    fn a_blocked_core_stops_without_waiting() {
+        let mut m = Machine::new("i".into(), "1".into());
+        m.set_blocked(Blocked::WaitExit { pid: 9 }).unwrap();
+        m.take_effects();
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        assert_eq!(releases(&m.take_effects()), 1);
+    }
+    #[test]
+    fn release_decision_needs_its_token_and_an_undecidable_owner() {
+        let mut m = Machine::new("i".into(), "1".into());
+        assert_eq!(m.release_decision(5, "x"), Err(CommandError::NotBlocked));
+        m.set_blocked(Blocked::WaitExit { pid: 5 }).unwrap();
+        assert_eq!(m.release_decision(5, "x"), Err(CommandError::NotBlocked));
+        m.set_blocked(Blocked::Undecidable {
+            pid: 5,
+            image: "node".into(),
+            command_line: "node daemon.mjs".into(),
+            start_time: "t".into(),
+        })
+        .unwrap();
+        let token = m.status().blocked.unwrap().confirm_token.unwrap();
+        assert_eq!(m.release_decision(6, &token), Err(CommandError::ConfirmationInvalid));
+        assert_eq!(m.release_decision(5, "bad"), Err(CommandError::ConfirmationInvalid));
+        m.take_effects();
+        m.release_decision(5, &token).unwrap();
+        assert_eq!(m.take_effects(), vec![Effect::ReleaseDecision { pid: 5 }]);
+    }
+    #[test]
+    fn fence_closes_without_waiting_for_work() {
+        let mut m = machine();
+        let _a = m.begin_activity(work(ActivityKind::Turn));
+        m.fence(FenceReason::DataDirReplaced);
+        let effects = m.take_effects();
+        assert_eq!(releases(&effects), 1);
+        assert_eq!(m.status().state, StateName::Fenced);
+        assert_eq!(m.core_state(), CoreState::Stopped);
+    }
+    #[test]
+    fn terminate_token_is_bound_to_the_instance() {
+        let a = Machine::new("a".into(), "1".into());
+        let token = a.terminate_token();
+        assert!(a.check_terminate(&token).is_ok());
+        assert!(a.check_terminate("bad").is_err());
+        let b = Machine::new("a".into(), "1".into());
+        assert!(b.check_terminate(&token).is_err(), "tokens do not cross processes");
+    }
+    fn graced() -> Machine {
+        let mut m = Machine::new("inst".into(), "1.4.6".into()).with_client_grace(ClientGrace::node());
+        m.set_serving().unwrap();
+        m.take_effects();
+        m
+    }
+    fn armed(effects: &[Effect]) -> Vec<(u64, std::time::Duration)> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::ArmGrace { generation, delay } => Some((*generation, *delay)),
+                _ => None,
+            })
+            .collect()
+    }
+    /// `client-grace.mjs:56-75`: the last client leaving arms the grace and stops nothing; a client attaching inside it cancels it
+    /// (`:86-91`); a timer that was cancelled never acts; the next emptying arms a full grace again.
+    #[test]
+    fn a_client_back_inside_the_grace_keeps_the_core_up() {
+        let mut m = graced();
+        m.client_opened();
+        m.client_closed(ClientKind::Session);
+        let effects = m.take_effects();
+        assert_eq!(armed(&effects), [(1, ClientGrace::NODE_LOCAL)]);
+        assert_eq!(releases(&effects), 0);
+        assert_eq!(m.status().state, StateName::Serving);
+        m.client_opened();
+        assert_eq!(m.take_effects(), [Effect::CancelGrace]);
+        m.grace_expired(1);
+        assert_eq!(releases(&m.take_effects()), 0, "the timer of a cancelled grace is stale");
+        m.client_closed(ClientKind::Session);
+        assert_eq!(armed(&m.take_effects()), [(2, ClientGrace::NODE_LOCAL)], "a full grace again");
+        m.grace_expired(1);
+        assert_eq!(releases(&m.take_effects()), 0);
+        m.grace_expired(2);
+        let effects = m.take_effects();
+        assert_eq!(releases(&effects), 1);
+        assert_eq!(node_triggers(&effects), ["no live session clients"]);
+        assert_eq!(m.status().state, StateName::Draining);
+    }
+    /// An armed grace is not pushed out by a later close (`client-grace.mjs:62-66`), and the remote client's is the long one.
+    #[test]
+    fn the_grace_follows_the_client_that_left_last_and_is_armed_once() {
+        let remote = ClientGrace { local: ClientGrace::NODE_LOCAL, remote: Some(ClientGrace::NODE_REMOTE) };
+        assert_eq!(remote.after(ClientKind::Remote), std::time::Duration::from_secs(1800));
+        assert_eq!(remote.after(ClientKind::Channel), std::time::Duration::from_secs(10));
+        let mut m = Machine::new("i".into(), "1".into()).with_client_grace(remote);
+        m.set_serving().unwrap();
+        m.take_effects();
+        m.client_opened();
+        m.client_opened();
+        m.client_closed(ClientKind::Remote);
+        assert!(armed(&m.take_effects()).is_empty(), "one client is still attached");
+        m.client_closed(ClientKind::Remote);
+        assert_eq!(armed(&m.take_effects()), [(1, ClientGrace::NODE_REMOTE)]);
+        m.client_opened();
+        m.client_closed(ClientKind::Session);
+        m.take_effects();
+        m.grace_expired(2);
+        assert_eq!(releases(&m.take_effects()), 1);
+    }
+    /// The grace ending while a turn runs is a self-shutdown deferred by the work (`maybeSelfShutdown`): the turn is not cut, and the
+    /// stop follows its end; a client attaching meanwhile keeps the core up for good.
+    #[test]
+    fn the_grace_ending_over_a_running_turn_waits_for_it_and_a_client_cancels_the_stop() {
+        let mut m = graced();
+        m.client_opened();
+        let turn = m.begin_activity(work(ActivityKind::Turn));
+        m.client_closed(ClientKind::Session);
+        m.take_effects();
+        m.grace_expired(1);
+        let effects = m.take_effects();
+        assert_eq!(releases(&effects), 0);
+        assert!(!effects.iter().any(|e| matches!(e, Effect::CancelRunning(_))));
+        assert_eq!(m.status().state, StateName::Serving);
+        m.client_opened();
+        m.end_activity(turn);
+        assert_eq!(releases(&m.take_effects()), 0, "a client is attached again");
+        m.client_closed(ClientKind::Session);
+        m.grace_expired(2);
+        assert_eq!(releases(&m.take_effects()), 1, "idle, nobody attached, the grace is over");
+    }
+    #[test]
+    fn the_stop_after_the_grace_waits_for_the_running_turn_and_names_it() {
+        let mut m = graced();
+        m.client_opened();
+        let turn = m.begin_activity(work(ActivityKind::Turn));
+        m.client_closed(ClientKind::Session);
+        m.grace_expired(1);
+        m.take_effects();
+        m.end_activity(turn);
+        let effects = m.take_effects();
+        assert_eq!(releases(&effects), 1);
+        assert_eq!(node_triggers(&effects), ["busy service work settled"]);
+    }
+    /// A client arriving once the drain is committed does not undo it: the release runs once.
+    #[test]
+    fn a_client_arriving_in_the_drain_does_not_undo_it() {
+        let mut m = graced();
+        m.client_opened();
+        m.client_closed(ClientKind::Session);
+        m.take_effects();
+        m.grace_expired(1);
+        assert_eq!(releases(&m.take_effects()), 1);
+        m.client_opened();
+        assert_eq!(m.status().state, StateName::Draining);
+        m.client_closed(ClientKind::Session);
+        m.grace_expired(1);
+        assert_eq!(releases(&m.take_effects()), 0, "one release only");
     }
 }

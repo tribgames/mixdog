@@ -151,12 +151,12 @@ fn without_paths(state: &Value) -> Value {
     let mut state = state.clone();
     for tab in state.get_mut("tabs").and_then(Value::as_array_mut).into_iter().flatten() {
         if let Some(tab) = tab.as_object_mut() {
-            tab.remove("cwd");
+            tab.shift_remove("cwd");
         }
         for pane in tab.get_mut("panes").and_then(Value::as_array_mut).into_iter().flatten() {
             if let Some(pane) = pane.as_object_mut() {
                 for key in ["path", "root", "target"] {
-                    pane.remove(key);
+                    pane.shift_remove(key);
                 }
             }
         }
@@ -312,8 +312,8 @@ impl VisualizePanes {
                         // snapshot replaces is exactly what the producer holds.
                         let mut state = state.clone();
                         if let Some(fields) = state.as_object_mut() {
-                            fields.remove("held");
-                            fields.remove("heldSince");
+                            fields.shift_remove("held");
+                            fields.shift_remove("heldSince");
                             if event.get("held").and_then(Value::as_bool) == Some(true) {
                                 fields.insert("held".to_owned(), Value::Bool(true));
                                 if let Some(since) = event.get("heldSince").filter(|since| since.is_i64()) {

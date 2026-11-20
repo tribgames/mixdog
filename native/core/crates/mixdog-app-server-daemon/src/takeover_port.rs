@@ -155,6 +155,110 @@ impl DomainService for TakeoverReadyService {
     }
 }
 
+impl CoreTakeover {
+    pub fn new(holds: Arc<dyn TakeoverHolds>) -> Self {
+        Self { shared: Arc::new(Shared { holds, computer: None, state: Mutex::default() }) }
+    }
+
+    /// A takeover owner whose screen takeovers also wait for the running operations of `lock` (Computer Use) to drain.
+    pub fn with_computer_drain(mut self, lock: Arc<HumanOnlyLock>) -> Self {
+        Arc::get_mut(&mut self.shared).expect("the owner is not shared before it is built").computer = Some(lock);
+        self
+    }
+
+    /// Resolves true once the person may act on takeover `takeover_id` of `session_id`, false when it ends first or is never
+    /// seen. Only the session's held takeover answers to its own id: another id is a takeover not seen (`held.get(id) !== id`).
+    pub async fn ready(&self, session_id: &str, takeover_id: &str) -> bool {
+        let deadline = mixdog_rt::time::Instant::now() + UNSEEN_READY;
+        let mut seen = false;
+        loop {
+            let hold = self.shared.hold(session_id);
+            let held = hold.held && hold.id.as_deref().is_none_or(|id| id == takeover_id);
+            seen |= held;
+            if held && self.shared.running(session_id) == 0 {
+                match (&self.shared.computer, hold.names_screen) {
+                    (Some(lock), true) => {
+                        // A takeover whose own surface is the screen waits for Computer Use to drain too; the takeover ending first drops the wait.
+                        if mixdog_rt::time::timeout(POLL, lock.drained()).await.is_ok() {
+                            return true;
+                        }
+                        continue;
+                    }
+                    _ => return true,
+                }
+            }
+            if (!held && seen) || (!seen && mixdog_rt::time::Instant::now() >= deadline) {
+                return false;
+            }
+            mixdog_rt::time::sleep(POLL).await;
+        }
+    }
+
+    /// The commands of `session` running now.
+    pub fn running(&self, session: &str) -> usize {
+        self.shared.running(session)
+    }
+
+    /// What the sessions' open takeovers hold, in session id order: the part of `takeover/state` the sessions publish.
+    pub fn state(&self) -> TakeoverStateResult {
+        let mut held: Vec<HeldTakeover> = self
+            .shared
+            .holds
+            .holding()
+            .into_iter()
+            .filter(|(_, hold)| hold.held)
+            .map(|(session, hold)| HeldTakeover {
+                session_id: session.as_str().to_owned(),
+                takeover_id: hold.id.unwrap_or_default(),
+                step: hold.step.unwrap_or_default(),
+                surface: if hold.names_screen { TakeoverSurface::Computer } else { TakeoverSurface::Browser },
+            })
+            .collect();
+        held.sort_by(|a, b| a.session_id.cmp(&b.session_id));
+        TakeoverStateResult { held, screen: self.shared.holds.screen(), secret_slots: Vec::new() }
+    }
+}
+/// Stops the commands of every session whose takeover started, for as long as any command runs.
+fn watch_operations(shared: Arc<Shared>) {
+    drop(tokio::spawn(async move {
+        loop {
+            mixdog_rt::time::sleep(POLL).await;
+            let mut state = shared.state();
+            if state.operations.is_empty() {
+                state.watching = false;
+                return;
+            }
+            let taken: Vec<CancellationToken> = state.operations.values().filter(|(session, _)| shared.held(session)).map(|(_, token)| token.clone()).collect();
+            drop(state);
+            for token in taken {
+                token.cancel();
+            }
+        }
+    }));
+}
+impl TakeoverPort for CoreTakeover {
+    /// Needs a tokio runtime: the command is watched for its session's takeover.
+    fn begin(&self, session_id: &str) -> Result<TakeoverGuard, String> {
+        let hold = self.shared.holds.hold(&ThreadId::from(session_id));
+        if hold.held {
+            return Err(refusal(hold.step));
+        }
+        let token = CancellationToken::new();
+        let (id, spawn) = {
+            let mut state = self.shared.state();
+            state.next += 1;
+            let id = state.next;
+            state.operations.insert(id, (session_id.to_owned(), token.clone()));
+            (id, !std::mem::replace(&mut state.watching, true))
+        };
+        if spawn {
+            watch_operations(self.shared.clone());
+        }
+        let shared = self.shared.clone();
+        Ok(TakeoverGuard::new(token, Some(Box::new(move || drop(shared.state().operations.remove(&id))))))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use mixdog_core_api::domain::computer::ComputerAction;
@@ -403,110 +507,5 @@ mod tests {
         let started = tokio::time::Instant::now();
         assert!(!owner.ready("s3", "t3").await);
         assert!(started.elapsed() >= UNSEEN_READY);
-    }
-}
-
-
-impl CoreTakeover {
-    pub fn new(holds: Arc<dyn TakeoverHolds>) -> Self {
-        Self { shared: Arc::new(Shared { holds, computer: None, state: Mutex::default() }) }
-    }
-
-    /// A takeover owner whose screen takeovers also wait for the running operations of `lock` (Computer Use) to drain.
-    pub fn with_computer_drain(mut self, lock: Arc<HumanOnlyLock>) -> Self {
-        Arc::get_mut(&mut self.shared).expect("the owner is not shared before it is built").computer = Some(lock);
-        self
-    }
-
-    /// Resolves true once the person may act on takeover `takeover_id` of `session_id`, false when it ends first or is never
-    /// seen. Only the session's held takeover answers to its own id: another id is a takeover not seen (`held.get(id) !== id`).
-    pub async fn ready(&self, session_id: &str, takeover_id: &str) -> bool {
-        let deadline = mixdog_rt::time::Instant::now() + UNSEEN_READY;
-        let mut seen = false;
-        loop {
-            let hold = self.shared.hold(session_id);
-            let held = hold.held && hold.id.as_deref().is_none_or(|id| id == takeover_id);
-            seen |= held;
-            if held && self.shared.running(session_id) == 0 {
-                match (&self.shared.computer, hold.names_screen) {
-                    (Some(lock), true) => {
-                        // A takeover whose own surface is the screen waits for Computer Use to drain too; the takeover ending first drops the wait.
-                        if mixdog_rt::time::timeout(POLL, lock.drained()).await.is_ok() {
-                            return true;
-                        }
-                        continue;
-                    }
-                    _ => return true,
-                }
-            }
-            if (!held && seen) || (!seen && mixdog_rt::time::Instant::now() >= deadline) {
-                return false;
-            }
-            mixdog_rt::time::sleep(POLL).await;
-        }
-    }
-
-    /// The commands of `session` running now.
-    pub fn running(&self, session: &str) -> usize {
-        self.shared.running(session)
-    }
-
-    /// What the sessions' open takeovers hold, in session id order: the part of `takeover/state` the sessions publish.
-    pub fn state(&self) -> TakeoverStateResult {
-        let mut held: Vec<HeldTakeover> = self
-            .shared
-            .holds
-            .holding()
-            .into_iter()
-            .filter(|(_, hold)| hold.held)
-            .map(|(session, hold)| HeldTakeover {
-                session_id: session.as_str().to_owned(),
-                takeover_id: hold.id.unwrap_or_default(),
-                step: hold.step.unwrap_or_default(),
-                surface: if hold.names_screen { TakeoverSurface::Computer } else { TakeoverSurface::Browser },
-            })
-            .collect();
-        held.sort_by(|a, b| a.session_id.cmp(&b.session_id));
-        TakeoverStateResult { held, screen: self.shared.holds.screen(), secret_slots: Vec::new() }
-    }
-}
-/// Stops the commands of every session whose takeover started, for as long as any command runs.
-fn watch_operations(shared: Arc<Shared>) {
-    drop(tokio::spawn(async move {
-        loop {
-            mixdog_rt::time::sleep(POLL).await;
-            let mut state = shared.state();
-            if state.operations.is_empty() {
-                state.watching = false;
-                return;
-            }
-            let taken: Vec<CancellationToken> = state.operations.values().filter(|(session, _)| shared.held(session)).map(|(_, token)| token.clone()).collect();
-            drop(state);
-            for token in taken {
-                token.cancel();
-            }
-        }
-    }));
-}
-impl TakeoverPort for CoreTakeover {
-    /// Needs a tokio runtime: the command is watched for its session's takeover.
-    fn begin(&self, session_id: &str) -> Result<TakeoverGuard, String> {
-        let hold = self.shared.holds.hold(&ThreadId::from(session_id));
-        if hold.held {
-            return Err(refusal(hold.step));
-        }
-        let token = CancellationToken::new();
-        let (id, spawn) = {
-            let mut state = self.shared.state();
-            state.next += 1;
-            let id = state.next;
-            state.operations.insert(id, (session_id.to_owned(), token.clone()));
-            (id, !std::mem::replace(&mut state.watching, true))
-        };
-        if spawn {
-            watch_operations(self.shared.clone());
-        }
-        let shared = self.shared.clone();
-        Ok(TakeoverGuard::new(token, Some(Box::new(move || drop(shared.state().operations.remove(&id))))))
     }
 }

@@ -385,8 +385,8 @@ fn read_json(path: &Path) -> Result<Value> {
 /// The tokenizer a model's `tokenizer.json` describes: the Unigram one the stored vectors were made with, or a
 /// byte-level BPE (the Granite profile, which Node read through the library's `AutoTokenizer`).
 pub enum Tokenizer {
-    Unigram(UnigramTokenizer),
-    ByteLevelBpe(ByteLevelBpe),
+    Unigram(Box<UnigramTokenizer>),
+    ByteLevelBpe(Box<ByteLevelBpe>),
 }
 
 impl Tokenizer {
@@ -394,9 +394,9 @@ impl Tokenizer {
     pub fn load(path: &Path, max_length: usize) -> Result<Self> {
         let json = read_json(path)?;
         if json["model"]["type"] == "BPE" {
-            return Ok(Self::ByteLevelBpe(ByteLevelBpe::from_json(&json, max_length)?));
+            return Ok(Self::ByteLevelBpe(Box::new(ByteLevelBpe::from_json(&json, max_length)?)));
         }
-        Ok(Self::Unigram(UnigramTokenizer::from_json(&json, max_length)?))
+        Ok(Self::Unigram(Box::new(UnigramTokenizer::from_json(&json, max_length)?)))
     }
 
     pub fn encode(&self, text: &str) -> Vec<i64> {
@@ -582,11 +582,11 @@ impl ByteLevelBpe {
 
     /// The lowest-ranked adjacent pair merges first, the leftmost on a tie; each merge only offers the pairs it made.
     fn word_ids(&self, word: &str, out: &mut Vec<u32>) {
-        if self.ignore_merges {
-            if let Some(&id) = self.vocab.get(word) {
-                out.push(id);
-                return;
-            }
+        if self.ignore_merges
+            && let Some(&id) = self.vocab.get(word)
+        {
+            out.push(id);
+            return;
         }
         let mut sym: Vec<u32> = Vec::new();
         let mut buffer = [0u8; 4];
@@ -598,10 +598,10 @@ impl ByteLevelBpe {
         let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<(usize, usize)>> = std::collections::BinaryHeap::new();
         let offer = |heap: &mut std::collections::BinaryHeap<std::cmp::Reverse<(usize, usize)>>, sym: &[u32], next: &[i64], i: usize| {
             let j = next[i];
-            if j >= 0 {
-                if let Some((rank, _)) = self.merges.get(&(sym[i], sym[j as usize])) {
-                    heap.push(std::cmp::Reverse((*rank, i)));
-                }
+            if j >= 0
+                && let Some((rank, _)) = self.merges.get(&(sym[i], sym[j as usize]))
+            {
+                heap.push(std::cmp::Reverse((*rank, i)));
             }
         };
         for i in 0..n.saturating_sub(1) {

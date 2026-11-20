@@ -36,7 +36,7 @@ pub(crate) enum DecisionFault {
 /// The continuation decisions a test holds, by session: `arrived` is told, then the decision ends as `go` says (a dropped `go`
 /// lets it run as usual).
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) static DECISION_HOLDS: std::sync::Mutex<Vec<(String, tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<DecisionFault>)>> =
+pub(crate) static DECISION_HOLDS: std::sync::Mutex<Vec<DecisionHold>> =
     std::sync::Mutex::new(Vec::new());
 
 #[cfg(any(test, feature = "test-support"))]
@@ -315,3 +315,7 @@ pub fn control_request(method: &str, params: &Value) -> Result<Value, mixdog_cor
         }
     }
 }
+
+/// One continuation decision a test holds: its session, the `arrived` sender and the `go` receiver.
+#[cfg(any(test, feature = "test-support"))]
+type DecisionHold = (String, tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<DecisionFault>);

@@ -365,7 +365,7 @@ mod tests {
             },
             5_000,
         );
-        let change = super::super::usage_books::usage_change(&header, false, &delta, &[], &[], None, 4_000.0, 5_000.0).expect("the call's header change");
+        let change = super::super::usage_books::usage_change(&header, false, &delta, &[], &[], None, (4_000.0, 5_000.0)).expect("the call's header change");
         header.extend(change.set);
         let stored = header["lastContextTokens"].as_f64().expect("the response's reading is stored");
         assert!(stored >= 1200.0, "the reading holds the prompt: {stored}");

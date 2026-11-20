@@ -239,7 +239,7 @@ async fn an_image_api_answer_without_a_usable_image_is_an_error_that_keeps_billa
     let empty = Http::with(vec![answer(200, json!({"data": [{}], "usage": {"cost": 0.04}}))]);
     let error = image_api(&empty, &Public::default(), "openrouter", json!({}), &none()).await.unwrap_err();
     assert_eq!(failure_of(&error), ("OpenRouter image returned no image data", Some("MEDIA_EMPTY_RESULT"), Some(502)));
-    assert_eq!(error.usage, Some(json!({"costUsd": 0.04})), "what the provider billed is kept");
+    assert_eq!(error.usage, Some(Box::new(json!({"costUsd": 0.04}))), "what the provider billed is kept");
     let gif = Http::with(vec![answer(200, json!({"data": [{"b64_json": b64(b"GIF89a....")}]}))]);
     let error = image_api(&gif, &Public::default(), "nano-gpt", json!({}), &none()).await.unwrap_err();
     assert_eq!(failure_of(&error), ("NanoGPT image returned an unsupported image format", Some("MEDIA_UPSTREAM_FAILED"), Some(502)));
@@ -419,7 +419,7 @@ async fn an_xai_video_that_cannot_start_or_finish_fails_with_the_reason() {
     let no_url = Http::with(vec![answer(200, json!({"request_id": "r"})), answer(200, json!({"status": "done", "video": {}}))]);
     let error = video(&no_url, &public, &Wait::new(1), json!({}), &none(), &cancel(), NOP).await.unwrap_err();
     assert_eq!(failure_of(&error), ("xAI video finished without a URL", Some("MEDIA_EMPTY_RESULT"), Some(502)));
-    assert_eq!(error.usage, Some(json!({"seconds": 5, "resolution": "480p"})), "the seconds are billed even without a file");
+    assert_eq!(error.usage, Some(Box::new(json!({"seconds": 5, "resolution": "480p"}))), "the seconds are billed even without a file");
     let poll_failed = Http::with(vec![answer(200, json!({"request_id": "r"})), answer(500, "boom")]);
     let error = video(&poll_failed, &public, &Wait::new(1), json!({}), &none(), &cancel(), NOP).await.unwrap_err();
     assert_eq!(error.message, upstream_error("xAI video poll", 500, "boom").message);
@@ -689,7 +689,7 @@ async fn a_veo_download_that_fails_still_bills_the_generated_seconds() {
     public.serve(&gemini_media_download_url(&json!(VEO_URI)).unwrap(), 500, &[], vec![]);
     let error = gemini_video::generate_video(&http, &public, &Wait::new(1), "gk", "veo-3", "p", &json!({}), &none(), &cancel(), NOP).await.unwrap_err();
     assert_eq!(failure_of(&error), ("Veo video download failed (500)", Some("MEDIA_UPSTREAM_FAILED"), Some(500)));
-    assert_eq!(error.usage, Some(json!({"seconds": 8, "resolution": "720p"})));
+    assert_eq!(error.usage, Some(Box::new(json!({"seconds": 8, "resolution": "720p"}))));
 }
 
 #[tokio::test]
@@ -717,7 +717,7 @@ async fn a_veo_download_that_hangs_runs_out_of_the_generation_budget_and_bills_t
     let pacer = Wait::new(1);
     let error = gemini_video::generate_video(&http, &Hang, &pacer, "gk", "veo-3", "p", &json!({}), &none(), &cancel(), NOP).await.unwrap_err();
     assert_eq!(error.message, "The operation was aborted due to timeout");
-    assert_eq!(error.usage, Some(json!({"seconds": 8, "resolution": "720p"})));
+    assert_eq!(error.usage, Some(Box::new(json!({"seconds": 8, "resolution": "720p"}))));
     assert_eq!(pacer.waits.lock().unwrap().last(), Some(&899_999));
 }
 

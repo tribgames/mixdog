@@ -68,7 +68,7 @@ pub async fn call_under(
 ) -> Result<Reply, LoginFailure> {
     try_call_under(http, exchange, method, url, headers, body)
         .await
-        .map_err(|err| failed("transport", err.message))
+        .map_err(|err| failed("transport", err.into_message()))
 }
 
 /// The hint Node's sign-in pages add to a request that got no answer (`OAUTH_NETWORK_HINT`).

@@ -369,7 +369,7 @@ impl Held {
     /// `frames=N bytes=B kinds=[kind xN=B, …]`, the five heaviest kinds.
     fn render(&self) -> String {
         let mut kinds: Vec<(&String, &(usize, usize))> = self.kinds.iter().collect();
-        kinds.sort_by(|a, b| b.1.1.cmp(&a.1.1));
+        kinds.sort_by_key(|kind| std::cmp::Reverse(kind.1.1));
         let kinds: Vec<String> = kinds.into_iter().take(5).map(|(kind, (count, bytes))| format!("{kind} x{count}={bytes}")).collect();
         format!("frames={} bytes={} kinds=[{}]", self.frames, self.bytes, kinds.join(", "))
     }
@@ -1430,7 +1430,7 @@ impl Shared {
                 (held.bytes, line)
             })
             .collect();
-        lanes.sort_by(|a, b| b.0.cmp(&a.0));
+        lanes.sort_by_key(|lane| std::cmp::Reverse(lane.0));
         let total = lanes.len();
         let shown: Vec<String> = lanes.into_iter().take(8).map(|(_, line)| line).collect();
         format!("control {} lanes={total} [{}]", control.render(), shown.join("; "))

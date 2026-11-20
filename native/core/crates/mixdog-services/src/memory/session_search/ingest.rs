@@ -35,6 +35,9 @@ pub trait SensitiveValues: Send + Sync {
     fn redact_text(&self, session_id: &str, text: &str) -> String;
 }
 
+/// A session's transcript length, sensitive-values version and transcript digest at its last stored ingest.
+type LastIngest = (usize, Option<String>, TranscriptDigest);
+
 /// A session as the search copy sees it.
 #[derive(Debug, Clone)]
 pub struct IngestSession {
@@ -135,7 +138,7 @@ pub struct SessionSearchIngest {
     db: SessionSearchDb,
     sensitive: Arc<dyn SensitiveValues>,
     /// session → (transcript length, sensitive-values version, transcript digest) of the last stored ingest.
-    last_ingested: Mutex<HashMap<String, (usize, Option<String>, TranscriptDigest)>>,
+    last_ingested: Mutex<HashMap<String, LastIngest>>,
     queues: Queues,
 }
 

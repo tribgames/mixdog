@@ -129,6 +129,95 @@ impl BusyHold for BusySession {
     }
 }
 
+impl LateLifecycle {
+    /// The cell of a composed core: running work begun before the bind is said in `log` ([`Self::begin_work`]).
+    pub fn logging(log: WorkLog) -> Self {
+        Self(Default::default(), Default::default(), Default::default(), Default::default(), Some(log))
+    }
+
+    /// The cancellation tokens of the running work registered here, by activity: the core port's `cancel_running` (a confirmed stop's
+    /// abort) cancels them.
+    pub fn cancels(&self) -> &Arc<CancelRegistry> {
+        &self.3
+    }
+
+    /// `info` is running work until the returned guard drops, and the core that stops when it ends says `settled` (Node's
+    /// self-shutdown text for that work: `BUSY_WORK_SETTLED`, `MEMORY_AGENT_ACTIVITY_CHANGED`). Before the bind (a startup bug: the
+    /// listener accepts only after it) it is not counted, which is said in the cell's log, the one place every consumer reports it.
+    pub fn begin_work(&self, info: ActivityInfo, settled: &'static str) -> Option<ActivityGuard> {
+        let Some(lifecycle) = self.0.get() else {
+            if let Some(log) = &self.4 {
+                log(&format!("running work ({:?}: {}) started before the lifecycle was bound; it is not counted", info.kind, info.title));
+            }
+            return None;
+        };
+        Some(lifecycle.begin_activity_settling(info, settled))
+    }
+
+    pub fn bind(&self, lifecycle: Arc<Lifecycle>) -> Result<(), &'static str> {
+        self.0.set(lifecycle).map_err(|_| "lifecycle")
+    }
+
+    /// The lifecycle of a core that serves no daemon (`mixdog exec` composes its core in its own process): it counts the calls in flight,
+    /// while nothing publishes, cancels, exits or withdraws on its behalf: the process ends when the exec does.
+    pub fn bind_in_process(&self) -> Result<(), &'static str> {
+        let ports = Ports { core: Arc::new(Inert), discovery: Arc::new(Inert), exiter: Arc::new(Inert) };
+        let config = LifecycleConfig { instance_id: new_instance_id(), version: env!("CARGO_PKG_VERSION").to_owned(), runtime_root: std::path::PathBuf::new() };
+        self.bind(Lifecycle::new(config, ports))
+    }
+
+    /// `None` before the bind: a startup bug (the listener accepts only after it), which each reader reports in its own words.
+    pub fn get(&self) -> Option<&Arc<Lifecycle>> {
+        self.0.get()
+    }
+
+    /// A client connection finished its handshake (`CoreHandle::connection_opened`): counted until [`Self::client_closed`].
+    pub fn client_opened(&self, connection: ConnectionId, origin: Origin, kind: ConnectionKind) -> Result<(), &'static str> {
+        let lifecycle = self.0.get().ok_or("a connection opened before the lifecycle was bound; it is not counted")?;
+        let guard = lifecycle.connection(client_kind(origin, kind));
+        self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(connection, guard);
+        Ok(())
+    }
+
+    /// The connection closed (`CoreHandle::connection_closed`); the last one to leave lets the core stop itself.
+    pub fn client_closed(&self, connection: ConnectionId) {
+        let guard = self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&connection);
+        drop(guard);
+    }
+
+    /// The hold on turn starts the sessions follow (`Lifecycle::hold_gate`, LR §5.1). The sessions are built before the lifecycle,
+    /// so they read this copy, which [`Self::follow`] keeps at the lifecycle's hold; it reads [`StartHold::Open`] until then, and
+    /// for good in a core that serves no daemon.
+    pub fn start_hold(&self) -> watch::Receiver<StartHold> {
+        self.2.subscribe()
+    }
+
+    /// Follows `lifecycle` (`serving::attach` spawns it): `on_state` hears each move of its state, which the composed core answers
+    /// admission from, and the sessions' copy of the hold is kept at the lifecycle's (`Lifecycle::hold_gate`: closed once the drain
+    /// commit dropped a hold, open again when that drain is cancelled), whose latest reading is the whole of it. Subscribed when
+    /// called, so a move made before the future first runs is not missed.
+    pub fn follow<F: Fn(CoreState) + Send + 'static>(self: &Arc<Self>, lifecycle: &Lifecycle, on_state: F) -> impl Future<Output = ()> + Send + 'static + use<F> {
+        let (late, mut state, mut hold) = (self.clone(), lifecycle.state(), lifecycle.hold_gate());
+        async move {
+            loop {
+                let read = *hold.borrow_and_update();
+                late.2.send_if_modified(|gate| std::mem::replace(gate, read) != read);
+                tokio::select! {
+                    moved = state.changed() => match moved {
+                        Ok(()) => on_state(state.borrow().clone()),
+                        Err(_) => break,
+                    },
+                    moved = hold.changed() => {
+                        if moved.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -386,96 +475,6 @@ mod tests {
             let core = serde_json::json!({ "aliveAfter": alive, "clients": counted, "ended": released(&fx.recorder.events()) });
             let node = serde_json::json!({ "aliveAfter": case["aliveAfter"], "clients": case["clients"], "ended": [reason_of(ended)] });
             assert_eq!(core, node, "{name}");
-        }
-    }
-}
-
-
-impl LateLifecycle {
-    /// The cell of a composed core: running work begun before the bind is said in `log` ([`Self::begin_work`]).
-    pub fn logging(log: WorkLog) -> Self {
-        Self(Default::default(), Default::default(), Default::default(), Default::default(), Some(log))
-    }
-
-    /// The cancellation tokens of the running work registered here, by activity: the core port's `cancel_running` (a confirmed stop's
-    /// abort) cancels them.
-    pub fn cancels(&self) -> &Arc<CancelRegistry> {
-        &self.3
-    }
-
-    /// `info` is running work until the returned guard drops, and the core that stops when it ends says `settled` (Node's
-    /// self-shutdown text for that work: `BUSY_WORK_SETTLED`, `MEMORY_AGENT_ACTIVITY_CHANGED`). Before the bind (a startup bug: the
-    /// listener accepts only after it) it is not counted, which is said in the cell's log, the one place every consumer reports it.
-    pub fn begin_work(&self, info: ActivityInfo, settled: &'static str) -> Option<ActivityGuard> {
-        let Some(lifecycle) = self.0.get() else {
-            if let Some(log) = &self.4 {
-                log(&format!("running work ({:?}: {}) started before the lifecycle was bound; it is not counted", info.kind, info.title));
-            }
-            return None;
-        };
-        Some(lifecycle.begin_activity_settling(info, settled))
-    }
-
-    pub fn bind(&self, lifecycle: Arc<Lifecycle>) -> Result<(), &'static str> {
-        self.0.set(lifecycle).map_err(|_| "lifecycle")
-    }
-
-    /// The lifecycle of a core that serves no daemon (`mixdog exec` composes its core in its own process): it counts the calls in flight,
-    /// while nothing publishes, cancels, exits or withdraws on its behalf: the process ends when the exec does.
-    pub fn bind_in_process(&self) -> Result<(), &'static str> {
-        let ports = Ports { core: Arc::new(Inert), discovery: Arc::new(Inert), exiter: Arc::new(Inert) };
-        let config = LifecycleConfig { instance_id: new_instance_id(), version: env!("CARGO_PKG_VERSION").to_owned(), runtime_root: std::path::PathBuf::new() };
-        self.bind(Lifecycle::new(config, ports))
-    }
-
-    /// `None` before the bind: a startup bug (the listener accepts only after it), which each reader reports in its own words.
-    pub fn get(&self) -> Option<&Arc<Lifecycle>> {
-        self.0.get()
-    }
-
-    /// A client connection finished its handshake (`CoreHandle::connection_opened`): counted until [`Self::client_closed`].
-    pub fn client_opened(&self, connection: ConnectionId, origin: Origin, kind: ConnectionKind) -> Result<(), &'static str> {
-        let lifecycle = self.0.get().ok_or("a connection opened before the lifecycle was bound; it is not counted")?;
-        let guard = lifecycle.connection(client_kind(origin, kind));
-        self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(connection, guard);
-        Ok(())
-    }
-
-    /// The connection closed (`CoreHandle::connection_closed`); the last one to leave lets the core stop itself.
-    pub fn client_closed(&self, connection: ConnectionId) {
-        let guard = self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&connection);
-        drop(guard);
-    }
-
-    /// The hold on turn starts the sessions follow (`Lifecycle::hold_gate`, LR §5.1). The sessions are built before the lifecycle,
-    /// so they read this copy, which [`Self::follow`] keeps at the lifecycle's hold; it reads [`StartHold::Open`] until then, and
-    /// for good in a core that serves no daemon.
-    pub fn start_hold(&self) -> watch::Receiver<StartHold> {
-        self.2.subscribe()
-    }
-
-    /// Follows `lifecycle` (`serving::attach` spawns it): `on_state` hears each move of its state, which the composed core answers
-    /// admission from, and the sessions' copy of the hold is kept at the lifecycle's (`Lifecycle::hold_gate`: closed once the drain
-    /// commit dropped a hold, open again when that drain is cancelled), whose latest reading is the whole of it. Subscribed when
-    /// called, so a move made before the future first runs is not missed.
-    pub fn follow<F: Fn(CoreState) + Send + 'static>(self: &Arc<Self>, lifecycle: &Lifecycle, on_state: F) -> impl Future<Output = ()> + Send + 'static + use<F> {
-        let (late, mut state, mut hold) = (self.clone(), lifecycle.state(), lifecycle.hold_gate());
-        async move {
-            loop {
-                let read = *hold.borrow_and_update();
-                late.2.send_if_modified(|gate| std::mem::replace(gate, read) != read);
-                tokio::select! {
-                    moved = state.changed() => match moved {
-                        Ok(()) => on_state(state.borrow().clone()),
-                        Err(_) => break,
-                    },
-                    moved = hold.changed() => {
-                        if moved.is_err() {
-                            break;
-                        }
-                    }
-                }
-            }
         }
     }
 }

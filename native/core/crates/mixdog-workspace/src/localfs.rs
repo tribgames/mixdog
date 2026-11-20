@@ -5838,10 +5838,7 @@ impl Producers {
         s.next_reader += free;
         let mut readers = locked(&ticket.readers);
         (first..first + free)
-            .map(|id| {
-                readers.push(ReaderThread { id, thread: None, interrupt: None, mark: None });
-                id
-            })
+            .inspect(|&id| readers.push(ReaderThread { id, thread: None, interrupt: None, mark: None }))
             .collect()
     }
 
@@ -7068,10 +7065,11 @@ struct Reader<M> {
 impl<M: Matcher + Send> Reader<M> {
     /// A reader thread: the window's files until the search ends or a search waits for a slot (`crowded`).
     fn run(mut self, crowded: &AtomicBool) {
-        loop {
+        while let Some((seq, path)) = {
             #[cfg(test)]
             pause::at(&self.root, pause::Point::ReaderTake, &self.root);
-            let Some((seq, path)) = self.window.take(crowded) else { break };
+            self.window.take(crowded)
+        } {
             self.file(seq, path);
         }
     }

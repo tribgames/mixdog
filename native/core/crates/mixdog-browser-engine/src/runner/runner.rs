@@ -652,7 +652,7 @@ enum RunError {
     /// A failure the core already typed (a person who did not approve).
     Tool(ToolError),
     /// The command ends with this reply instead of failing (a dialog blocks the page).
-    Reply(ToolReply),
+    Reply(Box<ToolReply>),
     /// The host connection was lost after a request of the command was handed to it ([`HostCallError::ConnectionLost`]).
     ConnectionLost,
 }
@@ -678,7 +678,7 @@ impl From<HostCallError> for RunError {
         match error {
             HostCallError::Cancelled => Self::Cancelled(None),
             HostCallError::ConnectionLost => Self::ConnectionLost,
-            HostCallError::DialogBlocking { dialog } => Self::Reply(blocking_dialog_reply(&dialog, false, &|text: &str| redact_browser_text(text))),
+            HostCallError::DialogBlocking { dialog } => Self::Reply(Box::new(blocking_dialog_reply(&dialog, false, &|text: &str| redact_browser_text(text)))),
             HostCallError::PageGone => Self::Failed("the page is gone; call list_tabs to see what is open, then navigate or use background:true".to_owned()),
             HostCallError::UserInput { .. } => Self::Failed(LOCAL_INPUT_TAKEOVER.to_owned()),
             HostCallError::StaleSnapshot => Self::Failed("the snapshot is stale; take a fresh snapshot before continuing".to_owned()),
@@ -1036,7 +1036,7 @@ impl Inner {
         // Keep the large action-dispatch future out of every enclosing queue/scope future.
         // The production executor uses a 2 MB stack, as does the browser ceiling regression.
         match self.execute_resolved_boxed(thread, turn, prepared, ctx, timer).await {
-            Err(RunError::Reply(reply)) => Ok(reply),
+            Err(RunError::Reply(reply)) => Ok(*reply),
             other => other,
         }
     }
@@ -1537,7 +1537,8 @@ impl StepRunner for SequenceSteps<'_> {
         };
         let expected = crate::settle::postcondition::normalize(step.get("expect")).map_err(|error| ActionError::Failed(error.to_string()))?;
         let reply = match self.page.timer.step(index, self.page.dispatch(action, step, expected, false)).await {
-            Ok(reply) | Err(RunError::Reply(reply)) => reply,
+            Ok(reply) => reply,
+            Err(RunError::Reply(reply)) => *reply,
             Err(error) => return Err(error.into_action()),
         };
         let outcome = match reply.outcome {
@@ -1550,7 +1551,8 @@ impl StepRunner for SequenceSteps<'_> {
 
     async fn observe(&self, _cancel: &CancelView) -> Result<String, ActionError> {
         match self.page.snapshot_reply(&json!({"action": "snapshot"}), &ReplyOptions::default()).await {
-            Ok(reply) | Err(RunError::Reply(reply)) => Ok(reply.text),
+            Ok(reply) => Ok(reply.text),
+            Err(RunError::Reply(reply)) => Ok(reply.text),
             Err(error) => Err(error.into_action()),
         }
     }
@@ -1649,7 +1651,8 @@ impl FormContext for FormCtx<'_> {
     async fn action_snapshot(&mut self) -> Result<ToolReply, RefError> {
         let options = self.options();
         match self.page.settled(self.command, &options).await {
-            Ok(reply) | Err(RunError::Reply(reply)) => Ok(reply),
+            Ok(reply) => Ok(reply),
+            Err(RunError::Reply(reply)) => Ok(*reply),
             Err(error) => Err(error.into_ref()),
         }
     }
@@ -1665,7 +1668,8 @@ impl FormContext for FormCtx<'_> {
             observe["maxChars"] = max_chars.clone();
         }
         match self.page.snapshot_reply(&observe, &ReplyOptions::default()).await {
-            Ok(reply) | Err(RunError::Reply(reply)) => Ok(reply.text),
+            Ok(reply) => Ok(reply.text),
+            Err(RunError::Reply(reply)) => Ok(reply.text),
             Err(RunError::Cancelled(_)) => Err(RefError::Host(HostCallError::Cancelled)),
             Err(error) => Ok(format!("Fresh observation failed: {}", error.message())),
         }
@@ -3169,7 +3173,8 @@ impl PageCtx {
             }
             self.invalidate();
             let after = match self.snapshot_reply(&observe, &ReplyOptions::default()).await {
-                Ok(after) | Err(RunError::Reply(after)) => after,
+                Ok(after) => after,
+                Err(RunError::Reply(after)) => *after,
                 Err(error) => return Err(error),
             };
             reply = ToolReply { text: format!("{note}\n\n{}", after.text), ..after };

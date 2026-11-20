@@ -196,9 +196,12 @@ struct Row {
     root: String,
 }
 
+/// The write a staged graph runs at the flush.
+type StagedWrite = Box<dyn FnOnce(&mut dyn io::Write) -> io::Result<()> + Send>;
+
 struct Staged {
     root: String,
-    write: Box<dyn FnOnce(&mut dyn io::Write) -> io::Result<()> + Send>,
+    write: StagedWrite,
     built_at: i64,
     /// The graph a queued write reads, held weakly: a staged write must not keep a graph alive that the cache evicted and no
     /// call uses (it would count against the heap budget until the flush). A graph gone by the flush is not written.

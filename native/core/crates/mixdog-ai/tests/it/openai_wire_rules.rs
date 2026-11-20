@@ -432,7 +432,7 @@ fn a_cut_responses_stream_names_its_route_and_transport() {
         for frame in &frames {
             let bytes = if codec.transport() == TransportKind::WebSocket { frame.to_string() } else { format!("data: {frame}\n\n") };
             if let Err(error) = decoder.feed(bytes.as_bytes()) {
-                message = Some(error.message);
+                message = Some(error.message.clone());
             }
         }
         assert_eq!(message.expect("a cut stream"), format!("{label} response.incomplete (max_output_tokens) with tool call in flight"), "{route}");

@@ -311,7 +311,7 @@ pub struct SshFailure {
     pub kind: SshFailureKind,
     /// The words of the failure by code, in the interface language; the kind's `message` is their English fallback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub notice: Option<SshMessage>,
+    pub notice: Option<Box<SshMessage>>,
     /// The error code behind the view (a bootstrap code such as `install-failed`, or the view's own name); shown in the details line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,

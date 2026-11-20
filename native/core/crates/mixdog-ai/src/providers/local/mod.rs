@@ -136,7 +136,7 @@ pub trait Inference: Send + Sync {
         None
     }
     /// Stop waits for the active attempt to drop its body and release this lock.
-    fn attempt_cleanup(&self) -> Option<Arc<tokio::sync::Mutex<()>>> {
+    fn attempt_cleanup(&self) -> Option<Arc<tokio::sync::Semaphore>> {
         None
     }
     /// A stream event of visible progress: the first one is the first response.
@@ -271,9 +271,9 @@ impl ProviderAdapter for RegisteredAdapter {
             (Some(cleanup), Some(stop)) => Some(tokio::select! {
                 biased;
                 _ = stop.cancelled() => return Err(stopped(DeliveryState::NotSent)),
-                guard = cleanup.lock_owned() => guard,
+                guard = cleanup.acquire_owned() => guard.expect("the cleanup gate is never closed"),
             }),
-            (Some(cleanup), None) => Some(cleanup.lock_owned().await),
+            (Some(cleanup), None) => Some(cleanup.acquire_owned().await.expect("the cleanup gate is never closed")),
             (None, _) => None,
         };
         if stop.as_ref().is_some_and(CancellationToken::is_cancelled) {
@@ -412,7 +412,7 @@ struct Measured {
     /// The attempt ended on its own, answered or failed.
     ended: bool,
     // Drop the body before releasing the cleanup lock.
-    _cleanup: Option<tokio::sync::OwnedMutexGuard<()>>,
+    _cleanup: Option<tokio::sync::OwnedSemaphorePermit>,
 }
 
 impl Measured {

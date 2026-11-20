@@ -317,7 +317,7 @@ mod tools {
         let url = format!("{}/once", server.uri());
         let missing = format!("{}/missing", server.uri());
         let error = call(&web, "web_fetch", json!({"url": [&url, &missing, &url]})).await.unwrap_err();
-        let partial = text(&Ok(error.partial.expect("mixed batch has partial output")));
+        let partial = text(&Ok(*error.partial.expect("mixed batch has partial output")));
         let slots: Vec<_> = partial.split("\n\n---\n\n").collect();
         assert_eq!(slots.len(), 3);
         assert!(slots[0].starts_with("[web_fetch] 1/3 URL slots failed"));

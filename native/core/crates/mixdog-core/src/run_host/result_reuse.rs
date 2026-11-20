@@ -705,7 +705,7 @@ fn digest_of(abs: &str) -> Option<String> {
     use std::io::Read;
     use sha2::Digest;
     let mut bytes = Vec::new();
-    std::fs::File::open(abs).ok()?.take(READ_PREFIX_HASH_BYTES + 1).read_to_end(&mut bytes).ok()?;
+    mixdog_fsio::File::open(&mixdog_fsio::Unlaned, abs).ok()?.take(READ_PREFIX_HASH_BYTES + 1).read_to_end(&mut bytes).ok()?;
     // A text-only PDF result on one route does not prove that another route
     // would return text rather than pages or a native attachment.
     (!bytes.starts_with(b"%PDF-") && bytes.len() as u64 <= READ_PREFIX_HASH_BYTES)
@@ -873,7 +873,7 @@ impl ToolResultReuse {
         if roots.is_empty() {
             return None;
         }
-        let job = self.io.interactive.submit(&CancellationToken::new(), move |_| {
+        let job = self.io.interactive.submit(&CancellationToken::new(), move |lane| {
             roots.into_iter().map(|(root, file_only)| {
                 let raw = root.to_str()?;
                 if device_paths::is_unc_path(raw) || device_paths::is_windows_device_path(raw)
@@ -885,7 +885,7 @@ impl ToolResultReuse {
                 if pathguard::comparable(&real) != pathguard::comparable(&root) {
                     return None;
                 }
-                if file_only && !std::fs::metadata(&real).ok()?.is_file() {
+                if file_only && !mixdog_fsio::metadata(lane, &real).ok()?.is_file() {
                     return None;
                 }
                 Some(Coverage { revision: revision(&real)?, root: real, file_only })

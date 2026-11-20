@@ -205,6 +205,126 @@ fn with_migration_counts(mut status: Value, migration: Option<Value>) -> Value {
     status
 }
 
+/// What `program` reports as `process.versions.node` right now; `None` when it cannot be run or prints nothing.
+///
+/// The probe's life ends with the check, and nothing it started outlives it: the child runs in its own job object (Windows) or
+/// process group (Unix) ([`mixdog_mcp::containment::Containment`]), and that whole tree is ended when the child has exited and
+/// when `cancel` fires (the check gave up: its own deadline ends it), so a hung interpreter or a descendant it left holding a
+/// handle leaves neither a process nor a job behind. The child writes to a file, never a pipe: the probe reads the file after
+/// the tree is ended, so no handle a descendant holds can block it. It has no limit of its own.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "one short version probe, run only as a lane job")]
+fn probe_version(runtime: &ScriptRuntime, cancel: &CancellationToken) -> Option<String> {
+    if cancel.is_cancelled() {
+        return None;
+    }
+    let output = std::env::temp_dir().join(format!("mixdog-doctor-node-{}.out", uuid::Uuid::now_v7()));
+    let version = run_probe(runtime, cancel, &output);
+    let _ = std::fs::remove_file(&output);
+    version
+}
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "one short version probe, run only as a lane job")]
+fn run_probe(runtime: &ScriptRuntime, cancel: &CancellationToken, output: &Path) -> Option<String> {
+    let mut command = std::process::Command::new(&runtime.program);
+    if runtime.electron {
+        command.env("ELECTRON_RUN_AS_NODE", "1");
+    }
+    command
+        .args(["-p", "process.versions.node"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::fs::File::create_new(output).ok()?)
+        .stderr(std::process::Stdio::null());
+    // The child leads its own group; on Windows it starts suspended (and without a window) so it joins its job before it runs.
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000 | 0x0000_0004);
+    let mut child = command.spawn().ok()?;
+    let tree = match mixdog_mcp::containment::Containment::attach_std(&child) {
+        Ok(tree) => tree,
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    };
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if !cancel.is_cancelled() => std::thread::sleep(std::time::Duration::from_millis(20)),
+            _ => break None,
+        }
+    };
+    // The group's id stays valid while any member lives, and the tree is ended at once.
+    tree.terminate();
+    if status.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    drop(tree);
+    if !status?.success() {
+        return None;
+    }
+    let version = std::fs::read_to_string(output).ok()?.trim().to_owned();
+    (!version.is_empty()).then_some(version)
+}
+#[async_trait]
+impl DoctorHost for DaemonDoctorHost {
+    async fn node_runtime(&self) -> Probe {
+        let engines = read_engines(self.inputs.io, &self.inputs.package_root).await?;
+        let runtime = self.inputs.runtime.clone();
+        // Dropped with this future (the check's deadline), the token tells the running probe to kill its child and end.
+        let cancel = CancellationToken::new();
+        let _ends_with_the_check = cancel.clone().drop_guard();
+        let probe_cancel = cancel.clone();
+        let version = on_lane(self.inputs.io, &cancel, move |_lane| probe_version(&runtime, &probe_cancel)).await.map_err(|_| ProbeFailed)?;
+        Ok(Some(runtime_row(version, engines)))
+    }
+    async fn provider_setup(&self) -> Probe {
+        self.inputs.providers.get(false, false, false, false).await.map(Some).map_err(|_| ProbeFailed)
+    }
+
+    fn active_provider(&self) -> Option<String> {
+        self.inputs.routes.route_provider(None)
+    }
+
+    async fn channel_worker_status(&self) -> Probe {
+        Ok(Some(self.inputs.channel_runtime.status().to_json()))
+    }
+
+    async fn channel_setup(&self) -> Probe {
+        self.inputs.channel_admin.get_channel_setup().await.map(Some).map_err(|_| ProbeFailed)
+    }
+
+    async fn hooks_status(&self) -> Probe {
+        Ok(Some(self.inputs.hooks.status().await))
+    }
+
+    async fn session_log_migration(&self) -> Probe {
+        let data_dir = self.inputs.data_dir.clone();
+        let status = on_lane(self.inputs.io, &CancellationToken::new(), move |lane| {
+            let status = session_log_status(&data_dir, lane)?;
+            let status = with_migration_counts(status, migration_counts(&data_dir));
+            Ok::<_, std::io::Error>(with_upgrade_steps(status, mixdog_migrate::post_upgrade::read_report(&data_dir).map(|report| report.steps_line())))
+        })
+        .await
+        .map_err(|_| ProbeFailed)?;
+        status.map(Some).map_err(|_| ProbeFailed)
+    }
+
+    fn bridge_active(&self, id: &str) -> bool {
+        self.inputs.bridge.present(id)
+    }
+
+    /// `options.notice` (the TUI's own doctor): the report is a muted line of the thread. With no
+    /// thread there is no live session to show it in.
+    async fn notice(&self, thread: Option<&ThreadId>, text: &str) {
+        let Some(thread) = thread else { return };
+        if let Err(error) = self.inputs.live.notice(thread.as_str(), json!({ "text": text, "tone": "info" })).await {
+            tracing::warn!(%error, "the doctor report was not shown in the thread");
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]
 mod tests {
@@ -413,126 +533,5 @@ mod tests {
         );
 
         assert_eq!(with_upgrade_steps(status, Err::<String, _>("locked"))["upgradeSteps"], "unreadable (locked)");
-    }
-}
-
-
-/// What `program` reports as `process.versions.node` right now; `None` when it cannot be run or prints nothing.
-///
-/// The probe's life ends with the check, and nothing it started outlives it: the child runs in its own job object (Windows) or
-/// process group (Unix) ([`mixdog_mcp::containment::Containment`]), and that whole tree is ended when the child has exited and
-/// when `cancel` fires (the check gave up: its own deadline ends it), so a hung interpreter or a descendant it left holding a
-/// handle leaves neither a process nor a job behind. The child writes to a file, never a pipe: the probe reads the file after
-/// the tree is ended, so no handle a descendant holds can block it. It has no limit of its own.
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "one short version probe, run only as a lane job")]
-fn probe_version(runtime: &ScriptRuntime, cancel: &CancellationToken) -> Option<String> {
-    if cancel.is_cancelled() {
-        return None;
-    }
-    let output = std::env::temp_dir().join(format!("mixdog-doctor-node-{}.out", uuid::Uuid::now_v7()));
-    let version = run_probe(runtime, cancel, &output);
-    let _ = std::fs::remove_file(&output);
-    version
-}
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "one short version probe, run only as a lane job")]
-fn run_probe(runtime: &ScriptRuntime, cancel: &CancellationToken, output: &Path) -> Option<String> {
-    let mut command = std::process::Command::new(&runtime.program);
-    if runtime.electron {
-        command.env("ELECTRON_RUN_AS_NODE", "1");
-    }
-    command
-        .args(["-p", "process.versions.node"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::fs::File::create_new(output).ok()?)
-        .stderr(std::process::Stdio::null());
-    // The child leads its own group; on Windows it starts suspended (and without a window) so it joins its job before it runs.
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut command, 0);
-    #[cfg(windows)]
-    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000 | 0x0000_0004);
-    let mut child = command.spawn().ok()?;
-    let tree = match mixdog_mcp::containment::Containment::attach_std(&child) {
-        Ok(tree) => tree,
-        Err(_) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-    };
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if !cancel.is_cancelled() => std::thread::sleep(std::time::Duration::from_millis(20)),
-            _ => break None,
-        }
-    };
-    // The group's id stays valid while any member lives, and the tree is ended at once.
-    tree.terminate();
-    if status.is_none() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    drop(tree);
-    if !status?.success() {
-        return None;
-    }
-    let version = std::fs::read_to_string(output).ok()?.trim().to_owned();
-    (!version.is_empty()).then_some(version)
-}
-#[async_trait]
-impl DoctorHost for DaemonDoctorHost {
-    async fn node_runtime(&self) -> Probe {
-        let engines = read_engines(self.inputs.io, &self.inputs.package_root).await?;
-        let runtime = self.inputs.runtime.clone();
-        // Dropped with this future (the check's deadline), the token tells the running probe to kill its child and end.
-        let cancel = CancellationToken::new();
-        let _ends_with_the_check = cancel.clone().drop_guard();
-        let probe_cancel = cancel.clone();
-        let version = on_lane(self.inputs.io, &cancel, move |_lane| probe_version(&runtime, &probe_cancel)).await.map_err(|_| ProbeFailed)?;
-        Ok(Some(runtime_row(version, engines)))
-    }
-    async fn provider_setup(&self) -> Probe {
-        self.inputs.providers.get(false, false, false, false).await.map(Some).map_err(|_| ProbeFailed)
-    }
-
-    fn active_provider(&self) -> Option<String> {
-        self.inputs.routes.route_provider(None)
-    }
-
-    async fn channel_worker_status(&self) -> Probe {
-        Ok(Some(self.inputs.channel_runtime.status().to_json()))
-    }
-
-    async fn channel_setup(&self) -> Probe {
-        self.inputs.channel_admin.get_channel_setup().await.map(Some).map_err(|_| ProbeFailed)
-    }
-
-    async fn hooks_status(&self) -> Probe {
-        Ok(Some(self.inputs.hooks.status().await))
-    }
-
-    async fn session_log_migration(&self) -> Probe {
-        let data_dir = self.inputs.data_dir.clone();
-        let status = on_lane(self.inputs.io, &CancellationToken::new(), move |lane| {
-            let status = session_log_status(&data_dir, lane)?;
-            let status = with_migration_counts(status, migration_counts(&data_dir));
-            Ok::<_, std::io::Error>(with_upgrade_steps(status, mixdog_migrate::post_upgrade::read_report(&data_dir).map(|report| report.steps_line())))
-        })
-        .await
-        .map_err(|_| ProbeFailed)?;
-        status.map(Some).map_err(|_| ProbeFailed)
-    }
-
-    fn bridge_active(&self, id: &str) -> bool {
-        self.inputs.bridge.present(id)
-    }
-
-    /// `options.notice` (the TUI's own doctor): the report is a muted line of the thread. With no
-    /// thread there is no live session to show it in.
-    async fn notice(&self, thread: Option<&ThreadId>, text: &str) {
-        let Some(thread) = thread else { return };
-        if let Err(error) = self.inputs.live.notice(thread.as_str(), json!({ "text": text, "tone": "info" })).await {
-            tracing::warn!(%error, "the doctor report was not shown in the thread");
-        }
     }
 }

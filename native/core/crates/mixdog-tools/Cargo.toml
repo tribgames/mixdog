@@ -18,6 +18,7 @@ mixdog-js = { workspace = true }
 mixdog-jssyntax = { workspace = true }
 mixdog-browser-policy = { workspace = true }
 mixdog-patch = { workspace = true }
+mixdog-fsio = { workspace = true }
 mixdog-statefile = { workspace = true }
 mixdog-workspace = { workspace = true }
 mixdog-scm = { workspace = true }

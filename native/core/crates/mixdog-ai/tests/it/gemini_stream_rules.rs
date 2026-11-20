@@ -236,7 +236,7 @@ fn a_last_line_without_a_newline_is_read_and_a_cut_one_is_a_truncated_stream() {
 
     let (_, error) = run(&mut decoder(), &[complete[..complete.len() - 9].to_owned()]);
     let error = error.expect("a payload cut inside its JSON");
-    assert_eq!((error.transport, error.code.as_deref()), (Some(TransportFault::TruncatedStream), Some("malformed_stream")));
+    assert_eq!((error.transport.clone(), error.code.as_deref()), (Some(TransportFault::TruncatedStream), Some("malformed_stream")));
 }
 
 #[test]

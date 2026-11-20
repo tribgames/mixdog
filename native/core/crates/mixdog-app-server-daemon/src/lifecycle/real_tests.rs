@@ -159,10 +159,13 @@ fn discovery_names_the_rebuild_while_it_runs_and_not_before_or_once_done() {
     assert_eq!(rebuild(root.path()), Some(serde_json::json!({ "done": 5, "total": 6, "failed": 1 })));
 }
 
+/// The progress of a rebuild: done and total.
+type Progress = (u64, u64);
+
 /// Sessions finish on many threads while the lifecycle publishes: what is written never goes backwards, and ends at the total.
 #[test]
 fn discovery_never_writes_the_rebuild_backwards_under_concurrent_progress_and_publishes() {
-    let written: Arc<Mutex<Vec<Option<(u64, u64)>>>> = Arc::default();
+    let written: Arc<Mutex<Vec<Option<Progress>>>> = Arc::default();
     let write: WriteDocument = Box::new({
         let written = written.clone();
         move |_root, document| {

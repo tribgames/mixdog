@@ -311,7 +311,7 @@ impl TerminalDelivery {
         let mut text = message.to_owned();
         if let Some((tab, cursor, _)) = state {
             text.push_str(&format!("\nRead with action=read tab={tab} since={cursor}."));
-            error.partial = Some(crate::orch::util::text_output(text.clone()));
+            error.partial = Some(Box::new(crate::orch::util::text_output(text.clone())));
         }
         error.message_for_model = text;
         error

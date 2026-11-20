@@ -212,7 +212,7 @@ async fn devin_writes_a_gzip_connect_request_and_maps_the_response_frames() {
     ];
     let wire = Wire::new("GetChatMessage", frames);
     let got = run(&devin(&wire), request("devin-wire-model")).await;
-    assert!(got.error.is_none(), "{:?}", got.error.map(|e| e.message));
+    assert!(got.error.is_none(), "{:?}", got.error.map(|e| e.into_message()));
     assert_eq!(got.content, "Hello");
     assert_eq!(got.reasoning, "pondering");
     assert_eq!(got.calls, vec![("lookup".to_owned(), json!({"key": "k"}))]);
@@ -264,7 +264,7 @@ async fn cursor_writes_the_run_request_in_one_envelope_and_maps_the_interaction_
     let tokens = ApiKeyAccess::new(wire.clone(), "wire-api-key".into(), "env CURSOR_API_KEY".into());
     let adapter = CursorAdapter::new("cursor-wire", None, None, wire.clone(), wire.clone(), Arc::new(tokens));
     let got = run(&adapter, request("cursor-wire-model")).await;
-    assert!(got.error.is_none(), "{:?}", got.error.map(|e| e.message));
+    assert!(got.error.is_none(), "{:?}", got.error.map(|e| e.into_message()));
     assert_eq!(got.content, "Hi there");
     assert_eq!(got.reasoning, "thinking");
     assert_eq!(got.usage.expect("usage").output_tokens, 5, "the token deltas add up to the completion");

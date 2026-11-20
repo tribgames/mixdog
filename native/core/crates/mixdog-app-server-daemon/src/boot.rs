@@ -175,106 +175,6 @@ pub fn recover_malformed_config(data_dir: &Path, tokens: &LaneTokens, runtime: &
         .map_err(|error| format!("recovering {}: {error}", mixdog_core_config::user_data::CONFIG_FILE))
 }
 
-#[cfg(test)]
-mod tests {
-    use std::ffi::OsString;
-
-    use mixdog_core_api::domain::ext::DocumentText;
-    use mixdog_core_api::domain::ext::ExtError;
-    use mixdog_core_api::domain::ext::PdfIntake;
-    use mixdog_migrate::durable;
-    use mixdog_protocol::ThreadId;
-    use tempfile::TempDir;
-
-    use super::*;
-
-    const DEVICE: &[u8] = br#"{"deviceId":"d","deviceSecret":"s"}"#;
-
-    /// The migration reads no document here: the data dir holds no session.
-    struct NoDocuments;
-
-    #[async_trait::async_trait]
-    impl DocumentText for NoDocuments {
-        async fn office_text(&self, _: &ThreadId, filename: &str, _: &str) -> Result<Option<String>, ExtError> {
-            unreachable!("no session signs an office document ({filename})")
-        }
-        async fn pdf_text(&self, _: &ThreadId, _: &str) -> Result<String, ExtError> {
-            unreachable!("the migration extracts no PDF text")
-        }
-        async fn pdf_counts(&self, _: &ThreadId, _: &str) -> Result<PdfIntake, ExtError> {
-            unreachable!("the migration counts no PDF")
-        }
-    }
-
-    /// One isolated run: its own `APPDATA`/home/data dir, and a desktop profile holding a relay pairing under `APPDATA`.
-    struct Isolated {
-        root: TempDir,
-    }
-
-    #[test]
-    fn the_serving_core_leaves_the_app_data_profile_untouched() {
-        let run = Isolated::new();
-        let before = durable::walk_files(&run.app_data_profile()).unwrap();
-        run.migrate(&[]);
-        assert_eq!(durable::walk_files(&run.app_data_profile()).unwrap(), before);
-        assert_eq!(durable::read_optional(&run.app_data_profile().join("relay-device.json")).unwrap().as_deref(), Some(DEVICE));
-        assert_eq!(durable::read_optional(&run.data().join("remote").join("device.json")).unwrap(), None, "nothing was migrated from the profile");
-    }
-
-    #[test]
-    fn the_profile_the_launcher_names_migrates() {
-        let run = Isolated::new();
-        run.migrate(&[("MIXDOG_DESKTOP_USER_DATA", run.app_data_profile())]);
-        assert_eq!(durable::read_optional(&run.data().join("remote").join("device.json")).unwrap().as_deref(), Some(DEVICE));
-        assert_eq!(durable::read_optional(&run.app_data_profile().join("relay-device.json")).unwrap(), None, "the source is moved");
-    }
-
-
-    impl Isolated {
-        fn new() -> Self {
-            let run = Self { root: TempDir::new().unwrap() };
-            durable::publish_file(&run.app_data_profile().join("relay-device.json"), DEVICE).unwrap();
-            run
-        }
-
-        fn app_data(&self) -> std::path::PathBuf {
-            self.root.path().join("appdata")
-        }
-
-        fn app_data_profile(&self) -> std::path::PathBuf {
-            self.app_data().join("mixdog-desktop")
-        }
-
-        fn data(&self) -> std::path::PathBuf {
-            self.root.path().join("data")
-        }
-
-        /// Boots the migration the way `migrate_data` does, over an environment of this run alone plus `extra`.
-        fn migrate(&self, extra: &[(&str, std::path::PathBuf)]) {
-            let home = self.root.path().join("home");
-            let mut vars: Vec<(String, OsString)> = [
-                ("APPDATA", self.app_data()),
-                ("LOCALAPPDATA", self.root.path().join("local")),
-                ("HOME", home.clone()),
-                ("USERPROFILE", home.clone()),
-                ("XDG_CONFIG_HOME", self.app_data()),
-                ("MIXDOG_HOME", home.join(".mixdog")),
-                ("MIXDOG_CONFIG_DIR", self.root.path().join("config")),
-                ("MIXDOG_RUNTIME_ROOT", self.root.path().join("runtime")),
-            ]
-            .into_iter()
-            .map(|(name, path)| (name.to_owned(), path.into_os_string()))
-            .collect();
-            vars.extend(extra.iter().map(|(name, path)| ((*name).to_owned(), path.clone().into_os_string())));
-            let env = move |name: &str| vars.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone());
-            let roots = migration_roots(&self.data(), &env, Some(home)).unwrap();
-            let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
-            let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: runtime.handle().clone() };
-            mixdog_migrate::run::cli::migrate(roots, Arc::new(StoreProjector), office).unwrap();
-        }
-    }
-}
-
 /// What `boot` hands to composition and serving.
 pub struct Begun {
     /// The proof of steps 1 to 5; its lock is the core's ownership.
@@ -482,4 +382,104 @@ pub async fn boot(tokens: &LaneTokens, data_dir: &Path, host: ExtHostConfig, giv
     let booting = booted.lock().unwrap_or_else(PoisonError::into_inner).take().expect("startup ran init before it returned");
     let behind = behind.lock().unwrap_or_else(PoisonError::into_inner).take();
     Ok(Begun { started, booting, watch, behind })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsString;
+
+    use mixdog_core_api::domain::ext::DocumentText;
+    use mixdog_core_api::domain::ext::ExtError;
+    use mixdog_core_api::domain::ext::PdfIntake;
+    use mixdog_migrate::durable;
+    use mixdog_protocol::ThreadId;
+    use tempfile::TempDir;
+
+    use super::*;
+
+    const DEVICE: &[u8] = br#"{"deviceId":"d","deviceSecret":"s"}"#;
+
+    /// The migration reads no document here: the data dir holds no session.
+    struct NoDocuments;
+
+    #[async_trait::async_trait]
+    impl DocumentText for NoDocuments {
+        async fn office_text(&self, _: &ThreadId, filename: &str, _: &str) -> Result<Option<String>, ExtError> {
+            unreachable!("no session signs an office document ({filename})")
+        }
+        async fn pdf_text(&self, _: &ThreadId, _: &str) -> Result<String, ExtError> {
+            unreachable!("the migration extracts no PDF text")
+        }
+        async fn pdf_counts(&self, _: &ThreadId, _: &str) -> Result<PdfIntake, ExtError> {
+            unreachable!("the migration counts no PDF")
+        }
+    }
+
+    /// One isolated run: its own `APPDATA`/home/data dir, and a desktop profile holding a relay pairing under `APPDATA`.
+    struct Isolated {
+        root: TempDir,
+    }
+
+    #[test]
+    fn the_serving_core_leaves_the_app_data_profile_untouched() {
+        let run = Isolated::new();
+        let before = durable::walk_files(&run.app_data_profile()).unwrap();
+        run.migrate(&[]);
+        assert_eq!(durable::walk_files(&run.app_data_profile()).unwrap(), before);
+        assert_eq!(durable::read_optional(&run.app_data_profile().join("relay-device.json")).unwrap().as_deref(), Some(DEVICE));
+        assert_eq!(durable::read_optional(&run.data().join("remote").join("device.json")).unwrap(), None, "nothing was migrated from the profile");
+    }
+
+    #[test]
+    fn the_profile_the_launcher_names_migrates() {
+        let run = Isolated::new();
+        run.migrate(&[("MIXDOG_DESKTOP_USER_DATA", run.app_data_profile())]);
+        assert_eq!(durable::read_optional(&run.data().join("remote").join("device.json")).unwrap().as_deref(), Some(DEVICE));
+        assert_eq!(durable::read_optional(&run.app_data_profile().join("relay-device.json")).unwrap(), None, "the source is moved");
+    }
+
+
+    impl Isolated {
+        fn new() -> Self {
+            let run = Self { root: TempDir::new().unwrap() };
+            durable::publish_file(&run.app_data_profile().join("relay-device.json"), DEVICE).unwrap();
+            run
+        }
+
+        fn app_data(&self) -> std::path::PathBuf {
+            self.root.path().join("appdata")
+        }
+
+        fn app_data_profile(&self) -> std::path::PathBuf {
+            self.app_data().join("mixdog-desktop")
+        }
+
+        fn data(&self) -> std::path::PathBuf {
+            self.root.path().join("data")
+        }
+
+        /// Boots the migration the way `migrate_data` does, over an environment of this run alone plus `extra`.
+        fn migrate(&self, extra: &[(&str, std::path::PathBuf)]) {
+            let home = self.root.path().join("home");
+            let mut vars: Vec<(String, OsString)> = [
+                ("APPDATA", self.app_data()),
+                ("LOCALAPPDATA", self.root.path().join("local")),
+                ("HOME", home.clone()),
+                ("USERPROFILE", home.clone()),
+                ("XDG_CONFIG_HOME", self.app_data()),
+                ("MIXDOG_HOME", home.join(".mixdog")),
+                ("MIXDOG_CONFIG_DIR", self.root.path().join("config")),
+                ("MIXDOG_RUNTIME_ROOT", self.root.path().join("runtime")),
+            ]
+            .into_iter()
+            .map(|(name, path)| (name.to_owned(), path.into_os_string()))
+            .collect();
+            vars.extend(extra.iter().map(|(name, path)| ((*name).to_owned(), path.clone().into_os_string())));
+            let env = move |name: &str| vars.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone());
+            let roots = migration_roots(&self.data(), &env, Some(home)).unwrap();
+            let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+            let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: runtime.handle().clone() };
+            mixdog_migrate::run::cli::migrate(roots, Arc::new(StoreProjector), office).unwrap();
+        }
+    }
 }

@@ -108,7 +108,7 @@ fn render(result: &Value) -> ToolOutcome {
     if result.get("isError") == Some(&Value::Bool(true)) {
         let message = output.parts.iter().find_map(|p| if let ToolPart::Text(t) = p { Some(t.clone()) } else { None }).unwrap_or_default();
         let mut error = action_failed("office", message);
-        error.partial = Some(output);
+        error.partial = Some(Box::new(output));
         return Err(error);
     }
     Ok(output)

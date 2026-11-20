@@ -108,7 +108,7 @@ impl LoginFlow for OpenAiDeviceLogin {
             json_body(&serde_json::json!({ "client_id": CLIENT_ID })),
         )
         .await
-        .map_err(|error| LoginError::Failed(failed("transport", error.message)))?;
+        .map_err(|error| LoginError::Failed(failed("transport", error.into_message())))?;
         if started.status == 404 {
             // Like Codex, an issuer that has none falls back to the browser flow.
             drop(guard);
@@ -162,7 +162,7 @@ impl LoginFlow for OpenAiDeviceLogin {
                     Ok(reply) => classify_poll(reply.status, &reply.body),
                     // A request that stalled to the deadline is the login's timeout; any other fault ends it.
                     Err(error) if error.timed_out => Poll::Expired,
-                    Err(error) => Poll::Fatal(failed("transport", error.message)),
+                    Err(error) => Poll::Fatal(failed("transport", error.into_message())),
                 }
             })
             .await?;
