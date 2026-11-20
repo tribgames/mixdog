@@ -54,7 +54,7 @@ test('desktop: a previewable attachment opens the host file in the side panel', 
 
 test('desktop: a type the app cannot preview keeps the default app', async (t) => {
   const { calls, openAttachmentSource } = await setup(t, {
-    api: (log) => ({
+    api: (_log) => ({
       readSessionAttachment: async () => ({
         name: 'bundle.zip',
         mimeType: 'application/zip',

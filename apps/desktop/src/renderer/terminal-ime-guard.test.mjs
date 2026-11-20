@@ -339,7 +339,7 @@ class XtermModel {
 
 // Replays a capture through a minimal textarea, the guard (capture phase, ahead
 // of xterm) and the xterm model; returns what would be written to the pty.
-function replay(events, { guard: useGuard = true, timerMs = 0, clock = null } = {}) {
+function replay(events, { guard: useGuard = true, timerMs = 0 } = {}) {
   const ta = { value: '' };
   const sent = [];
   let now = 0;

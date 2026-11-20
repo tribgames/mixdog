@@ -253,10 +253,10 @@ async function writtenThrough(wire = (adapter) => adapter) {
       written.push({ method, params, sent: options?.sent });
       return method === 'thread/list' ? { data: [] } : {};
     },
-    resumeThread: async (threadId, window, options) => (
+    resumeThread: async (_threadId, _window, options) => (
       written.push({ method: 'thread/resume', sent: options?.sent }), {}
     ),
-    unsubscribeThread: async (threadId, options) => (
+    unsubscribeThread: async (_threadId, options) => (
       written.push({ method: 'thread/unsubscribe', sent: options?.sent }), undefined
     ),
     server: { connection: { device: 'Phone' } },

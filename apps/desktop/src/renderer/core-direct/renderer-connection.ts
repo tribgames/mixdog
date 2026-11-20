@@ -251,26 +251,41 @@ export function createRendererConnection({
     for (const [watchId, { params }] of [...fsWatches]) {
       tally.push(
         restored.call('fs/watch', params).then(
-          () => void (settled.restored += 1),
-          () => void (fsWatches.delete(watchId), (settled.lost += 1))
+          () => {
+            settled.restored += 1;
+          },
+          () => {
+            fsWatches.delete(watchId);
+            settled.lost += 1;
+          }
         )
       );
     }
     if (portViewers.size > 0) {
       tally.push(
         restored.call('system/ports/subscribe', {}).then(
-          () => void (settled.restored += 1),
-          () => void (settled.failed += 1)
+          () => {
+            settled.restored += 1;
+          },
+          () => {
+            settled.failed += 1;
+          }
         )
       );
     }
     for (const feedId of [...feedWatches.keys()]) {
       tally.push(
         restored.call('feed/subscribe', { feedId }).then(
-          () => void (settled.restored += 1),
+          () => {
+            settled.restored += 1;
+          },
           (error: unknown) => {
             // Only a feed the core does not hold is gone; any other failure keeps what the windows hold and tells them.
-            if (isAbsentFeed(error)) return void ((settled.lost += 1), dropFeed(feedId));
+            if (isAbsentFeed(error)) {
+              settled.lost += 1;
+              dropFeed(feedId);
+              return;
+            }
             settled.failed += 1;
             const message = error instanceof Error ? error.message : String(error);
             for (const window of [...(feedWatches.get(feedId)?.windows ?? [])])
@@ -312,7 +327,7 @@ export function createRendererConnection({
   };
   const leaveFeed = (window: RendererWindow, feedId: string): ScopedFeedRoute | undefined => {
     const route = feedWatches.get(feedId);
-    if (!route || !route.windows.delete(window)) return undefined;
+    if (!route?.windows.delete(window)) return undefined;
     if (route.windows.size === 0) {
       feedWatches.delete(feedId);
       if (client) void client.call('feed/unsubscribe', { feedId }).catch(() => undefined);

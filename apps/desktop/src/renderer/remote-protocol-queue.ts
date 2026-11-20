@@ -353,7 +353,10 @@ const queues = new WeakMap<object, ReturnType<typeof createRemoteCallQueue>>();
 /** The queue of one phone connection (`host.ctx`): created with the first call, shared by every adapter. */
 export function callQueueFor(connection: object): ReturnType<typeof createRemoteCallQueue> {
   let queue = queues.get(connection);
-  if (!queue) queues.set(connection, (queue = createRemoteCallQueue()));
+  if (!queue) {
+    queue = createRemoteCallQueue();
+    queues.set(connection, queue);
+  }
   return queue;
 }
 

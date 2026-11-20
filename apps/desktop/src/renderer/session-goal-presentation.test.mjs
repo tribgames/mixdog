@@ -245,7 +245,7 @@ test('a list without a Goal shows a To-do segment and panel with no time or cont
     assert.equal(host.querySelector('.session-goal-title'), null);
     assert.equal(host.querySelector('.session-goal-time'), null);
     assert.equal(host.querySelector('.session-goal-dismiss'), null);
-    const remaining = host.querySelectorAll('ul[aria-label="' + t('To-do') + '"] li');
+    const remaining = host.querySelectorAll(`ul[aria-label="${t('To-do')}"] li`);
     assert.equal(remaining.length, 5, 'the first five remaining steps show');
     const rest = host.querySelector('[data-fold="rest"]');
     assert.equal(rest.textContent, t('Rest {{n}}', { n: 2 }));

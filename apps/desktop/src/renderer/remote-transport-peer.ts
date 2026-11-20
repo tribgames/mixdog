@@ -146,7 +146,10 @@ export class CarrierDeparture {
     // Oldest first: a later frame has more behind it never, less always, so claims resolve in the order they were made.
     while (this.waiters.length > 0 && buffered <= this.enqueued - this.waiters[0].after)
       this.waiters.shift()!.resolve();
-    if (this.waiters.length === 0) return this.stop();
+    if (this.waiters.length === 0) {
+      this.stop();
+      return;
+    }
     if (this.timer === null) {
       this.timer = this.timers.setTimeout(() => {
         this.timer = null;
@@ -921,7 +924,7 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
     const arrived = pathOf(carrier);
     // Its connection closed meanwhile: that lane is retired.
     if (!arrived) return;
-    let opened;
+    let opened: Awaited<ReturnType<typeof channel.openControl>>;
     try {
       // Opened on the lane it came on (replay is per FIFO lane).
       opened = await channel.openControl(box, laneOf(arrived));
@@ -1227,7 +1230,7 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
         ping(relayPath, { wake: true });
         const d = direct;
         if (d && current === d) ping(d, { wake: true });
-        else if (d && d.verified && isOpen(d.app) && isOpen(d.control)) {
+        else if (d?.verified && isOpen(d.app) && isOpen(d.control)) {
           d.validatingAt = now;
           d.validating = ping(d, { validation: true, wake: true });
         }

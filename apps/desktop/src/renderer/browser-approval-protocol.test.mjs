@@ -86,7 +86,7 @@ test('a raised card shows and its answer reaches the core', () => {
 test('an answer that cannot leave reports false', () => {
   const client = fakeClient();
   const seen = [];
-  subscribeBrowserApprovals(client, (prompt, answer) => seen.push(answer));
+  subscribeBrowserApprovals(client, (_prompt, answer) => seen.push(answer));
   client.emit({ type: 'serverRequest', request: browserRequest('r1') });
   client.failRespond = true;
   const original = console.error;

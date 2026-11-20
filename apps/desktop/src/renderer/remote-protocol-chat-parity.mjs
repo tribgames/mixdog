@@ -61,7 +61,7 @@ export function createParity({ live, node, project }) {
   // Rows are paired by position, never through a field that can repeat (two threads may share a title): Node's i-th row is the phone's i-th.
   const times = new Map();
   const firstAt = new Map();
-  node.manifest.actions.forEach((name, at) => {
+  node.manifest.actions.forEach((_name, at) => {
     const liveRows = project(live.steps[at].listed.data);
     for (const [index, row] of node.states[at + 1].roster.entries()) {
       for (const field of TIME_FIELDS) {
@@ -87,7 +87,6 @@ export function createParity({ live, node, project }) {
   };
   const expectedRow = (row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, mapped(key, value)]));
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-  const kindOf = (want, got) => (got === undefined ? 'missing' : want === undefined ? 'extra' : 'value');
 
   /** A roster's content with its times kept by type only: a publication between two actions carries times no settled roster maps. */
   const timeless = (row) =>
@@ -136,6 +135,6 @@ export function createParity({ live, node, project }) {
 }
 
 /** Fails on any difference from Node. */
-export function assertParity(t, differences) {
+export function assertParity(_t, differences) {
   assert.deepEqual(differences, [], 'differences from Node');
 }

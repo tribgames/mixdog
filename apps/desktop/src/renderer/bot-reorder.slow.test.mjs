@@ -87,7 +87,7 @@ const PAGE = `
 const DRAG = (selector, fromId, toId, release) => {
   const find = (id) =>
     document.querySelector(
-      selector + ' [data-agent-contact="' + id + '"] button, ' + selector + '[data-agent-contact="' + id + '"] button'
+      `${selector} [data-agent-contact="${id}"] button, ${selector}[data-agent-contact="${id}"] button`
     );
   const from = find(fromId);
   const to = find(toId);
@@ -163,7 +163,7 @@ test('bots reorder by drag in the Bots page and the sidebar, one shared order, w
   await page.evaluate(() => document.fonts.ready);
   const order = (selector) =>
     page.evaluate(
-      (s) => [...document.querySelectorAll(s + ' [data-agent-contact]')].map((row) => row.dataset.agentContact),
+      (s) => [...document.querySelectorAll(`${s} [data-agent-contact]`)].map((row) => row.dataset.agentContact),
       selector
     );
   const PANE = '.agent-contact-list';
@@ -171,7 +171,7 @@ test('bots reorder by drag in the Bots page and the sidebar, one shared order, w
   const dropLine = (selector) =>
     page.evaluate(
       (s) =>
-        [...document.querySelectorAll(s + ' [data-bot-drop]')].map((row) => [
+        [...document.querySelectorAll(`${s} [data-bot-drop]`)].map((row) => [
           row.dataset.agentContact,
           row.dataset.botDrop,
           getComputedStyle(row).boxShadow !== 'none',

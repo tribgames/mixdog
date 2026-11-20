@@ -21,7 +21,7 @@ test('the phone is answered with the first page of the list at once; the rest is
   const second = new Promise((resolve) => (release = resolve));
   const requests = [];
   const client = {
-    call: async (method, params) => {
+    call: async (_method, params) => {
       requests.push(params);
       const from = params.cursor ? Number(params.cursor) : 0;
       if (from > 0) await second;

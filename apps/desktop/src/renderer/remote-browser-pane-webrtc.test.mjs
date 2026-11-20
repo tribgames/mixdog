@@ -41,15 +41,15 @@ function webrtcHostApi({ fit = false } = {}) {
       state.streams.push([sessionId, options]);
       if (state.fail?.(options)) throw new Error('relay call failed');
     },
-    remoteBrowserStreamAck: (sessionId, seq) => state.acks.push(seq),
+    remoteBrowserStreamAck: (_sessionId, seq) => state.acks.push(seq),
     onRemoteBrowserFrame: (listener) => {
       state.listener = listener;
       return () => {};
     },
-    remoteBrowserControl: async (sessionId, input) => {
+    remoteBrowserControl: async (_sessionId, input) => {
       state.plain.push(input);
     },
-    remoteBrowserControlOrdered: (sessionId, input, order) => {
+    remoteBrowserControlOrdered: (_sessionId, input, order) => {
       state.ordered.push({ input, order });
       // Replies are slow: nothing may wait for them.
       return new Promise(() => {});

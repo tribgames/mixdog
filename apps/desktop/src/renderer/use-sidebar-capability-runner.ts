@@ -39,7 +39,7 @@ export function useSidebarCapabilityRunner({
     setPending(capability);
     setError('');
     const scheduleSave = capability === 'saveSchedule' && typeof settlement === 'object' ? settlement : undefined;
-    let result;
+    let result: Awaited<ReturnType<DesktopApi['invokeCapability']>>;
     try {
       result = await api.invokeCapability({ capability, args });
       if (!scheduleSave) {

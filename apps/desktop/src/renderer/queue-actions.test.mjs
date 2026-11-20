@@ -1,9 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import { act } from 'react';
-import { installTestDom } from './test-support/test-dom.mjs';
 
 import {
   hasSendablePromptContent,
@@ -22,14 +18,6 @@ import {
   queuedRestoreProjection,
   replaceQueuedRestorePrefix,
 } from '../../../../src/tui/components/prompt-input/restore-policy.mjs';
-
-function installDom() {
-  const { restore } = installTestDom(null, { jsdom: { url: 'http://localhost/' }, expose: ['navigator'] });
-  return {
-    root: createRoot(document.getElementById('root')),
-    close: restore,
-  };
-}
 
 test('queued follow-up Escape behavior keeps queue priority and handoff', () => {
   assert.equal(

@@ -98,7 +98,7 @@ test('api_installed_before_the_connection_opens_and_an_early_call_waits_for_it',
     status: { state: 'ready' },
     server: { limits: {} },
     store: { sections: () => [], section: () => undefined, appFeed: () => undefined, subscribe: () => () => undefined },
-    async call(method, params) {
+    async call(method, _params) {
       calls.push(method);
       return method === 'thread/list' ? { data: [] } : {};
     },

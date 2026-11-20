@@ -272,16 +272,19 @@ test('the island slot belongs to one session: a switch starts a fresh slot inste
   const render = (reviewSessionId) =>
     act(async () =>
       root.render(
-        React.createElement(ComposerDock, {
-          sessionId: reviewSessionId,
-          goalSubmissionId: '',
-          showProjectSelector: false,
-          reviewActive: false,
-          reviewSessionId,
-          reviewCwd: 'C:/work',
-          reviewItems: [],
-          children: React.createElement('textarea'),
-        })
+        React.createElement(
+          ComposerDock,
+          {
+            sessionId: reviewSessionId,
+            goalSubmissionId: '',
+            showProjectSelector: false,
+            reviewActive: false,
+            reviewSessionId,
+            reviewCwd: 'C:/work',
+            reviewItems: [],
+          },
+          React.createElement('textarea')
+        )
       )
     );
   const islandSlot = () => document.querySelector('.composer-island-slot');

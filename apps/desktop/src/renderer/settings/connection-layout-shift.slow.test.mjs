@@ -131,13 +131,13 @@ test('opening Settings → Connection does not shift the page when its data arri
         let sampling = true;
         const sample = () => {
           for (const block of document.querySelectorAll('.conn-toolbar, .conn-card, .conn-group')) {
-            const key = block.className.split(' ')[0] + ':' + (block.querySelector('h4')?.textContent ?? '');
+            const key = `${block.className.split(' ')[0]}:${block.querySelector('h4')?.textContent ?? ''}`;
             tops[key] ??= [];
             tops[key].push(Math.round(block.getBoundingClientRect().top));
           }
           if (sampling) requestAnimationFrame(sample);
         };
-        document.querySelector('button[aria-label="' + category + '"]').click();
+        document.querySelector(`button[aria-label="${category}"]`).click();
         sample();
         await pause(delay + 900);
         sampling = false;
