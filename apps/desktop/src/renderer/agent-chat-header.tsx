@@ -25,13 +25,11 @@ export function AgentChatIntro({ sessionId }: { sessionId: string }) {
   const row = Array.isArray(values.agents)
     ? (values.agents as Array<{ id?: unknown; description?: unknown }>).find((entry) => entry?.id === agentId)
     : undefined;
-  const role = room
-    ? room.members.map((id) => label(id).name).join(', ')
-    : typeof row?.description === 'string' && row.description.trim()
-      ? row.description.trim()
-      : agentId === MIXY_AGENT_ID
-        ? t('Primary assistant')
-        : '';
+  const description = typeof row?.description === 'string' ? row.description.trim() : '';
+  let role = '';
+  if (room) role = room.members.map((id) => label(id).name).join(', ');
+  else if (description) role = description;
+  else if (agentId === MIXY_AGENT_ID) role = t('Primary assistant');
   return (
     <div className="mx-chat-intro">
       {room ? (

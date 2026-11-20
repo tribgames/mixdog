@@ -509,6 +509,7 @@ export function AgentProfilePane({
         const name = String(changes.name ?? profile.name);
         const description = String(changes.description ?? profile.description);
         const { route, body, ...rest } = changes;
+        const keptOff = profile.disabled ? { disabled: true } : {};
         await api?.invokeCapability?.({
           capability: 'saveAgentDefinition',
           args: [
@@ -520,9 +521,7 @@ export function AgentProfilePane({
               description,
               ...rest,
               // A model change on an agent that is off keeps it off.
-              ...(route
-                ? { route: { ...(route as RecordValue), ...(profile.disabled ? { disabled: true } : {}) } }
-                : {}),
+              ...(route ? { route: { ...(route as RecordValue), ...keptOff } } : {}),
               body: String(body ?? profile.body).trim() || agentBodyFromBrief(name, description),
             },
           ],

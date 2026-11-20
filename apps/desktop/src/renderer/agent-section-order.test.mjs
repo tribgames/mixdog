@@ -108,13 +108,10 @@ function mount(t, { sessions = [ROOM, CODING], pool = POOL, stored = [], mixy = 
     for (const node of document.querySelectorAll(
       '[data-agent-contact], [data-agent-room], [data-agent-lead], .agent-chat-divider'
     )) {
-      const name = node.matches('.agent-chat-divider')
-        ? 'hr'
-        : node.dataset.agentContact
-          ? 'bots'
-          : node.dataset.agentRoom
-            ? 'rooms'
-            : 'agents';
+      let name = 'agents';
+      if (node.matches('.agent-chat-divider')) name = 'hr';
+      else if (node.dataset.agentContact) name = 'bots';
+      else if (node.dataset.agentRoom) name = 'rooms';
       if (seq.at(-1) !== name) seq.push(name);
     }
     return seq;

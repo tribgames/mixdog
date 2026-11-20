@@ -170,7 +170,8 @@ test('sub-agent trees under Lead and bot rows, and agent faces, in real CSS', as
   ];
   for (const config of configs) {
     const { width, theme, phone } = config;
-    const tag = `${phone ? 'phone' : width === 252 ? 'narrow' : 'wide'}-${theme}`;
+    const size = width === 252 ? 'narrow' : 'wide';
+    const tag = `${phone ? 'phone' : size}-${theme}`;
     await load('', width);
     await page.waitForSelector('[data-agent-lead="c1"]');
     await page.evaluate((cfg) => {

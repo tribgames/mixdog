@@ -32,8 +32,10 @@ function listReorder(
     const id = (event.target as Element | null)?.closest?.(`[${attr}]`)?.getAttribute(attr) ?? null;
     return id !== null && ids.includes(id) ? id : null;
   };
-  const markFor = (from: string, to: string): DropMark | null =>
-    from === to ? null : { id: to, edge: ids.indexOf(from) < ids.indexOf(to) ? 'after' : 'before' };
+  const markFor = (from: string, to: string): DropMark | null => {
+    if (from === to) return null;
+    return { id: to, edge: ids.indexOf(from) < ids.indexOf(to) ? 'after' : 'before' };
+  };
   return {
     listProps: {
       'data-pane-drag-zone': BOT_ORDER_ZONE,

@@ -554,8 +554,9 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
               style={{ '--approval-columns': columns } as CSSProperties}
             >
               {buttons.map((button, index) => {
-                const shortcut =
-                  button.deny && !onClose ? 'Esc' : index === primaryIndex && enterPresses ? 'Enter' : '';
+                let shortcut = '';
+                if (button.deny && !onClose) shortcut = 'Esc';
+                else if (index === primaryIndex && enterPresses) shortcut = 'Enter';
                 const chip = keyChips ? shortcut : '';
                 // Where Enter does not allow (payment, permanent delete, an
                 // unconfirmed receiver, a file from outside the project), an

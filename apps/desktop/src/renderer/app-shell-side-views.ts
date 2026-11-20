@@ -259,8 +259,9 @@ export function useSideViewSelection({
   return useCallback(
     (id: WorkbenchSideViewId, paneLeafId?: string) => {
       // At most one open waits: a request for another view drops the rest.
-      const gated =
-        id === 'visualize' ? 'visualize' : id === 'search' ? 'search' : DOCK_CHUNK_VIEWS.has(id) ? 'dock' : null;
+      let gated: 'visualize' | 'search' | 'dock' | null = null;
+      if (id === 'visualize' || id === 'search') gated = id;
+      else if (DOCK_CHUNK_VIEWS.has(id)) gated = 'dock';
       if (gated !== 'visualize') cancelVisualizeOpen();
       if (gated !== 'dock') cancelDockOpen();
       if (gated !== 'search') cancelSearchOpen();

@@ -248,7 +248,10 @@ test('the pane lists agents, then group rooms, without ordinary session work', a
   await render();
   const order = [
     ...document.querySelectorAll('[data-agent-contact], [data-agent-room], [data-agent-owner-session-id]'),
-  ].map((node) => (node.dataset.agentContact ? 'agent' : node.dataset.agentRoom ? 'room' : 'work'));
+  ].map((node) => {
+    if (node.dataset.agentContact) return 'agent';
+    return node.dataset.agentRoom ? 'room' : 'work';
+  });
   assert.deepEqual([...new Set(order)], ['agent', 'room']);
   // Its finished Lead rests as one Lead row (inside the pane window), never as a work group.
   assert.deepEqual(

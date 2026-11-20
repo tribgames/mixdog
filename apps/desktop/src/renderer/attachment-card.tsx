@@ -32,7 +32,8 @@ function attachmentCardType(
     return { tone: code ? 'code' : 'txt', word: code ? 'CODE' : 'TXT', prose: !code };
   }
   const tone = kind === 'pdf' ? 'pdf' : fileTone(name, kind === 'text');
-  const word = extension && extension.length <= 5 ? extension.toUpperCase() : kind === 'pdf' ? 'PDF' : t('File');
+  let word = kind === 'pdf' ? 'PDF' : t('File');
+  if (extension && extension.length <= 5) word = extension.toUpperCase();
   return { tone, word, prose: tone === 'txt' };
 }
 
@@ -111,7 +112,7 @@ export function composerCardKind(attachment: {
 export function composerCardMeta(attachment: { kind: ComposerAttachment['kind']; data: string }): string {
   if (attachment.kind === 'image') return '';
   if (attachment.kind === 'text') return t('{{count}} lines', { count: textLineCount(attachment.data) });
-  const padding = attachment.data.endsWith('==') ? 2 : attachment.data.endsWith('=') ? 1 : 0;
+  const padding = attachment.data.endsWith('==') ? 2 : Number(attachment.data.endsWith('='));
   return byteSize(Math.max(0, Math.floor((attachment.data.length * 3) / 4) - padding));
 }
 

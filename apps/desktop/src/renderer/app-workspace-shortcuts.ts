@@ -108,7 +108,9 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       // and `+` or `0` may need Shift.
       if (!event.altKey && (event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0')) {
         if (ownsHistoryKeys || zoomTargetClaimsKey()) return null;
-        const direction = event.key === '-' ? -1 : event.key === '0' ? 0 : 1;
+        let direction: -1 | 0 | 1 = 1;
+        if (event.key === '-') direction = -1;
+        else if (event.key === '0') direction = 0;
         return () => stepUiScale(direction);
       }
       if (!event.altKey && (event.code === 'BracketLeft' || event.code === 'BracketRight')) {

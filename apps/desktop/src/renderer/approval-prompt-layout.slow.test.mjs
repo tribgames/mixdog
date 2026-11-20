@@ -327,7 +327,8 @@ let sharedTab = null;
 
 async function page(_t, { phone = false } = {}) {
   const { script, browser } = await sharedBrowser();
-  const tab = (sharedTab ??= await browser.newPage());
+  sharedTab ??= await browser.newPage();
+  const tab = sharedTab;
   await tab.bringToFront();
   await tab.setViewport({ width: 800, height: 600 });
   const shell = phone ? '<html data-mixdog-mobile-tabs><head><style>' : '<html><head><style>';

@@ -3,7 +3,7 @@
 // closes it (time). Tool rounds and the live band neither group nor break a
 // run; a date divider goes where the day changes.
 import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { splitAskUser } from './ask-user-record';
+import { splitAskUser, toolCallsOf } from './ask-user-record';
 import { asRecord } from './text-format';
 import { desktopToolDisplayIdentity } from './transcript-tool-core';
 import { toolActivityResultValue } from './transcript-tool-result';
@@ -141,9 +141,7 @@ function chatBotSenderOf(item: TranscriptItem | undefined): string {
 function sessionCallsOf(items: readonly TranscriptItem[]): { member: TranscriptItem; args: Record<string, unknown> }[] {
   const calls: { member: TranscriptItem; args: Record<string, unknown> }[] = [];
   for (const item of items) {
-    const members =
-      item.aggregate === true && Array.isArray(item.toolMembers) ? (item.toolMembers as TranscriptItem[]) : [item];
-    for (const member of members) {
+    for (const member of toolCallsOf(item)) {
       if (member.kind !== 'tool') continue;
       const identity = desktopToolDisplayIdentity(member.name, member.args);
       const args = asRecord(identity.args);

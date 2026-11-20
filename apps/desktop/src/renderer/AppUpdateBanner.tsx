@@ -91,14 +91,10 @@ export function appUpdateView(
       };
     }
     case 'failed': {
-      const sub =
-        state.error === 'verify'
-          ? t('The downloaded update could not be verified')
-          : state.error === 'storage'
-            ? t('Not enough storage space for the update')
-            : state.error === 'install'
-              ? t('The update could not be installed')
-              : t('Check your network connection and try again');
+      let sub = t('Check your network connection and try again');
+      if (state.error === 'verify') sub = t('The downloaded update could not be verified');
+      else if (state.error === 'storage') sub = t('Not enough storage space for the update');
+      else if (state.error === 'install') sub = t('The update could not be installed');
       return {
         kind: 'failed',
         role: 'alert',
@@ -257,13 +253,12 @@ export function AppUpdateBanner() {
       void native('openAppUpdateInBrowser').catch(() => undefined);
       return;
     }
-    const request =
-      id === 'start' || id === 'retry'
-        ? native('startAppUpdate')
-        : id === 'cancel'
-          ? native('cancelAppUpdate')
-          : native('installAppUpdate');
-    void request.then(apply).catch(() => undefined);
+    let method: 'startAppUpdate' | 'cancelAppUpdate' | 'installAppUpdate' = 'installAppUpdate';
+    if (id === 'start' || id === 'retry') method = 'startAppUpdate';
+    else if (id === 'cancel') method = 'cancelAppUpdate';
+    void native(method)
+      .then(apply)
+      .catch(() => undefined);
   };
 
   const strip = document.querySelector('.main-panel .workspace-tabs-shell')?.getBoundingClientRect();
