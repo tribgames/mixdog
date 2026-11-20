@@ -2165,8 +2165,16 @@ jobs:
           key: core-clippy-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
           restore-keys: |
             core-clippy-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
+      # Lints are not denied in the compile itself: a denied lint ends the build at the first crate that has
+      # one, and the crates after it wait for the next run. Every crate is linted, then any finding fails.
       - name: Clippy
-        run: cd native/core && cargo clippy --manifest-path Cargo.toml --locked -p mixdog-app-server-daemon --all-targets -- -D warnings
+        run: |
+          cd native/core
+          cargo clippy --manifest-path Cargo.toml --locked -p mixdog-app-server-daemon --all-targets 2>&1 | tee "$RUNNER_TEMP/clippy.log"
+          if grep -E '^warning: .* generated [0-9]+ warnings?' "$RUNNER_TEMP/clippy.log"; then
+            echo "::error::clippy reported the warnings above"
+            exit 1
+          fi
       - name: Keep only the third-party dependencies in the cache
         if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true'
         run: node scripts/ci/prune-core-target.mjs --target native/core/target --profile debug --manifest-path native/core/Cargo.toml
