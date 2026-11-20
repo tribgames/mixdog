@@ -204,6 +204,7 @@ import {
 } from './renderer-recovery';
 import { acknowledgeAnnouncement, LAUNCH_VERSION_FILE, recordLaunchVersion } from './launch-version';
 import { installWhatsNewAcknowledge } from './whats-new-acknowledge';
+import { createLocalStorageRescue, type LocalStorageRescue } from './local-storage-rescue';
 import { createPaneLayoutFile, flushPaneLayoutFiles, PANE_LAYOUT_FILE } from './pane-layout-file';
 import { displayExitCode } from './desktop-service-client';
 
@@ -2024,11 +2025,21 @@ function installRendererConsoleErrorTail(window: BrowserWindow, startupStartedAt
 }
 
 /** What a dead renderer costs: a silent reload while the failures are rare, a
- *  single prompt once they are not, and nothing at all while quitting. */
-function installRendererCrashRecovery(window: BrowserWindow, reloadRenderer: () => void): void {
+ *  single prompt once they are not, and nothing at all while quitting. The
+ *  exit that follows a lost Local Storage link (`followsStorageLoss`) is the
+ *  replacement of the process, not a failure: the page is loaded again. */
+function installRendererCrashRecovery(
+  window: BrowserWindow,
+  reloadRenderer: () => void,
+  followsStorageLoss: () => boolean
+): void {
   let rendererFailureTimes: number[] = [];
   let rendererRecoveryPromptOpen = false;
   window.webContents.on('render-process-gone', (_event, details) => {
+    if (followsStorageLoss()) {
+      reloadRenderer();
+      return;
+    }
     const recovery = rendererRecoveryDecision(rendererFailureTimes, details.reason);
     rendererFailureTimes = recovery.failures;
     diagnostics?.write('render-process-gone', {
@@ -2629,7 +2640,17 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
   window.webContents.on('dom-ready', () => {
     window.webContents.setZoomFactor(1);
   });
-  const disposeWindowIpc = installWindowIpc(window, connection, windowBrowserHost);
+  const reloadRenderer = () => {
+    if (quitAfterDispose || window.isDestroyed() || window.webContents.isDestroyed()) return;
+    window.webContents.reload();
+  };
+  const localStorageRescue = createLocalStorageRescue({
+    endRenderer: () => {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.forcefullyCrashRenderer();
+    },
+    report: (details) => diagnostics?.write('local-storage-backend-lost', details),
+  });
+  const disposeWindowIpc = installWindowIpc(window, connection, windowBrowserHost, localStorageRescue);
   // A server window hears that the saved hosts changed; its link and notices, its OS notifications and its reopening at the
   // next launch are the core's.
   const stopLinkForward = local ? () => {} : forwardConnectionLink(window.webContents);
@@ -2641,10 +2662,6 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
     totalMs: Date.now() - startupStartedAt,
   });
 
-  const reloadRenderer = () => {
-    if (quitAfterDispose || window.isDestroyed() || window.webContents.isDestroyed()) return;
-    window.webContents.reload();
-  };
   const onRendererDiagnostic = rendererDiagnosticListener(window, connection);
   ipcMain.on(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
   // The renderer's notice was on screen: retire the pending update announcement.
@@ -2663,7 +2680,7 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
   installDefaultContextMenu(window.webContents);
 
   installRendererLoadDiagnostics(window, local, startupStartedAt, () => presentation);
-  installRendererCrashRecovery(window, reloadRenderer);
+  installRendererCrashRecovery(window, reloadRenderer, localStorageRescue.exited);
 
   installNavigationGuards(window, isAllowedNavigation);
   const presentation = createWindowPresentation(
@@ -2702,7 +2719,8 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
 function installWindowIpc(
   window: BrowserWindow,
   connection: DesktopConnection,
-  windowBrowserHost: BrowserHost | null
+  windowBrowserHost: BrowserHost | null,
+  localStorageRescue: LocalStorageRescue
 ): () => void {
   const local = connection.kind === 'local';
   const ipcScope = ipcRouter.scope(window.webContents.id, connection.id);
@@ -2749,6 +2767,7 @@ function installWindowIpc(
       : {}),
     remoteHosts: remoteHostsHandle(),
     paneLayoutFile: connectionPaneLayoutFile(connection),
+    localStorageRescue,
   });
   return () => {
     removeWindowIpc();
