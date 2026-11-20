@@ -48,12 +48,18 @@ pub fn slot_within<T: Serialize>(value: T, budget: usize) -> Result<(Slot<T>, Op
     if encoded.len() <= budget {
         return Ok((Slot::Inline(value), None, encoded.len()));
     }
+    let (slot, blob) = out_of_line(encoded)?;
+    Ok((slot, Some(blob), 0))
+}
+
+/// The blob slot of an encoding that does not stay inline, and the bytes to publish for it.
+fn out_of_line<T>(encoded: Vec<u8>) -> Result<(Slot<T>, PendingBlob), EncodeError> {
     if encoded.len() as u64 > MAX_BLOB_BYTES {
         return Err(EncodeError::ItemTooLarge { bytes: encoded.len() as u64 });
     }
     let blob = body_blob(&encoded);
     let digest = blob.descriptor().digest.clone();
-    Ok((Slot::Blob(blob), Some(PendingBlob { digest, bytes: encoded }), 0))
+    Ok((Slot::Blob(blob), PendingBlob { digest, bytes: encoded }))
 }
 
 /// The `RecordCodec` (FORMAT.md §5.1 with the §4.2 slot rule): every inline ★ slot whose
@@ -72,12 +78,12 @@ pub fn encode_record(mut record: Record) -> Result<Encoded, EncodeError> {
                 None => None,
             };
             if own.is_some() || prompt.is_some() {
-                r.refs = refs(r.refs.as_slice().iter().cloned(), own.iter().chain(&prompt))?;
+                r.refs = refs(r.refs.as_slice().iter().cloned(), own.into_iter().chain(prompt))?;
             }
         }
         Record::Amend(r) => {
             if let Some(own) = reslot(&mut r.body, &mut blobs)? {
-                r.refs = refs(r.refs.as_slice().iter().cloned(), Some(&own))?;
+                r.refs = refs(r.refs.as_slice().iter().cloned(), Some(own))?;
             }
         }
         Record::Compacted(r) => {
@@ -95,26 +101,32 @@ pub fn encode_record(mut record: Record) -> Result<Encoded, EncodeError> {
     Encoded::new(record, blobs)
 }
 
-fn reslot<T: Serialize + Clone>(slot: &mut Slot<T>, blobs: &mut Vec<PendingBlob>) -> Result<Option<PendingBlob>, EncodeError> {
+fn reslot<T: Serialize>(slot: &mut Slot<T>, blobs: &mut Vec<PendingBlob>) -> Result<Option<Digest>, EncodeError> {
     Ok(reslot_within(slot, INLINE_MAX, blobs)?.0)
 }
 
-/// `slot_within` over an inline slot; a slot already out of line takes no inline bytes.
-fn reslot_within<T: Serialize + Clone>(
+/// `slot_within` over an inline slot, in place: a value that fits stays where it is, and one that does not is replaced by
+/// its blob slot, whose bytes go to `blobs` and whose digest is returned. A slot already out of line takes no inline bytes.
+fn reslot_within<T: Serialize>(
     slot: &mut Slot<T>,
     budget: usize,
     blobs: &mut Vec<PendingBlob>,
-) -> Result<(Option<PendingBlob>, usize), EncodeError> {
+) -> Result<(Option<Digest>, usize), EncodeError> {
     let Slot::Inline(value) = slot else {
         return Ok((None, 0));
     };
-    let (moved, blob, used) = slot_within(value.clone(), budget)?;
+    let encoded = serde_json::to_vec(value)?;
+    if encoded.len() <= budget {
+        return Ok((None, encoded.len()));
+    }
+    let (moved, blob) = out_of_line(encoded)?;
+    let digest = blob.digest.clone();
     *slot = moved;
-    blobs.extend(blob.clone());
-    Ok((blob, used))
+    blobs.push(blob);
+    Ok((Some(digest), 0))
 }
 
-fn reslot_opt<T: Serialize + Clone>(slot: &mut Option<Slot<T>>, blobs: &mut Vec<PendingBlob>) -> Result<(), EncodeError> {
+fn reslot_opt<T: Serialize>(slot: &mut Option<Slot<T>>, blobs: &mut Vec<PendingBlob>) -> Result<(), EncodeError> {
     if let Some(slot) = slot {
         reslot(slot, blobs)?;
     }
@@ -123,12 +135,12 @@ fn reslot_opt<T: Serialize + Clone>(slot: &mut Option<Slot<T>>, blobs: &mut Vec<
 
 /// Sorted, unique `refs`: the attachment digests of a body plus the record's own slot
 /// blobs (an item's body and prompt).
-pub fn refs<'a>(
+pub fn refs(
     attachments: impl IntoIterator<Item = Digest>,
-    own: impl IntoIterator<Item = &'a PendingBlob>,
+    own: impl IntoIterator<Item = Digest>,
 ) -> Result<Refs, EncodeError> {
     let mut all: Vec<Digest> = attachments.into_iter().collect();
-    all.extend(own.into_iter().map(|b| b.digest.clone()));
+    all.extend(own);
     all.sort();
     all.dedup();
     let count = all.len();

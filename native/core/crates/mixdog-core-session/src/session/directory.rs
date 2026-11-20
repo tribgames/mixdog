@@ -250,7 +250,7 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
         }
     }
     state.prompt_history =
-        super::prompt_history::merge(&state.prompt_session, &state.prompt_persisted);
+        Arc::new(super::prompt_history::merge(&state.prompt_session, &state.prompt_persisted));
     Opened {
         state,
         control: log.control,
