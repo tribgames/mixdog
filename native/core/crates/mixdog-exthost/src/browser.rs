@@ -192,13 +192,38 @@ mod tests {
         assert_eq!(ms(Some("Infinity")), 1);
     }
 
-    fn service(launches: &Arc<AtomicU64>) -> BrowserHandle {
+    /// An idle clock that moves only when a test says so; the launch deadline stays on real time.
+    struct DrivenClock {
+        elapsed: tokio::sync::watch::Sender<Duration>,
+    }
+    impl DrivenClock {
+        fn advance(&self, by: Duration) {
+            self.elapsed.send_modify(|now| *now += by);
+        }
+    }
+    impl IdleClock for DrivenClock {
+        fn now(&self) -> Duration {
+            *self.elapsed.borrow()
+        }
+        fn sleep_until(&self, at: Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+            let mut elapsed = self.elapsed.subscribe();
+            Box::pin(async move {
+                let _ = elapsed.wait_for(|now| *now >= at).await;
+            })
+        }
+    }
+
+    fn service(launches: &Arc<AtomicU64>) -> (BrowserHandle, Arc<DrivenClock>) {
+        let clock = Arc::new(DrivenClock { elapsed: tokio::sync::watch::channel(Duration::ZERO).0 });
         let config = RenderBrowserConfig {
             command: Some((crate::pool::tests::fake_binary("ext_fake_browser"), vec!["endpoint".into()])),
             profile_root: std::env::temp_dir().join("mixdog-exthost-idle-tests"),
             no_sandbox: false,
         };
-        start_with_idle(config, mixdog_rt::testing::tokens().spawn_io, Handle::current(), launches.clone(), ChildExits::watch().unwrap(), IDLE)
+        (
+            start_with_idle(config, mixdog_rt::testing::tokens().spawn_io, Handle::current(), launches.clone(), ChildExits::watch().unwrap(), IDLE, clock.clone()),
+            clock,
+        )
     }
     /// A browser that starts and never publishes an endpoint is given up on at Puppeteer's 30 s, with its text, and is ended;
     /// the next request launches again.
@@ -213,7 +238,7 @@ mod tests {
             no_sandbox: false,
         };
         let launches = Arc::new(AtomicU64::new(0));
-        let browser = start_with_idle(config, mixdog_rt::testing::tokens().spawn_io, Handle::current(), launches.clone(), ChildExits::watch().unwrap(), IDLE);
+        let browser = start_with_idle(config, mixdog_rt::testing::tokens().spawn_io, Handle::current(), launches.clone(), ChildExits::watch().unwrap(), IDLE, Arc::new(SystemIdleClock { origin: tokio::time::Instant::now() }));
         let asking = browser.clone();
         let asked = tokio::spawn(async move { asking.endpoint().await });
         // The launch counts itself, with its deadline taken, before it spawns anything: on this one-thread runtime
@@ -228,77 +253,78 @@ mod tests {
         assert_eq!(error.to_string(), "Timed out after 30000 ms while waiting for the WS endpoint URL to appear in stdout!");
         browser.shutdown().await;
     }
-    // The idle timer runs on the paused tokio clock: time moves only through `advance`, so no
+    // The idle timer runs on a driven clock: time moves only through `advance`, so no
     // assertion depends on how fast the machine is. The service takes an expired idle timer before
     // any request already queued (its `select!` is biased), so a request sent after an `advance`
     // past the period always meets the closed browser.
 
     /// Moves the clock past the idle period and lets the service take its expired timer.
-    async fn pass_idle_period() {
-        tokio::time::advance(IDLE + Duration::from_millis(1)).await;
+    fn pass_idle_period(clock: &DrivenClock) {
+        clock.advance(IDLE + Duration::from_millis(1));
     }
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn an_unused_browser_closes_after_the_idle_period_and_the_next_request_launches_again() {
         let launches = Arc::new(AtomicU64::new(0));
-        let browser = service(&launches);
+        let (browser, clock) = service(&launches);
         let first = browser.endpoint().await.unwrap();
         assert_eq!(browser.endpoint().await.unwrap(), first, "in use: one browser");
         assert_eq!(launches.load(Ordering::Relaxed), 1);
 
         // Just short of the period since the launch: still the same browser.
-        tokio::time::advance(IDLE - Duration::from_millis(1)).await;
+        clock.advance(IDLE - Duration::from_millis(1));
         assert_eq!(browser.endpoint().await.unwrap(), first, "not yet idle");
         assert_eq!(launches.load(Ordering::Relaxed), 1);
 
-        pass_idle_period().await;
+        pass_idle_period(&clock);
         let second = browser.endpoint().await.unwrap();
         assert_ne!(second, first, "the idle browser was closed and a new one launched");
         assert_eq!(launches.load(Ordering::Relaxed), 2);
         browser.shutdown().await;
     }
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn an_endpoint_request_does_not_restart_the_idle_clock_without_a_lease() {
         let launches = Arc::new(AtomicU64::new(0));
-        let browser = service(&launches);
+        let (browser, clock) = service(&launches);
         let first = browser.endpoint().await.unwrap();
 
         // A request just short of the period is served by the same browser ...
-        tokio::time::advance(IDLE - Duration::from_millis(100)).await;
+        clock.advance(IDLE - Duration::from_millis(100));
         assert_eq!(browser.endpoint().await.unwrap(), first);
         // ... and did not push the expiry: the period counted from the launch ends here.
-        tokio::time::advance(Duration::from_millis(101)).await;
+        clock.advance(Duration::from_millis(101));
         assert_ne!(browser.endpoint().await.unwrap(), first, "closed on the launch's clock");
         assert_eq!(launches.load(Ordering::Relaxed), 2);
         browser.shutdown().await;
     }
     /// The trait the web renderer holds gives the browser only together with its hold.
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn the_endpoint_trait_keeps_the_browser_open_until_its_hold_is_dropped() {
         use mixdog_core_api::domain::ext::BrowserEndpoint;
 
         let launches = Arc::new(AtomicU64::new(0));
-        let render = RenderBrowser(service(&launches));
+        let (browser, clock) = service(&launches);
+        let render = RenderBrowser(browser);
         let (first, hold) = BrowserEndpoint::lease(&render).await.unwrap();
         for _ in 0..4 {
-            pass_idle_period().await;
+            pass_idle_period(&clock);
         }
         assert_eq!(render.endpoint().await.unwrap(), first, "held for a long render: still open");
         assert_eq!(launches.load(Ordering::Relaxed), 1);
 
         drop(hold);
         assert_eq!(render.endpoint().await.unwrap(), first, "released, not yet idle");
-        pass_idle_period().await;
+        pass_idle_period(&clock);
         assert_ne!(render.endpoint().await.unwrap(), first, "closed after the period from the release");
         render.0.shutdown().await;
     }
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn a_lease_keeps_the_browser_open_and_its_release_starts_the_idle_clock() {
         let launches = Arc::new(AtomicU64::new(0));
-        let browser = service(&launches);
+        let (browser, clock) = service(&launches);
         let (first, lease) = browser.lease().await.unwrap();
 
         for _ in 0..4 {
-            pass_idle_period().await;
+            pass_idle_period(&clock);
         }
         // The answer to this request also proves the service saw no idle expiry while held.
         assert_eq!(browser.endpoint().await.unwrap(), first, "held: never closed for idleness");
@@ -308,7 +334,7 @@ mod tests {
         // the idle clock) by the time the request is answered.
         drop(lease);
         assert_eq!(browser.endpoint().await.unwrap(), first, "released but not yet idle");
-        pass_idle_period().await;
+        pass_idle_period(&clock);
         assert_ne!(browser.endpoint().await.unwrap(), first, "released: closed after the idle period");
         assert_eq!(launches.load(Ordering::Relaxed), 2);
         browser.shutdown().await;
@@ -389,7 +415,25 @@ fn idle_period() -> Duration {
 }
 /// `launches` counts every browser launch, so the owner can observe reuse.
 pub(crate) fn start(config: RenderBrowserConfig, spawn_io: SpawnIo, rt: Handle, launches: Arc<AtomicU64>, exits: ChildExits) -> BrowserHandle {
-    start_with_idle(config, spawn_io, rt, launches, exits, idle_period())
+    start_with_idle(config, spawn_io, rt, launches, exits, idle_period(), Arc::new(SystemIdleClock { origin: tokio::time::Instant::now() }))
+}
+
+/// The clock the idle timer reads: time since its own origin, and a wait until a reading of it.
+pub(crate) trait IdleClock: Send + Sync {
+    fn now(&self) -> Duration;
+    fn sleep_until(&self, at: Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+}
+/// Real time; the launch deadline is always on it.
+struct SystemIdleClock {
+    origin: tokio::time::Instant,
+}
+impl IdleClock for SystemIdleClock {
+    fn now(&self) -> Duration {
+        self.origin.elapsed()
+    }
+    fn sleep_until(&self, at: Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        Box::pin(mixdog_rt::time::sleep_until(self.origin + at))
+    }
 }
 pub(crate) fn start_with_idle(
     config: RenderBrowserConfig,
@@ -398,10 +442,11 @@ pub(crate) fn start_with_idle(
     launches: Arc<AtomicU64>,
     exits: ChildExits,
     idle: Duration,
+    clock: Arc<dyn IdleClock>,
 ) -> BrowserHandle {
     let (requests, inbox) = mpsc::unbounded_channel::<Request>();
     let launcher = Launcher { config, spawn_io, rt, launches, exits };
-    mixdog_rt::spawn("exthost.browser", TaskClass::Work, serve(launcher, inbox, idle));
+    mixdog_rt::spawn("exthost.browser", TaskClass::Work, serve(launcher, inbox, idle, clock));
     BrowserHandle { requests }
 }
 /// Why no endpoint could be given.
@@ -467,7 +512,7 @@ impl Launching {
 ///
 /// A browser nobody holds a lease on, and nobody has asked about for `idle`, is closed through its
 /// owner; the next request launches a new one.
-async fn serve(launcher: Launcher, mut inbox: mpsc::UnboundedReceiver<Request>, idle: Duration) {
+async fn serve(launcher: Launcher, mut inbox: mpsc::UnboundedReceiver<Request>, idle: Duration, clock: Arc<dyn IdleClock>) {
     let mut running: Option<Running> = None;
     let mut launching: Option<Launching> = None;
     let mut closed = false;
@@ -475,12 +520,12 @@ async fn serve(launcher: Launcher, mut inbox: mpsc::UnboundedReceiver<Request>, 
     // Node's pool timer (`web-tools.mjs:93-114`): armed when the browser has no user left (the
     // last lease released, or a launch finished with none), cleared while a lease is held, and
     // left alone by an endpoint request on a browser that is already running.
-    let mut idle_at: Option<tokio::time::Instant> = None;
+    let mut idle_at: Option<Duration> = None;
     loop {
         if running.is_none() || leases > 0 {
             idle_at = None;
         } else if idle_at.is_none() {
-            idle_at = Some(tokio::time::Instant::now() + idle);
+            idle_at = Some(clock.now() + idle);
         }
         // Biased: an expired idle timer is taken before a request that is already queued, so what
         // happens at one instant does not depend on a random branch order.
@@ -488,7 +533,7 @@ async fn serve(launcher: Launcher, mut inbox: mpsc::UnboundedReceiver<Request>, 
             biased;
             () = async {
                 match idle_at {
-                    Some(at) => mixdog_rt::time::sleep_until(at).await,
+                    Some(at) => clock.sleep_until(at).await,
                     None => std::future::pending().await,
                 }
             } => {
