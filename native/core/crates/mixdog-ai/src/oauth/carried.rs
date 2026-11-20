@@ -1519,6 +1519,7 @@ impl Registry {
     }
 
     /// Forgets everything (a replay starts as a new process).
+    #[cfg(any(test, feature = "test-support"))]
     fn reset(&self) {
         let mut book = self.book.lock().unwrap_or_else(PoisonError::into_inner);
         let caps = (book.retired.cap, book.carried.cap);
