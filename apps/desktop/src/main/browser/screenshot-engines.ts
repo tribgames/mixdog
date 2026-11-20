@@ -58,11 +58,13 @@ export async function captureViaCdp(
     : null;
 }
 
-/** `capturePage` bounded by a timeout and the caller's abort signal. */
+/** `capturePage` (of `area`, in the view's DIPs, or the whole viewport)
+ *  bounded by a timeout and the caller's abort signal. */
 export async function captureViewportImage(
   guest: WebContents,
   timeoutMs: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  area?: Electron.Rectangle
 ): Promise<Electron.NativeImage> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let abort: (() => void) | undefined;
@@ -72,7 +74,7 @@ export async function captureViewportImage(
     else signal?.addEventListener('abort', abort, { once: true });
   });
   return Promise.race([
-    guest.capturePage(),
+    area ? guest.capturePage(area) : guest.capturePage(),
     cancelled,
     new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => reject(new Error('capturePage timed out')), timeoutMs);

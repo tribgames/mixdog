@@ -77,7 +77,9 @@ export function createBrowserScreenshotService(
           options,
           screenshotTimeoutMs,
           nativeTimeoutMs,
-          signal
+          signal,
+          // The element crop is the caller that keeps its source.
+          !retainCropSource
         );
         return { ...data, pageRect: fullPageClip };
       }

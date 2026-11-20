@@ -4,7 +4,7 @@ import type { Rectangle, WebContents } from 'electron';
 import { nativeImage } from 'electron';
 
 import { screenshotClipForElement } from './screenshot-clip';
-import { encodeImage } from './screenshot-engines';
+import { BrowserScreenshotRestoreError, encodeImage } from './screenshot-engines';
 import type { EncodedBrowserScreenshot, ScreenshotCropInput } from './screenshot-image';
 import { normalizeScreenshotOptions } from './screenshot-policy';
 
@@ -62,8 +62,8 @@ export function createElementCapture(capture: ScreenshotCapture) {
 
 /** An element taller or wider than the window is cut out of the document
  *  capture instead, which is the only capture that holds all of it. A page
- *  too large to capture whole leaves the viewport crop as the honest
- *  partial answer. */
+ *  too large to capture at its own resolution leaves the viewport crop as the
+ *  honest partial answer (a scaled-down page would blur the element). */
 async function captureWithinDocument(
   capture: ScreenshotCapture,
   guest: WebContents,
@@ -78,6 +78,8 @@ async function captureWithinDocument(
     shot = await capture(guest, background, { ...rawOptions, fullPage: true }, signal);
   } catch (error) {
     if (signal?.aborted) throw signal.reason || error;
+    // A page left scrolled or re-laid out is not a missing image: it is reported.
+    if (error instanceof BrowserScreenshotRestoreError) throw error;
     return null;
   }
   // The capture reports the document box it clipped, so the element lands in
