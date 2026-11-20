@@ -1,10 +1,10 @@
-// A local scripted OpenAI chat-completions endpoint (SSE), after the ft harness's startProvider. No real model,
+// A local scripted OpenAI chat-completions endpoint (SSE). No real model,
 // no credentials: the instance's config names it as a custom provider with auth none.
 //
 // An answer is one of:
 //   { calls: [{ name, args }] }                        tool calls
 //   { text }                                           one short text answer
-//   { stream: { text, chunks, intervalMs } }           a long streamed answer (R2 situation d)
+//   { stream: { text, chunks, intervalMs } }           a long streamed answer
 //   { status, json }                                   an HTTP error
 // `state.decide(body, n, entry)` picks the answer of the n-th chat request; otherwise a FIFO `state.queue`; an empty
 // queue answers { text: 'done' }.

@@ -940,7 +940,7 @@ export function updateSection(section, updater) {
 }
 
 // ── Async write path (non-blocking) ─────────────────────────────────
-// Parity with the sync RMW above, but every heavy blocker (cross-process
+// Same as the sync RMW above, but every heavy blocker (cross-process
 // lock wait, owner-only icacls ACL, user-data backup copy tree) is awaited
 // off the event loop. Reuses the SAME lock file (`${configPath()}.lock`) and
 // secret:true ACL protocol, so an async writer and a sync writer are mutually
@@ -953,7 +953,7 @@ async function writeConfigFileAsync(data) {
     await backupUserDataAsync(resolvePluginData(), 'pre-config-write');
   } catch {}
   await writeJsonAtomicAsync(configPath(), data, { lock: false, fsyncDir: true, mode: 0o600, secret: true });
-  // Parity with writeConfigFile: invalidate synchronously after the async
+  // As in writeConfigFile: invalidate synchronously after the async
   // write resolves so this process never serves a stale cached config.
   invalidateConfigReadCache();
   try {

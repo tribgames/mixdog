@@ -47,14 +47,21 @@ export function createWorkerRequestClient(
     idleTimer = null;
   }
 
+  // Drops `target` as the attached worker (no-op when it already is not), leaving the requests it owns with it.
+  function detach(target) {
+    if (worker !== target) return;
+    worker = null;
+    pending = new Map();
+    clearIdleTimer();
+  }
+
   function armIdleTimer(target) {
     if (!(idleExitMs > 0)) return;
     clearIdleTimer();
     idleTimer = setTimeout(() => {
       idleTimer = null;
       if (worker !== target || pending.size > 0) return;
-      worker = null;
-      pending = new Map();
+      detach(target);
       void target.terminate();
     }, idleExitMs);
     idleTimer.unref?.();
@@ -102,19 +109,11 @@ export function createWorkerRequestClient(
       } else entry.resolve(result);
     });
     created.on('error', (error) => {
-      if (worker === created) {
-        worker = null;
-        pending = new Map();
-        clearIdleTimer();
-      }
+      detach(created);
       rejectOwned(error);
     });
     created.on('exit', (code) => {
-      if (worker === created) {
-        worker = null;
-        pending = new Map();
-        clearIdleTimer();
-      }
+      detach(created);
       rejectOwned(Object.assign(new Error(`worker exited (${code}): ${label}`), { code: 'EWORKEREXIT' }));
     });
     worker = created;
@@ -146,11 +145,7 @@ export function createWorkerRequestClient(
         // Its other pending requests are rejected by the exit handler.
         deadline = setTimeout(() => {
           owned.delete(id);
-          if (worker === target) {
-            worker = null;
-            pending = new Map();
-            clearIdleTimer();
-          }
+          detach(target);
           reject(
             Object.assign(new Error(`worker request timed out after ${timeoutMs} ms: ${label}`), { code: 'ETIMEDOUT' })
           );

@@ -20,8 +20,8 @@ const CORE = resolve(dirname(fileURLToPath(import.meta.url)), '../../native/core
 // package.json scripts and workflow steps each lane stands in for (what it protected); `unproven` names what of the old
 // step no selected test proves, and why. The filters are libtest substrings of the full test name (module path and
 // function): a module path or a file stem where a whole area is meant, a function name only where one test is the point.
-// `compact` used to select compact_handoff and compact_summary: those modules are cfg(node_twin) (they compare with the
-// Node recording), so the lane keeps the compaction tests that run in a clean checkout.
+// The compact lane leaves out compact_handoff and compact_summary: those modules are cfg(node_twin) and never compile in
+// CI, so it keeps the compaction tests that run in a clean checkout.
 export const LANES = {
   'shell-direct-exe': {
     replaces: 'scripts/suite-shell-direct-exe-test.mjs',

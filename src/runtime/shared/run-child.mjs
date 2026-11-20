@@ -79,6 +79,29 @@ const childEnded = (child) => child.exitCode !== null || child.signalCode !== nu
 // what the child wrote before exiting is already in the pipes.
 const EXIT_DRAIN_MS = 1_000;
 
+// Terminates a timed-out child. With waitForExitMs > 0, runs `done` once the child has exited and the kill finished,
+// or after waitForExitMs, in the same promise reaction that clears the bound timer, and returns true; otherwise
+// returns false without calling `done` (the caller need not wait).
+function killAndWait(child, { killTree, waitForExitMs, exited }, done) {
+  let killed = Promise.resolve();
+  if (killTree) killed = killChildTree(child);
+  else {
+    try {
+      child.kill();
+    } catch {}
+  }
+  if (!(waitForExitMs > 0)) return false;
+  let bound;
+  const bounded = new Promise((resolve) => {
+    bound = setTimeout(resolve, waitForExitMs);
+  });
+  void Promise.race([Promise.all([exited, killed]), bounded]).then(() => {
+    clearTimeout(bound);
+    done();
+  });
+  return true;
+}
+
 /**
  * `waitForExitMs` (> 0): a timeout rejects only once the killed child has
  * exited, or after that many more ms; the error then carries `pid` and
@@ -133,27 +156,12 @@ export function runChild({
             const error = new Error(`${command} ${args.join(' ')} timed out after ${timeoutMs}ms`);
             error.code = 'ETIMEDOUT';
             timedOut = true;
-            let killed = Promise.resolve();
-            if (killTree) killed = killChildTree(child);
-            else {
-              try {
-                child.kill();
-              } catch {}
-            }
-            if (!(waitForExitMs > 0)) {
-              finish(error);
-              return;
-            }
-            let bound;
-            const wait = new Promise((resolve) => {
-              bound = setTimeout(resolve, waitForExitMs);
-            });
-            void Promise.race([Promise.all([exited, killed]), wait]).then(() => {
-              clearTimeout(bound);
+            const waiting = killAndWait(child, { killTree, waitForExitMs, exited }, () => {
               error.pid = child.pid ?? null;
               error.childExited = childEnded(child);
               finish(error);
             });
+            if (!waiting) finish(error);
           }, timeoutMs)
         : null;
     const collect = (chunks, chunk) => {
