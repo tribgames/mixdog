@@ -146,6 +146,8 @@ export default memo(function MarkdownAstBody({
     measured.current = body;
     parking?.sync();
   });
+  // The body left the reply: other blocks stand next to its neighbours now.
+  useLayoutEffect(() => () => parking?.sync(), [parking]);
   // The tree is converted once, as without parking; only its top-level
   // elements are then held one by one.
   const rendered = toJsxRuntime((shown?.root ?? body) as never, {

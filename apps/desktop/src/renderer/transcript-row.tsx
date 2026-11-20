@@ -172,13 +172,13 @@ const MarkdownResponse = memo(function MarkdownResponse({
   useLayoutEffect(() => {
     if (streaming) noteStreamCommit(text.length);
   }, [streaming, text]);
-  // A reply at rest keeps only the blocks near the reader in the DOM; one
-  // still arriving or fading keeps them all.
+  // A reply keeps only the blocks near the reader in the DOM; one still
+  // arriving or fading in also keeps its last body, which is not final yet.
   const [parking] = useState(createBlockParking);
-  const parkable = !streaming && !fadeTimeline;
+  const growing = streaming || Boolean(fadeTimeline);
   useLayoutEffect(() => {
-    parking.attach(markdownRef.current, parkable);
-  }, [parking, parkable]);
+    parking.attach(markdownRef.current, true, growing);
+  }, [parking, growing]);
   useEffect(() => () => parking.attach(null, false), [parking]);
   if (streaming) workerPipeline.current = true;
   // Every reply loads the main-thread parser: a reply that arrives whole, or
