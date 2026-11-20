@@ -9,7 +9,7 @@ import type { WebContents } from 'electron';
 import { persistBrowserScreenshot } from '../frame-files';
 import type { BrowserCommand, BrowserCommandResult, BrowserSnapshotResultOptions } from './host-types';
 import type { BrowserReplyHost } from './reply';
-import { type EncodedBrowserScreenshot, screenshotWireImage } from './screenshot-image';
+import { type EncodedBrowserScreenshot, scaledCaptureNote, screenshotWireImage } from './screenshot-image';
 
 type ReplyScreenshotHost = Pick<BrowserReplyHost, 'state' | 'captureScreenshot' | 'bindVisualGrounding'>;
 
@@ -48,7 +48,7 @@ export async function attachScreenshot(
     throw new Error('page changed during screenshot capture; take a fresh snapshot');
   }
   if (capture.fullPage) {
-    result.text += `\n\nFull-page screenshot: ${capture.width}x${capture.height} px; inspection-only and not coordinate-bound.`;
+    result.text += `\n\nFull-page screenshot: ${capture.width}x${capture.height} px; inspection-only and not coordinate-bound.${scaledCaptureNote(capture)}`;
   } else {
     host.bindVisualGrounding(guest, refSet, capture);
     result.text += `\n\nVisual screenshot: ${refSet.snapshotId} is ${capture.width}x${capture.height} image px; viewport ${refSet.viewportWidth}x${refSet.viewportHeight} CSS px. Coordinate actions require this snapshotId and use image-pixel coordinates.`;

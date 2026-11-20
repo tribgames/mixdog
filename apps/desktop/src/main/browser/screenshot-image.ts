@@ -11,6 +11,16 @@ export interface EncodedBrowserScreenshot {
   fullPage: boolean;
   /** The document box a full-page capture clipped, in CSS pixels. */
   pageRect?: BrowserScreenshotRect;
+  /** A full-page capture past the image limits is delivered scaled down: the
+   *  page's real size in image pixels and the scale applied to it. */
+  scaledFrom?: { width: number; height: number; scale: number };
+}
+
+/** Tells the reader a full-page image is not at the page's own size. */
+export function scaledCaptureNote({ scaledFrom }: Pick<EncodedBrowserScreenshot, 'scaledFrom'>): string {
+  if (!scaledFrom) return '';
+  const percent = Math.max(0.01, Math.round(scaledFrom.scale * 10_000) / 100);
+  return ` The page is ${scaledFrom.width}x${scaledFrom.height} px, over the image limits, so the capture is the whole page scaled to ${percent}%.`;
 }
 
 export type ScreenshotCropInput = EncodedBrowserScreenshot & { cropSource?: Electron.NativeImage };

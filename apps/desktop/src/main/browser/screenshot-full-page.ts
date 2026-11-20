@@ -4,10 +4,9 @@ import type { Rectangle, WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
 import {
-  assertFullPageOutputBounds,
-  boundedFullPageRect,
   FULL_PAGE_LAYOUT_PREPARE,
   FULL_PAGE_LAYOUT_RESTORE,
+  measuredFullPageRect,
 } from './screenshot-policy';
 
 export async function anchorPinnedLayout(
@@ -39,9 +38,5 @@ export async function fullPageRect(
     cssContentSize?: { x?: number; y?: number; width?: number; height?: number };
     contentSize?: { x?: number; y?: number; width?: number; height?: number };
   }>(guest, 'Page.getLayoutMetrics', {}, signal, slow);
-  const rect = boundedFullPageRect(metrics.cssContentSize || metrics.contentSize || {});
-  // CDP's clip scale is the page zoom, so the output allocation can be much
-  // larger than the CSS layout. Apply the same pixel ceiling to that result.
-  assertFullPageOutputBounds(rect, guest.getZoomFactor());
-  return rect;
+  return measuredFullPageRect(metrics.cssContentSize || metrics.contentSize || {});
 }

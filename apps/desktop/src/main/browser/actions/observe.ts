@@ -5,7 +5,7 @@
 import { persistFrameImage } from '../../frame-files';
 import { boundedInteger, browserCharLimit, EXTRACT_DEFAULT_CHARS, EXTRACT_DEFAULT_LIMIT, EXTRACT_MAX_LIMIT, MAX_PRINTED_PDF_BYTES, READ_DEFAULT_CHARS, READ_MAX_CHARS } from '../host-types';
 import { redactBrowserText, redactBrowserUrl } from '../redaction';
-import { screenshotWireImage } from '../screenshot-image';
+import { scaledCaptureNote, screenshotWireImage } from '../screenshot-image';
 import { browserVisualLocatorExpression, type BrowserVisualLocatorPayload } from '../visual-locator';
 import { actionRef } from './target';
 import { type BrowserActionContext, defineBrowserActions } from './types';
@@ -104,7 +104,7 @@ export const observationActions = defineBrowserActions({
       const capture = await screenshots.capture(guest, targetIsBackground, command, signal);
       return reply.attachFrame(
         {
-          text: `${capture.fullPage ? 'Full-page screenshot' : 'Screenshot'} of ${redactBrowserUrl(guest.getURL())} (${capture.width}x${capture.height} px). ${capture.fullPage ? 'This image is inspection-only.' : 'Use snapshot mode=both or locate before coordinate actions.'}`,
+          text: `${capture.fullPage ? 'Full-page screenshot' : 'Screenshot'} of ${redactBrowserUrl(guest.getURL())} (${capture.width}x${capture.height} px). ${capture.fullPage ? 'This image is inspection-only.' : 'Use snapshot mode=both or locate before coordinate actions.'}${scaledCaptureNote(capture)}`,
         },
         command,
         capture,
