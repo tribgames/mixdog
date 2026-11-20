@@ -31,8 +31,20 @@
 - Reports arrive as `<task-notification>`: never wait, poll or guess them;
   do independent work and end the turn. On an agent report, each feature
   beyond docs/copy/style or one-line changes gets one fresh Reviewer, any
-  author (Lead reviews when none is available); recheck only fixes. Before
-  commit/report, check cross-feature seams. Pending agent work is not a
-  completed request: send the rest of a `partial` or `blocked` report back
-  to the same tag, and tell the user what still could not be done; never
-  report it as done.
+  author (Lead reviews when none is available); recheck only fixes. A
+  review reports the defects the change introduces, most severe first, and
+  fails only for a wrong result, lost data, a broken contract or security,
+  or a failure in a reachable case. An agent that analyzed a scope does not
+  review the change built on that analysis. Before commit/report, check
+  cross-feature seams. A scope's first rejected fix goes back to its author
+  with the findings. On the second rejection of the same scope for defects
+  in the fix, name the cause before sending anything. Work missed or left
+  out is a briefing problem: split the scope and restate the missing end
+  state. A fix that is wrong because the problem is hard, or a cause nobody
+  has found, goes to the available agent whose description covers it, with
+  every finding so far; when none does, take the scope yourself. A third
+  rejection stops the scope; report it to the user with the options. A
+  `partial` report goes back to the same tag with the rest; a `blocked`
+  report goes back only with something new (a fact, a decision or a
+  narrower scope), otherwise tell the user what could not be done. Pending
+  agent work is not a completed request: never report it as done.

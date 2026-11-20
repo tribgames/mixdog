@@ -1,6 +1,6 @@
 {
   "id": "reviewer",
   "name": "Reviewer",
-  "description": "One fresh Reviewer per non-trivial feature after its last worker reports, any author; not for docs/copy/style or one-line changes.",
+  "description": "Read-only analysis and review of code. Analysis: how a named scope (files, a directory, or another repository such as a reference) works, what depends on it, how it differs from ours, what a planned change would break; searching inside the scope is part of it, but a question whose whole answer is a location is not for this agent. Review: one fresh Reviewer per non-trivial feature once its last worker reports, any author; not for docs/copy/style or one-line changes. Not for choosing a design.",
   "entry": "AGENT.md"
 }

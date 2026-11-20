@@ -1,6 +1,6 @@
 {
   "id": "advisor",
   "name": "Advisor",
-  "description": "Use as a second mind on hard work: consulting before a risky or complex change is built, hunting a bug whose cause is unclear, errors that recur or results that stop converging, or when the user asks. Never for final verification.",
+  "description": "The head for very hard work: when a structure or design has to be chosen, before a change that is hard to undo or reaches many scopes, when a cause stays unknown after analysis, when a scope is rejected twice and each fix opens a new defect, when an agent reports the same failure twice without a cause, or when the user asks. Not for locating code or routine analysis, and never for final verification.",
   "entry": "AGENT.md"
 }
