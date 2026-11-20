@@ -62,6 +62,29 @@ html[data-mixdog-mobile-tabs] .route-chain-row > .route-editor {
   width: auto;
   flex: 1 1 auto;
 }
+/* The chip names its sign-in beside the model (#340); a long model name
+   ellipsizes so the sign-in name and the effort always stay visible. */
+.route-chain-row .route-trigger-copy > .model-route-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.route-chain-row .model-route-label > * {
+  flex: none;
+}
+.route-chain-row .model-route-label > .model-route-label-model {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.model-route-label-provider {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+}
+.route-chain-row .model-route-label > .model-route-label-effort {
+  font-size: var(--mx-font-micro);
+}
 .route-chain-handle,
 .route-chain-remove {
   display: grid;

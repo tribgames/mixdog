@@ -9,6 +9,7 @@ import {
 } from './model-route-utils';
 import { routedExactContextTokens } from './route-editor-context';
 import { contextSliderPercent, contextTokensForPercent, defaultContextPercent } from './model-controls';
+import { resolveProviderDisplayName } from './model-catalog';
 import { modelContextWindow, modelDisplayName, modelFastAvailable, modelMaxContextWindow } from './provider-display';
 import { RouteEditor } from './RouteEditor';
 
@@ -23,6 +24,7 @@ export function ModelRouteEditor({
   providerSetupError = '',
   labelForModel,
   providerNames,
+  providerLabel = false,
   dropdown = false,
   composerParity = false,
   autoEffortSwitch = false,
@@ -31,6 +33,9 @@ export function ModelRouteEditor({
 }: {
   /** Setup-derived custom provider names (customProviderDisplayNames), keyed by provider id. */
   providerNames?: Record<string, string>;
+  /** Name how the route signs in beside the model (route chain rows, where one
+   *  model may sit on both an API key and a subscription). */
+  providerLabel?: boolean;
   /** Open as a dropdown under the trigger at its width (RouteEditor `dropdown`). */
   dropdown?: boolean;
   /** Show the composer picker's Context slider and Auto effort switch. */
@@ -71,6 +76,11 @@ export function ModelRouteEditor({
   } else if (model && !catalogLoaded) {
     triggerModel = modelDisplayName(model, provider);
   }
+  // Derived from the saved provider id; Follow-Main has no sign-in of its own.
+  const triggerProvider =
+    providerLabel && model && provider && provider !== 'default'
+      ? resolveProviderDisplayName(provider, providerNames)
+      : '';
   const selectionFor = (
     option: DesktopModelOption,
     patch: Partial<DesktopModelSelection> = {}
@@ -131,6 +141,7 @@ export function ModelRouteEditor({
       provider={provider}
       model={model}
       triggerModel={triggerModel}
+      triggerProvider={triggerProvider}
       effort={effort}
       effortOptions={selected?.effortOptions || []}
       fast={fast}

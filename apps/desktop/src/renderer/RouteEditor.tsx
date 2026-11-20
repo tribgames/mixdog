@@ -45,6 +45,8 @@ interface RouteEditorProps {
   provider: string;
   model: string;
   triggerModel: string;
+  /** How the route signs in, shown beside the model on the trigger (route chain rows). */
+  triggerProvider?: string;
   effort: string;
   effortOptions: Array<{ value: string; label: string }>;
   fast: boolean;
@@ -164,6 +166,7 @@ export function RouteEditor({
   provider,
   model,
   triggerModel,
+  triggerProvider = '',
   effort,
   effortOptions,
   fast,
@@ -345,6 +348,7 @@ export function RouteEditor({
         visible={visible}
         sheetId={sheetId}
         triggerModel={triggerModel}
+        triggerProvider={triggerProvider}
         effort={autoEffortOn ? '' : effort}
         fast={fast}
         ultra={speed === 'ultrafast'}
