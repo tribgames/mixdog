@@ -2482,7 +2482,7 @@ test('the node reporter records suites and cases with full ancestry, drops the s
     mkdirSync(join(dir, 'x'));
     writeFileSync(
       join(dir, 'x', 'a.test.mjs'),
-      NODE_FILE + "describe.skip('gone', () => { it('hidden', () => {}); });\n"
+      `${NODE_FILE}describe.skip('gone', () => { it('hidden', () => {}); });\n`
     );
     writeFileSync(join(dir, 'x', 'empty.test.mjs'), 'export {};\n');
     const receipt = join(dir, 'r.json');

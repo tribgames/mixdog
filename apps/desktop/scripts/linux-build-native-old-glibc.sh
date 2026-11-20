@@ -20,10 +20,10 @@ for tool in $tools; do
 	(
 		if [ "$tool" = main-native ]; then
 			CARGO_TARGET_DIR=/tmp/target-$tool cargo build --locked --release --manifest-path /w/native/mixdog-main-native/Cargo.toml
-			cp /tmp/target-$tool/release/libmixdog_main_native.so /w/native-out/mixdog_main_native.node
+			cp "/tmp/target-$tool/release/libmixdog_main_native.so" /w/native-out/mixdog_main_native.node
 		else
-			CARGO_TARGET_DIR=/tmp/target-$tool cargo build --locked --release --manifest-path /w/native/mixdog-$tool/Cargo.toml
-			cp /tmp/target-$tool/release/mixdog-$tool /w/native-out/
+			CARGO_TARGET_DIR=/tmp/target-$tool cargo build --locked --release --manifest-path "/w/native/mixdog-$tool/Cargo.toml"
+			cp "/tmp/target-$tool/release/mixdog-$tool" /w/native-out/
 		fi
 	) &
 	pids+=("$!")

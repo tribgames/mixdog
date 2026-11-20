@@ -539,7 +539,7 @@ test('a run that leaves a process inside its own directory fails naming it, and 
   copyFileSync(process.execPath, exe);
   const left = spawn(exe, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
   try {
-    await assertNothingInside(join(tmpdir(), 'nothing-runs-in-here-' + process.pid)).then(() => {});
+    await assertNothingInside(join(tmpdir(), `nothing-runs-in-here-${process.pid}`)).then(() => {});
     await assert.rejects(assertNothingInside(dir), new RegExp(`pid ${left.pid} .*(has been ended|was not ended)`));
     if (process.platform !== 'darwin') await exitOf(left);
     else assert.equal(left.exitCode, null, 'macOS reports and ends nothing');

@@ -81,7 +81,10 @@ const rig = ({ installed = '1.5.0', staged = [], layout = ['node_modules', 'mixd
   };
 };
 
-const cleanup = (t, ...rigs) => t.after(() => rigs.forEach((r) => rmSync(r.root, { recursive: true, force: true })));
+const cleanup = (t, ...rigs) =>
+  t.after(() => {
+    for (const r of rigs) rmSync(r.root, { recursive: true, force: true });
+  });
 
 test('a completed staged version newer than the installed one replaces the package, dependencies with it, and is cleaned away', (t) => {
   const r = rig({ staged: ['1.5.1'] });

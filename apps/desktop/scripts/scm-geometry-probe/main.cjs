@@ -65,7 +65,7 @@ app.whenReady().then(async () => {
     else process.stdout.write(json);
     app.exit(0);
   } catch (error) {
-    process.stderr.write(`${error && error.stack ? error.stack : String(error)}\n`);
+    process.stderr.write(`${error?.stack ? error.stack : String(error)}\n`);
     app.exit(1);
   }
 });

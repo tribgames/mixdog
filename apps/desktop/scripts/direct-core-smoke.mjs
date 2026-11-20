@@ -388,7 +388,7 @@ async function run() {
   await check('600 KB file through a blob ref', async () => {
     needs('--workspace', workspace);
     const rel = `.direct-core-smoke-${nonce()}.txt`;
-    const text = '0123456789abcdef'.repeat(Math.ceil(FILE_BYTES / 16)).slice(0, FILE_BYTES - 1) + '\n';
+    const text = `${'0123456789abcdef'.repeat(Math.ceil(FILE_BYTES / 16)).slice(0, FILE_BYTES - 1)}\n`;
     await windowA.client.call('projectFs/writeText', {
       root: workspace,
       rel,

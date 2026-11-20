@@ -1,4 +1,6 @@
-# Sourced by the Linux steps of action.yml.
+# shellcheck shell=bash
+# Sourced by the Linux steps of action.yml, which read OFFICE_APT_PACKAGES.
+# shellcheck disable=SC2034
 OFFICE_APT_PACKAGES="fonts-liberation fonts-crosextra-carlito fonts-nanum libreoffice-writer libreoffice-impress libreoffice-calc"
 
 # A stuck mirror once held a step for 30+ minutes. A composite step has no
