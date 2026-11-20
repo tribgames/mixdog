@@ -59,11 +59,11 @@ pub fn delete_stored_goal_file(root: &Path, session_id: &str) -> bool {
 /// The record file's generation (`goal-storage.mjs`'s `dev:ino:size:mtimeNs:ctimeNs`): an atomic
 /// replacement may keep size and mtime, so file identity and change time are part of it. `None` is
 /// a missing file, which never matches a cached copy or an observed generation.
-pub fn file_stamp(path: &Path) -> std::io::Result<Option<String>> {
+pub fn file_stamp(proof: &impl mixdog_fsio::WriteProof, path: &Path) -> std::io::Result<Option<String>> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        match std::fs::metadata(path) {
+        match mixdog_fsio::metadata(proof, path) {
             Ok(meta) => Ok(Some(format!(
                 "{}:{}:{}:{}.{}:{}.{}",
                 meta.dev(),
@@ -80,14 +80,14 @@ pub fn file_stamp(path: &Path) -> std::io::Result<Option<String>> {
     }
     #[cfg(windows)]
     {
-        windows_stamp(path)
+        windows_stamp(proof, path)
     }
 }
 
 /// libuv's `fs__stat_handle` sources: the volume and 64-bit file index, `EndOfFile`, and the basic info's
 /// `LastWriteTime` and `ChangeTime`.
 #[cfg(windows)]
-fn windows_stamp(path: &Path) -> std::io::Result<Option<String>> {
+fn windows_stamp(proof: &impl mixdog_fsio::WriteProof, path: &Path) -> std::io::Result<Option<String>> {
     use std::ffi::c_void;
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
@@ -98,7 +98,7 @@ fn windows_stamp(path: &Path) -> std::io::Result<Option<String>> {
         .access_mode(FILE_READ_ATTRIBUTES)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(&mixdog_fsio::Unlaned, path)
+        .open(proof, path)
     {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -131,7 +131,7 @@ pub fn delete_if_unchanged<L: WriteLane>(lane: &InLane<L>, root: &Path, session_
     let id = assert_session_id(session_id)?;
     let path = record_path(root, &id);
     locked(lane, &path, || {
-        let unchanged = observed.is_some() && file_stamp(&path).ok().flatten() == *observed;
+        let unchanged = observed.is_some() && file_stamp(lane, &path).ok().flatten() == *observed;
         unchanged && delete_stored_goal_file(root, &id)
     })
 }
@@ -144,9 +144,9 @@ fn remove_observed<L: WriteLane>(lane: &InLane<L>, root: &Path, session_id: &str
 }
 
 /// The record's generation before a read, for [`delete_if_unchanged`] after it.
-fn observe(root: &Path, session_id: &str) -> Option<String> {
+fn observe(lane: &impl mixdog_fsio::WriteProof, root: &Path, session_id: &str) -> Option<String> {
     let id = assert_session_id(session_id).ok()?;
-    file_stamp(&record_path(root, &id)).ok().flatten()
+    file_stamp(lane, &record_path(root, &id)).ok().flatten()
 }
 fn safe_version(doc: &Value) -> Option<f64> {
     let version = doc.get("version")?.as_f64()?;
@@ -271,7 +271,7 @@ pub fn read_stored_goal_snapshot<L: WriteLane>(
 /// [`read_stored_goal_snapshot`] under the Goals' `root`.
 pub fn stored_goal_snapshot_under<L: WriteLane>(lane: &InLane<L>, root: &Path, session_id: &str, at: f64, completed_ttl_ms: f64) -> Option<Goal> {
     let root = root.to_path_buf();
-    let observed = observe(&root, session_id);
+    let observed = observe(lane, &root, session_id);
     let stored = read_stored_goal_file(lane, &root, session_id, at);
     let goal = public_goal(stored.as_ref(), at);
     if completed_goal_expired(goal.as_ref(), at, completed_ttl_ms) {
@@ -296,7 +296,7 @@ pub fn list_active_session_ids<L: WriteLane>(lane: &InLane<L>, data_dir: &str, a
         if !is_session_id(id) {
             continue;
         }
-        let observed = observe(&root, id);
+        let observed = observe(lane, &root, id);
         let stored = read_stored_goal_file(lane, &root, id, at);
         let goal = public_goal(stored.as_ref(), at);
         if completed_goal_expired(goal.as_ref(), at, completed_ttl_ms) {

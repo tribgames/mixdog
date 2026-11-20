@@ -5632,6 +5632,7 @@ version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
  "mixdog-core-base",
+ "mixdog-fsio",
  "mixdog-image-egress",
  "mixdog-imaging",
  "mixdog-rt",

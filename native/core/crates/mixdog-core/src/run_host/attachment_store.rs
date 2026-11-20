@@ -407,7 +407,7 @@ impl AttachmentFiles for StoreFiles {
 
     async fn refusal_of(&self, reference: &str) -> Option<String> {
         let (vault, reference) = (mixdog_image_vault::ImageVault::new(self.blobs.clone(), &self.data_dir), reference.to_owned());
-        match on_lane(self.durability, &CancellationToken::new(), move |_| vault.lookup(&reference)).await.ok()? {
+        match on_lane(self.durability, &CancellationToken::new(), move |lane| vault.lookup(lane, &reference)).await.ok()? {
             mixdog_image_vault::vault::Lookup::Found(manifest) => match manifest.outcome {
                 mixdog_image_egress::Outcome::Refused { text } => Some(text),
                 mixdog_image_egress::Outcome::Accepted { .. } => None,

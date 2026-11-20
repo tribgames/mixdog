@@ -8,16 +8,18 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use mixdog_rt::{Liveness, MaintenanceIo, TaskClass};
 use serde_json::{Value, json};
-use tokio::sync::{Semaphore, mpsc};
+use tokio::sync::mpsc;
+
+/// Many requests hold it shared while they run and close takes it alone: every request is admitted at once, none queues behind a count,
+/// and close waits for those in flight.
+#[allow(clippy::disallowed_types, reason = "the running gate is a many-readers/one-closer lock; a permit count would queue the request past its capacity")]
+type RunningGate = tokio::sync::RwLock<()>;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::McpServerConfig;
 use crate::connector_accounts::{AccountHealth, AccountReport, AccountSeed, ConnectorAccounts};
 use crate::server::{McpServer, ServerState};
 use crate::transport::{CloseCause, Incoming, IncomingRx, IncomingTx, Transport, TransportError};
-
-/// The most requests that run at once on one connector; the permits of its running gate.
-const MAX_IN_FLIGHT: u32 = 1 << 16;
 
 pub struct AccountRuntime {
     pub health: Arc<AccountHealth>,
@@ -86,8 +88,8 @@ struct AccountTransport {
     tx: IncomingTx,
     cancel: CancellationToken,
     inflight: Arc<Mutex<HashMap<String, CancellationToken>>>,
-    /// A request holds one permit while it runs; closing takes them all, so it waits for every request in flight.
-    running: Arc<Semaphore>,
+    /// A request holds a read guard while it runs; closing takes the write side, so it waits for every request in flight.
+    running: Arc<RunningGate>,
 }
 
 impl Drop for AccountTransport {
@@ -111,7 +113,7 @@ impl Transport for AccountTransport {
         let cancel = self.cancel.child_token();
         self.inflight.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone(), cancel.clone());
         let (group, tx, inflight) = (self.group.clone(), self.tx.clone(), self.inflight.clone());
-        let running = self.running.clone().acquire_owned().await.expect("the running gate is never closed");
+        let running = self.running.clone().read_owned().await;
         mixdog_rt::spawn("mcp.connector.request", TaskClass::Work, async move {
             let work = async {
                 let result = match message["method"].as_str().unwrap_or_default() {
@@ -141,7 +143,7 @@ impl Transport for AccountTransport {
 
     async fn close(&self) {
         self.cancel.cancel();
-        let _running = self.running.acquire_many(MAX_IN_FLIGHT).await.expect("the running gate is never closed");
+        let _running = self.running.write().await;
         let _ = self.tx.send(Incoming::Closed(CloseCause { reason: "connector closed".into(), stderr_tail: String::new() }));
     }
 }
@@ -207,7 +209,7 @@ impl AccountGroup {
         }
         (Arc::new(AccountTransport {
             group: self.clone(), tx, cancel,
-            inflight: Arc::new(Mutex::new(HashMap::new())), running: Arc::new(Semaphore::new(MAX_IN_FLIGHT as usize)),
+            inflight: Arc::new(Mutex::new(HashMap::new())), running: Arc::new(RunningGate::new(())),
         }), rx)
     }
 

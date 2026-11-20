@@ -24,7 +24,7 @@ use tokio_util::sync::CancellationToken;
 use super::jobs::{MAX_REFERENCE_BYTES, MediaFailure, MediaJobs};
 use super::lanes::MEDIA_KINDS;
 use super::store::MediaStore;
-use crate::lane::{io_on_lane, on_lane};
+use crate::lane::{io_in_lane, on_lane};
 
 pub const MEDIA_ACTIONS: [&str; 4] = ["list", "generate", "status", "cancel"];
 const DEFAULT_LANE: &str = "openai-oauth";
@@ -190,9 +190,9 @@ pub(super) fn namespaced(path: &Path) -> PathBuf {
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
-fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
+fn read_file(lane: &mixdog_rt::InLane<DurabilityIo>, path: &Path) -> std::io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    mixdog_fsio::File::open(&mixdog_fsio::Unlaned, namespaced(path))?.take(MAX_REFERENCE_BYTES as u64 + 1).read_to_end(&mut bytes)?;
+    mixdog_fsio::File::open(lane, namespaced(path))?.take(MAX_REFERENCE_BYTES as u64 + 1).read_to_end(&mut bytes)?;
     Ok(bytes)
 }
 
@@ -516,7 +516,7 @@ async fn read_references(paths: Option<&Value>, cwd: &Path, controls: &Value, io
         let read = file.clone();
         // Node's `fs` on Windows reports the namespaced path, i.e. `path.resolve`d: `\` separators.
         let reported = mixdog_workspace::pathguard::lexical(&file);
-        let bytes = io_on_lane(io, move || read_file(&read)).await.map_err(|e| io_tool_failure(&FsFailure { error: e, step: FsStep::Open(reported) }))?;
+        let bytes = io_in_lane(io, move |lane| read_file(lane, &read)).await.map_err(|e| io_tool_failure(&FsFailure { error: e, step: FsStep::Open(reported) }))?;
         if bytes.len() > MAX_REFERENCE_BYTES {
             return Err(ToolFailure::new(format!("reference \"{entry}\" exceeds {} MB", MAX_REFERENCE_BYTES / 1024 / 1024)));
         }

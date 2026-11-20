@@ -183,7 +183,7 @@ impl Connector for Link {
             return Err("the PC is gone".into());
         }
         let halves = self.inner.open(target).await?;
-        let writer = Arc::new(futures::lock::Mutex::new(halves.writer));
+        let writer = Arc::new(SharedWriter::new(halves.writer));
         Ok(TransportHalves {
             writer: Box::new(Writer(writer.clone())),
             reader: Box::new(Reader { inner: halves.reader, writer, cut: self.cut.clone() }),
@@ -191,7 +191,12 @@ impl Connector for Link {
     }
 }
 
-struct Writer(Arc<futures::lock::Mutex<Box<dyn TransportWriter>>>);
+/// Held across a send's await, and a close queued behind a send must run before a later send: tokio's mutex is first-in first-out,
+/// utures::lock::Mutex is not, so a later send could overtake the simulated disconnect.
+#[allow(clippy::disallowed_types, reason = "the test link needs the first-in first-out order of tokio's mutex across an await")]
+type SharedWriter = tokio::sync::Mutex<Box<dyn TransportWriter>>;
+
+struct Writer(Arc<SharedWriter>);
 
 #[async_trait]
 impl TransportWriter for Writer {
@@ -205,7 +210,7 @@ impl TransportWriter for Writer {
 
 struct Reader {
     inner: Box<dyn TransportReader>,
-    writer: Arc<futures::lock::Mutex<Box<dyn TransportWriter>>>,
+    writer: Arc<SharedWriter>,
     cut: Arc<tokio::sync::Notify>,
 }
 

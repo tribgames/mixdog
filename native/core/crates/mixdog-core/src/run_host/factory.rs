@@ -7481,7 +7481,7 @@ impl TranscriptSink for PortSink {
         // A reply that ends the turn is its own text (Node's final row is `content`): the updates shown ahead of a tool call
         // stay with that call's row, the ones ahead of the answer go as the answer lands.
         if message.message.tool_calls.is_empty() {
-            named.shift_remove("shownText");
+            named.swap_remove("shownText");
         }
         let mut row = row;
         with_shown(&mut row, named);

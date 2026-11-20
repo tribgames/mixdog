@@ -828,7 +828,8 @@ fn remove_probe(path: &std::path::Path) -> std::io::Result<()> {
     std::fs::remove_file(path)
 }
 
-#[allow(clippy::disallowed_methods, reason = "body of the interactive-io lane job in `run_check`")]
+// The probe is a create-new write on the interactive lane, which has no write proof to hand to mixdog_fsio: it stays a plain std call.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "body of the interactive-io lane job in `run_check`; that lane has no write proof")]
 fn folder_accepts_a_file_with(
     dir: &std::path::Path,
     cancel: &CancellationToken,
@@ -842,7 +843,7 @@ fn folder_accepts_a_file_with(
         let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |at| at.as_nanos());
         let count = PROBES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let path = dir.join(format!(".mixdog-doctor-write-probe-{}-{count}-{nanos:x}", std::process::id()));
-        match mixdog_fsio::OpenOptions::new().write(true).create_new(true).open(&mixdog_fsio::Unlaned, &path) {
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(file) => {
                 drop(file);
                 return remove(&path).is_ok();

@@ -199,9 +199,9 @@ fn request_of(model: &str, text: &str, group: Option<&str>) -> Arc<p::ModelReque
 
 /// One send, drained: what it returned, or the error that ended it.
 async fn send(adapter: &RegisteredAdapter, model: &str) -> Result<(), String> {
-    let mut stream = p::ProviderAdapter::attempt(adapter, request(model)).await.map_err(|e| e.message)?;
+    let mut stream = p::ProviderAdapter::attempt(adapter, request(model)).await.map_err(|e| e.message.clone())?;
     while let Some(event) = stream.next().await {
-        event.map_err(|e| e.message)?;
+        event.map_err(|e| e.message.clone())?;
     }
     Ok(())
 }
@@ -245,12 +245,12 @@ async fn send_retrying(adapter: &RegisteredAdapter, shared: &Shared, model: &str
             }
             Err(error) => {
                 p::ProviderAdapter::settle_send(adapter, &group, p::SendEnd::Surfaced).await;
-                return (Err(error.message), after_backoff);
+                return (Err(error.message.clone()), after_backoff);
             }
         };
         while let Some(event) = stream.next().await {
             if let Err(error) = event {
-                return (Err(error.message), after_backoff);
+                return (Err(error.message.clone()), after_backoff);
             }
         }
         return (Ok(()), after_backoff);

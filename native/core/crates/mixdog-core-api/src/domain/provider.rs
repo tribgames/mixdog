@@ -1824,8 +1824,51 @@ pub struct ConnectionInfo {
 }
 /// Classified once at the adapter boundary; downstream reads fields only. The record sits behind one box, so a `Result<_, ProviderError>`
 /// is a pointer wide; its fields are read and written through `Deref` as if they were the error's own.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProviderError(Box<ProviderErrorFields>);
+
+/// Prints as the record always did, `ProviderError { kind: .. }`, through the caller's formatter so its flags apply to every field.
+impl std::fmt::Debug for ProviderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ProviderErrorFields { kind, code, status, retry_after, reset_at, quota_scope, reauth_required, recovery_exhausted, recovery_terminal, should_retry, exposure, delivery, transport, connection, message, partial_usage, partial_model, partial_replay, partial_thinking_blocks, partial_tool_calls, verification_url, rejected_tool, account_blocked, notices, unsafe_to_retry, timed_out, quota_limit, finish_reason, timeout_phase, ws_phase, failing_image, tail_refusal, image_refusal, fallback_model } = &*self.0;
+        f.debug_struct("ProviderError")
+            .field("kind", kind)
+            .field("code", code)
+            .field("status", status)
+            .field("retry_after", retry_after)
+            .field("reset_at", reset_at)
+            .field("quota_scope", quota_scope)
+            .field("reauth_required", reauth_required)
+            .field("recovery_exhausted", recovery_exhausted)
+            .field("recovery_terminal", recovery_terminal)
+            .field("should_retry", should_retry)
+            .field("exposure", exposure)
+            .field("delivery", delivery)
+            .field("transport", transport)
+            .field("connection", connection)
+            .field("message", message)
+            .field("partial_usage", partial_usage)
+            .field("partial_model", partial_model)
+            .field("partial_replay", partial_replay)
+            .field("partial_thinking_blocks", partial_thinking_blocks)
+            .field("partial_tool_calls", partial_tool_calls)
+            .field("verification_url", verification_url)
+            .field("rejected_tool", rejected_tool)
+            .field("account_blocked", account_blocked)
+            .field("notices", notices)
+            .field("unsafe_to_retry", unsafe_to_retry)
+            .field("timed_out", timed_out)
+            .field("quota_limit", quota_limit)
+            .field("finish_reason", finish_reason)
+            .field("timeout_phase", timeout_phase)
+            .field("ws_phase", ws_phase)
+            .field("failing_image", failing_image)
+            .field("tail_refusal", tail_refusal)
+            .field("image_refusal", image_refusal)
+            .field("fallback_model", fallback_model)
+            .finish()
+    }
+}
 
 impl std::ops::Deref for ProviderError {
     type Target = ProviderErrorFields;

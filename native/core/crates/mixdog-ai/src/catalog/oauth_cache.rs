@@ -439,12 +439,13 @@ impl OauthModelCache {
         let discarded = self
             .io
             .write_job(move |lane| {
-                let names = match mixdog_statefile::list_dir(lane, &dir) {
-                    Ok(names) => names,
+                let entries = match mixdog_fsio::read_dir(lane, &dir) {
+                    Ok(entries) => entries,
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
                     Err(error) => return Err(error),
                 };
-                for name in names {
+                for entry in entries {
+                    let name = entry?.file_name().to_string_lossy().into_owned();
                     let keyed = name.strip_prefix(&stem).and_then(|rest| rest.strip_prefix('.')).and_then(|rest| rest.strip_suffix(".json"));
                     if keyed.is_some_and(|key| !key.is_empty()) && keep.as_deref() != Some(name.as_str()) {
                         match mixdog_statefile::remove_file(lane, &dir.join(&name)) {

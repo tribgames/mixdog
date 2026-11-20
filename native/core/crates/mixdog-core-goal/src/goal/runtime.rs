@@ -429,7 +429,7 @@ impl Inner {
         };
         let path = record_path(&self.root, id);
         // Taken before the read, so a replacement landing during it reads as a change next time.
-        let stamp = storage::file_stamp(&path).ok().flatten();
+        let stamp = storage::file_stamp(lane, &path).ok().flatten();
         let goal = storage::read_record(lane, &path, id, at, &mut normalize)?;
         Ok((goal, stamp))
     }
@@ -451,7 +451,7 @@ impl Inner {
     pub(crate) async fn cached_observed(self: &Arc<Self>, slot: &Arc<Slot>, id: &str) -> GoalResult<(Option<Goal>, Option<String>)> {
         let (inner, slot, id) = (self.clone(), slot.clone(), id.to_owned());
         let job = move |lane: &InLane<DurabilityIo>| -> GoalResult<(Option<Goal>, Option<String>)> {
-            let stamp = match storage::file_stamp(&record_path(&inner.root, &id)) {
+            let stamp = match storage::file_stamp(lane, &record_path(&inner.root, &id)) {
                 Ok(stamp) => stamp,
                 Err(error) => {
                     // A read that fails for a passing reason keeps the cached copy.

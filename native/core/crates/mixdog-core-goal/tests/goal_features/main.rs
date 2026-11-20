@@ -370,7 +370,7 @@ async fn expiry_cleanup_deletes_only_the_record_it_observed() {
     rig.say("ship it").await;
     let root = rig.dir.path().join("goals");
     let path = root.join("s1.json");
-    let observed = storage::file_stamp(&path).unwrap();
+    let observed = storage::file_stamp(&mixdog_fsio::Unlaned, &path).unwrap();
     let delete = |observed: Option<String>| {
         let root = root.clone();
         on_lane(move |lane| storage::delete_if_unchanged(lane, &root, "s1", &observed).unwrap())
@@ -388,7 +388,7 @@ async fn expiry_cleanup_deletes_only_the_record_it_observed() {
     assert!(!delete(observed).await);
     assert!(path.exists());
     // The record that was observed is the one removed.
-    assert!(delete(storage::file_stamp(&path).unwrap()).await);
+    assert!(delete(storage::file_stamp(&mixdog_fsio::Unlaned, &path).unwrap()).await);
     assert!(!path.exists());
     rig.runtime.close().await;
 }
@@ -399,13 +399,13 @@ async fn a_same_length_replacement_with_the_old_times_changes_the_generation() {
     let rig = Rig::new();
     rig.say("ship it").await;
     let path = rig.dir.path().join("goals").join("s1.json");
-    let before = storage::file_stamp(&path).unwrap();
+    let before = storage::file_stamp(&mixdog_fsio::Unlaned, &path).unwrap();
     let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
     let swap = path.with_extension("swap");
     std::fs::write(&swap, std::fs::read(&path).unwrap()).unwrap();
     std::fs::File::options().write(true).open(&swap).unwrap().set_modified(modified).unwrap();
     std::fs::rename(&swap, &path).unwrap();
-    assert_ne!(storage::file_stamp(&path).unwrap(), before, "identity and change time tell an atomic replacement");
+    assert_ne!(storage::file_stamp(&mixdog_fsio::Unlaned, &path).unwrap(), before, "identity and change time tell an atomic replacement");
     rig.runtime.close().await;
 }
 
