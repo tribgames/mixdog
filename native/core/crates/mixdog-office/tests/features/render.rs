@@ -321,7 +321,7 @@ fn cancelled_reads_do_not_hand_back_cached_visual_evidence() {
     assert_eq!(draw(&engine, &handle, json!({}), dir.path()).expect_err("aborted"), "This operation was aborted");
 }
 
-// ---- incremental decks ----
+// incremental decks
 
 // The edit is made to the package here, as a batch would make it.
 #[test]
@@ -395,7 +395,7 @@ fn shared_resource_changes_invalidate_all_page_signatures_and_a_failed_refresh_c
     assert!(session.caches.render.is_none() && session.caches.page_render.is_none());
 }
 
-// ---- what the render action adds ------------------------------------------------------------------------------------------------
+// what the render action adds
 
 #[test]
 fn a_deck_refuses_more_than_twelve_explicit_pages_and_pages_outside_it() {

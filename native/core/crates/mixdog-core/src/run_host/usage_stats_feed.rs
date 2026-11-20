@@ -1,6 +1,6 @@
 //! The producer of the `usage` section (desktop-services §15 P7), for both entries the renderer reads.
 //!
-//! The statistics dialog and the usage dashboard of a remote client no longer re-read on a timer: the
+//! The statistics dialog and the usage dashboard of a remote client do not re-read on a timer: the
 //! core publishes the answer the service gives to the renderer's own question, as the `usage` section.
 //!
 //! * key [`STATS_KEY`]: what `usage/getUsageStats` answers to `{ view: 'hour' }`, the reading

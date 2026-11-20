@@ -315,6 +315,69 @@ fn share_column_widths(table: &Com, columns: i32) -> Result<()> {
     Ok(())
 }
 
+fn table_insertion_range(document: &Obj, op: &Value) -> Result<Com> {
+    if truthy(&prop(op, "paragraph")) {
+        let range = super::item(&document.get("Paragraphs")?, cast_int(&prop(op, "paragraph"))?)?.member("Range")?.member("Duplicate")?;
+        range.call_member("Collapse", &[Com::I4(0)])?;
+        return Ok(range);
+    }
+    // A second table added in a row went right after the first and read back as one (tableCount 1).
+    let paragraphs = document.get("Paragraphs")?;
+    let at = append::end_paragraph(document, true)?;
+    let range = super::item(&paragraphs, at)?.member("Range")?.member("Duplicate")?;
+    range.call_member("Collapse", &[Com::I4(1)])?;
+    Ok(range)
+}
+
+fn fill_cells(table: &Com, values: &[Value], rows: i32, columns: i32) -> Result<()> {
+    for row in 1..=rows {
+        for column in 1..=columns {
+            if row as usize <= values.len() && column as usize <= pipeline_items(&values[(row - 1) as usize]).len() {
+                let cells = pipeline_items(&values[(row - 1) as usize]);
+                table
+                    .call_member("Cell", &[Com::I4(row), Com::I4(column)])?
+                    .member("Range")?
+                    .set_member("Text", Com::from(text_of(&cells[(column - 1) as usize])))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn style_total_row(table: &Com, rows: i32) -> Result<()> {
+    let total = super::item(&table.member("Rows")?, rows)?;
+    total.member("Range")?.member("Font")?.set_member("Bold", Com::I4(-1))?;
+    let rule = super::item(&total.member("Borders")?, -1)?;
+    rule.set_member("LineStyle", Com::I4(1))?;
+    rule.set_member("LineWidth", Com::I4(8))?;
+    rule.set_member("Color", Com::I4(convert::color_value("374151").map_err(Error::host)?))?;
+    Ok(())
+}
+
+/// One row's own type (rowStyles[row]: fontSize, color, bold) over the table's, with the row's exact line pitch following
+/// its size.
+fn apply_row_styles(table: &Com, rows: i32, row_styles: &[Value]) -> Result<()> {
+    for row in 1..=rows.min(row_styles.len() as i32) {
+        let style = &row_styles[(row - 1) as usize];
+        if style.is_null() {
+            continue;
+        }
+        let row_range = super::item(&table.member("Rows")?, row)?.member("Range")?;
+        if truthy(&prop(style, "fontSize")) {
+            row_range.member("Font")?.set_member("Size", r4(&prop(style, "fontSize"))?)?;
+            row_range.member("ParagraphFormat")?.set_member("LineSpacingRule", Com::I4(4))?;
+            row_range.member("ParagraphFormat")?.set_member("LineSpacing", line_pitch(cast_single(&prop(style, "fontSize"))?))?;
+        }
+        if truthy(&prop(style, "color")) {
+            row_range.member("Font")?.set_member("Color", color_of(&prop(style, "color"))?)?;
+        }
+        if !prop(style, "bold").is_null() {
+            row_range.member("Font")?.set_member("Bold", flag(&prop(style, "bold"), -1))?;
+        }
+    }
+    Ok(())
+}
+
 /// `add_table`.
 pub(super) fn add_table(document: &Obj, op: &Value) -> Result<Value> {
     let values = pipeline_items(&prop(op, "values"));
@@ -334,30 +397,9 @@ pub(super) fn add_table(document: &Obj, op: &Value) -> Result<Value> {
     } else {
         1
     };
-    let range = if truthy(&prop(op, "paragraph")) {
-        let range = super::item(&document.get("Paragraphs")?, cast_int(&prop(op, "paragraph"))?)?.member("Range")?.member("Duplicate")?;
-        range.call_member("Collapse", &[Com::I4(0)])?;
-        range
-    } else {
-        // A second table added in a row went right after the first and read back as one (tableCount 1).
-        let paragraphs = document.get("Paragraphs")?;
-        let at = append::end_paragraph(document, true)?;
-        let range = super::item(&paragraphs, at)?.member("Range")?.member("Duplicate")?;
-        range.call_member("Collapse", &[Com::I4(1)])?;
-        range
-    };
+    let range = table_insertion_range(document, op)?;
     let table = document.get("Tables")?.call_member("Add", &[range, Com::I4(rows), Com::I4(columns)])?;
-    for row in 1..=rows {
-        for column in 1..=columns {
-            if row as usize <= values.len() && column as usize <= pipeline_items(&values[(row - 1) as usize]).len() {
-                let cells = pipeline_items(&values[(row - 1) as usize]);
-                table
-                    .call_member("Cell", &[Com::I4(row), Com::I4(column)])?
-                    .member("Range")?
-                    .set_member("Text", Com::from(text_of(&cells[(column - 1) as usize])))?;
-            }
-        }
-    }
+    fill_cells(&table, &values, rows, columns)?;
     let props = prop(op, "properties");
     let mut style_not_found: Vec<String> = Vec::new();
     if truthy(&prop(&props, "style")) {
@@ -478,35 +520,10 @@ pub(super) fn add_table(document: &Obj, op: &Value) -> Result<Value> {
     }
     // The last row is the total when totalRow is set: bold over a rule.
     if eq_true(&prop(&props, "totalRow")) && rows > 1 {
-        let total = super::item(&table.member("Rows")?, rows)?;
-        total.member("Range")?.member("Font")?.set_member("Bold", Com::I4(-1))?;
-        let rule = super::item(&total.member("Borders")?, -1)?;
-        rule.set_member("LineStyle", Com::I4(1))?;
-        rule.set_member("LineWidth", Com::I4(8))?;
-        rule.set_member("Color", Com::I4(convert::color_value("374151").map_err(Error::host)?))?;
+        style_total_row(&table, rows)?;
     }
-    // One row's own type (rowStyles[row]: fontSize, color, bold) over the table's, with the row's exact line pitch following
-    // its size.
     if truthy(&prop(&props, "rowStyles")) {
-        let row_styles = pipeline_items(&prop(&props, "rowStyles"));
-        for row in 1..=rows.min(row_styles.len() as i32) {
-            let style = &row_styles[(row - 1) as usize];
-            if style.is_null() {
-                continue;
-            }
-            let row_range = super::item(&table.member("Rows")?, row)?.member("Range")?;
-            if truthy(&prop(style, "fontSize")) {
-                row_range.member("Font")?.set_member("Size", r4(&prop(style, "fontSize"))?)?;
-                row_range.member("ParagraphFormat")?.set_member("LineSpacingRule", Com::I4(4))?;
-                row_range.member("ParagraphFormat")?.set_member("LineSpacing", line_pitch(cast_single(&prop(style, "fontSize"))?))?;
-            }
-            if truthy(&prop(style, "color")) {
-                row_range.member("Font")?.set_member("Color", color_of(&prop(style, "color"))?)?;
-            }
-            if !prop(style, "bold").is_null() {
-                row_range.member("Font")?.set_member("Bold", flag(&prop(style, "bold"), -1))?;
-            }
-        }
+        apply_row_styles(&table, rows, &pipeline_items(&prop(&props, "rowStyles")))?;
     }
     let table_index = super::int(&table.member("Index")?)?;
     let mut pairs = vec![

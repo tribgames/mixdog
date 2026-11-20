@@ -273,7 +273,7 @@ fn author_with(host: &Fake, args: Value, cwd: &str) -> Result<Value, AuthorError
     run(author(host, &args, &call(cwd, None)))
 }
 
-// ---- office-authoring.test.mjs --------------------------------------------------------------------------------------------
+// office-authoring.test.mjs
 
 #[test]
 fn author_without_a_script_points_at_the_pptx_skill_instead_of_serving_a_guide() {
@@ -546,7 +546,7 @@ fn a_cancellation_is_an_abort_whatever_raised_it() {
     assert!(throw_if_authoring_cancelled(Some(&signal), None).is_err_and(|error| error.message() == "Office authoring was cancelled"));
 }
 
-// ---- the gates (pptx-html-reauthor.slow.test.mjs, the brief and plan tests of the author route) ---------------------------
+// the gates (pptx-html-reauthor.slow.test.mjs, the brief and plan tests of the author route)
 
 const BRIEF_HTML: &str =
     "<!doctype html><!-- BRIEF\nsubject/audience/action: board - approve the plan\n--><section class=\"slide\"><h1>Revenue grew 41%</h1></section>";
@@ -624,7 +624,7 @@ fn a_re_author_reports_the_batch_edits_it_replaced_and_keeps_counting_audit_roun
     assert_eq!(lock(&session).authored.html_source_edits, 0);
 }
 
-// ---- the PDF route -------------------------------------------------------------------------------------------------------
+// the PDF route
 
 #[test]
 fn a_pdf_is_printed_landed_and_opened_as_a_created_pdf() {
@@ -663,7 +663,7 @@ fn a_flowing_pdf_reports_a_figure_its_brief_does_not_carry_and_still_lands() {
     assert!(result["facts"]["pages"][0]["figures"][0].as_str().expect("a figure").starts_with("41"));
 }
 
-// ---- the Word and Excel route --------------------------------------------------------------------------------------------
+// the Word and Excel route
 
 #[test]
 fn a_word_document_is_written_landed_and_opened_with_its_html_source_named() {

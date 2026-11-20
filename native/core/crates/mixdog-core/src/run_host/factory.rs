@@ -7383,7 +7383,7 @@ async fn drive(
             if let Some(turn_transcript) = &turn_transcript {
                 turn_transcript.final_text(output.response.history_content.as_deref().unwrap_or(&output.response.content));
             }
-            // The `Stop` hook is no longer asked here: the agent loop asks it when the model ends its turn, so a block can
+            // The `Stop` hook is not asked here: the agent loop asks it when the model ends its turn, so a block can
             // continue the turn (owner-approved difference from Node's `completeTurn`).
             sink.live.clear();
             progress.done(output.response.content.trim().is_empty());

@@ -183,7 +183,7 @@ fn whole<'t>(text: &'t str, found: &Caps<'_>) -> &'t str {
     &text[found.range()]
 }
 
-// ---- paragraphs ---------------------------------------------------------------------------------------------------
+// paragraphs
 
 /// `withoutHangingPunctuation`: the paragraph properties with `hangingPunct="0"`.
 fn without_hanging_punctuation(props: &str) -> String {
@@ -214,7 +214,7 @@ pub fn normalize_paragraph_properties(xml: &str) -> Paragraphs {
     Paragraphs { changed: output != xml, xml: output, removed }
 }
 
-// ---- charts -------------------------------------------------------------------------------------------------------
+// charts
 
 /// `normalizeChartSeries`: `invertIfNegative` only stays in bar and bubble series.
 fn normalize_chart_series(xml: &str) -> (String, usize) {
@@ -471,7 +471,7 @@ pub fn normalize_chart_fonts(xml: &str) -> ChartFonts {
     ChartFonts { xml: output, changed, face }
 }
 
-// ---- gradients ----------------------------------------------------------------------------------------------------
+// gradients
 
 /// `unit(value)`: a 0-1 value as the hundred-thousandths DrawingML takes.
 fn unit(value: f64) -> f64 {
@@ -606,7 +606,7 @@ pub fn native_gradients(xml: &str) -> Result<Counted, String> {
     }
 }
 
-// ---- icons --------------------------------------------------------------------------------------------------------
+// icons
 
 /// `relationshipsPart(slidePart)`.
 fn relationships_part(slide_part: &str) -> String {
@@ -671,7 +671,7 @@ fn attach_svg_icons(zip: &mut Package, slide_part: &str, xml: &str) -> (String, 
     (output, attached)
 }
 
-// ---- shape ids ----------------------------------------------------------------------------------------------------
+// shape ids
 
 /// `uniqueShapeIds`: one id per drawing object of a slide. pptxgenjs numbers a table's frame by its own rule (the
 /// table's ordinal times the slide number, plus one) while every other shape takes the next id, so a table and a text
@@ -698,7 +698,7 @@ pub fn unique_shape_ids(xml: &str) -> Counted {
     Counted { xml: output, changed }
 }
 
-// ---- schema order -------------------------------------------------------------------------------------------------
+// schema order
 
 const CAT_AX_ORDER: &[&str] = &[
     "axId",
@@ -865,7 +865,7 @@ pub fn order_chart_children(xml: &str) -> Rewrite {
     Rewrite { xml: output, changed }
 }
 
-// ---- the package --------------------------------------------------------------------------------------------------
+// the package
 
 /// `normalizeAuthoredPptx` on a package already read: the parts it changes are set in place (a new part, the notes
 /// master's own theme or an icon, goes last).

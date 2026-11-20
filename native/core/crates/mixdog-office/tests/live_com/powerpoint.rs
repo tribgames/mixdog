@@ -316,7 +316,7 @@ fn powerpoint_a_bar_chart_reads_top_down_or_bottom_up_as_category_order_asks_and
     live.close(&created["session"]);
 }
 
-// ---- decks the Node tests had pptxgenjs write ---------------------------------------------------------------------------------
+// decks the Node tests had pptxgenjs write
 
 const NS: &str = r#"xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main""#;
 const RELS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";

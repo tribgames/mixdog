@@ -65,7 +65,7 @@ use mixdog_raster::svg::SvgFonts;
 use mixdog_rt::{CancellationToken, LaneTokens};
 use serde_json::Value;
 
-// ---- the platform of the engine ---------------------------------------------------------------------------------------------
+// the platform of the engine
 
 /// The brief readings of the authoring crate.
 struct AuthoringBriefs;
@@ -225,7 +225,7 @@ impl Platform for LivePlatform {
     }
 }
 
-// ---- one live session of the suite ------------------------------------------------------------------------------------------
+// one live session of the suite
 
 /// The tests share one machine's Office (and its foreground), so they run one at a time.
 static SERIAL: Mutex<()> = Mutex::new(());
@@ -284,7 +284,7 @@ impl Drop for Live {
     }
 }
 
-// ---- reading what a call answered -------------------------------------------------------------------------------------------
+// reading what a call answered
 
 /// `result.content[0].text`.
 pub fn text_of(result: &Value) -> String {
@@ -407,7 +407,7 @@ pub fn wait_for_process_exit(process_id: u64) -> bool {
     false
 }
 
-// ---- a user's own Excel -----------------------------------------------------------------------------------------------------
+// a user's own Excel
 
 /// An Excel a PowerShell process started visible with a workbook open (`startExternalExcel`).
 pub struct ExternalExcel {

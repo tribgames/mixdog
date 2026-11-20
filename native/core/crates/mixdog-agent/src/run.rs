@@ -571,7 +571,7 @@ pub(crate) fn add_usage(total: Option<Usage>, next: &Usage) -> Usage {
 }
 
 impl Run {
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the run's independent collaborators, each supplied by the caller")]
     pub fn new(
         env: RunEnv,
         cancel: CancellationToken,

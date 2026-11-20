@@ -56,7 +56,7 @@ fn definition(kind: &str) -> Option<Definition> {
     })
 }
 
-// ---- JavaScript values ------------------------------------------------------------------------------------------------
+// JavaScript values
 
 /// JavaScript truthiness of a present value.
 pub fn truthy(value: &Value) -> bool {
@@ -126,7 +126,7 @@ fn text_cell(value: &Value) -> String {
     text_of(Some(value))
 }
 
-// ---- the block type ---------------------------------------------------------------------------------------------------
+// the block type
 
 /// `blockType(block)`: the declared type in lower case (`paragraph` when none), `fieldrow` read as `fieldRow`.
 pub fn block_type(block: &Value) -> String {
@@ -134,7 +134,7 @@ pub fn block_type(block: &Value) -> String {
     if declared == "fieldrow" { "fieldRow".to_owned() } else { declared }
 }
 
-// ---- the faults -------------------------------------------------------------------------------------------------------
+// the faults
 
 /// `forecastEntries(block)`: the bars that are projections, as an index, a category, or a list of them.
 pub fn forecast_entries(block: &Value) -> Vec<&Value> {
@@ -265,7 +265,7 @@ pub fn assert_pdf_blocks(blocks: &[Value]) -> Result<(), String> {
     }
 }
 
-// ---- the text of a block ----------------------------------------------------------------------------------------------
+// the text of a block
 
 /// `blockText(block)`: every string the block draws that the font must cover.
 pub fn block_text(block: &Value) -> String {

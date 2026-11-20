@@ -642,7 +642,6 @@ fn dated_cashflows(name: &str, a: &[V]) -> Result<V, Failure> {
         }
     }
 }
-macro_rules! functions {($($name:ident),+$(,)?)=>{$(fn $name(a:&[V])->Result<V,Failure>{run(stringify!($name),a)})+pub const FUNCTIONS:Table=&[$((stringify!($name),$name)),+];};}
 #[allow(non_snake_case)]
 mod exports {
     use super::*;

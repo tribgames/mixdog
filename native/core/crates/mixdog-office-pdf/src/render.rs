@@ -225,7 +225,7 @@ impl RenderedPages {
     }
 }
 
-// ---- the pages of a call ---------------------------------------------------------------------------------------------
+// the pages of a call
 
 /// `requestedPages`: the pages of the call, each once, in the order given (every page when none are named). More than
 /// twelve explicit pages are refused before any is checked; a page that is not a whole number inside the document is
@@ -271,7 +271,7 @@ fn scale_of(target_width: f64, page_width: f64, minimum_scale: f64, maximum_scal
     js_min(maximum_scale, js_max(minimum_scale, target_width_of(target_width) / page_width))
 }
 
-// ---- the page-number repaint -----------------------------------------------------------------------------------------
+// the page-number repaint
 
 /// The text of a page number as an export leaves it: `3 of 12`, `Page 3 / 12`, `페이지 3`, `3 페이지` (case of the Latin
 /// words free, white space around and between the parts free).
@@ -402,7 +402,7 @@ fn repaint_page_numbers<P: ReadProof>(proof: &P, registry: &Registry, canvas: &m
     Ok(())
 }
 
-// ---- one page --------------------------------------------------------------------------------------------------------
+// one page
 
 /// A page drawn: finished, or waiting for its page numbers to be repainted.
 enum Painted {
@@ -500,7 +500,7 @@ fn repaint_page<P: ReadProof>(
     Ok(PageImageData { width, height, png })
 }
 
-// ---- the lanes -------------------------------------------------------------------------------------------------------
+// the lanes
 
 fn lane_error(cancel: &CancellationToken, message: String) -> AnalysisError {
     AnalysisError::plain(if cancel.is_cancelled() { CANCELLED.to_owned() } else { message })
@@ -579,7 +579,7 @@ async fn write_images(
     }
 }
 
-// ---- file names ------------------------------------------------------------------------------------------------------
+// file names
 
 /// `join(dirname(path), name)` for names built from the stem of the PDF (`basename(path, extname(path))`).
 struct Beside {
@@ -603,7 +603,7 @@ impl Beside {
     }
 }
 
-// ---- the call --------------------------------------------------------------------------------------------------------
+// the call
 
 /// `renderPdfPages(path, options)`: see the module. `registry` is the font registry the repainted numbers and the
 /// sheet labels are set with; `note` hears of each image before it is written.

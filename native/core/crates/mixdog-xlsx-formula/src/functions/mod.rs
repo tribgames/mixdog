@@ -5,6 +5,15 @@
 
 use crate::registry::Table;
 
+/// Declares one `fn NAME(&[V]) -> Result<V, Failure>` per identifier, each forwarding to the module's `run` under its
+/// own name, and the module's `FUNCTIONS` table of them. Visible to the library modules declared below.
+macro_rules! functions {
+    ($($name:ident),* $(,)?) => {
+        $(fn $name(a: &[V]) -> Result<V, Failure> { run(stringify!($name), a) })*
+        pub const FUNCTIONS: Table = &[$((stringify!($name), $name)),*];
+    };
+}
+
 mod certified;
 mod distributions;
 mod jstat;

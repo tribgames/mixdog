@@ -84,7 +84,7 @@ fn round_to_hundredths(value: f64) -> Value {
     json_number(math::round(value * 100.0) / 100.0)
 }
 
-// ---- the defaults both backends share ---------------------------------------------------------------------------------
+// the defaults both backends share
 
 /// Excel fills an unstyled series from the workbook theme while the portable writer paints its own hue family, so the same
 /// `add_chart` drew two different charts. A chart that names no colours takes the portable palette on both backends; a named

@@ -81,7 +81,7 @@ fn then_by(first: f64, second: impl FnOnce() -> f64) -> f64 {
     if first != 0.0 && !first.is_nan() { first } else { second() }
 }
 
-// ---- unruled: rows of runs -----------------------------------------------------------------------------------------
+// unruled: rows of runs
 
 struct Cell {
     text: String,
@@ -210,7 +210,7 @@ fn aligned_tables(page: &PageLayout) -> Vec<PdfTable> {
     tables
 }
 
-// ---- ruled: rows of cell rectangles --------------------------------------------------------------------------------
+// ruled: rows of cell rectangles
 
 /// Text inside one cell, line by line; adjacent runs on a line are joined without a space unless the PDF left a gap
 /// between them.
@@ -399,7 +399,7 @@ pub fn infer_pdf_tables(layout: &PdfLayout) -> TableSet {
     TableSet { page_count: layout.page_count, tables, truncated: layout.truncated }
 }
 
-// ---- the JSON Node returns -------------------------------------------------------------------------------------------
+// the JSON Node returns
 
 impl PdfTable {
     pub fn to_json(&self) -> Value {

@@ -211,7 +211,7 @@ pub fn create<P: WriteProof>(proof: &P, note: &dyn WriteNote, path: &Path) -> Re
     mixdog_fsio::write(proof, path, b"").map_err(|error| io_message(&error, "open", path))
 }
 
-// ---- JavaScript coercions of the fields of an operation -------------------------------------------------------
+// JavaScript coercions of the fields of an operation
 
 /// `value == null ? '' : String(value)`.
 fn cell_text(value: Option<&Value>) -> String {
@@ -302,7 +302,7 @@ fn insert_empty<T: Default>(values: &mut Vec<T>, start: usize, count: usize) -> 
     Ok(())
 }
 
-// ---- cells -----------------------------------------------------------------------------------------------------
+// cells
 
 fn set_cell(rows: &mut Rows, row: u32, column: u32, value: String) {
     let (row, column) = (row as usize, column as usize);
@@ -337,7 +337,7 @@ fn cell_ref(row: usize, column: usize) -> String {
     format!("{}{}", column_label((column + 1) as f64), row + 1)
 }
 
-// ---- snapshot ----------------------------------------------------------------------------------------------------
+// snapshot
 
 /// `snapshotTabular`: the file as one sheet of populated cells. `options` is the tool's object: `sheet` (must name
 /// the file's sheet), `range` (A1), and `paged: true` with `offset` and `limit` for a page of populated cells.
@@ -422,7 +422,7 @@ fn snapshot_rows(path: &Path, format: Format, rows: &Rows, options: &Value) -> R
     Ok(snapshot)
 }
 
-// ---- operations --------------------------------------------------------------------------------------------------
+// operations
 
 /// `applyTabularBatch`: the operations in order on the file's rows, then one write. An operation that fails stops the
 /// batch before anything is written. Each operation's answer is in the result, in order.
@@ -528,7 +528,7 @@ fn apply_operation(rows: &mut Rows, format: Format, operation: &Value) -> Result
     }
 }
 
-// ---- validation --------------------------------------------------------------------------------------------------
+// validation
 
 struct Structure {
     ok: bool,

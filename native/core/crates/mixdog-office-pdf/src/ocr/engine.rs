@@ -336,7 +336,7 @@ pub fn shared(lanes: LaneTokens) -> &'static Arc<OcrEngines> {
     SHARED.get_or_init(|| Arc::new(OcrEngines::new(Arc::new(ManagedTesseract::new(lanes)))))
 }
 
-// ---- the managed Tesseract program ----------------------------------------------------------------------------------
+// the managed Tesseract program
 
 /// Starts the managed Tesseract: the program and each language's data are fetched when missing.
 pub struct ManagedTesseract {

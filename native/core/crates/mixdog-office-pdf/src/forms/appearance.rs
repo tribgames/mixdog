@@ -25,7 +25,7 @@ use super::{
 const MIN_FONT_SIZE: f64 = 4.0;
 const MAX_FONT_SIZE: f64 = 500.0;
 
-// ---- colours -------------------------------------------------------------------------------------------------------
+// colours
 
 /// A colour of the three device spaces pdf-lib draws with.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -65,7 +65,7 @@ fn components_to_color(components: Option<&[f64]>, scale: f64) -> Option<Color> 
     }
 }
 
-// ---- operators -----------------------------------------------------------------------------------------------------
+// operators
 
 fn op(name: &str, args: &[f64]) -> String {
     let mut out = String::new();
@@ -402,7 +402,7 @@ fn draw_button(style: &BoxStyle, line: &TextPosition) -> Vec<String> {
     ops
 }
 
-// ---- text layout ---------------------------------------------------------------------------------------------------
+// text layout
 
 #[derive(Debug, Clone, Copy)]
 struct Bounds {
@@ -637,7 +637,7 @@ fn layout_combed_text(text: &str, font_size: Option<f64>, font: &Font, bounds: B
     Ok((cells, font_size))
 }
 
-// ---- default appearance strings ------------------------------------------------------------------------------------
+// default appearance strings
 
 static TF_WITH_SIZE: LazyLock<JsRegex> =
     LazyLock::new(|| JsRegex::new_static(r"/([^\x00\t\n\f\r\x20]+)[\x00\t\n\f\r\x20]+(\d*\.\d+|\d+)[\x00\t\n\f\r\x20]+Tf", ""));
@@ -676,7 +676,7 @@ fn update_default_appearance(store: &mut ObjectStore, target: Option<Ref>, color
     set_key(store, target, "DA", latin1_object(&da));
 }
 
-// ---- providers -----------------------------------------------------------------------------------------------------
+// providers
 
 /// `reduceRotation`: the rotation of a widget's `MK` as one of 0, 90, 180 and 270.
 fn reduce_rotation(degrees: Option<f64>) -> u32 {
@@ -887,7 +887,7 @@ fn button_ops(store: &mut ObjectStore, field: Ref, widget: &Widget, font: &FormF
     Ok(Drawn::Pair { normal, down })
 }
 
-// ---- writing the streams into the widgets --------------------------------------------------------------------------
+// writing the streams into the widgets
 
 fn numbers(values: &[f64]) -> Obj {
     Obj::Array(Arc::new(values.iter().map(|value| Obj::Num(*value)).collect()))
