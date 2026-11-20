@@ -857,6 +857,8 @@ mio 1.2.4 [MIT]
     Copyright (c) 2014 Carl Lerche and other MIO contributors
 moxcms 0.7.11 [BSD-3-Clause OR Apache-2.0]
     (no copyright line in its licence files) authors: Radzivon Bartoshyk
+moxcms 0.8.1 [BSD-3-Clause OR Apache-2.0]
+    (no copyright line in its licence files) authors: Radzivon Bartoshyk
 multiversion_no_op 1.0.0 [Apache-2.0 OR MIT]
     Copyright Mozilla Foundation
 munge 0.4.7 [MIT]

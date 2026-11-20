@@ -50,7 +50,6 @@ libc = { version = "0.2", features = ["extra_traits"] }
 litemap = { version = "0.8", default-features = false, features = ["alloc"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
-moxcms = { version = "0.7", features = ["options"] }
 nom = { version = "7" }
 num-traits = { version = "0.2", features = ["i128"] }
 once_cell = { version = "1" }
