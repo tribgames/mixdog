@@ -744,6 +744,11 @@ impl PromptEditor {
             return;
         }
 
+        self.handle_edit_key(raw, &input_key, key, shift_held, cb);
+    }
+
+    /// The history, selection, edit-chord and printable-text keys, the last of the key dispatch.
+    fn handle_edit_key(&mut self, raw: &str, input_key: &str, key: &KeyFlags, shift_held: bool, cb: &mut dyn PromptCallbacks) {
         // Undo and redo. Kitty reports Ctrl+Z as `z` with ctrl (and Ctrl+Shift+Z for redo); legacy terminals send the control
         // bytes 0x1A and 0x19, which can arrive without ctrl set, so the byte is matched too.
         let ctrl_z = (key.ctrl && input_key == "z") || raw == "\x1a";
@@ -775,7 +780,7 @@ impl PromptEditor {
             self.update(|d| move_cursor(d, line_end(&d.value, d.cursor), key.shift), cb);
             return;
         }
-        if let Some(next) = apply_edit_chord(key, &input_key, &self.draft) {
+        if let Some(next) = apply_edit_chord(key, input_key, &self.draft) {
             self.commit(next, cb);
             return;
         }
