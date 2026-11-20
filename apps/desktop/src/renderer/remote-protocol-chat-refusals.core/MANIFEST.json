@@ -3,12 +3,12 @@
   "recordings": [
     {
       "file": "01.json",
-      "sha256": "ad886d5908b945f83554251d925b6801388705a35a81062bab0dfb13909fd30b"
+      "sha256": "53c0b546d156b995cac8def807554ddf080f58e43542f3595ce74905fb0bf502"
     }
   ],
   "recorder": {
     "remote-protocol-chat-refusals.record.mjs": "cab7bfae3528e5bf62b9b7eb4efc8e852f3ea3e0c513587d92bc82cfaae82795",
-    "../../../../packages/protocol-client/src/client.ts": "6e3ab9f0c19fab484d6c89a98da3e237e84d8b24aeeff916bb62cfd575814146",
+    "../../../../packages/protocol-client/src/client.ts": "7cec6d86942eb9012ce0fafa298ce60c39647379a79622aec43e602eee879344",
     "../main/protocol/service-route.ts": "690a6ca7093920aba55215e7739abc3413870b250c2a1a91a5e1007e88facaf5",
     "../shared/core-lanes/service-route.ts": "9745e75744ca69112275604b9741edaf585ed34640593470bc5609a1a53d5e27",
     "remote-protocol-chat-abort-live.mjs": "ec034a7db6968adf45dc03d35db33ac674a22d20462b984d0721f83c456a169e",
