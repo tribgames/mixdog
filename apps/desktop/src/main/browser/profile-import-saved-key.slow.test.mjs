@@ -130,7 +130,7 @@ function fakeEncryption(available = true) {
 
 let sequence = 0;
 /** A fresh Chrome profile fixture, Mixdog data directory and service. */
-function world(t, { scenario = {}, encryption = fakeEncryption() } = {}) {
+function world(_t, { scenario = {}, encryption = fakeEncryption() } = {}) {
   sequence += 1;
   const dir = join(root, `world-${sequence}`);
   const chrome = join(dir, 'chrome');
