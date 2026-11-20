@@ -28,7 +28,7 @@ use async_trait::async_trait;
 use mixdog_ai::catalog::ProviderReadiness;
 use mixdog_ai::service::admin_route::Obj;
 use mixdog_ai::service::admin_route::clean;
-use mixdog_ai::service::admin_route::ensure_provider_enabled;
+use mixdog_core_config::config::Config;
 use serde_json::Value;
 use serde_json::json;
 
@@ -48,12 +48,15 @@ pub trait StatuslineSink: Send + Sync {
 pub trait UsagePrep: Send + Sync {
     async fn keychain_prewarm(&self);
     fn ensure_config_for_route_provider(&self);
-    async fn ensure_provider_ready(&self, provider: &str) -> Result<(), String>;
+    /// `false` when the user switched `provider` off: nothing is readied and the warm-up ends.
+    async fn ensure_provider_ready(&self, provider: &str) -> Result<bool, String>;
 }
 
-/// The daemon's preparation: its keychain, the loaded config and the provider readiness.
+/// The daemon's preparation: its keychain, the stored and the loaded config and the provider readiness.
 pub struct ReadinessPrep {
     pub keychain: Arc<dyn KeychainLive>,
+    /// The stored config: the user's own decisions.
+    pub config: Config,
     /// `getConfig()`: the loaded config.
     pub loaded: Arc<LoadedConfig>,
     pub readiness: Arc<ProviderReadiness>,
@@ -69,16 +72,27 @@ impl UsagePrep for ReadinessPrep {
     /// nothing further to load.
     fn ensure_config_for_route_provider(&self) {}
 
-    async fn ensure_provider_ready(&self, provider: &str) -> Result<(), String> {
-        let config = self.loaded.get();
-        self.readiness.ensure_providers_ready(Some(ensure_provider_enabled(&config, provider))).await.map(drop).map_err(|error| error.message)
+    /// The loaded providers with the route's provider switched on, unless the stored config switches it off now. The
+    /// loaded config's `enabled: false` is also the credential probe's for an account that is not signed in, which is
+    /// prepared all the same, and the loaded config may predate a switch-off: only the stored `enabled` decides, as it
+    /// outranks the probe in the loaded config.
+    async fn ensure_provider_ready(&self, provider: &str) -> Result<bool, String> {
+        let stored = self.config.agent();
+        if stored.get("providers").and_then(|providers| providers.get(provider)).and_then(|entry| entry.get("enabled")) == Some(&Value::Bool(false)) {
+            return Ok(false);
+        }
+        let mut providers = self.loaded.providers();
+        let mut entry = providers.get(provider).and_then(Value::as_object).cloned().unwrap_or_default();
+        entry.insert("enabled".into(), Value::Bool(true));
+        providers.insert(provider.to_owned(), Value::Object(entry));
+        self.readiness.ensure_providers_ready(Some(providers)).await.map(|()| true).map_err(|error| error.message)
     }
 }
 
 /// `timers.statuslineUsageWarmupTimer`.
 const SLOT: &str = "statuslineUsageWarmupTimer";
 /// The refresh after a settled turn, a job with no timer.
-const AFTER_TURN: &str = "statuslineUsageAfterTurn";
+pub(super) const AFTER_TURN: &str = "statuslineUsageAfterTurn";
 
 struct Bindings {
     /// `getRoute()`: the live Main route.
@@ -204,20 +218,22 @@ impl StatuslineWarmup {
 
     /// `warmStatuslineUsage`: a parked run may wake after the route left OAuth; a busy runtime parks it again.
     async fn run(&self, bound: &Bindings) {
-        {
+        let route = {
             let mut state = self.state();
             state.pending = false;
-            if bound.gates.closing() || bound.oauth_route().is_none() {
+            if bound.gates.closing() {
                 return;
             }
+            let Some(route) = bound.oauth_route() else { return };
             if let Some(reason) = bound.gates.busy() {
                 state.parked = true;
                 drop(state);
                 bound.gates.profile("statusline-usage:warm-deferred", Some(json!({ "reason": reason })));
                 return;
             }
-        }
-        match Self::refresh_idle(bound).await {
+            route
+        };
+        match Self::refresh_idle(bound, &route).await {
             // Node's mark after the preparation and the dispatch of the refresh, only for the scheduled warm (not a settled turn).
             Ok(Some(provider)) => bound.gates.profile("statusline-usage:warm-ready", Some(json!({ "provider": provider }))),
             Ok(None) => {}
@@ -225,22 +241,20 @@ impl StatuslineWarmup {
         }
     }
 
-    /// `refreshIdleStatuslineUsage`: the keychain and the config loaded, the route's provider prepared, then the reading
-    /// of the route that was prepared (not of one selected while the preparation was pending). The provider of the route
-    /// whose reading was dispatched, or none when the runtime was closing.
-    async fn refresh_idle(bound: &Bindings) -> Result<Option<String>, String> {
+    /// `refreshIdleStatuslineUsage` of `route`, the OAuth route the trigger checked: the keychain and the config loaded,
+    /// its provider prepared, then its reading (never of a route selected meanwhile). The provider whose reading was
+    /// dispatched, or none when the runtime was closing or the user switched the provider off.
+    async fn refresh_idle(bound: &Bindings, route: &Obj) -> Result<Option<String>, String> {
         bound.prep.keychain_prewarm().await;
         if bound.gates.closing() {
             return Ok(None);
         }
         bound.prep.ensure_config_for_route_provider();
-        let route = (bound.route)();
         let provider = clean(route.get("provider"));
-        bound.prep.ensure_provider_ready(&provider).await?;
-        if bound.gates.closing() {
+        if !bound.prep.ensure_provider_ready(&provider).await? || bound.gates.closing() {
             return Ok(None);
         }
-        bound.sink.refresh_route(&route);
+        bound.sink.refresh_route(route);
         Ok(Some(provider))
     }
 
@@ -256,14 +270,15 @@ impl StatuslineWarmup {
     /// dropped: the usage display never affects the session runtime.
     pub fn turn_settled(self: &Arc<Self>) {
         let Some(bound) = self.bound.get() else { return };
-        if bound.gates.closing() || bound.oauth_route().is_none() {
+        if bound.gates.closing() {
             return;
         }
+        let Some(route) = bound.oauth_route() else { return };
         let this = self.clone();
         bound.gates.running(AFTER_TURN, true);
         drop(mixdog_rt::spawn("statusline-usage-turn", mixdog_rt::TaskClass::Work, async move {
             if let Some(bound) = this.bound.get() {
-                let _ = Self::refresh_idle(bound).await;
+                let _ = Self::refresh_idle(bound, &route).await;
                 bound.gates.running(AFTER_TURN, false);
             }
         }));

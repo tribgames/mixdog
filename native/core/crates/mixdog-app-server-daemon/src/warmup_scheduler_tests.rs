@@ -259,8 +259,8 @@ impl UsagePrep for Port {
     fn ensure_config_for_route_provider(&self) {
         self.0.with(|inner| inner.calls.push(json!("config")));
     }
-    async fn ensure_provider_ready(&self, _provider: &str) -> Result<(), String> {
-        ProviderInit::ensure_providers_ready(self).await
+    async fn ensure_provider_ready(&self, _provider: &str) -> Result<bool, String> {
+        ProviderInit::ensure_providers_ready(self).await.map(|()| true)
     }
 }
 

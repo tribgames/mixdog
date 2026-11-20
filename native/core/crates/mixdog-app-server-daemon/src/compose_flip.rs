@@ -5067,6 +5067,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             },
             Arc::new(mixdog_core_domains::domains::ai_admin::statusline_warmup::ReadinessPrep {
                 keychain: keychain_live.clone(),
+                config: config.clone(),
                 loaded: loaded_config.clone(),
                 readiness: readiness.clone(),
             }),
