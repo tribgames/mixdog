@@ -191,6 +191,12 @@ impl SocketWrite for EndWrite {
     }
 }
 
+// The server's own minimal-params generator, over the same checked-in schema. Declared here, not inside `mod tests`, so the path
+// resolves from src/ (a path inside an inline module goes through src/server/tests/, which does not exist).
+#[cfg(test)]
+#[path = "../../mixdog-app-server/src/tests/samples.rs"]
+mod sample;
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -202,9 +208,7 @@ mod tests {
     use crate::compose::ComposeConfig;
     use crate::compose::compose;
 
-    // The server's own minimal-params generator, over the same checked-in schema.
-    #[path = "../../../../mixdog-app-server/src/tests/samples.rs"]
-    mod sample;
+    use super::sample;
 
     async fn reply(halves: &mut mixdog_app_server_client::api::TransportHalves, id: u64) -> serde_json::Value {
         loop {

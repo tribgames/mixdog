@@ -958,7 +958,7 @@ mod tests {
 
 impl DesktopHostBackend {
     pub fn new(desktop: Arc<dyn HostChannel>, blobs: Arc<dyn ComputerBlobs>, session_id: impl Into<String>, observe_only: ObserveOnly) -> Self {
-        Self { desktop, blobs, session_id: session_id.into(), observe_only, bound: AtomicBool::new(false), secret_focus: AtomicBool::new(false), screen: Screen::default(), authority: Authority::default() }
+        Self { desktop, blobs, session_id: session_id.into(), observe_only, bound: AtomicBool::new(false), secret_focus: AtomicBool::new(false), screen: Default::default(), authority: Authority::default() }
     }
 
     /// Hands commands to the desktop's host only under `authority`.

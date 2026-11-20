@@ -370,7 +370,8 @@ pub(crate) mod imageio {
             CGContextRelease(context);
             CGImageRelease(image);
             // The context holds premultiplied alpha; the raster keeps straight alpha like every other decoder here.
-            for px in data.chunks_exact_mut(4) {
+            let (pixels, _) = data.as_chunks_mut::<4>();
+            for px in pixels {
                 let a = u32::from(px[3]);
                 if a != 0 && a != 255 {
                     for c in &mut px[..3] {
