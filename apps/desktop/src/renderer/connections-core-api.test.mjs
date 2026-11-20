@@ -374,3 +374,115 @@ test('with_no_open_in_flight_a_call_without_a_client_is_refused_at_once', async 
   });
   await assert.rejects(() => api.sshListHosts(), /This window has no connection to the core\./);
 });
+
+// A client as the library shows it to the api: listeners it holds, a status, and a call that can be held open.
+const makeClient = (id, { hold = false } = {}) => {
+  const handlers = new Set();
+  const held = [];
+  return {
+    id,
+    handlers,
+    held,
+    status: { state: 'ready' },
+    async call(method) {
+      if (method !== 'connections/subscribe') return {};
+      if (hold) return new Promise((resolve) => held.push(() => resolve({ id: `sub-${id}` })));
+      return { id: `sub-${id}` };
+    },
+    on(handler) {
+      handlers.add(handler);
+      return () => handlers.delete(handler);
+    },
+  };
+};
+const rig = (first) => {
+  let current = first;
+  let changed = () => undefined;
+  const api = createConnectionsCoreApi({
+    client: () => current,
+    onClientChange: (listener) => ((changed = listener), () => undefined),
+    connection: () => undefined,
+    openExternal: async () => undefined,
+  });
+  return { api, set: (c) => (current = c), changed: () => changed() };
+};
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test('a_closed_client_is_let_go_and_a_listener_from_before_hears_the_next_one', async () => {
+  const first = makeClient('a');
+  const second = makeClient('b');
+  const r = rig(first);
+  const heard = [];
+  r.api.subscribeSshAskpass((p) => heard.push(p));
+  assert.equal(first.handlers.size, 1);
+  first.status.state = 'closed'; // the reopen closed it; the registry still answers with it
+  r.changed();
+  assert.equal(first.handlers.size, 0, 'a closed client keeps no listener of the api');
+  r.set(second);
+  r.changed();
+  [...second.handlers][0]({ type: 'notification', notification: { method: 'connections/ssh/askpass', params: 1 } });
+  assert.deepEqual(heard, [1]);
+});
+
+test('a_subscription_made_in_the_gap_is_kept_and_its_unsubscribe_works', async () => {
+  const closed = makeClient('a');
+  closed.status.state = 'closed'; // what the registry answers with until the replacement is accepted
+  const second = makeClient('b');
+  const r = rig(closed);
+  const heard = [];
+  const off = r.api.subscribeSshAskpass((p) => heard.push(p));
+  const never = r.api.subscribeSshProgress(() => assert.fail('unsubscribed'));
+  never();
+  assert.equal(closed.handlers.size, 0, 'a reopen that fails leaves nothing on the closed client');
+  r.set(second);
+  r.changed();
+  assert.equal(second.handlers.size, 1);
+  const emit = (method) =>
+    [...second.handlers][0]({ type: 'notification', notification: { method, params: 1 } });
+  emit('connections/ssh/askpass');
+  emit('connections/ssh/progress');
+  assert.deepEqual(heard, [1]);
+  off();
+  emit('connections/ssh/askpass');
+  assert.deepEqual(heard, [1]);
+});
+
+test('a_listener_added_before_the_replacement_is_accepted_does_not_cost_the_feed', async () => {
+  const first = makeClient('a');
+  const second = makeClient('b');
+  const calls = [];
+  const orig = second.call;
+  second.call = (method, params) => (calls.push(method), orig(method, params));
+  const r = rig(first);
+  r.api.subscribeSshHostsChanged(() => undefined);
+  await tick();
+  first.status.state = 'closed';
+  r.changed();
+  r.set(second); // the registry names the replacement before the connection accepts it
+  r.api.subscribeSshAskpass(() => undefined);
+  r.changed();
+  await tick();
+  assert.deepEqual(calls, ['connections/subscribe'], 'the replacement is asked for the feed, once');
+});
+
+test('a_feed_id_answered_by_the_old_client_after_the_switch_is_not_the_new_clients', async () => {
+  const first = makeClient('a', { hold: true });
+  const second = makeClient('b');
+  const calls = [];
+  const orig = second.call;
+  second.call = (method, params) => (calls.push(method), orig(method, params));
+  const r = rig(first);
+  const off = r.api.subscribeSshHostsChanged(() => undefined);
+  await tick();
+  assert.equal(first.held.length, 1, 'the old client has a subscribe outstanding');
+  first.status.state = 'closed';
+  r.set(second);
+  r.changed();
+  first.held[0](); // the old answer lands after the switch
+  await tick();
+  await tick();
+  assert.deepEqual(calls, ['connections/subscribe'], 'the replacement subscribes for itself');
+  off();
+  await tick();
+  assert.ok(calls.includes('connections/unsubscribe'));
+});

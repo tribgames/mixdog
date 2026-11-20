@@ -11,7 +11,7 @@ import { createSessionsApi } from './api-sessions.ts';
 import { createSettingsApi } from './api-settings.ts';
 import { createTakeoverApi } from './api-takeover.ts';
 import { createTerminalApi } from './api-terminal.ts';
-import { connectionsApi } from '../connections-core-api.ts';
+import { connectionsApi, releaseConnectionsClient } from '../connections-core-api.ts';
 import { CONNECTION_REATTACHED_EVENT } from '../desktop-connection';
 import { noteFirstPcCoreOpen, openDirectClient, pcCoreClient, reportCoreLink } from './client.ts';
 import { createDirectContext } from './context.ts';
@@ -55,6 +55,9 @@ export async function installDirectDesktopApi(options: InstallOptions = {}): Pro
     });
   }
   watchLocalCoreLink(connection);
+  // The connections api lives as long as the page: it lets go of a client the reopen closed, and follows the accepted one.
+  connection.onReopening(releaseConnectionsClient);
+  connection.onReplaced(releaseConnectionsClient);
   const ctx = createDirectContext(connection);
   const live = connection;
   const events = typeof window === 'undefined' ? undefined : window;
