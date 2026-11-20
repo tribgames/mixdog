@@ -64,7 +64,7 @@ use crate::registry::HandlerResult;
 use crate::registry::Outcome;
 use crate::registry::Registry;
 
-// ---- the platform of the engine -------------------------------------------------------------------------------------------
+// the platform of the engine
 
 /// The brief parser and readings of the authoring crate.
 struct AuthoringBriefs;
@@ -118,7 +118,7 @@ impl BatchHost for Machine {
     }
 }
 
-// ---- the call -------------------------------------------------------------------------------------------------------------
+// the call
 
 /// Execution gets the exact path that was approved, not the text that was given: `args.path` and `args.output`, each a string with
 /// something in it, are replaced by what `approve` makes of them against `cwd`.

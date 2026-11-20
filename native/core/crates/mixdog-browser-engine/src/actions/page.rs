@@ -107,7 +107,7 @@ pub struct PageCall<'a> {
     pub cancel: &'a CancellationToken,
 }
 
-// ---- the command's fields, read as JavaScript reads them ----
+// the command's fields, read as JavaScript reads them
 
 /// `Number.isFinite(value)` of a JSON value.
 pub(crate) fn finite(value: &Value) -> Option<f64> {
@@ -165,7 +165,7 @@ fn json_quote(text: &str) -> String {
     out
 }
 
-// ---- evaluate ----
+// evaluate
 
 /// What `evaluate` needs of the command and of what the engine holds for the page.
 pub struct EvaluateRequest<'a> {
@@ -314,7 +314,7 @@ pub async fn evaluate(call: &PageCall<'_>, ctx: &ReplyContext<'_>, request: &Eva
     Ok(EvaluateDone { result_text, kept_snapshot })
 }
 
-// ---- intercept ----
+// intercept
 
 /// A rule's pattern as the host holds it: a pattern without a wildcard is a substring (`normalizedPattern`).
 fn intercept_pattern(raw: &str) -> Result<String, PageActionError> {
@@ -389,7 +389,7 @@ pub async fn intercept(call: &PageCall<'_>, input: &Map<String, Value>) -> Resul
     }
 }
 
-// ---- init scripts ----
+// init scripts
 
 /// What a script is called in a list: its whitespace collapsed, cut to 80 characters.
 fn script_preview(source: &str) -> String {
@@ -444,7 +444,7 @@ pub async fn init_script(call: &PageCall<'_>, input: &Map<String, Value>) -> Res
     }
 }
 
-// ---- cookies ----
+// cookies
 
 /// The URL a cookie command names, in the form the report prints it (the host normalises it and applies the URL policy to the real one).
 fn named_url(raw: &str) -> String {
@@ -540,7 +540,7 @@ pub async fn cookies(call: &PageCall<'_>, page_url: &str, input: &Map<String, Va
     }
 }
 
-// ---- web storage ----
+// web storage
 
 /// Whether a storage key names a secret (`browserStorageKeyIsSensitive`): its value is never shown.
 pub fn storage_key_is_sensitive(name: &str) -> bool {
@@ -613,7 +613,7 @@ pub async fn storage(call: &PageCall<'_>, ctx: &ReplyContext<'_>, input: &Map<St
     Ok(StorageOutcome { reply: ToolReply::text(text), invalidates_refs: matches!(op.as_str(), "set" | "delete" | "clear") })
 }
 
-// ---- performance ----
+// performance
 
 /// One metric of `Performance.getMetrics`.
 #[derive(Debug, Clone, PartialEq, Default)]
