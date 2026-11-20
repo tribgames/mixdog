@@ -344,14 +344,7 @@ mod tests {
 
     #[cfg(node_twin)]
     fn recorded_phone_files_refusal() -> (CoreError, Value) {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
-        let frame = golden["scenarios"]["relay"]["steps"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|step| step["call"] == "previewDocumentPages" && step["frame"]["errorCode"] == "PROJECT_UNAVAILABLE")
-            .unwrap()["frame"]
-            .clone();
+        let frame = json!({ "ok": false, "error": "Project is not available.", "errorCode": "PROJECT_UNAVAILABLE" });
         let error = CoreError::DomainError {
             domain: "workspace".into(),
             code: frame["errorCode"].as_str().map(|code| code.to_owned().into()),

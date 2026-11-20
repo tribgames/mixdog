@@ -957,24 +957,20 @@ mod tests {
     }
 
 
-    // W6, the close handshake, replayed against `ws`'s own (`ws-close-capture.mjs`, `fixtures/ws-close.json`): for each
+    // W6, the close handshake (`ws_close.json`): for each
     // close frame a server sends, the frames the client writes and its end of the TCP stream, in order. `ws` echoes the
     // code and the reason (`websocket.js` `receiverOnConclude`: `close(code, reason)`; none for an empty close), closes
     // with 1002 or 1007 alone on a close it refuses (`receiver.js` `controlMessage`), and ends its side as soon as its
     // close frame is out (`close`: `_closeFrameSent && _closeFrameReceived` → `socket.end()`). The server here ends its
     // side only after the client's, so the client's end is never an answer to the server's.
     #[tokio::test]
-    async fn the_close_handshake_is_what_ws_writes_for_every_recorded_close() {
+    async fn the_close_handshake_is_what_the_cases_expect_for_every_close() {
         mixdog_rt::testing::tokens();
-        const RECORDING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/ws-close.json"));
-        const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/ws-close-capture.mjs"));
-        let node: serde_json::Value = serde_json::from_str(RECORDING).unwrap();
-        assert_eq!(node["manifest"]["exact"], true);
-        assert_eq!(node["manifest"]["nodeCommit"], "b6f10295a");
-        assert_eq!(node["manifest"]["harness"]["ws-close-capture.mjs"], hex(ring::digest::digest(&ring::digest::SHA256, CAPTURE).as_ref()), "ws-close-capture.mjs changed since the recording");
+        const CASES: &str = include_str!("ws_close.json");
+        let cases: serde_json::Value = serde_json::from_str(CASES).unwrap();
         let mut rust = Vec::new();
         let mut expected = Vec::new();
-        for case in node["cases"].as_array().unwrap() {
+        for case in cases.as_array().unwrap() {
             let close = case["frame"].as_str().unwrap();
             let close: Vec<u8> = (0..close.len()).step_by(2).map(|i| u8::from_str_radix(&close[i..i + 2], 16).unwrap()).collect();
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

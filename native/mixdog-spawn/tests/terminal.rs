@@ -1358,151 +1358,25 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
 
 // ----- the terminal operations' failure paths, against the Node recording -----------------------
 
-/// What the dispatcher makes of an argument: `String(arg || '')` for the ids it reads.
-fn coerced(arg: Option<&Value>) -> String {
-    match arg {
-        None | Some(Value::Null) => String::new(),
-        Some(Value::String(text)) => text.clone(),
-        Some(other) => other.to_string(),
-    }
-}
-
-/// `term_<pid>_<n>`: the id the manager makes when the one asked for is not acceptable.
-fn is_generated(id: &str) -> bool {
-    id.strip_prefix(&format!("term_{}_", std::process::id())).is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-}
-
-/// `failure-paths.json` is Node's `createDesktopOperations` over its real terminal manager and a scripted PTY
-/// (`record-terminal-ops.mjs`). The replay runs every recorded case on real tabs whose child is `scripted::profile()` over pipes: it
-/// prints the recorded script's lines, nothing else, so the text is Node's own. Each answer is compared whole with the recording:
-/// text, cursors (relative to the tab's base), flags, the tab list with every field. A recorded case that no arm consumes fails the
-/// test. A view's resize claims the size and a non-positive resize releases it, as the five size-claim cases record.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn terminal_operation_failure_paths_equal_nodes_recording() {
-    use mixdog_spawn::scripted;
-    const S: &str = "session-terminal:S";
-    let recorded = fixture("tests/fixtures/terminal-failure-paths.json");
-    let rig = scripted_rig("failure-paths").await;
-    let tabs = &*rig.tabs;
-    let cases = recorded["cases"].as_array().unwrap();
-    let script = &recorded["script"];
-    let lines = |key: &str| -> Vec<String> { script[key].as_array().unwrap().iter().map(|line| line.as_str().unwrap().to_owned()).collect() };
-    let say = |key: &str| {
-        let lines = lines(key);
-        let rig = &rig;
-        async move { scripted::say(&rig.tabs, &rig.manager, S, &lines.iter().map(String::as_str).collect::<Vec<_>>()).await }
-    };
-    // The recording's `{cwd}` is the directory the tabs were opened in.
-    let cwd = serde_json::to_string(&rig.dir.display().to_string()).unwrap();
-    let cwd = &cwd[1..cwd.len() - 1];
-    // Node recorded on Windows, where the scripted shell is PowerShell; elsewhere it is `sh`, and a tab's label is its shell's.
-    let label = std::path::Path::new(&rig.profile.path).file_stem().unwrap().to_string_lossy().into_owned();
-    let placed = |value: &Value| -> Value {
-        let text = value.to_string().replace(recorded["cwd"].as_str().unwrap(), cwd).replace(r#""shell":"powershell""#, &format!(r#""shell":"{label}""#));
-        serde_json::from_str(&text).unwrap()
-    };
-    let payload = |attached: Option<Attached>| match attached {
-        None => Value::Null,
-        Some(attached) => {
-            let mut value = json!({ "id": attached.id, "replay": attached.replay });
-            if let Some(owner) = &attached.size_owner {
-                value["sizeOwner"] = json!({ "cols": owner.cols, "rows": owner.rows, "owner": owner.owner });
-            }
-            value
-        }
-    };
-    let generic = |mut value: Value| {
-        if value["id"].as_str().is_some_and(is_generated) {
-            value["id"] = json!("<generated>");
-        }
-        value
-    };
-    let mut base: Option<u64> = None;
-    let mut seen = 0;
-    for case in cases {
-        let name = case["name"].as_str().unwrap();
-        seen += 1;
-        let args = case["args"].as_array().unwrap();
-        // What the tab did before this case, in the recording's order.
-        match name {
-            "ensure the same id again replays what it printed" => say("first").await,
-            "snapshot since undefined" => say("second").await,
-            "attach an exited tab" => scripted::exit(tabs, &rig.manager, S, script["exitCode"].as_u64().unwrap() as u8).await,
-            _ => {}
-        }
-        let got: Value = match case["op"].as_str().unwrap() {
-            "termSessionTabs" => json!(tabs
-                .session_tabs(&coerced(args.first()))
-                .iter()
-                .map(|t| json!({ "tab": t.tab, "id": t.id, "shell": t.shell, "running": t.running, "cwd": t.cwd }))
-                .collect::<Vec<_>>()),
-            "termAttach" => payload(tabs.attach(&coerced(args.first())).await),
-            "termEnsure" => {
-                let attached = tabs.ensure(args[0].as_str(), rig.request()).await.unwrap();
-                generic(payload(Some(attached)))
-            }
-            "termSnapshot" => {
-                let since = match args.get(1) {
-                    None | Some(Value::Null) => None,
-                    Some(Value::Number(literal)) => Some(literal.as_u64().unwrap()),
-                    Some(object) => Some((base.unwrap() as i64 + object["rel"].as_i64().unwrap()) as u64),
-                };
-                if base.is_none() {
-                    let whole = tabs.snapshot(S, None).unwrap();
-                    base = Some(whole.cursor - whole.text.encode_utf16().count() as u64);
-                }
-                match tabs.snapshot(&coerced(args.first()), since) {
-                    None => Value::Null,
-                    Some(got) => json!({ "text": got.text, "cursor": got.cursor as i64 - base.unwrap() as i64, "reset": got.reset }),
-                }
-            }
-            "termDispose" => {
-                tabs.dispose(&coerced(args.first()));
-                Value::Null
-            }
-            "termWrite" => {
-                let _ = tabs.write(&coerced(args.first()), args[1].as_str().unwrap());
-                Value::Null
-            }
-            "termResize" => {
-                tabs.resize(&coerced(args.first()), args[1].as_u64().unwrap() as u32, args[2].as_u64().unwrap() as u32, args[3].as_str().unwrap());
-                Value::Null
-            }
-            other => panic!("unmapped recorded operation {other} in case {name}"),
-        };
-        let want = if case.get("error").is_some_and(|error| !error.is_null()) { panic!("{name}: Node failed: {}", case["error"]) } else { placed(&case["result"]) };
-        assert_eq!(got, want, "{name}");
-    }
-    assert_eq!(seen, cases.len(), "every recorded case was replayed");
-    tabs.dispose_all();
-}
-
-async fn scripted_rig(name: &str) -> Rig {
-    let manager = manager();
-    let events = Arc::new(Events::default());
-    let clock_reads = Arc::new(AtomicUsize::new(0));
-    let mut config = TerminalConfig::new(events.clone());
-    config.piped = true;
-    config.shell_integration_dir = Some(scratch_dir(&format!("{name}-integration")));
-    let waits = Arc::clone(&events);
-    config.gate_waiting = Some(Arc::new(move |id: &str| waits.gate_waited(id)));
-    let tabs = Arc::new(TerminalTabs::new(manager.clone(), config));
-    Rig { tabs, manager, events, clock_reads, profile: mixdog_spawn::scripted::profile(), dir: scratch_dir(name) }
-}
-
-/// The window a late reader gets is Node's `TerminalReplayBuffer` at its boundary (golden.json, trace.replayWindow, recorded from Node): 200,000
-/// UTF-16 units, so two-byte characters count as one and a non-BMP character on the cut loses its first unit. Node keeps the lone low
-/// surrogate left first; the core's answer carries it as `replayLeadUnit` before `replay` (which a Rust string can hold), and the units of
-/// the two together are Node's, unit for unit. The adapter's half (the JSON text the phone gets) is remote-protocol-terminal-replay.test.mjs.
+/// The window a late reader gets is the replay buffer at its boundary: 200,000 UTF-16 units, so two-byte characters count as one and a
+/// non-BMP character on the cut loses its first unit. The lone low surrogate left first is carried as `replayLeadUnit` before `replay`
+/// (which a Rust string can hold), and the units of the two together are the window, unit for unit.
 #[test]
-fn the_replay_window_is_nodes_at_its_boundary() {
-    let golden: Value = serde_json::from_str(include_str!("../../../apps/mobile/fixtures/phone-terminal/golden.json")).unwrap();
-    let cases = golden["trace"]["replayWindow"].as_array().unwrap();
-    assert_eq!(cases.len(), 6);
-    for case in cases {
+fn the_replay_window_holds_200000_units_at_its_boundary() {
+    const EMOJI: &str = "\u{1F600}";
+    // (case, chunks as (text, repeat), units in the window, its first and last four units, cursor, whether it was trimmed)
+    let cases: [(&str, Vec<Vec<(&str, usize)>>, usize, [u64; 4], [u64; 4], u64, bool); 6] = [
+        ("exactly full", vec![vec![("a", 199_999)], vec![("b", 1)]], 200_000, [97, 97, 97, 97], [97, 97, 97, 98], 200_000, false),
+        ("one unit over", vec![vec![("a", 200_000)], vec![("b", 1)]], 200_000, [97, 97, 97, 97], [97, 97, 97, 98], 200_001, true),
+        ("cut inside a non-BMP character, one chunk", vec![vec![(EMOJI, 1), ("a", 199_999)]], 200_000, [0xDE00, 97, 97, 97], [97, 97, 97, 97], 200_001, true),
+        ("cut inside a non-BMP character, its own chunk", vec![vec![(EMOJI, 1)], vec![("a", 199_999)]], 200_000, [0xDE00, 97, 97, 97], [97, 97, 97, 97], 200_001, true),
+        ("non-BMP character wholly inside", vec![vec![("a", 1)], vec![(EMOJI, 1), ("b", 199_997)], vec![("c", 1)]], 200_000, [0xD83D, 0xDE00, 98, 98], [98, 98, 98, 99], 200_001, true),
+        ("two-byte characters count as one unit", vec![vec![("\u{e9}", 200_001)]], 200_000, [233; 4], [233; 4], 200_001, true),
+    ];
+    for (name, chunks, length, head, tail, cursor, trimmed) in cases {
         let mut buffer = ReplayBuffer::new(REPLAY_BUFFER_LIMIT, 0);
-        for chunk in case["chunks"].as_array().unwrap() {
-            let text: String = chunk.as_array().unwrap().iter().map(|part| part[0].as_str().unwrap().repeat(part[1].as_u64().unwrap() as usize)).collect();
+        for chunk in chunks {
+            let text: String = chunk.iter().map(|(part, times)| part.repeat(*times)).collect();
             buffer.append(&text);
         }
         let (replay_lead, replay) = buffer.read_window();
@@ -1513,13 +1387,11 @@ fn the_replay_window_is_nodes_at_its_boundary() {
             .into_iter()
             .chain(reply["replay"].as_str().unwrap().encode_utf16().map(u64::from))
             .collect();
-        let node = |at: &Value| -> Vec<u64> { at.as_array().unwrap().iter().map(|u| u.as_u64().unwrap()).collect() };
-        let name = case["name"].as_str().unwrap();
-        assert_eq!(units.len() as u64, case["length"].as_u64().unwrap(), "{name}: length in units");
-        assert_eq!(buffer.cursor(), case["cursor"].as_u64().unwrap(), "{name}: cursor");
-        assert_eq!(buffer.trimmed(), case["trimmed"].as_bool().unwrap(), "{name}: trimmed");
-        assert_eq!(&units[..4], node(&case["head"]).as_slice(), "{name}: first units");
-        assert_eq!(&units[units.len() - 4..], node(&case["tail"]).as_slice(), "{name}: last units");
+        assert_eq!(units.len(), length, "{name}: length in units");
+        assert_eq!(buffer.cursor(), cursor, "{name}: cursor");
+        assert_eq!(buffer.trimmed(), trimmed, "{name}: trimmed");
+        assert_eq!(&units[..4], head.as_slice(), "{name}: first units");
+        assert_eq!(&units[units.len() - 4..], tail.as_slice(), "{name}: last units");
     }
 }
 

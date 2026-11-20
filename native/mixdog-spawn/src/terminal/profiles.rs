@@ -309,3 +309,21 @@ pub fn resolve(profiles: &[ShellProfile], id: &str) -> Option<SpawnProfile> {
         env: found.env.clone(),
     })
 }
+
+#[cfg(test)]
+mod default_profile_tests {
+    use super::*;
+
+    fn profile(id: &str) -> ShellProfile {
+        ShellProfile { id: id.to_owned(), label: id.to_owned(), path: format!("/bin/{id}"), args: Vec::new(), env: Vec::new() }
+    }
+
+    /// On Windows PowerShell 7 is preferred to Windows PowerShell and that to cmd, whatever the order they were found in.
+    #[test]
+    fn windows_prefers_pwsh_then_windows_powershell_then_cmd() {
+        let found = [profile("cmd"), profile("windows-powershell"), profile("pwsh")];
+        assert_eq!(default_profile_id(&found, true, ""), "pwsh");
+        assert_eq!(default_profile_id(&found[..2], true, ""), "windows-powershell");
+        assert_eq!(default_profile_id(&found[..1], true, ""), "cmd");
+    }
+}

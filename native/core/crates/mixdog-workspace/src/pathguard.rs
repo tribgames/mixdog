@@ -267,61 +267,122 @@ mod tests {
     }
 
 
-    /// Node's `absoluteLocalPath` for every recorded input (apps/mobile/fixtures/absolute-local-path/golden.json, a Windows host), as the
-    /// recording with the working directory on this process's drive answered it. Non-string inputs are answered by the service's param
-    /// check (tests/it/service.rs), not by this helper.
+    /// `absoluteLocalPath` under the Windows rules, with the working directory's drive standing in for `{drive}` in a rooted path
+    /// (`path.resolve` puts it on that drive). Non-string inputs are answered by the service's param check (tests/it/service.rs), not by
+    /// this helper.
     #[cfg(windows)]
     #[test]
-    fn absolute_local_path_answers_each_recorded_input_as_node_does() {
-        let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
+    fn absolute_local_path_follows_the_windows_rules() {
         let drive: String = std::env::current_dir().unwrap().to_string_lossy().chars().next().unwrap().to_ascii_uppercase().to_string();
-        let recorded = golden["drives"].get(&drive).unwrap_or_else(|| panic!("absolute-local-path has no recording with the working directory on drive {drive}: record it on a host with that drive (benchmarks/rust-core/recorders/record-absolute-local-path.mjs)"));
-        let mut replayed = 0;
-        for (input, answer) in golden["inputs"].as_array().unwrap().iter().zip(recorded.as_array().unwrap()) {
-            let Some(text) = input["value"].as_str() else { continue };
+        let cases: [(&str, Result<&str, &str>); 34] = [
+            ("relative/dir", Err("path must be absolute.")),
+            (".", Err("path must be absolute.")),
+            ("..", Err("path must be absolute.")),
+            ("./x", Err("path must be absolute.")),
+            ("..\\x", Err("path must be absolute.")),
+            ("C:foo", Err("path must be absolute.")),
+            ("D:foo", Err("path must be absolute.")),
+            ("C:", Err("path must be absolute.")),
+            ("/dir", Ok("{drive}\\dir")),
+            ("\\dir", Ok("{drive}\\dir")),
+            ("/dir/../x/", Ok("{drive}\\x")),
+            ("/", Ok("{drive}\\")),
+            ("\\", Ok("{drive}\\")),
+            ("//server", Ok("{drive}\\server")),
+            ("\\\\server", Ok("{drive}\\server")),
+            ("C:\\a\\b\\..\\c", Ok("C:\\a\\c")),
+            ("c:/A/B/", Ok("c:\\A\\B")),
+            ("C:\\a\\", Ok("C:\\a")),
+            ("C:\\", Ok("C:\\")),
+            ("C:\\..", Ok("C:\\")),
+            ("//server/share", Ok("\\\\server\\share\\")),
+            ("\\\\server\\share\\a\\..\\b\\", Ok("\\\\server\\share\\b")),
+            ("//tmp/Mixed/", Ok("\\\\tmp\\Mixed\\")),
+            ("\\\\?\\C:\\x\\y", Ok("\\\\?\\C:\\x\\y")),
+            ("\\\\.\\C:\\x", Ok("\\\\.\\C:\\x")),
+            ("\\\\?\\UNC\\srv\\sh\\a", Ok("\\\\?\\UNC\\srv\\sh\\a")),
+            ("//?/C:/x", Ok("\\\\?\\C:\\x")),
+            (" D:\\x ", Ok("D:\\x")),
+            ("\tD:\\x\n", Ok("D:\\x")),
+            ("\u{a0}\u{feff}D:\\x\u{a0}\u{feff}", Ok("D:\\x")),
+            ("", Err("path is invalid.")),
+            ("   ", Err("path is invalid.")),
+            ("a\u{0}b", Err("path is invalid.")),
+            ("C:\\a\u{0}", Err("path is invalid.")),
+        ];
+        for (text, want) in cases {
             let got = absolute_local_path(text).map(|path| path.to_string_lossy().into_owned()).map_err(|error| error.message);
-            let want = match answer.get("result") {
-                Some(result) => Ok(result.as_str().unwrap().to_owned()),
-                None => Err(answer["error"]["message"].as_str().unwrap().to_owned()),
-            };
-            assert_eq!(got, want, "{}: {text:?}", input["name"]);
-            replayed += 1;
+            let want = want.map(|path| path.replace("{drive}", &format!("{drive}:"))).map_err(str::to_owned);
+            assert_eq!(got, want, "{text:?}");
         }
-        assert_eq!(replayed, golden["inputs"].as_array().unwrap().iter().filter(|input| input["value"].is_string()).count());
+        // The limit is 16384 UTF-16 units.
+        let longest = format!("C:\\{}", "a".repeat(16_381));
+        assert_eq!(absolute_local_path(&longest).unwrap().to_string_lossy(), longest);
+        assert_eq!(absolute_local_path(&format!("{longest}a")).unwrap_err().message, "path is invalid.");
     }
-    /// The same function under the POSIX rules, against Node's answers with `node:path` as `path.posix` (the `posix` section of the same recording,
-    /// made by loading local-files.ts with that path module): the criterion holds on both kinds of host.
+    /// The same function under the POSIX rules: the criterion holds on both kinds of host.
     #[test]
-    fn absolute_local_path_answers_each_recorded_posix_input_as_node_does() {
-        let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
-        let posix = &golden["posix"];
-        let mut replayed = 0;
-        for (input, answer) in posix["inputs"].as_array().unwrap().iter().zip(posix["answers"].as_array().unwrap()) {
-            let text = input["value"].as_str().unwrap();
+    fn absolute_local_path_follows_the_posix_rules() {
+        let cases: [(&str, Result<&str, &str>); 21] = [
+            ("/a/b", Ok("/a/b")),
+            ("/dir/../x/", Ok("/x")),
+            ("/../..", Ok("/")),
+            ("/", Ok("/")),
+            ("//a//b", Ok("/a/b")),
+            ("//server", Ok("/server")),
+            ("relative/dir", Err("path must be absolute.")),
+            (".", Err("path must be absolute.")),
+            ("..", Err("path must be absolute.")),
+            ("\\a\\b", Err("path must be absolute.")),
+            ("C:\\x", Err("path must be absolute.")),
+            ("C:/x", Err("path must be absolute.")),
+            (" /a/b ", Ok("/a/b")),
+            ("\t/a/b\n", Ok("/a/b")),
+            ("\u{a0}\u{feff}/a/b\u{a0}\u{feff}", Ok("/a/b")),
+            ("/a b/c", Ok("/a b/c")),
+            ("/Mixed/CASE/", Ok("/Mixed/CASE")),
+            ("/a/./b/./", Ok("/a/b")),
+            ("", Err("path is invalid.")),
+            ("   ", Err("path is invalid.")),
+            ("/a\u{0}b", Err("path is invalid.")),
+        ];
+        for (text, want) in cases {
             let got = absolute_local_path_in(mixdog_js::nodepath::Style::Posix, text).map(|path| path.to_string_lossy().into_owned()).map_err(|error| error.message);
-            let want = match answer.get("result") {
-                Some(result) => Ok(result.as_str().unwrap().to_owned()),
-                None => Err(answer["error"]["message"].as_str().unwrap().to_owned()),
-            };
-            assert_eq!(got, want, "{}: {text:?}", input["name"]);
-            replayed += 1;
+            assert_eq!(got, want.map(str::to_owned).map_err(str::to_owned), "{text:?}");
         }
-        assert_eq!(replayed, 23);
+        // The limit is 16384 UTF-16 units.
+        let longest = format!("/{}", "a".repeat(16_383));
+        assert_eq!(absolute_local_path_in(mixdog_js::nodepath::Style::Posix, &longest).unwrap().to_string_lossy(), longest);
+        assert_eq!(absolute_local_path_in(mixdog_js::nodepath::Style::Posix, &format!("{longest}a")).unwrap_err().message, "path is invalid.");
     }
-    /// Node's `resolveProjectPath` under the POSIX rules (apps/mobile/fixtures/project-path-classes/golden.json, `posix`: projects.mjs
-    /// loaded with `node:path` as `path.posix` and the recording's working directory), replayed against the rule every project-path
-    /// read of the workspace takes.
+    /// A project path under the POSIX rules with `/home/user/work` as the working directory: the rule every project-path read of the
+    /// workspace takes.
     #[test]
-    fn project_path_answers_each_recorded_posix_input_as_node_does() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../../apps/mobile/fixtures/project-path-classes/golden.json")).unwrap();
-        let posix = &golden["posix"];
-        let cwd = posix["cwd"].as_str().unwrap();
-        let inputs = posix["inputs"].as_array().unwrap();
-        let answers = posix["answers"].as_array().unwrap();
-        assert_eq!(inputs.len(), answers.len());
-        for (input, answer) in inputs.iter().zip(answers) {
-            let got = project_path_in(mixdog_js::nodepath::Style::Posix, cwd, input["value"].as_str().unwrap()).unwrap_or_default();
-            assert_eq!(got, answer["result"].as_str().unwrap(), "{}", input["name"]);
+    fn project_path_follows_the_posix_rules() {
+        let cases: [(&str, &str); 20] = [
+            ("/home/user/proj", "/home/user/proj"),
+            ("/home/user/proj/", "/home/user/proj"),
+            ("//home//user/proj", "/home/user/proj"),
+            ("/home/user/proj/sub/..", "/home/user/proj"),
+            ("/../../proj", "/proj"),
+            ("  /home/user/proj  ", "/home/user/proj"),
+            ("\t/home/user/proj\n", "/home/user/proj"),
+            ("/Home/User/PROJ", "/Home/User/PROJ"),
+            ("proj", "/home/user/work/proj"),
+            ("./proj", "/home/user/work/proj"),
+            ("../work/proj", "/home/user/work/proj"),
+            ("made/deep", "/home/user/work/made/deep"),
+            ("../../../../x", "/x"),
+            ("a\\b", "/home/user/work/a\\b"),
+            ("C:\\proj", "/home/user/work/C:\\proj"),
+            ("C:/proj", "/home/user/work/C:/proj"),
+            ("/", "/"),
+            ("", ""),
+            ("   ", ""),
+            ("/home/user/pr\u{0}oj", "/home/user/pr\u{0}oj"),
+        ];
+        for (text, want) in cases {
+            assert_eq!(project_path_in(mixdog_js::nodepath::Style::Posix, "/home/user/work", text).unwrap_or_default(), want, "{text:?}");
         }
     }
 }

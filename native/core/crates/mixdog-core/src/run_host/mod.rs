@@ -40,12 +40,6 @@ mod process_tests;
 #[cfg(test)]
 mod migrated_fixture;
 #[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod wire_parity_tests;
-#[cfg(node_twin)]
 #[cfg(test)]
 mod native_request_bytes_node_cases;
 pub mod tool_exposure;

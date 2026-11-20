@@ -204,13 +204,163 @@ pub fn entry_in(home: &Path, root: &Path, rel: &str, permanent: bool, now_ms: i6
 mod tests {
     use super::*;
 
-    /// Node's server trash, step by step (apps/mobile/fixtures/server-trash/golden.json, recorded from b6f10295a with XDG_DATA_HOME and TZ
-    /// set): the answers, the `.trashinfo` each trash wrote (encodeURI'd path, local-time date), and the refusals.
-    /// The recording is of a Windows host (its paths, and a child held open without delete sharing), so it is replayed there.
+    /// The steps of the trash test below: the call, the answer, and the `.trashinfo` written for a trash. `{root}`, `{rootUri}`, `{trash}`
+    /// and `{blockedTrash}` stand for the test's folders.
+    #[cfg(windows)]
+    fn steps() -> Value {
+        json!({
+            "zone": "America/New_York",
+            "steps": [
+                {
+                    "op": "info",
+                    "answer": {
+                        "available": true,
+                        "path": "{trash}"
+                    }
+                },
+                {
+                    "op": "trash",
+                    "rel": "plain.txt",
+                    "at": 1705322096000_i64,
+                    "answer": {
+                        "result": {
+                            "mode": "trash",
+                            "trashPath": "{trash}\\files\\plain.txt"
+                        }
+                    },
+                    "info": "[Trash Info]\nPath={rootUri}%5Cplain.txt\nDeletionDate=2024-01-15T07:34:56\n"
+                },
+                {
+                    "op": "trash",
+                    "rel": "with space.txt",
+                    "at": 1720062307000_i64,
+                    "answer": {
+                        "result": {
+                            "mode": "trash",
+                            "trashPath": "{trash}\\files\\with space.txt"
+                        }
+                    },
+                    "info": "[Trash Info]\nPath={rootUri}%5Cwith%20space.txt\nDeletionDate=2024-07-03T23:05:07\n"
+                },
+                {
+                    "op": "trash",
+                    "rel": "per%cent#hash.txt",
+                    "at": 1705322096000_i64,
+                    "answer": {
+                        "result": {
+                            "mode": "trash",
+                            "trashPath": "{trash}\\files\\per%cent#hash.txt"
+                        }
+                    },
+                    "info": "[Trash Info]\nPath={rootUri}%5Cper%25cent#hash.txt\nDeletionDate=2024-01-15T07:34:56\n"
+                },
+                {
+                    "op": "trash",
+                    "rel": "é 한글 😀.txt",
+                    "at": 1720062307000_i64,
+                    "answer": {
+                        "result": {
+                            "mode": "trash",
+                            "trashPath": "{trash}\\files\\é 한글 😀.txt"
+                        }
+                    },
+                    "info": "[Trash Info]\nPath={rootUri}%5C%C3%A9%20%ED%95%9C%EA%B8%80%20%F0%9F%98%80.txt\nDeletionDate=2024-07-03T23:05:07\n"
+                },
+                {
+                    "op": "trash",
+                    "rel": "sym;,@&=+$-_.!~'()[].txt",
+                    "at": 1705322096000_i64,
+                    "answer": {
+                        "result": {
+                            "mode": "trash",
+                            "trashPath": "{trash}\\files\\sym;,@&=+$-_.!~'()[].txt"
+                        }
+                    },
+                    "info": "[Trash Info]\nPath={rootUri}%5Csym;,@&=+$-_.!~'()%5B%5D.txt\nDeletionDate=2024-01-15T07:34:56\n"
+                },
+                {
+                    "op": "trash",
+                    "rel": "plain.txt",
+                    "at": 1720062307000_i64,
+                    "answer": {
+                        "result": {
+                            "mode": "trash",
+                            "trashPath": "{trash}\\files\\plain.txt.2"
+                        }
+                    },
+                    "info": "[Trash Info]\nPath={rootUri}%5Cplain.txt\nDeletionDate=2024-07-03T23:05:07\n"
+                },
+                {
+                    "op": "delete",
+                    "rel": "sub",
+                    "answer": {
+                        "result": {
+                            "mode": "deleted"
+                        }
+                    }
+                },
+                {
+                    "op": "delete",
+                    "rel": "",
+                    "answer": {
+                        "error": {
+                            "message": "The project folder itself cannot be deleted here."
+                        }
+                    }
+                },
+                {
+                    "op": "trash",
+                    "rel": "missing.txt",
+                    "at": 1720062307000_i64,
+                    "answer": {
+                        "error": {
+                            "message": "ENOENT: no such file or directory, stat '{root}\\missing.txt'",
+                            "code": "ENOENT"
+                        }
+                    },
+                    "info": null
+                },
+                {
+                    "op": "info",
+                    "home": "blocked",
+                    "answer": {
+                        "available": false,
+                        "path": "{blockedTrash}"
+                    }
+                },
+                {
+                    "op": "trash",
+                    "home": "blocked",
+                    "rel": "kept.txt",
+                    "at": 1720062307000_i64,
+                    "answer": {
+                        "error": {
+                            "message": "The server has no trash on this disk; delete permanently instead.",
+                            "code": "TRASH_UNAVAILABLE"
+                        }
+                    },
+                    "info": null
+                },
+                {
+                    "op": "delete",
+                    "held": "locked/child.txt",
+                    "rel": "locked",
+                    "answer": {
+                        "error": {
+                            "message": "EBUSY: resource busy or locked, unlink '{root}\\locked\\child.txt'",
+                            "code": "EBUSY"
+                        }
+                    }
+                }
+            ]
+        })
+    }
+    /// The server trash, step by step, in the `America/New_York` zone: the answers, the `.trashinfo` each trash wrote (encodeURI'd
+    /// path, local-time date), and the refusals. The steps use Windows paths and a child held open without delete sharing, so they run there.
     #[cfg(windows)]
     #[test]
-    fn the_server_trash_answers_and_writes_what_node_did() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../../apps/mobile/fixtures/server-trash/golden.json")).unwrap();
+    fn the_server_trash_answers_and_writes_what_the_contract_says() {
+        let golden: Value = steps();
         let zone: mixdog_js::time::Tz = golden["zone"].as_str().unwrap().parse().unwrap();
         let base = tempfile::tempdir().unwrap();
         let base = std::fs::canonicalize(base.path()).unwrap();

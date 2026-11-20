@@ -1,13 +1,5 @@
 {
- "manifest": {
-  "exact": true,
-  "nodeCommit": "b6f10295a",
-  "node": "v22.20.0",
-  "pool": "pool-a",
-  "harness": {
-   "turn-state-lifetime-capture.mjs": "c9c92700863bcfa225f854275dcfc0f1d3bf147a3934a5c0082de45a390e93f3"
-  }
- },
+ "pool": "pool-a",
  "steps": [
   {
    "do": "frame",

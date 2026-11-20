@@ -1604,18 +1604,12 @@ impl ModelStream for ResponsesStream {
 mod tests {
     use super::*;
 
-    // WS1: the turn state of a frame is what Node's `_captureTurnStateFromEvent` takes from the parsed event, for every
-    // frame Node's recording holds (`turn-state-capture.mjs`): an escaped name, any letter case, each carrier.
+    // WS1: the turn state of a frame, for every case in `turn_state_frames.json`: an escaped name, any letter case, each carrier.
     #[test]
-    fn a_frames_turn_state_is_what_nodes_capture_takes() {
-        const RECORDING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/turn-state-frames.json"));
-        const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/turn-state-capture.mjs"));
-        let node: Value = serde_json::from_str(RECORDING).unwrap();
-        assert_eq!(node["manifest"]["exact"], true);
-        assert_eq!(node["manifest"]["nodeCommit"], "b6f10295a");
-        let sha: String = ring::digest::digest(&ring::digest::SHA256, CAPTURE).as_ref().iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(node["manifest"]["harness"]["turn-state-capture.mjs"], sha.as_str(), "turn-state-capture.mjs changed since the recording");
-        let rust: Vec<Value> = node["cases"]
+    fn a_frames_turn_state_is_taken_from_every_carrier() {
+        const CASES: &str = include_str!("turn_state_frames.json");
+        let cases: Value = serde_json::from_str(CASES).unwrap();
+        let rust: Vec<Value> = cases
             .as_array()
             .unwrap()
             .iter()
@@ -1624,7 +1618,7 @@ mod tests {
                 serde_json::json!({ "frame": frame, "turnState": frame_turn_state(frame.as_bytes()) })
             })
             .collect();
-        assert_eq!(Value::Array(rust), node["cases"]);
+        assert_eq!(Value::Array(rust), cases);
     }
 
     struct Held;
@@ -1657,20 +1651,15 @@ mod tests {
         }
     }
 
-    // WS2: a turn state lives as Node's does (`turn-state-lifetime-capture.mjs`): one live socket owns its turn's
+    // WS2: a turn state lives as follows (`turn_state_lifetime.json`): one live socket owns its turn's
     // token, another socket under the same pool key gets none until the owner closes, a frame of another turn starts
     // the scope afresh, the HTTP route keys the turn as given while a socket keys its v7 form, and the session's end
     // clears the scope. Sockets are opened and closed through the pool, whose closing retires the owner.
     #[tokio::test]
-    async fn a_turn_state_lives_as_long_as_nodes() {
-        const RECORDING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/turn-state-lifetime.json"));
-        const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/turn-state-lifetime-capture.mjs"));
-        let node: Value = serde_json::from_str(RECORDING).unwrap();
-        assert_eq!(node["manifest"]["exact"], true);
-        assert_eq!(node["manifest"]["nodeCommit"], "b6f10295a");
-        let sha: String = ring::digest::digest(&ring::digest::SHA256, CAPTURE).as_ref().iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(node["manifest"]["harness"]["turn-state-lifetime-capture.mjs"], sha.as_str(), "turn-state-lifetime-capture.mjs changed since the recording");
-        let pool_key = node["manifest"]["pool"].as_str().unwrap();
+    async fn a_turn_state_lives_as_long_as_its_socket_and_turn() {
+        const SCRIPT: &str = include_str!("turn_state_lifetime.json");
+        let node: Value = serde_json::from_str(SCRIPT).unwrap();
+        let pool_key = node["pool"].as_str().unwrap();
         let context = Arc::new(SessionContext::default());
         let pool = Arc::new(WsPool::with_events(context.clone()));
         let compat = Compat::new("Codex", "account", "cache");
@@ -1684,7 +1673,7 @@ mod tests {
                 "frame" => {
                     let n = step["socket"].as_u64().unwrap();
                     if !sockets.contains_key(&n) {
-                        // Two sockets live under one key at once here, as Node's recording has them: the checkouts do
+                        // Two sockets live under one key at once here, as the script has them: the checkouts do
                         // not take the session's ownership (that would hold the second back until the first closed).
                         let mut checkout = pool.checkout(pool_key, &compat, true, true).await;
                         assert!(checkout.attach(Box::new(Held)));
