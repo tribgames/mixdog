@@ -7,7 +7,7 @@ import { PairRows, type PairRow } from './pair-list-rows';
 // Mirrors custom-provider-config.mjs (CUSTOM_RESERVED_BODY_KEYS,
 // CUSTOM_REQUEST_BODY_MAX_CHARS, AUTH_HEADERS, CUSTOM_MODEL_REFUSED_HEADERS);
 // custom-request-options.test.mjs keeps the two lists identical.
-export const RESERVED_BODY_KEYS: readonly string[] = [
+const RESERVED_BODY_KEYS: readonly string[] = [
   'model',
   'messages',
   'input',
@@ -43,7 +43,7 @@ const REFUSED_MODEL_HEADERS = new Set([
 ]);
 const AUTH_HEADER_NAMES = new Set(['authorization', 'x-api-key', 'api-key']);
 
-export type RequestBodyState = { value: Record<string, unknown>; error: string };
+type RequestBodyState = { value: Record<string, unknown>; error: string };
 
 /** The textarea's JSON as an object (blank = none) or the message to show beside it. */
 export function parseRequestBody(text: string): RequestBodyState {
@@ -96,7 +96,7 @@ export function blockedModelHeader(rows: PairRow[]): string {
   return rows.find(isRefusedModelHeader)?.key.trim() ?? '';
 }
 
-export function blockedModelHeaderMessage(name: string): string {
+function blockedModelHeaderMessage(name: string): string {
   if (AUTH_HEADER_NAMES.has(name.toLowerCase())) {
     return t('The {{name}} header cannot be set here. Enter the API key in the API key field instead.', { name });
   }

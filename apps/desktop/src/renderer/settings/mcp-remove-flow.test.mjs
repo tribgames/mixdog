@@ -19,14 +19,6 @@ window.mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {} };
 const { CategoryPanel } = await import('./capability-panels.tsx');
 const { SettingsConfirmDialog } = await import('./capability-controls.tsx');
 
-function deferred() {
-  let resolve;
-  const promise = new Promise((next) => {
-    resolve = next;
-  });
-  return { promise, resolve };
-}
-
 const servers = [
   { name: 'rea', enabled: true, status: 'connected', connected: true, transport: 'stdio', source: 'config' },
   { name: 'webdocs', enabled: true, status: 'failed', transport: 'http', source: 'config' },
@@ -123,7 +115,7 @@ test('a sidebar confirmation renders outside its host so the sidebar cannot clip
 
 test('removing an MCP server from the row menu hides its row at once and calls removeMcpServer', async () => {
   const calls = [];
-  const removal = deferred();
+  const removal = Promise.withResolvers();
   let confirmation = null;
   const view = await mount(
     skillsPanel({
@@ -169,7 +161,7 @@ const noopPanel = (mcpServers) => skillsPanel({ run: async () => undefined, conf
 
 for (const refreshBeforeReturn of [false, true]) {
   test(`a server recreated between snapshots shows again (refresh before return: ${refreshBeforeReturn})`, async () => {
-    const removal = deferred();
+    const removal = Promise.withResolvers();
     let confirmation = null;
     const view = await mount(
       skillsPanel({
@@ -205,7 +197,7 @@ for (const refreshBeforeReturn of [false, true]) {
 }
 
 test('a failed refresh after a successful removal does not hide a later authoritative server', async () => {
-  const removal = deferred();
+  const removal = Promise.withResolvers();
   let confirmation = null;
   const view = await mount(
     skillsPanel({

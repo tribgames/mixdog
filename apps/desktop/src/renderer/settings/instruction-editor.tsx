@@ -13,7 +13,7 @@ import type { PanelContext } from './capability-data';
 // (src/session-runtime/workflow-agents-api/instruction-files.mjs). Which mode /
 // style is in use is still chosen where it always was.
 
-export type InstructionGroup = 'delegation' | 'outputStyle';
+type InstructionGroup = 'delegation' | 'outputStyle';
 
 interface InstructionFile {
   group: InstructionGroup;

@@ -228,9 +228,8 @@ export function PaneWorkspace({
   /** Per-pane right dock: ONE side-tab unit (header + source control /
    *  browser / diff children) attached to the pane's right edge. */
   renderSideDock?: (leaf: PaneLeaf, focused: boolean) => React.ReactNode;
-  /** Problems: the file editor's own bottom sub-panel (user: DIFF처럼
-   *  스크립트에 종속) — docked under the pane surface stack while the
-   *  pane's active tab is a file. */
+  /** Problems: the file editor's own bottom sub-panel — docked under the pane
+   *  surface stack while the pane's active tab is a file. */
   renderProblems?: (leaf: PaneLeaf, focused: boolean) => React.ReactNode;
   /** Navigate App's interactive surface when another pane takes focus. */
   onFocusSelection: (selection: WorkspaceSelection) => void;
@@ -242,8 +241,8 @@ export function PaneWorkspace({
   // the same contract for tests, remote shells, and hot remounts.
   useLayoutEffect(() => defaultSessionLaneStore.start(), []);
   // A phone shows ONE tab at a time and pays for every mirrored session over
-  // the relay, so restored background tabs stay unregistered until opened
-  // (user: vps라 비용때문에). Wide surfaces keep every pane tab observable.
+  // the relay, so restored background tabs stay unregistered until opened.
+  // Wide surfaces keep every pane tab observable.
   // A phone renders exactly ONE leaf — the focused one — and pays the relay
   // for every session it registers, so only that leaf's active session is
   // mirrored. Every other leaf stays unregistered until it is focused.

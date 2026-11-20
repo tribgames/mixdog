@@ -123,14 +123,6 @@ function writablePanelContext(overrides) {
   };
 }
 
-function deferred() {
-  let resolve;
-  const promise = new Promise((next) => {
-    resolve = next;
-  });
-  return { promise, resolve };
-}
-
 async function renderPanel(category, overrides = {}) {
   const host = document.createElement('main');
   document.body.append(host);
@@ -501,7 +493,7 @@ const installedDesktopFeatures = {
 };
 
 test('Browser Use and Computer Use mount at their real state without replaying an on animation', async () => {
-  const settings = deferred();
+  const settings = Promise.withResolvers();
   let saved = installedDesktopFeatures;
   const api = {
     readSettings: async () => {
@@ -857,8 +849,8 @@ test('the add dialog stays open and shows the host duplicate rejection from a st
 });
 
 test('Skill and MCP rows acknowledge the card click before their detail payload resolves', async () => {
-  const skillContent = deferred();
-  const mcpConfig = deferred();
+  const skillContent = Promise.withResolvers();
+  const mcpConfig = Promise.withResolvers();
   let rendered = await renderPanel('user-skills', {
     async run(capability) {
       if (capability === 'skillContent') return skillContent.promise;
@@ -981,7 +973,7 @@ test('sidebar resource tags reflect disabled items and omit tags for connected M
 });
 
 test('Workflow card surface opens an immediate loading popup before editor data resolves', async () => {
-  const workflowPack = deferred();
+  const workflowPack = Promise.withResolvers();
   const api = {
     async invokeCapability({ capability }) {
       if (capability === 'getWorkflowPack') return workflowPack.promise;
@@ -1124,7 +1116,7 @@ test('Code Tidy card renders engine list, install progress, and failed engine ro
   };
 
   let tidyInstallStatus = null;
-  const installDeferred = deferred();
+  const installDeferred = Promise.withResolvers();
 
   const context = writablePanelContext({
     data: {
@@ -1481,7 +1473,7 @@ test('an installed Code Tidy with missing core engines flags setup and offers pe
     ],
     installing: null,
   };
-  const installDeferred = deferred();
+  const installDeferred = Promise.withResolvers();
   const runs = [];
   const context = writablePanelContext({
     data: {

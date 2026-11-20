@@ -55,7 +55,10 @@ export async function adapterWorld() {
   await world.advance(0);
   let seq = 0;
   let revision = 0;
-  const push = (method, params) => leg.toPhone({ method, params, feed: { id: 'app', epoch: 'e', seq: (seq += 1) } });
+  const push = (method, params) => {
+    seq += 1;
+    return leg.toPhone({ method, params, feed: { id: 'app', epoch: 'e', seq } });
+  };
   await push('app/snapshot', { sections: [] });
   await world.advance(0);
   return {
@@ -65,9 +68,10 @@ export async function adapterWorld() {
     push,
     /** A section change of the app feed, as the core publishes it. */
     setSection: async (name, value) => {
+      revision += 1;
       await push(
         `${name === 'terminalTabs' ? 'terminal/tabs' : 'terminal/activity'}/updated`,
-        section(name, value, (revision += 1))
+        section(name, value, revision)
       );
       await world.advance(0);
     },

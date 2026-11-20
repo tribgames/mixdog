@@ -9,7 +9,7 @@ import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-l
 // the Visualize side sheet and in the chat image viewer.
 // - The panel's zoom pill floats over its bottom; the picture's bottom was
 //   under it at fit and at the end of a zoomed scroll, out of reach
-//   (user: 사이드패널에서 이미지 하단이 잘려 보이지 않음).
+//.
 // - One finger scrolled the zoomed picture natively; a second finger's pinch
 //   then could not cancel that scroll, so the picture slid away from the
 //   fingers while it zoomed.

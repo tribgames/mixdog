@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   DesktopModelOption,
   DesktopModelSelection,
@@ -11,15 +11,9 @@ import { routePreferenceStore } from './app-route-preference';
 import { streamMarkAfterCall, useModelSelection } from './use-model-selection';
 import { publishInheritedOrchestrationMode, useInheritedOrchestrationMode } from './orchestration-mode-store';
 import type { RecordValue } from './desktop-types';
-import { isDesktopProvidersUnavailableError, useDesktopProvidersRetry } from './desktop-provider-retry';
 import { t } from './i18n';
-import {
-  SHARED_MODEL_CATALOG_MAX_AGE_MS,
-  readCachedModelCatalog,
-  requestModelCatalog,
-  invalidateSharedModelCatalogRequest,
-  subscribeModelCatalogInvalidation,
-} from './model-catalog-cache';
+import { invalidateSharedModelCatalogRequest } from './model-catalog-cache';
+import { useProviderModelCatalog } from './use-model-catalog';
 import { catalogProviderNames, customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
 import {
   effortForModelChoice,
@@ -184,11 +178,11 @@ function useWorkflowOptions() {
   }, [reloadNonce]);
   // On a phone the first read can land before the relay leg is up, and an
   // empty result was final: the picker settled to nothing and REMOVED itself
-  // until a remount (user: 모바일에서 오래 비어 있다). An empty catalog is
-  // never cached, so re-running the read on a recovered connection is the
-  // whole repair. The guard keeps a healthy session from re-reading on every
-  // resync. A pack edit reloads unconditionally — the new pack may be the
-  // second one, which is what brings this control into the row.
+  // until a remount. An empty catalog is never cached, so re-running the read
+  // on a recovered connection is the whole repair. The guard keeps a healthy
+  // session from re-reading on every resync. A pack edit reloads
+  // unconditionally — the new pack may be the second one, which is what brings
+  // this control into the row.
   useEffect(() => {
     const reload = () => setReloadNonce((nonce) => nonce + 1);
     const retry = () => {
@@ -423,16 +417,18 @@ export const ModelSelector = memo(function ModelSelector({
   onDraftSelection?: (selection: DesktopModelSelection) => void;
   onRoutePreferenceApplied?: (selection: DesktopModelSelection, options?: { modelChoice?: boolean }) => void;
 }) {
-  const [cachedCatalog] = useState(readCachedModelCatalog);
-  const [models, setModels] = useState<DesktopModelOption[]>(cachedCatalog.models);
-  const [providerSetup, setProviderSetup] = useState<unknown>(null);
-  const [catalogError, setCatalogError] = useState('');
-  const [providerSetupError, setProviderSetupError] = useState('');
-  // A server window whose desktop proxy is away retries on the shared cadence.
-  const [desktopProvidersAway, setDesktopProvidersAway] = useState(false);
-  const [catalogLoaded, setCatalogLoaded] = useState(cachedCatalog.models.length > 0);
-  const [startupCatalogSettled, setStartupCatalogSettled] = useState(cachedCatalog.models.length > 0);
-  const [catalogRefreshing, setCatalogRefreshing] = useState(false);
+  const {
+    models,
+    setModels,
+    providerSetup,
+    setProviderSetup,
+    catalogError,
+    providerSetupError,
+    catalogLoaded,
+    startupCatalogSettled,
+    catalogRefreshing,
+    loadCatalog,
+  } = useProviderModelCatalog();
   const { selection, begin, settle } = useModelSelection(sessionId || '', {
     provider: sourceProvider,
     model: sourceModel,
@@ -456,7 +452,6 @@ export const ModelSelector = memo(function ModelSelector({
   // Every route write carries the route's known Auto flag, like `fast`.
   // An older host rejects the field, so it travels only to a host that takes it.
   const autoEffortField = hostRouteAutoEffort() && typeof autoEffort === 'boolean' ? { autoEffort } : {};
-  const catalogInFlight = useRef<Promise<void> | null>(null);
   // Newest request wins. An older reply may land after a newer choice, so only
   // the current token may publish its snapshot; useModelSelection already
   // ignores a stale settle.
@@ -480,8 +475,7 @@ export const ModelSelector = memo(function ModelSelector({
   const selected = catalogModels.find((option) => option.provider === provider && option.model === model);
   // The catalog starts empty on a cold start, so a perfectly valid route — a
   // schedule/webhook session opened right after it ran — could not be named
-  // from it (user: 세션 생성 시 쓴 모델이 그대로 표기되게). The RAW catalog
-  // answers those cases.
+  // from it. The RAW catalog answers those cases.
   const known = selected || models.find((option) => option.provider === provider && option.model === model);
   const awaitingRoute = !known && !startupCatalogSettled;
   const autoEffortRoute = useAutoEffortRoute(
@@ -538,111 +532,6 @@ export const ModelSelector = memo(function ModelSelector({
   // A route the loaded catalog does not know at all stays "Select model": an
   // unknown/retired persisted id must never read as a selectable model.
   const triggerModel = known ? modelDisplayName(known.model, known.provider, known.display || '') : t('Select model');
-
-  const loadCatalog = useCallback(async (force = false) => {
-    if (!force && catalogInFlight.current) return catalogInFlight.current;
-    const api = window.mixdogDesktop;
-    if (!api?.listProviderModels) {
-      setCatalogLoaded(true);
-      setStartupCatalogSettled(true);
-      return;
-    }
-    const request = (async () => {
-      setCatalogRefreshing(true);
-      setCatalogError('');
-      setProviderSetupError('');
-      setDesktopProvidersAway(false);
-      const shared = requestModelCatalog(api);
-      let fullApplied = false;
-      const setupRequest = shared.setup
-        .then((setup) => {
-          if (shared.isCurrent()) setProviderSetup(setup);
-        })
-        .catch((reason) => {
-          if (!shared.isCurrent()) return;
-          console.warn('[model-catalog] provider setup refresh failed', reason);
-          setProviderSetupError('unavailable');
-          setDesktopProvidersAway(isDesktopProvidersUnavailableError(reason));
-        });
-      const fullRequest = shared.full
-        .then((full) => {
-          if (!shared.isCurrent() || !Array.isArray(full)) return;
-          fullApplied = true;
-          // An empty answer is a retryable boot miss: keep the list on screen
-          // until the retry brings a real one.
-          setModels((current) => (full.length === 0 && current.length > 0 ? current : full));
-          setCatalogError('');
-        })
-        .catch((reason) => {
-          if (!shared.isCurrent()) return;
-          // The quick or persisted catalog stays usable. A background refresh
-          // failure must not become a boot-time error surface.
-          console.warn('[model-catalog] full catalog refresh failed', reason);
-        })
-        .finally(() => {
-          if (!shared.isCurrent()) return;
-          setCatalogRefreshing(false);
-          setStartupCatalogSettled(true);
-        });
-      try {
-        const quick = await shared.quick;
-        // A reused shared request may already have resolved both answers.
-        // Its thin quick rows must not overwrite the full catalog above.
-        if (shared.isCurrent() && !fullApplied && Array.isArray(quick) && quick.length > 0) {
-          setModels((current) => {
-            const merged = new Map(current.map((option) => [`${option.provider}:${option.model}`, option]));
-            for (const option of quick) {
-              merged.set(`${option.provider}:${option.model}`, option);
-            }
-            return [...merged.values()];
-          });
-        }
-      } catch (reason) {
-        if (!shared.isCurrent()) return;
-        console.warn('[model-catalog] quick catalog refresh failed', reason);
-        setCatalogError(reason instanceof Error ? reason.message : String(reason || 'Model catalog failed.'));
-      } finally {
-        if (shared.isCurrent()) {
-          setCatalogLoaded(true);
-        }
-      }
-      void Promise.allSettled([fullRequest, setupRequest]);
-    })().finally(() => {
-      if (catalogInFlight.current === request) catalogInFlight.current = null;
-    });
-    catalogInFlight.current = request;
-    return request;
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    let refreshTimer: number | null = null;
-    const scheduleRefresh = () => {
-      if (cancelled) return;
-      refreshTimer = window.setTimeout(async () => {
-        await loadCatalog();
-        scheduleRefresh();
-      }, SHARED_MODEL_CATALOG_MAX_AGE_MS);
-    };
-    void loadCatalog().then(scheduleRefresh);
-    return () => {
-      cancelled = true;
-      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-    };
-    // One boot request and one 24h timer per mounted control (loadCatalog is
-    // stable). The module-level request and daemon catalog epoch deduplicate
-    // panes and sessions.
-  }, [loadCatalog]);
-
-  useEffect(
-    () =>
-      subscribeModelCatalogInvalidation(() => {
-        void loadCatalog(true);
-      }),
-    [loadCatalog]
-  );
-
-  useDesktopProvidersRetry(desktopProvidersAway, invalidateSharedModelCatalogRequest);
 
   useEffect(() => {
     if (model && !startupCatalogSettled) return;

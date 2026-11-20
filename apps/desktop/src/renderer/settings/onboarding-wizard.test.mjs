@@ -27,16 +27,6 @@ const { readGithubStarred } = await import('./github-star-storage.ts');
 
 test.after(() => dom.window.close());
 
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((yes, no) => {
-    resolve = yes;
-    reject = no;
-  });
-  return { promise, resolve, reject };
-}
-
 const profile = {
   title: 'Before',
   experienceLevel: 'beginner',
@@ -114,7 +104,7 @@ async function typeTitle(value) {
 }
 
 test('profile saving blocks conflicting controls and retains the saved language after failure', async (t) => {
-  const save = deferred();
+  const save = Promise.withResolvers();
   const calls = [];
   await mount(t, {
     invokeCapability: async (request) => {
@@ -135,7 +125,7 @@ test('profile saving blocks conflicting controls and retains the saved language 
 });
 
 test('Ctrl+Enter commits the focused profile title before leaving the step', async (t) => {
-  const save = deferred();
+  const save = Promise.withResolvers();
   const calls = [];
   await mount(t, {
     invokeCapability: async (request) => {

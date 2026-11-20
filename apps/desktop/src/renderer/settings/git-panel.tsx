@@ -29,6 +29,7 @@ import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } f
 import { GithubDeviceCodeText, useGithubDeviceCode } from './github-device-code';
 import { useGithubLoginPolling } from './github-login-polling';
 import { errorMessage } from '../editor-pane-session-errors';
+import { desktopBridge, openExternalOn } from './desktop-bridge';
 
 const CLI_DOWNLOAD_URL = 'https://cli.github.com';
 
@@ -41,9 +42,9 @@ function cliStatusView(
   return status.authenticated ? { label: t('Connected'), tone: 'ok' } : { label: t('Not connected'), tone: 'off' };
 }
 export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
-  const host = api ?? (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
+  const host = api ?? desktopBridge();
   const supported = Boolean(host?.githubCliStatus);
-  // Cached snapshot first (user: 캐시해서 툭 나오지 않게): the panel paints its
+  // Cached snapshot first: the panel paints its
   // last known rows immediately; the background probe reconciles afterwards.
   const cachedInfo = getCachedGitPanelInfo(host);
   const [status, setStatus] = useState<DesktopGithubCliStatus | null>(cachedInfo?.status ?? null);
@@ -96,7 +97,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const flowId = flow?.flowId || '';
   const flowState = flow?.state || '';
   useGithubLoginPolling({ host, flowId, flowState, setFlow, setStatus, refreshStatus });
-  const deviceCode = useGithubDeviceCode(host, flow, (url) => void host?.openExternal?.(url).catch(() => undefined));
+  const deviceCode = useGithubDeviceCode(host, flow, (url) => openExternalOn(host, url));
 
   // The signed-in GitHub account is the identity source of truth (user
   // decision): load it whenever gh reports authenticated.
@@ -134,7 +135,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
     },
     [host]
   );
-  // No Identity UI (user decision: 연동하면 자동으로): the git identity syncs
+  // No Identity UI: the git identity syncs
   // itself from the connected account — on a fresh machine with no identity
   // at all, and after every explicit Connect.
   useEffect(() => {
@@ -163,7 +164,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
       .catch((reason) => setError(errorMessage(reason)))
       .finally(() => setBusy(''));
   };
-  const open = (url: string) => void host?.openExternal?.(url).catch(() => undefined);
+  const open = (url: string) => openExternalOn(host, url);
   const loading = status === null;
   const busyAny = Boolean(busy);
   const flowLive = flowState === 'pending' || flowState === 'code';

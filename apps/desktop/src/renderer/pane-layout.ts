@@ -184,6 +184,16 @@ function isMigratedAgentSelection(selection: WorkspaceSelection): selection is M
   return selection.kind === 'session' && (selection as MigratedAgentSelection).legacyAgentSelection === true;
 }
 
+const AGENT_SESSION_KEY_PREFIX = 'agent-session:';
+
+/** A legacy `agent-session:<id>` tab key as its `session:<id>` successor. */
+function migratedAgentKey(key: string): string;
+function migratedAgentKey(key: string | undefined): string | undefined;
+function migratedAgentKey(key: string | undefined): string | undefined {
+  const id = key?.startsWith(AGENT_SESSION_KEY_PREFIX) ? key.slice(AGENT_SESSION_KEY_PREFIX.length) : '';
+  return id ? `session:${id}` : key;
+}
+
 /** Keep only one normal tab per durable session address. Prefer an existing
  * normal tab over a migrated legacy agent tab regardless of tree order. */
 export function normalizePaneLayoutSessions(root: PaneNode): PaneNode | null {
@@ -219,15 +229,9 @@ export function normalizePaneLayoutSessions(root: PaneNode): PaneNode | null {
     }
     if (tabs.length === 0) return null;
     const keys = new Set(tabs.map((tab) => navigationKey(tab)));
-    const activeSessionId = node.activeKey.startsWith('agent-session:')
-      ? node.activeKey.slice('agent-session:'.length)
-      : '';
-    const migratedActiveKey = activeSessionId ? `session:${activeSessionId}` : node.activeKey;
+    const migratedActiveKey = migratedAgentKey(node.activeKey);
     const activeKey = keys.has(migratedActiveKey) ? migratedActiveKey : navigationKey(tabs[0]);
-    const previewSessionId = node.previewKey?.startsWith('agent-session:')
-      ? node.previewKey.slice('agent-session:'.length)
-      : '';
-    const migratedPreviewKey = previewSessionId ? `session:${previewSessionId}` : node.previewKey;
+    const migratedPreviewKey = migratedAgentKey(node.previewKey);
     return {
       ...node,
       tabs,
@@ -275,6 +279,22 @@ export function updateTabSelectionInPaneLeaf(root: PaneNode, leafId: string, sel
   });
 }
 
+/** `tabs` with the tab keyed `tabKey` moved to strip position `index`; the same
+ *  array when there is no index, no such tab, or it already sits there. */
+function placeTabAt(
+  tabs: readonly WorkspaceSelection[],
+  tabKey: string,
+  index: number | undefined
+): readonly WorkspaceSelection[] {
+  if (index === undefined) return tabs;
+  const from = tabs.findIndex((tab) => navigationKey(tab) === tabKey);
+  if (from < 0) return tabs;
+  const next = [...tabs];
+  const [moved] = next.splice(from, 1);
+  next.splice(Math.max(0, Math.min(index, next.length)), 0, moved);
+  return next.every((tab, at) => tab === tabs[at]) ? tabs : next;
+}
+
 /** Open a selection in one group: activate the existing tab, or append a new
  *  one. `replaceKey` promotes in place (draft → its materialized session) at
  *  the replaced tab's exact strip position, dropping any older copy of the
@@ -290,16 +310,6 @@ export function openTabInPaneLeaf(
   return mapPaneLeaf(root, leafId, (leaf) => {
     const key = navigationKey(selection);
     const preview = options.preview === true && selection.kind === 'file';
-    const placeAt = (tabs: readonly WorkspaceSelection[], tabKey: string) => {
-      const index = options.index;
-      if (index === undefined) return tabs;
-      const from = tabs.findIndex((tab) => navigationKey(tab) === tabKey);
-      if (from < 0) return tabs;
-      const next = [...tabs];
-      const [moved] = next.splice(from, 1);
-      next.splice(Math.max(0, Math.min(index, next.length)), 0, moved);
-      return next.every((tab, at) => tab === tabs[at]) ? tabs : next;
-    };
     if (replaceKey && replaceKey !== key) {
       const replaced = leaf.tabs.findIndex((tab) => navigationKey(tab) === replaceKey);
       if (replaced >= 0) {
@@ -350,7 +360,7 @@ export function openTabInPaneLeaf(
         replaced[existingIndex] = nextSelection;
         retabbed = replaced;
       }
-      const tabs = placeAt(retabbed, resolvedKey);
+      const tabs = placeTabAt(retabbed, resolvedKey, options.index);
       if (leaf.activeKey === resolvedKey && !selectionChanged && previewKey === leaf.previewKey && tabs === leaf.tabs)
         return leaf;
       return { ...leaf, tabs, activeKey: resolvedKey, previewKey };

@@ -919,12 +919,22 @@ async function mountPanel(t, extra = {}) {
     sshListHosts: () => Promise.resolve([SAVED]),
     sshConfigHosts: () => Promise.resolve([]),
     subscribeSshProgress: () => () => undefined,
-    subscribeSshAskpass: (listener) => (questions.add(listener), () => questions.delete(listener)),
-    sshAskpassReply: (...args) => (calls.push(['reply', ...args]), Promise.resolve()),
-    subscribeSshCleanupProgress: (listener) => (
-      cleanupListeners.add(listener), () => cleanupListeners.delete(listener)
-    ),
-    sshUpdateHostSettings: (id, settings) => (calls.push(['settings', id, settings]), Promise.resolve([SAVED])),
+    subscribeSshAskpass: (listener) => {
+      questions.add(listener);
+      return () => questions.delete(listener);
+    },
+    sshAskpassReply: (...args) => {
+      calls.push(['reply', ...args]);
+      return Promise.resolve();
+    },
+    subscribeSshCleanupProgress: (listener) => {
+      cleanupListeners.add(listener);
+      return () => cleanupListeners.delete(listener);
+    },
+    sshUpdateHostSettings: (id, settings) => {
+      calls.push(['settings', id, settings]);
+      return Promise.resolve([SAVED]);
+    },
     ...extra,
   };
   setCachedConnectionInfo(api, info);
@@ -1076,7 +1086,10 @@ test('per-server settings: a refused value is shown and keeps the dialog open', 
 test('cleanup: confirm with the work-history checkbox, progress, the result and optionally forgetting the entry', async (t) => {
   const done = Promise.withResolvers();
   const { document, calls, rowButton, ask, cleanupProgress } = await mountPanel(t, {
-    sshCleanupHost: (id, request) => (calls.push(['cleanup', id, request]), done.promise),
+    sshCleanupHost: (id, request) => {
+      calls.push(['cleanup', id, request]);
+      return done.promise;
+    },
   });
   await click(rowButton('Clean up the server…'));
   const dialog = document.querySelector('.conn-dialog');
@@ -1197,9 +1210,10 @@ test('C2: a hop that is read only after the earlier one is trusted says so; conf
   let connects = 0;
   const { document, calls } = await mountDialog(t, {
     ...NO_CONFIG,
-    sshInspectHostKey: (target) => (
-      calls.push(['inspect', target]), Promise.resolve({ attemptId: `a-${calls.length}`, check: checks.shift() })
-    ),
+    sshInspectHostKey: (target) => {
+      calls.push(['inspect', target]);
+      return Promise.resolve({ attemptId: `a-${calls.length}`, check: checks.shift() });
+    },
     sshConnect: () =>
       Promise.resolve(
         connects++ === 0
@@ -1369,19 +1383,21 @@ test('a failed connection offers "View log": the connection log, Copy and Copy d
   const { document } = await mountDialog(t, {
     ...NO_CONFIG,
     sshConnect: () => Promise.resolve({ ok: false, failure: { kind: 'failed', message: 'boom' } }),
-    sshDiagnosticsLog: (ref) => (
-      refs.push(['log', ref]),
-      Promise.resolve({
+    sshDiagnosticsLog: (ref) => {
+      refs.push(['log', ref]);
+      return Promise.resolve({
         lines: ['12:00:00.001 ssh    ssh.exe -T -- root@vps.example.com true', '12:00:00.200 stderr refused'],
         copyText: '12:00:00.001 ssh    ssh.exe -T -- <server> true',
-      })
-    ),
-    sshDiagnosticsCopy: (ref) => (
-      refs.push(['copy', ref]), Promise.resolve('Mixdog SSH diagnostics\nHostName <server>')
-    ),
-    sshServerLog: (ref) => (
-      refs.push(['server', ref]), Promise.resolve({ ok: true, text: 'daemon started', copyText: 'daemon started' })
-    ),
+      });
+    },
+    sshDiagnosticsCopy: (ref) => {
+      refs.push(['copy', ref]);
+      return Promise.resolve('Mixdog SSH diagnostics\nHostName <server>');
+    },
+    sshServerLog: (ref) => {
+      refs.push(['server', ref]);
+      return Promise.resolve({ ok: true, text: 'daemon started', copyText: 'daemon started' });
+    },
   });
   await startConnect(document, 'root@vps.example.com');
   assert.deepEqual(footerButtons(document), ['Edit address', 'View log', 'Close', 'Try again']);
@@ -1497,7 +1513,10 @@ test('a first connection that failed because an older version stays offers the c
         ok: false,
         failure: { kind: 'protocol-mismatch', message: 'protocol 3 vs 4', code: 'protocol-mismatch' },
       }),
-    sshCleanupTarget: (target, request) => (calls.push([target, request]), Promise.resolve({ ok: true, hosts: [] })),
+    sshCleanupTarget: (target, request) => {
+      calls.push([target, request]);
+      return Promise.resolve({ ok: true, hosts: [] });
+    },
   });
   await startConnect(document, 'root@vps.example.com');
   await click(buttonNamed(document, 'Clean up the server…'));

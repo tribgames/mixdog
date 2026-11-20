@@ -14,7 +14,7 @@ const DEVICE_URL = 'https://github.com/login/device';
 
 type CopyState = '' | 'copied' | 'failed';
 
-export interface GithubDeviceCodeState {
+interface GithubDeviceCodeState {
   /** A code is on screen for the live flow. */
   active: boolean;
   code: string;

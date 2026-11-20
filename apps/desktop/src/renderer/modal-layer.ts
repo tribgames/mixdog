@@ -15,8 +15,8 @@ function refreshStacking() {
     const surface = surfaces.get(id);
     // Base 960: above every static dialog card (schedules/agent editors sit
     // at CSS 940, the studio model panel at 950) so a picker opened FROM a
-    // dialog paints over it (user: 팝업에서 모델 누르면 아무것도 안 뜬다),
-    // while toasts (1000) and tooltips (1200) stay above modal chrome.
+    // dialog paints over it, while toasts (1000) and tooltips (1200) stay
+    // above modal chrome.
     if (surface) surface.style.zIndex = String(960 + index);
   });
 }

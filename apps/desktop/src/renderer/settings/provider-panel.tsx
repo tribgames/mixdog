@@ -1,7 +1,6 @@
 import { ExternalLink, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
-import type { DesktopApi } from '../../shared/contract';
 import { isSshConnectionWindow } from '../desktop-connection';
 import { t } from '../i18n';
 import { ErrorNotice, verificationUrlOf } from '../ErrorNotice';
@@ -30,6 +29,7 @@ import {
   type PanelContext,
   type RecordValue,
 } from './capability-data';
+import { desktopBridge, openExternalOn, openExternalUrl } from './desktop-bridge';
 
 export function preloadProviderPanel(api: PanelContext['api']): Promise<unknown> {
   return preloadCapabilitySettings(api).then((next) =>
@@ -366,8 +366,7 @@ function KeychainAlert({ issue, busy, run }: { issue: RecordValue; busy: boolean
 }
 
 /** One card PER connected provider: sharing a single card ran "OpenAI's
- *  accounts → Anthropic header" as one continuous list (user: 프로바이더별
- *  분리된 느낌이 없다). Providers without an account share one compact card
+ *  accounts → Anthropic header" as one continuous list. Providers without an account share one compact card
  *  after them. */
 function OAuthProvidersCard({
   api,
@@ -452,8 +451,8 @@ function OAuthProvidersCard({
 }
 
 export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContext) {
-  const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
-  const openKeyConsole = (url: string) => void host?.openExternal?.(url).catch(() => undefined);
+  const host = desktopBridge();
+  const openKeyConsole = (url: string) => openExternalOn(host, url);
   const setup = record(data.providerSetup);
   const { custom: customProviders, otherApi: otherApiProviders, oauth: oauthProviders } = providerPageGroups(setup);
   const busy = Boolean(pending);
@@ -770,11 +769,7 @@ export function OAuthControl({
                 )}
               </p>
               <div className="settings-oauth-verify-actions">
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={() => void window.mixdogDesktop?.openExternal?.(verificationUrl).catch(() => undefined)}
-                >
+                <button type="button" className="primary" onClick={() => openExternalUrl(verificationUrl)}>
                   <ExternalLink size={14} aria-hidden="true" />
                   {t('Open verification page')}
                 </button>

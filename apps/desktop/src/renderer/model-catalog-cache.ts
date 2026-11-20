@@ -3,7 +3,7 @@ import { normalizedProviderModels } from '../shared/desktop-transcript-limits';
 import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope';
 import { isSshConnectionWindow } from './desktop-connection';
 import { requireDesktopProviders } from './desktop-provider-retry';
-import { record } from './record-utils';
+import { record, recordOrNull, rows } from './record-utils';
 import { invokeOrHeld } from './section-capabilities';
 
 const MODEL_CATALOG_STORAGE_KEY = 'mixdog.desktop-model-catalog.v2';
@@ -15,10 +15,7 @@ interface CachedModelCatalog {
 }
 
 function effortOptions(value: unknown): DesktopModelOption['effortOptions'] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((entry) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
-    const option = entry as Record<string, unknown>;
+  return rows(value).flatMap((option) => {
     const optionValue = String(option.value || '').trim();
     const label = String(option.label || '').trim();
     return optionValue && label ? [{ value: optionValue, label }] : [];
@@ -26,9 +23,8 @@ function effortOptions(value: unknown): DesktopModelOption['effortOptions'] {
 }
 
 function stringRecord(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).flatMap(([key, entry]) => {
+    Object.entries(record(value)).flatMap(([key, entry]) => {
       const normalizedKey = key.trim();
       const normalizedValue = typeof entry === 'string' ? entry.trim() : '';
       return normalizedKey && normalizedValue ? [[normalizedKey, normalizedValue]] : [];
@@ -42,10 +38,7 @@ function stringArray(value: unknown): string[] {
 }
 
 function parameterOptionValues(value: unknown): Array<{ value: string; label: string; contextWindow?: number }> {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((raw) => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
-    const option = raw as Record<string, unknown>;
+  return rows(value).flatMap((option) => {
     const optionValue = String(option.value || '').trim();
     const optionLabel = String(option.label || optionValue).trim();
     if (!optionValue || !optionLabel) return [];
@@ -57,10 +50,7 @@ function parameterOptionValues(value: unknown): Array<{ value: string; label: st
 }
 
 function parameterOptions(value: unknown): DesktopModelOption['modelParameterOptions'] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((entry) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
-    const parameter = entry as Record<string, unknown>;
+  return rows(value).flatMap((parameter) => {
     const id = String(parameter.id || '').trim();
     const label = String(parameter.label || id).trim();
     let kind: 'boolean' | 'enum' | null = null;
@@ -76,8 +66,8 @@ function parameterVariants(value: unknown): Array<Record<string, string>> {
 }
 
 function modelOption(value: unknown): DesktopModelOption | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const option = value as Record<string, unknown>;
+  const option = recordOrNull(value);
+  if (!option) return null;
   const provider = String(option.provider || '').trim();
   const model = String(option.model || '').trim();
   if (!provider || !model) return null;
@@ -122,17 +112,16 @@ function modelOption(value: unknown): DesktopModelOption | null {
 export function readCachedModelCatalog(): CachedModelCatalog {
   try {
     const stored = JSON.parse(window.localStorage.getItem(catalogStorageKey(MODEL_CATALOG_STORAGE_KEY)) || 'null');
-    const record =
-      stored && typeof stored === 'object' && !Array.isArray(stored) ? (stored as Record<string, unknown>) : {};
-    const models = Array.isArray(record.models)
-      ? record.models
+    const cached = record(stored);
+    const models = Array.isArray(cached.models)
+      ? cached.models
           .map(modelOption)
           .filter((entry): entry is DesktopModelOption => entry !== null)
           .slice(0, MODEL_CATALOG_LIMIT)
       : [];
     return {
       models,
-      updatedAt: typeof record.updatedAt === 'number' && Number.isFinite(record.updatedAt) ? record.updatedAt : 0,
+      updatedAt: typeof cached.updatedAt === 'number' && Number.isFinite(cached.updatedAt) ? cached.updatedAt : 0,
     };
   } catch {
     return { models: [], updatedAt: 0 };
@@ -458,7 +447,6 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
       if (!isCurrent()) return normalizeModelCatalog(models);
       const rows = Array.isArray(models) ? models : [];
       expirePartialModelCatalog(request, rows);
-      // An empty answer must not replace the last good catalog on disk.
       // An empty answer must not replace the last good catalog on disk.
       return rows.length ? writeCachedModelCatalog(rows, scope).models : [];
     });

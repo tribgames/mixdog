@@ -5,6 +5,7 @@
 // dock's lifetime.
 import type { ReactNode } from 'react';
 import type { SideFileProblemsState } from './pane-side-dock-hooks';
+import { PaneDockSurfaceSlot } from './pane-side-dock-surface-slot';
 import { SideFileProblems } from './side-file-problems';
 import { SideFileStatusRow, sideFileHasFooter } from './side-file-status-row';
 import { sideFileKey, type PaneSideDockFile } from './side-file-tabs';
@@ -72,12 +73,7 @@ export function PaneDockFileSurface({
   });
   const fileProblems = fileProblemsOpen && activeFile ? (renderFileProblems?.(activeFile) ?? null) : null;
   return (
-    <div
-      className="workbench-side-surface-slot"
-      data-surface-active={active ? 'true' : 'false'}
-      inert={active ? undefined : true}
-      aria-hidden={active ? undefined : true}
-    >
+    <PaneDockSurfaceSlot active={active}>
       <SideFileStrip
         files={files}
         activeKey={activeFileId}
@@ -109,6 +105,6 @@ export function PaneDockFileSurface({
         )}
       </div>
       {sideFileHasFooter(fileChrome) && <SideFileStatusRow chrome={fileChrome} />}
-    </div>
+    </PaneDockSurfaceSlot>
   );
 }

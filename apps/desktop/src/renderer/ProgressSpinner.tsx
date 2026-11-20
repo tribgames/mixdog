@@ -8,8 +8,7 @@ type WindowLoadingMarkProps = SVGProps<SVGSVGElement> & {
 
 // desktop.css draws every lucide stroke with `vector-effect: non-scaling-stroke`,
 // so stroke-width is already CSS pixels at any size. ONE value therefore holds
-// the same optical line from the 14px tab spinner to the 24px pane loader — the
-// old size-relative formula existed only to undo lucide's 24-grid scaling.
+// the same optical line from the 14px tab spinner to the 24px pane loader.
 const SPINNER_STROKE_WIDTH = 1;
 
 export function ProgressSpinner({ className, size, strokeWidth, style, ...props }: ProgressSpinnerProps) {

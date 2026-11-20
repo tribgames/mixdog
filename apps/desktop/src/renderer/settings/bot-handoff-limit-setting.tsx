@@ -12,6 +12,7 @@ import { t } from '../i18n';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import { SelectRow } from './capability-controls';
 import { getCachedDesktopStatus, readDesktopStatus, writeDesktopStatus } from './desktop-status-cache';
+import { desktopBridge } from './desktop-bridge';
 
 type LimitApi = Partial<Pick<DesktopApi, 'readSettings' | 'setBotHandoffLimit'>>;
 
@@ -21,7 +22,7 @@ const LIMITS = Array.from({ length: BOT_HANDOFF_LIMIT_MAX - BOT_HANDOFF_LIMIT_MI
 });
 
 export function BotHandoffLimitRow({ disabled }: { disabled?: boolean }) {
-  const api = (window as unknown as { mixdogDesktop?: LimitApi }).mixdogDesktop;
+  const api = desktopBridge<LimitApi>();
   const [settings, setSettings] = useState<DesktopSettings | null>(
     () => getCachedDesktopStatus(api, 'settings') ?? null
   );
@@ -30,7 +31,7 @@ export function BotHandoffLimitRow({ disabled }: { disabled?: boolean }) {
   // That choice's save. Two choices of one limit are two saves, so it is told by identity.
   const last = useRef<object | null>(null);
   const [error, setError] = useState('');
-  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so the read follows a replaced bridge
+  // api is the window bridge read each render, listed so the read follows a replaced bridge.
   useEffect(() => {
     let live = true;
     const read = () =>

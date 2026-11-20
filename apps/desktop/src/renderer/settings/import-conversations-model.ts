@@ -15,7 +15,7 @@ export interface ImportSelectionState {
 
 export const EMPTY_IMPORT_SELECTION: ImportSelectionState = { all: false, ids: new Set() };
 
-export type SelectAllState = 'none' | 'mixed' | 'all';
+type SelectAllState = 'none' | 'mixed' | 'all';
 
 export const isRowSelectable = (row: Pick<ConversationImportRow, 'importedSessionId'>): boolean =>
   row.importedSessionId === null;
@@ -139,7 +139,7 @@ export function importCodeFromError(error: unknown): string | undefined {
   )?.[1];
 }
 
-export interface ImportFailureRecord {
+interface ImportFailureRecord {
   candidateId: string;
   /** What names the record: its title, else its source file name. */
   label: string;

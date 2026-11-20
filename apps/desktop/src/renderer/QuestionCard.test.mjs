@@ -69,7 +69,14 @@ test('step buttons: a multi-select advances by click, Previous goes back, the la
   const decisions = [];
   const draftsRef = { current: [] };
   const ui = await mount(
-    React.createElement(QuestionCard, { questions, draftsRef, resolve: async (d) => (decisions.push(d), true) })
+    React.createElement(QuestionCard, {
+      questions,
+      draftsRef,
+      resolve: async (d) => {
+        decisions.push(d);
+        return true;
+      },
+    })
   );
   try {
     const options = () => [...ui.doc.querySelectorAll('.question-option')];
@@ -111,7 +118,10 @@ test('a single-choice pick answers at once, or waits for Send when this device a
       React.createElement(QuestionCard, {
         questions: single,
         draftsRef: { current: [] },
-        resolve: async (d) => (decisions.push(d), true),
+        resolve: async (d) => {
+          decisions.push(d);
+          return true;
+        },
       })
     );
     const options = () => [...ui.doc.querySelectorAll('.question-option')];

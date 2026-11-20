@@ -334,8 +334,7 @@
    (display:flex, height:100%) outranks any @layer rule, so these gate
    corrections must live outside settings-base. Inside the layer the gate
    content stayed a flex row and .capability-settings-content shrank to
-   fit-content (~512px), leaving a dead right margin (user: 옵션창 레이아웃
-   망가짐). */
+   fit-content (~512px), leaving a dead right margin. */
 .mixdog-settings__category-stage .pane-surface-gate,
 .command-surface .mixdog-settings__body > .pane-surface-gate {
   min-height: 100%;
@@ -352,7 +351,7 @@
    whichever order this lazy sheet and desktop.css end up in. */
 .mixdog-settings.mixdog-settings-v2 {
   width: min(980px, calc(100vw - 32px));
-  /* Grows with the window, but stops at 760 (user: 팝업 상하 최대 크기). */
+  /* Grows with the window, but stops at 760. */
   height: min(760px, var(--settings-panel-height));
   grid-template-columns: 240px minmax(0, 1fr);
 }
@@ -366,7 +365,7 @@
   padding: 16px 16px 16px;
   overflow: hidden;
   /* The plate step alone divides rail from page, as the popups divide by
-     plate and shadow (user: 프레임리스로 최대한). */
+     plate and shadow. */
   border-right: 0;
   background: var(--mx-bg-layer-1);
 }
@@ -385,7 +384,7 @@
   display: grid;
   gap: 4px;
   /* Single evenly spaced run: no headings, no block gaps — every row sits on
-     the same 4px rhythm (user decision). */
+     the same 4px rhythm. */
   margin-bottom: 0;
 }
 .mixdog-settings__rail-group button {
@@ -497,11 +496,9 @@
 /* The category stage sits BETWEEN the gapped body and the .settings-group
    sections (stage → gate → gate-content → .capability-settings-content), so
    the body's 28px section rhythm must be recreated on the capability content
-   column — without it every group heading glues onto the previous card
-   (user: 옵션창 상하정렬 틀어짐 / 레이아웃 다 틀어짐). */
+   column — without it every group heading glues onto the previous card. */
 /* The stage must also stay a NON-shrinking, unclipped flow child, or the
-   body viewport swallows the overflow and kills body scrolling
-   (user: 옵션창 스크롤이 안 된다). */
+   body viewport swallows the overflow and kills body scrolling. */
 .mixdog-settings__category-stage {
   flex: 0 0 auto;
   min-height: min-content;
@@ -534,7 +531,7 @@
   overflow: visible;
 }
 /* Resource tags (Output style, Providers, Skills, MCP…) sit to the RIGHT of
-   the name (user: 액티브 네임 오른쪽에 붙이고), matching the provider account
+   the name, matching the provider account
    rows. The name yields with an ellipsis; the badge never wraps under it. */
 .mixdog-settings-v2 .settings-resource-title {
   flex-wrap: nowrap;
@@ -556,8 +553,7 @@
 }
 
 /* Compact settings replaces the window — a SCREEN, not a popup — so the
-   in-app X swaps to a back arrow in that state only (user: 팝업 아닐 때
-   X 자리에 뒤로가기). Same button, same close-and-return semantics; the
+   in-app X swaps to a back arrow in that state only. Same button, same close-and-return semantics; the
    floating popup card and the mobile sheet keep the X. */
 .mixdog-settings__close .mixdog-settings__close-back {
   display: none;
@@ -576,8 +572,7 @@
    starts below Window Controls Overlay; this reclaims the side/bottom gutters
    without putting categories or the in-app X under native caption buttons.
    Only the settings sheet does this: the other panels are rounded cards that
-   keep their margins, or a short window cut them off at its bottom edge
-   (user: 아주 좁을 때 아래 패딩이 없어지네). */
+   keep their margins, or a short window cut them off at its bottom edge. */
 @media (max-width: 760px), (max-height: 680px) {
   .mixdog-settings-layer:has(> .mixdog-settings-v2) {
     --settings-layer-safe-top: env(titlebar-area-height, 0px);

@@ -414,7 +414,7 @@ export function ConfirmDialog({
   );
 }
 
-export interface ServerFolderListing {
+interface ServerFolderListing {
   /** Canonical directory the server listed. */
   path: string;
   entries: Array<{ name: string; git: boolean }>;

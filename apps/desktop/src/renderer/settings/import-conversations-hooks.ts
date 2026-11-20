@@ -24,18 +24,18 @@ import {
   type ImportSelectionState,
   type ImportTimeRange,
 } from './import-conversations-model';
+import { desktopBridge } from './desktop-bridge';
 
 const PAGE_SIZE = 50;
 const SEARCH_DEBOUNCE_MS = 250;
 const SCAN_REFRESH_MS = 1500;
 
-export type ImportJobMode = 'single' | 'batch';
+type ImportJobMode = 'single' | 'batch';
 
-export type ImportApi = Partial<DesktopApi> &
+type ImportApi = Partial<DesktopApi> &
   Pick<DesktopApi, 'invokeCapability' | 'readCapabilities' | 'listProjects' | 'addProject'>;
 
-export const desktopApi = (): ImportApi | undefined =>
-  (window as unknown as { mixdogDesktop?: ImportApi }).mixdogDesktop;
+export const desktopApi = (): ImportApi | undefined => desktopBridge<ImportApi>();
 
 async function readImport<T>(api: ImportApi, capability: 'listImportableConversations', input: unknown): Promise<T> {
   const [result] = await api.readCapabilities([{ capability, args: [input] }]);

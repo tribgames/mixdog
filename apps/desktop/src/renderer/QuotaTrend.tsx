@@ -65,7 +65,7 @@ const METER_STEP = 1;
 
 /** The meter without the holds that end in a one-step rise: each reading
  *  runs straight on to the next instead of sitting flat and then jumping, so
- *  the line climbs instead of stair-stepping (user: 차트선이 너무 안 이쁜데). */
+ *  the line climbs instead of stair-stepping. */
 function smoothMeter(points: Point[]): Point[] {
   const kept: Point[] = [];
   let hold: Point | null = null;
@@ -280,7 +280,6 @@ export function QuotaTrend({
       );
   // Each model's share is stacked on the ones before it, so the layers fill
   // the area under the meter by model and their top edge is the meter itself
-  // (user: 모델별로 영역 색칠하는 스타일로, 모델별 합계 따로 가지 말고).
   // Every model's line runs up to now, and so do the layers.
   const models = rows(data.modelSeries).map((entry) => {
     const key = entry.key ? usageModelKey(entry) : '';
@@ -294,7 +293,7 @@ export function QuotaTrend({
   // The models are read sparsely and the meter densely, so the layers are
   // stacked at the meter's own vertices with each one's shares scaled to the
   // meter there: the stack's top IS the meter line, curve for curve, and the
-  // layer edges bend with it (user: 좀 안 이쁜데).
+  // layer edges bend with it.
   const modelEnd = Math.max(0, ...models.map((entry) => entry.list.at(-1)?.[0] ?? 0));
   const stackPoints = meter.filter(([time]) => time <= modelEnd);
   // The layers run on to the models' last reading, the meter held there.
@@ -319,8 +318,7 @@ export function QuotaTrend({
   });
   const stacked = stacks.some((entry) => entry.area);
   // The legend names the models only; the forecast, pace and unmeasured
-  // strokes read for themselves on the plot (user: 범례에서 예상 · 적정 속도
-  // · 측정 못 한 구간은 빼고).
+  // strokes read for themselves on the plot.
   const legend: LegendItem[] = stacked
     ? stacks.map((entry) => ({ key: `series:${entry.key}`, label: entry.label, series: entry.ink }))
     : [];
@@ -382,7 +380,7 @@ export function QuotaTrend({
                 </linearGradient>
                 {/* Each model layer fades down to the baseline in its own ink,
                 so the stack reads as one soft area split by hue rather than
-                a solid slab (user: 깔끔하게 좀 만들어 줘, 되게 지저분하고). */}
+                a solid slab. */}
                 {stacks.map((entry, index) => (
                   <linearGradient
                     key={entry.key}

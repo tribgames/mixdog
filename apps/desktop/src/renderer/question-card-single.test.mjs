@@ -8,7 +8,10 @@ dom.window.Element.prototype.scrollIntoView = () => {};
 dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 const decisions = [];
 dom.window.mixdogDesktop = {
-  resolveToolApprovalForSession: async (_session, _id, decision) => (decisions.push(decision), true),
+  resolveToolApprovalForSession: async (_session, _id, decision) => {
+    decisions.push(decision);
+    return true;
+  },
 };
 for (const key of [
   'window',
@@ -61,7 +64,10 @@ async function mountRows(first) {
     const { items } = snapshot;
     state.approvals = useConversationApprovals(snapshot, routeSessionIdRef);
     let turn = '';
-    const turnKeys = items.map((item) => (item.kind === 'user' ? (turn = `turn:${item.id}`) : turn));
+    const turnKeys = items.map((item) => {
+      if (item.kind === 'user') turn = `turn:${item.id}`;
+      return turn;
+    });
     const rows = projectSettledTranscriptRows({ sessionKey: 's', items, turnKeys, failedTurns: new Set() }).rows;
     return React.createElement(
       'div',
@@ -229,7 +235,10 @@ test('a question left without a result does not get a second card that wipes the
     toolApproval: { id: 'ap-1', kind: 'question', toolCallId: 'call-new', args: { questions } },
   };
   let turn = '';
-  const turnKeys = items.map((item) => (item.kind === 'user' ? (turn = `turn:${item.id}`) : turn));
+  const turnKeys = items.map((item) => {
+    if (item.kind === 'user') turn = `turn:${item.id}`;
+    return turn;
+  });
   const rows = projectSettledTranscriptRows({ sessionKey: 's', items, turnKeys, failedTurns: new Set() }).rows;
   const routeSessionIdRef = { current: 's' };
   let approvals;

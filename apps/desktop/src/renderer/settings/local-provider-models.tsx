@@ -6,7 +6,7 @@ import { ExtensionItemList, ExtensionItemRow, ExtensionNote, ExtensionSection } 
 import type { LocalProviderActions } from './local-provider-actions';
 import { LocalProviderTable, localProviderTableRows } from './local-provider-table';
 
-export function localIdleLabel(seconds: number): string {
+function localIdleLabel(seconds: number): string {
   if (seconds === 0) return t('Never');
   if (seconds === 3600) return t('After 1 hour');
   if (seconds % 3600 === 0) return t('After {{hours}} hours', { hours: String(seconds / 3600) });

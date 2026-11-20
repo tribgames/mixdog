@@ -53,6 +53,11 @@ function rebalancePaneAxes(layout: PaneNode, ...directions: ReadonlyArray<PaneDi
   return next;
 }
 
+/** `prev` with `layout`, or `prev` itself when the layout did not change. */
+function withLayout(prev: PaneWorkspaceState, layout: PaneNode): PaneWorkspaceState {
+  return layout === prev.layout ? prev : { ...prev, layout };
+}
+
 export { initialPaneWorkspaceState } from './pane-workspace-storage';
 
 /** Drop zone of a drag-to-split gesture over one pane. */
@@ -278,8 +283,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
   const setRatio = useCallback(
     (path: string, ratio: number) => {
       setState((prev) => {
-        const layout = setPaneSplitRatio(prev.layout, path, ratio);
-        return layout === prev.layout ? prev : { ...prev, layout };
+        return withLayout(prev, setPaneSplitRatio(prev.layout, path, ratio));
       });
     },
     [setState]
@@ -330,8 +334,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
   const updateSelection = useCallback(
     (leafId: string, selection: WorkspaceSelection) => {
       setState((prev) => {
-        const layout = updateTabSelectionInPaneLeaf(prev.layout, leafId, selection);
-        return layout === prev.layout ? prev : { ...prev, layout };
+        return withLayout(prev, updateTabSelectionInPaneLeaf(prev.layout, leafId, selection));
       });
     },
     [setState]
@@ -340,8 +343,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
   const pinTab = useCallback(
     (leafId: string, key: string) => {
       setState((prev) => {
-        const layout = pinTabInPaneLeaf(prev.layout, leafId, key);
-        return layout === prev.layout ? prev : { ...prev, layout };
+        return withLayout(prev, pinTabInPaneLeaf(prev.layout, leafId, key));
       });
     },
     [setState]
@@ -352,8 +354,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
       setState((prev) => {
         const owner = paneLeafContainingKey(prev.layout, key);
         if (!owner) return prev;
-        const layout = pinTabInPaneLeaf(prev.layout, owner.id, key);
-        return layout === prev.layout ? prev : { ...prev, layout };
+        return withLayout(prev, pinTabInPaneLeaf(prev.layout, owner.id, key));
       });
     },
     [setState]
@@ -377,8 +378,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
   const reorderTab = useCallback(
     (leafId: string, sourceKey: string, target: string | number) => {
       setState((prev) => {
-        const layout = reorderTabInPaneLeaf(prev.layout, leafId, sourceKey, target);
-        return layout === prev.layout ? prev : { ...prev, layout };
+        return withLayout(prev, reorderTabInPaneLeaf(prev.layout, leafId, sourceKey, target));
       });
     },
     [setState]

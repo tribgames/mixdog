@@ -61,7 +61,8 @@ function targetName(target: NotificationTarget): string {
   );
 }
 
-/** THE notification actions of every menu (list rows, bot and room rows), worded by the state. Each item writes `target` — the displayed
+/** THE notification actions of every menu (list rows, bot and room rows),
+ *  worded by the state. Each item writes `target` — the displayed
  *  conversation's own — unless its label names the parent ("Unmute {{name}}").
  *  None when the host has no per-conversation controls. */
 export function notificationMenuItems(

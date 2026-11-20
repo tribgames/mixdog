@@ -22,7 +22,7 @@ type CookieAutoImportApi = Partial<
 >;
 
 /** The one-line state of the last run; empty until there is one to report. */
-export function cookieAutoImportSummary(status: DesktopCookieAutoImportStatus): string {
+function cookieAutoImportSummary(status: DesktopCookieAutoImportStatus): string {
   if (status.running) return t('In progress');
   if (status.needsManualImport) {
     return t('Needs one manual import: use Import to approve once and save the Chrome key.');

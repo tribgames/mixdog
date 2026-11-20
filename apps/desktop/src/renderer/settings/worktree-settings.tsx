@@ -22,7 +22,7 @@ const UNUSED_DAY_CHOICES = [7, 14, 30, 60, 90];
 /** The offered choices, then the zero option. The setup tool and the config
  *  accept any integer within the schema bounds, so a saved value outside the
  *  choices gets its own option and the control shows what is really saved. */
-export function choiceOptions(
+function choiceOptions(
   choices: readonly number[],
   current: number,
   label: (count: number) => string,
@@ -33,7 +33,7 @@ export function choiceOptions(
 }
 
 /** The cached settings, revalidated while the dialog shows. */
-export function useWorktreeSettings(active: boolean): DesktopWorktreeSettings | null {
+function useWorktreeSettings(active: boolean): DesktopWorktreeSettings | null {
   const settings = useSyncExternalStore(subscribeWorktreeSettings, peekWorktreeSettings, peekWorktreeSettings);
   // The cached value is the first frame; the host's current one replaces it
   // when it differs. The dialog keeps this page mounted while it is closed, so

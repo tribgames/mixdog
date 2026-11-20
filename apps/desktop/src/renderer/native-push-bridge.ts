@@ -67,6 +67,14 @@ export function createNativePushHost(
   };
 }
 
+type NativeDeps = { native?: MixdogNativeInfo | null };
+const nativeOf = (deps: NativeDeps): MixdogNativeInfo | null =>
+  deps.native === undefined ? nativeAppInfo() : deps.native;
+
+function currentHost(): NativePushHost | undefined {
+  return (window as unknown as Record<string, NativePushHost | undefined>)[REMOTE_NATIVE_PUSH_GLOBAL];
+}
+
 type NativePushPermission = NativePushState['permission'];
 let nativePermission: NativePushPermission | null = null;
 const nativePermissionListeners = new Set<() => void>();
@@ -93,10 +101,8 @@ export function subscribeNativePushPermission(listener: () => void): () => void 
 /** Open this app's notification settings in the system. The permission is
  *  re-read when the app returns (the shell fires NATIVE_PUSH_EVENT, and the
  *  page becoming visible syncs, see installNativePushBridge). */
-export async function openNativeNotificationSettings(
-  deps: { native?: MixdogNativeInfo | null } = {}
-): Promise<boolean> {
-  const native = deps.native === undefined ? nativeAppInfo() : deps.native;
+export async function openNativeNotificationSettings(deps: NativeDeps = {}): Promise<boolean> {
+  const native = nativeOf(deps);
   if (!native?.call) return false;
   try {
     return (await native.call('openNotificationSettings')) === true;
@@ -110,9 +116,9 @@ export async function openNativeNotificationSettings(
  *  them; false outside the phone app or for an older shell. */
 export async function publishNativeNotificationLabels(
   labels: { deny: string; allowOnce: string },
-  deps: { native?: MixdogNativeInfo | null } = {}
+  deps: NativeDeps = {}
 ): Promise<boolean> {
-  const native = deps.native === undefined ? nativeAppInfo() : deps.native;
+  const native = nativeOf(deps);
   if (!native?.call) return false;
   try {
     return (await native.call('setNotificationLabels', labels)) === true;
@@ -125,13 +131,10 @@ type RegistrationResult = 'registered' | 'no-native' | 'no-host-support' | 'no-t
 
 /** Register this install's token with the connected host. Safe to call any
  *  number of times; the host treats it as an upsert. */
-export async function syncNativePush(
-  deps: { native?: MixdogNativeInfo | null; host?: NativePushHost } = {}
-): Promise<RegistrationResult> {
-  const native = deps.native === undefined ? nativeAppInfo() : deps.native;
+export async function syncNativePush(deps: NativeDeps & { host?: NativePushHost } = {}): Promise<RegistrationResult> {
+  const native = nativeOf(deps);
   if (!native?.call) return 'no-native';
-  const host =
-    deps.host ?? (window as unknown as Record<string, NativePushHost | undefined>)[REMOTE_NATIVE_PUSH_GLOBAL];
+  const host = deps.host ?? currentHost();
   try {
     let state = await native.call('getPushState');
     // What the OS currently allows is shown whether or not a PC can use it.
@@ -189,18 +192,14 @@ const isApproval = (action: NativeNotificationAction): boolean =>
 const publishedActionIds = new Set<string>();
 const settlingActionIds = new Set<string>();
 
-function currentHost(): NativePushHost | undefined {
-  return (window as unknown as Record<string, NativePushHost | undefined>)[REMOTE_NATIVE_PUSH_GLOBAL];
-}
-
 /** Act on the actions the shell parked for the host this page is connected to.
  *  Other hosts' actions stay parked. An approval is acknowledged (removed from
  *  the shell) only after the host answered it; an open is acknowledged once
  *  delivered. Older shells without peek/ack hand over one action at a time. */
 export async function drainNativeNotificationActions(
-  deps: { native?: MixdogNativeInfo | null; host?: NativePushHost; retryDelayMs?: number; hostId?: string } = {}
+  deps: NativeDeps & { host?: NativePushHost; retryDelayMs?: number; hostId?: string } = {}
 ): Promise<number> {
-  const native = deps.native === undefined ? nativeAppInfo() : deps.native;
+  const native = nativeOf(deps);
   if (!native?.call) return 0;
   const host = deps.host ?? currentHost();
   const retryDelayMs = deps.retryDelayMs ?? APPROVAL_RETRY_DELAY_MS;

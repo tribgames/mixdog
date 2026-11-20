@@ -46,6 +46,7 @@ import { ConnectorsPanel } from './connectors-panel';
 import { PhoneUpdatePanel } from './phone-app-update-group';
 import { ProvidersPanel } from './provider-panel';
 import { ModelManagementPanel } from './model-management-panel';
+import { desktopBridge } from './desktop-bridge';
 
 export { OAuthControl } from './provider-panel';
 
@@ -78,9 +79,7 @@ export function CategoryPanel({ category, context }: { category: CapabilityCateg
 }
 
 // Read-only reference for the workbench and focused surfaces.
-export const SHORTCUT_GROUPS: ReadonlyArray<
-  readonly [string, ReadonlyArray<readonly [ReadonlyArray<string>, string]>]
-> = [
+const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [ReadonlyArray<string>, string]>]> = [
   [
     'Tasks and tabs',
     [
@@ -427,7 +426,7 @@ function CacheWarmingGroup({ enabled, busy, run }: { enabled: boolean; busy: boo
   );
 }
 
-// Context management (user decision): ONE page owns how a session's context
+// Context management: ONE page owns how a session's context
 // evolves — auto-compact, idle auto-clear, and the memory that carries over.
 function ContextPanel({ data, pending, run }: PanelContext) {
   const autoClear = record(data.autoClear);
@@ -574,7 +573,7 @@ function ContextPanel({ data, pending, run }: PanelContext) {
 // readSettings/updateSetting lane, not an engine capability, so it loads its
 // own state. Hidden when the hosting shell exposes no settings surface.
 function DesktopPowerGroup() {
-  const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
+  const api = desktopBridge<Partial<DesktopApi>>();
   // Hidden only while unknown; a late or failed first read is corrected by the next settings announcement.
   const settings = useDesktopStatus(api, 'settings');
   if (!settings || !api?.updateSetting) return null;

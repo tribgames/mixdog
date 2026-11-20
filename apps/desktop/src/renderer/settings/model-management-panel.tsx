@@ -45,7 +45,7 @@ export interface ManagedModel {
 }
 
 /** A connected provider and its models, as Model management lists them. */
-export interface ManagedProvider {
+interface ManagedProvider {
   id: string;
   name: string;
   kind: string;

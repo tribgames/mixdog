@@ -241,9 +241,11 @@ export function DesktopBootGate({
     currentRemoteConnectionState,
     () => null
   );
-  // The cover's end belongs to the window's own link to its core: a window with a local core link (the desktop app's) is not handed off,
-  // by readiness, the time limit or anything else, until that link is open. What the core reports while it starts (a rebuild's counts, a
-  // failure) only decides what the cover draws.
+  // The cover's end belongs to the window's own link to its core: a window
+  // with a local core link (the desktop app's) is not handed off, by
+  // readiness, the time limit or anything else, until that link is open. What
+  // the core reports while it starts (a rebuild's counts, a failure) only
+  // decides what the cover draws.
   const coreLink = useLocalCoreLink();
   const bootProgress = useBootProgress();
   const bootFailure = useBootFailure();
@@ -451,7 +453,7 @@ export function PaneSurfaceCover({
   return (
     <div className="pane-surface-cover">
       {/* A pane-sized cover that stays mute is indistinguishable from a broken
-          surface once the load runs long (user: 빈 화면에서 너무 오래 머문다).
+          surface once the load runs long.
           The boot mark carries the wait; the shared delay keeps warm loads
           silent, so it only ever appears when the load is actually slow. */}
       <DesktopLoadingSurface label={label} brand delayed />

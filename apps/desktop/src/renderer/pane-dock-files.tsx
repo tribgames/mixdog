@@ -9,18 +9,10 @@ import { FilesRootPane, type ExplorerControls } from './ExplorerTree';
 import type { PaneSideDockFolder } from './pane-side-dock';
 import { t } from './i18n';
 import { useMobileRemoteSurface } from './mobile-surface';
+import { displayProjectFolder } from './project-folder-label';
 
 const NO_CHANGED_FILES = new Set<string>();
 const ignoreReadyChange = () => {};
-
-function lastSegment(path: string): string {
-  return (
-    path
-      .replace(/[\\/]+$/, '')
-      .split(/[\\/]/)
-      .at(-1) || path
-  );
-}
 
 /** The folder a Files surface reveals, as an explorer reveal key. */
 export function paneDockFolderRevealKey(folder: Pick<PaneSideDockFolder, 'project' | 'rel'>): string {
@@ -51,7 +43,7 @@ export const PaneDockFilesSurface = memo(function PaneDockFilesSurface({
       phone ? startTransition(() => onOpenFile(project, rel, mode)) : onOpenFile(project, rel),
     [phone, onOpenFile]
   );
-  const label = folder.rel ? lastSegment(folder.rel) : lastSegment(folder.project);
+  const label = folder.rel ? displayProjectFolder(folder.rel) : displayProjectFolder(folder.project);
   const actions: DockAction[] = [
     {
       id: 'refresh',

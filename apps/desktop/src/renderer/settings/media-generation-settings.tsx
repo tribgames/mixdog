@@ -26,7 +26,7 @@ import {
 
 /** The user's default generator for one kind. An empty `model` is the lane's
  *  own default; an empty `account` follows the provider's selected account. */
-export interface MediaPin {
+interface MediaPin {
   lane: string;
   model: string;
   account: string;

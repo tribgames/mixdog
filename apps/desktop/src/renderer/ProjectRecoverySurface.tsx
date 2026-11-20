@@ -94,8 +94,8 @@ export function ProjectRecoverySurface({
     void refresh();
     const focus = () => void refresh();
     window.addEventListener('focus', focus);
-    // The project's own file watch (shared with the explorer): a core window's is the core's `fs/watch`, which
-    // `subscribeFolderChanges` never reports.
+    // The project's own file watch (shared with the explorer): a core window's
+    // is the core's `fs/watch`, which `subscribeFolderChanges` never reports.
     const off = subscribeProjectFileChanges(projectPath, () => {
       clearTimeout(timer);
       timer = setTimeout(focus, 250);

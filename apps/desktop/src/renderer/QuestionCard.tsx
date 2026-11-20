@@ -29,7 +29,6 @@ import { useConversationReleaseHold } from './conversation-release';
 
 export type QuestionDecision = { approved: boolean; reason?: string; answers?: QuestionAnswer[] };
 
-/** The pending ask_user question, shown in the transcript where its call sits. */
 interface CardKeyContext {
   live: MutableRefObject<{
     advance(): void;
@@ -78,13 +77,13 @@ function routeCardKey(event: globalThis.KeyboardEvent, { live, stateRef, rowRefs
     }
   } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     handled();
-    const active = rowRefs.current.findIndex((row) => row === document.activeElement);
+    const active = rowRefs.current.indexOf(document.activeElement as HTMLElement | null);
     const step = event.key === 'ArrowDown' ? 1 : -1;
     const entry = step > 0 ? 0 : optionCount;
     const next = active < 0 ? entry : Math.min(optionCount, Math.max(0, active + step));
     rowRefs.current[next]?.focus();
   } else if (event.key === ' ' && multiSelect && !onButton) {
-    const active = rowRefs.current.findIndex((row) => row === document.activeElement);
+    const active = rowRefs.current.indexOf(document.activeElement as HTMLElement | null);
     if (active >= 0 && active < optionCount) {
       handled();
       apply({ type: 'pick', option: active });
@@ -95,6 +94,7 @@ function routeCardKey(event: globalThis.KeyboardEvent, { live, stateRef, rowRefs
   }
 }
 
+/** The pending ask_user question, shown in the transcript where its call sits. */
 export function QuestionCard({
   questions,
   resolve,
@@ -256,7 +256,7 @@ export function QuestionCard({
       data-agent-mode={agentMode || undefined}
       // The card is the turn's waiting end: answering it resumes the reply
       // below, so a press or Enter on its controls must not let go of the
-      // followed tail the way an expander does (user: 선택하고 나서 스크롤 풀림).
+      // followed tail the way an expander does.
       data-transcript-keeps-follow=""
     >
       <div className="question-head">

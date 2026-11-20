@@ -536,6 +536,11 @@ export function BuiltInFeaturesPanel({
   const rememberModuleAnswer = (answer: RecordValue) =>
     setLegacyModules((current) => ({ ...requestedModules, ...current, ...answer }));
 
+  const adoptVoiceAnswer = (answer: RecordValue) => {
+    setVoiceAnswer(answer);
+    window.dispatchEvent(new CustomEvent('mixdog:voice-runtime-changed', { detail: answer }));
+  };
+
   const setEnabled = async (id: BuiltInFeatureId, next: boolean): Promise<boolean> => {
     if (id === 'browser') return updateDesktopSetting('browserControl', next);
     if (id === 'computer') return updateDesktopSetting('computerControl', next);
@@ -561,10 +566,7 @@ export function BuiltInFeaturesPanel({
     // Voice OFF preserves the managed runtime, so the authoritative installed
     // status keeps the card in its toggle state for an instant re-enable.
     const result = record(await run('toggleVoice', [next], `built-in-${id}`));
-    if (typeof result.enabled === 'boolean') {
-      setVoiceAnswer(result);
-      window.dispatchEvent(new CustomEvent('mixdog:voice-runtime-changed', { detail: result }));
-    }
+    if (typeof result.enabled === 'boolean') adoptVoiceAnswer(result);
     return result.enabled === next;
   };
 
@@ -606,8 +608,7 @@ export function BuiltInFeaturesPanel({
         if (result.enabled !== true || result.installed !== true) {
           throw new Error(t('Voice transcription installation did not complete.'));
         }
-        setVoiceAnswer(result);
-        window.dispatchEvent(new CustomEvent('mixdog:voice-runtime-changed', { detail: result }));
+        adoptVoiceAnswer(result);
       } else if (id === 'memory' || id === 'office' || id === 'tidy' || id === 'autoEffort') {
         // Office leans on LibreOffice for rendering and recalculation, so its
         // Install step brings the dependency in first (winget/brew) — the same

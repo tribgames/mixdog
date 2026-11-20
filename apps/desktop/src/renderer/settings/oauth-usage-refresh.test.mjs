@@ -15,14 +15,6 @@ import { OAuthControl } from './provider-panel.tsx';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-function deferred() {
-  let resolve;
-  const promise = new Promise((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
 function dashboard(account) {
   return { rows: [{ id: 'openai-oauth', account, authenticated: true }] };
 }
@@ -103,8 +95,8 @@ test('pending, failed, cancelled and missing OAuth flows never refresh usage', a
 
 test('OAuth refresh supersedes in-flight usage from before reauthentication', async (t) => {
   const render = harness(t);
-  const old = deferred();
-  const fresh = deferred();
+  const old = Promise.withResolvers();
+  const fresh = Promise.withResolvers();
   let calls = 0;
   const api = {
     invokeCapability() {
@@ -125,7 +117,7 @@ test('OAuth refresh supersedes in-flight usage from before reauthentication', as
 
 test('OAuthControl completes without waiting for usage, and usage failure does not become auth failure', async (t) => {
   const render = harness(t);
-  const usage = deferred();
+  const usage = Promise.withResolvers();
   let rejectUsage;
   const failed = new Promise((_, reject) => {
     rejectUsage = reject;

@@ -16,6 +16,7 @@ import { subscribeSetupChanges } from '../setup-change-refresh';
 import { Group, SelectRow } from './capability-controls';
 import type { PanelContext } from './capability-data';
 import { getCachedDesktopStatus, readDesktopStatus, writeDesktopStatus } from './desktop-status-cache';
+import { desktopBridge } from './desktop-bridge';
 
 type RetentionApi = Partial<Pick<DesktopApi, 'readSettings' | 'setSessionRetention'>>;
 
@@ -32,12 +33,12 @@ function dayOptions(choices: readonly number[]) {
 }
 
 export function SessionRetentionSettings({ pending }: Pick<PanelContext, 'pending'>) {
-  const api = (window as unknown as { mixdogDesktop?: RetentionApi }).mixdogDesktop;
+  const api = desktopBridge<RetentionApi>();
   const [settings, setSettings] = useState<DesktopSettings | null>(
     () => getCachedDesktopStatus(api, 'settings') ?? null
   );
   const [error, setError] = useState('');
-  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so the read follows a replaced bridge
+  // api is the window bridge read each render, listed so the read follows a replaced bridge.
   useEffect(() => {
     let live = true;
     const read = () =>

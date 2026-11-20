@@ -56,7 +56,7 @@ html[data-mixdog-mobile-tabs] .studio-composer textarea {
    visible editors at that floor; Monaco/xterm helper textareas are geometry
    probes, not fields. Android has no such zoom and keeps the design sizes —
    the floor used to apply to every phone and made each text box one size
-   larger than the labels around it (user: 텍스트 박스마다 폰트 사이즈가 다르다).
+   larger than the labels around it.
    mobile-surface.ts sets `data-mixdog-ios-web` next to the phone marker. */
 html[data-mixdog-ios-web]
   :is(input:not([type="hidden"]), select, textarea:not(.inputarea):not(.xterm-helper-textarea)) {

@@ -2,6 +2,7 @@
 // running turn has gone without counted progress and what it waits on, and
 // offers Stop once the silence reaches the stall watchdog's warn point.
 // Display only: Stop is the ordinary session abort the user asks for.
+import { errorMessage } from './editor-pane-session-errors';
 import type React from 'react';
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import type { QuietProgressParts } from '../../../../packages/protocol-client/src/rows/quiet-progress.mjs';
@@ -57,7 +58,7 @@ export function quietCueText(parts: QuietProgressParts): string {
 
 function stopSession(sessionId: string): void {
   void window.mixdogDesktop.abortSession(sessionId).catch((reason: unknown) => {
-    showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
+    showDesktopToast(errorMessage(reason), 'error');
   });
 }
 

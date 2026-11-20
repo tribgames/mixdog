@@ -32,6 +32,7 @@ import { label, rows, type PanelContext } from './capability-data';
 import { ImportConversationsDialog } from './import-conversations-dialog';
 import { SessionRetentionSettings } from './session-retention-settings';
 import { NARROW_SHELL_QUERY } from '../use-responsive-shell-bands';
+import { desktopBridge } from './desktop-bridge';
 
 function UiLanguageChoices({ pending }: Pick<PanelContext, 'pending'>) {
   const [preference, setPreference] = useState<UiLanguagePreference>(() => getUiLanguagePreference());
@@ -122,12 +123,12 @@ function QuestionConfirmToggle({ pending }: Pick<PanelContext, 'pending'>) {
 
 /** Which view a Markdown file opens in until the user picks one for it. */
 function MarkdownDefaultViewChoice({ pending }: Pick<PanelContext, 'pending'>) {
-  const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
+  const api = desktopBridge<Partial<DesktopApi>>();
   const [view, setView] = useState<DesktopEditorSettings['markdownDefaultView']>(
     DEFAULT_DESKTOP_EDITOR_SETTINGS.markdownDefaultView
   );
   const [error, setError] = useState('');
-  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so the read follows a replaced bridge
+  // api is the window bridge read each render, listed so the read follows a replaced bridge.
   useEffect(() => {
     let revision = 0;
     const refresh = () => {
@@ -242,7 +243,7 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
  *  in General there. */
 export function DisplayPanel({ pending }: PanelContext) {
   const remoteSurface = isRemoteHostRenderer();
-  const hostApi = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
+  const hostApi = desktopBridge<Partial<DesktopApi>>();
   const followable = isRemoteBrowserRenderer() && Boolean(hostApi?.readHostDisplayPreferences);
   return (
     <>

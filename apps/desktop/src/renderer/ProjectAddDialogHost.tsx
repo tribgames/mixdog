@@ -1,3 +1,4 @@
+import { errorMessage } from './editor-pane-session-errors';
 import { Folder } from 'lucide-react';
 import { type Dispatch, forwardRef, type SetStateAction, useImperativeHandle, useState } from 'react';
 import type { DesktopProjectSummary } from '../shared/contract';
@@ -17,14 +18,14 @@ function listServerFolders(path: string) {
   return list(path);
 }
 
-/** Add-project dialog: a name and an OS-chosen folder, nothing else (user
- *  decision — the folder never comes from typed text). */
+/** Add-project dialog: a name and an OS-chosen folder, nothing else; the
+ *  folder never comes from typed text. */
 function projectAddDialog({
   addPath,
   addName,
   addError,
   addBusy,
-  setAddPath,
+  acceptFolder,
   setAddName,
   setAddError,
   setAddBusy,
@@ -45,7 +46,8 @@ function projectAddDialog({
   addName: string;
   addError: string;
   addBusy: boolean;
-  setAddPath(value: string): void;
+  /** Takes a chosen folder: its path, and its basename as the name when none is typed. */
+  acceptFolder(path: string): void;
   setAddName: Dispatch<SetStateAction<string>>;
   setAddError(value: string): void;
   setAddBusy(value: boolean): void;
@@ -53,11 +55,6 @@ function projectAddDialog({
   onChooseFolder(): Promise<string | null>;
   onCreateProject(path: string, name: string): Promise<void>;
 }) {
-  const acceptFolder = (selected: string) => {
-    setAddPath(selected);
-    setAddName((current) => (current.trim() ? current : displayProjectFolder(selected)));
-    setAddError('');
-  };
   return (
     <ExtensionDetailDialog
       width="compact"
@@ -73,7 +70,7 @@ function projectAddDialog({
         setAddError('');
         void onCreateProject(addPath, addName.trim())
           .then(() => closeAdd())
-          .catch((reason) => setAddError(reason instanceof Error ? reason.message : String(reason)))
+          .catch((reason) => setAddError(errorMessage(reason)))
           .finally(() => setAddBusy(false));
       }}
       footer={
@@ -105,9 +102,9 @@ function projectAddDialog({
           <code>
             <bdi>{addPath || t('No folder selected')}</bdi>
           </code>
-          {/* Folder comes from a chooser only (user decision) — the OS dialog,
-            or the in-app host browser on a remote surface: prefill the Name
-            with the folder's basename once picked. */}
+          {/* Folder comes from a chooser only — the OS dialog, or the in-app
+            host browser on a remote surface: prefill the Name with the
+            folder's basename once picked. */}
           <button
             type="button"
             className="extensions-action"
@@ -177,6 +174,11 @@ export const ProjectAddDialogHost = forwardRef<
     setAddName('');
     setAddError('');
   };
+  const acceptFolder = (selected: string) => {
+    setAddPath(selected);
+    setAddName((current) => (current.trim() ? current : displayProjectFolder(selected)));
+    setAddError('');
+  };
   if (!addOpen) return null;
   return (
     <>
@@ -185,7 +187,7 @@ export const ProjectAddDialogHost = forwardRef<
         addName,
         addError,
         addBusy,
-        setAddPath,
+        acceptFolder,
         setAddName,
         setAddError,
         setAddBusy,
@@ -206,9 +208,7 @@ export const ProjectAddDialogHost = forwardRef<
           onClose={() => setServerPicking(false)}
           onSelect={(selected) => {
             setServerPicking(false);
-            setAddPath(selected);
-            setAddName((current) => (current.trim() ? current : displayProjectFolder(selected)));
-            setAddError('');
+            acceptFolder(selected);
           }}
         />
       )}

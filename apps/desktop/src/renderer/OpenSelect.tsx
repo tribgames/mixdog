@@ -95,7 +95,7 @@ export function OpenSelect({
   const settingsStyle = classNames.includes('settings-select');
   // The composer pills and the route workflow chip read as ONE control each:
   // the menu hangs off the pill, never off the inner button, or two pickers
-  // sitting in the same bar line up on different edges (user: 정렬 잘 시켜서).
+  // sitting in the same bar line up on different edges.
   const contextPillStyle =
     classNames.includes('context-pill-select') ||
     classNames.includes('project-context-select') ||
@@ -331,11 +331,9 @@ export function OpenSelect({
   let triggerStyle = 'default';
   if (routeStyle) triggerStyle = 'route';
   else if (settingsStyle) triggerStyle = 'settings';
-  let chevron = <MxIcon name="chevron-down" size={16} />;
-  if (routeStyle) chevron = <MxIcon name="chevron-down" size={14} />;
-  // Settings selects share the app's one chevron (polish pass: the up/down
-  // grabber read as a native stepper).
-  else if (settingsStyle) chevron = <MxIcon name="chevron-down" size={14} />;
+  // Settings selects share the app's one chevron: an up/down grabber read as a
+  // native stepper.
+  const chevron = <MxIcon name="chevron-down" size={routeStyle || settingsStyle ? 14 : 16} />;
 
   return (
     <div

@@ -1,6 +1,6 @@
 // Settings → Git: cached panel snapshot (Connection-card grammar) so entering
 // the category paints complete rows instantly instead of popping them in one
-// probe at a time (user: GIT 캐시 — 들어갈 때 툭 나오게 하지 말 것).
+// probe at a time.
 // Stale-while-revalidate: the cached snapshot paints, and every preload
 // refreshes it in the background.
 import type { DesktopApi, DesktopGithubCliAccount, DesktopGithubCliStatus } from '../../shared/contract';

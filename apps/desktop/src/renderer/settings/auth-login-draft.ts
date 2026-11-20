@@ -2,7 +2,7 @@
 // login must not touch its stored authenticator key unless the user actually
 // changed it (typed a new one) or explicitly removed it — otherwise the empty
 // field would wipe a saved key on every edit.
-export interface LoginDraft {
+interface LoginDraft {
   /** Present when editing an existing login. */
   id?: string;
   site: string;
@@ -15,7 +15,7 @@ export interface LoginDraft {
   note: string;
 }
 
-export interface LoginSavePayload {
+interface LoginSavePayload {
   id?: string;
   origin: string;
   username: string;

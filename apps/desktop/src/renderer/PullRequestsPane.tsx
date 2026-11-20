@@ -2,6 +2,7 @@
 // for the dock, with the metadata and tab hierarchy in the editor.
 // Data and actions are backed by the gh CLI IPC chain.
 
+import { errorMessage } from './editor-pane-session-errors';
 import { Plus, RefreshCw, Search, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -24,6 +25,8 @@ import {
   titleFromBranch,
 } from './pull-requests-model';
 import type { PullRequestListView, PullRequestOpenHandler, PullRequestViewMode } from './pull-requests-model';
+
+const GH_AUTH_HELP_URL = 'https://cli.github.com/manual/gh_auth_login';
 
 export type { PullRequestOpenHandler } from './pull-requests-model';
 export { PullRequestEditor } from './PullRequestEditor';
@@ -88,7 +91,7 @@ export function PullRequestsPane({
         await action();
         await loadList();
       } catch (cause) {
-        const message = cause instanceof Error ? cause.message : String(cause);
+        const message = errorMessage(cause);
         setActionError(message);
       } finally {
         setBusy('');
@@ -154,7 +157,7 @@ export function PullRequestsPane({
       await loadList();
       onOpenPullRequest?.(projectPath, created, 'overview', false);
     } catch (cause) {
-      setCreateError(cause instanceof Error ? cause.message : String(cause));
+      setCreateError(errorMessage(cause));
     } finally {
       setBusy('');
     }
@@ -325,7 +328,7 @@ export function PullRequestsPane({
               onDraftChange={setCreateDraft}
               onSubmit={() => void submitCreatePullRequest()}
               onCancel={cancelCreatePullRequest}
-              onAuthenticationHelp={() => void api?.openExternal?.('https://cli.github.com/manual/gh_auth_login')}
+              onAuthenticationHelp={() => void api?.openExternal?.(GH_AUTH_HELP_URL)}
             />
           )}
           {!createOpen && (
@@ -334,7 +337,7 @@ export function PullRequestsPane({
                 <SourceControlErrorNotice
                   error={actionError}
                   className="dock-pr-error-state"
-                  onAuthenticationHelp={() => void api?.openExternal?.('https://cli.github.com/manual/gh_auth_login')}
+                  onAuthenticationHelp={() => void api?.openExternal?.(GH_AUTH_HELP_URL)}
                   authenticationHelpLabel={t('GitHub CLI help')}
                 />
               )}
