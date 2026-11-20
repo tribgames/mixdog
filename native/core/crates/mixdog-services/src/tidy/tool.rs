@@ -13,7 +13,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -32,8 +32,8 @@ use super::resolve::{DownloadPolicy, ResolveOptions, Resolved, resolve_engines};
 use super::run_engines::{SuiteOptions, SuiteRun, run_engine_suite};
 use super::shadow::detect_engine_shadows;
 use super::structural::{
-    GraphStructuralAdapter, RulePack, StructuralEngineUnavailable, files_for_structural_group, groups_for_languages, load_rule_packs, packs_for_languages,
-    probe_graph_langs, resolve_structural_adapter, structural_unavailable_message,
+    GraphStructuralAdapter, PROBE_TIMEOUT, RulePack, StructuralEngineUnavailable, files_for_structural_group, groups_for_languages, load_rule_packs, packs_for_languages,
+    probe_graph_langs_within, resolve_structural_adapter_within, structural_unavailable_message,
 };
 use super::worktree::{list_working_tree_changes, split_findings_by_worktree};
 use crate::lane::on_lane;
@@ -72,6 +72,8 @@ struct CachedRun {
 pub struct TidyTool {
     host: Arc<dyn TidyHost>,
     processes: Processes,
+    /// How long a `--langs` probe of the graph binary may run.
+    probe_deadline: Option<Duration>,
     cache: Mutex<Vec<(String, Arc<CachedRun>)>>,
 }
 
@@ -770,7 +772,7 @@ sys.exit(0 if n else 1)
     }
 
     fn graph_tool(f: &Fixture) -> TidyTool {
-        TidyTool::new(Arc::new(GraphHost { data: f.data.path().to_owned(), graph: f.graph.clone() }), Processes::for_tests())
+        TidyTool::new(Arc::new(GraphHost { data: f.data.path().to_owned(), graph: f.graph.clone() }), Processes::for_tests()).with_probe_deadline(None)
     }
 
     #[tokio::test]
@@ -1175,7 +1177,14 @@ impl TidyTool {
     /// `processes` is the one process manager every engine child runs under, with the lane
     /// engine binaries are hashed on.
     pub fn new(host: Arc<dyn TidyHost>, processes: Processes) -> Self {
-        Self { host, processes, cache: Mutex::default() }
+        Self { host, processes, probe_deadline: Some(PROBE_TIMEOUT), cache: Mutex::default() }
+    }
+
+    /// The tool with another deadline for the graph probe (`None`: no deadline), for a test whose stand-in graph it controls.
+    #[cfg(test)]
+    fn with_probe_deadline(mut self, deadline: Option<Duration>) -> Self {
+        self.probe_deadline = deadline;
+        self
     }
 
     pub fn reset_result_cache(&self) {
@@ -1261,7 +1270,7 @@ impl TidyTool {
         // One `--langs` call answers both: which extension map to detect with, and whether this
         // binary owns the structural scan protocol.
         let graph_langs = match &graph_bin {
-            Some(bin) => probe_graph_langs(&self.processes, bin, run.cwd, run.cancel).await,
+            Some(bin) => probe_graph_langs_within(&self.processes, bin, run.cwd, self.probe_deadline, run.cancel).await,
             None => None,
         };
         if let Some(id) = run.language_filter.iter().find(|id| !is_known_language(id, graph_langs.as_ref())) {
@@ -1409,7 +1418,7 @@ impl TidyTool {
             return Ok(json!({"adapter": "none", "matches": [], "applied": [], "packs": [], "note": "no structural rule packs are installed"}));
         }
         // No fallback engine: an old or missing mixdog-graph fails the call with the rebuild remedy.
-        let adapter = resolve_structural_adapter(&self.processes, run.cwd, d.graph_bin.as_deref(), Some(d.graph_langs.is_some()), run.cancel).await?;
+        let adapter = resolve_structural_adapter_within(&self.processes, run.cwd, d.graph_bin.as_deref(), Some(d.graph_langs.is_some()), self.probe_deadline, run.cancel).await?;
         let files: Vec<String> = d.detected.files.iter().filter(|f| !ignored.contains(&match_file_key(f, run.cwd))).cloned().collect();
         if files.is_empty() {
             return Ok(json!({"adapter": GraphStructuralAdapter::ID, "packs": [], "matches": [], "applied": [], "note": "no files in scope"}));
@@ -1798,7 +1807,7 @@ impl TidyTool {
         // Listing the packs still works without the engine; the report says so explicitly
         // (ok:false + the remedy) instead of showing a usable adapter.
         let bin = self.host.graph_binary().await;
-        let adapter = resolve_structural_adapter(&self.processes, run.cwd, bin.as_deref(), None, run.cancel).await;
+        let adapter = resolve_structural_adapter_within(&self.processes, run.cwd, bin.as_deref(), None, self.probe_deadline, run.cancel).await;
         let (adapter_id, unavailable) = match &adapter {
             Ok(_) => (GraphStructuralAdapter::ID, String::new()),
             Err(e) => ("none", e.to_string()),

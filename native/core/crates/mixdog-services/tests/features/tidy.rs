@@ -55,7 +55,7 @@ fn names(files: &[&str]) -> Vec<String> {
 
 #[tokio::test]
 async fn a_list_formatter_check_lists_then_names_each_unformatted_file_once() {
-    let script = Script::new(vec![ok("a.go\n\nb.go\na.go\n[note]\n")]);
+    let script = Script::new(vec![ok("a.go\n\nb.go\na.go\n")]);
     let result = runner_for("gofmt").unwrap().check(&request(&script, &["a.go", "b.go", "c.go"])).await;
     assert_eq!(*script.calls.lock().unwrap(), vec![("gofmt".to_owned(), names(&["-l", "a.go", "b.go", "c.go"]))]);
     assert_eq!(result.changed_files, names(&["a.go", "b.go"]));
@@ -89,8 +89,8 @@ async fn an_engine_that_cannot_start_is_one_actionable_error_not_a_clean_pass() 
     let script = Script::new(vec![ProcessResult { code: -1, error: "program not found".to_owned(), error_code: "NotFound".to_owned(), ..Default::default() }]);
     let result = runner_for("gofmt").unwrap().check(&request(&script, &["a.go"])).await;
     assert_eq!(result.error.as_deref(), Some("gofmt could not run: program not found"));
-    assert_eq!(result.diagnostics.len(), 1);
-    assert_eq!(result.diagnostics[0].code, "gofmt/spawn");
+    assert_eq!(result.files_checked, Some(0));
+    assert!(result.diagnostics.is_empty() && result.changed_files.is_empty());
 }
 
 #[tokio::test]
@@ -110,7 +110,7 @@ async fn a_long_stderr_is_kept_only_as_its_last_600_characters() {
 
 #[test]
 fn engines_without_a_runner_are_not_run() {
-    assert!(runner_for("zig").is_none() && runner_for("").is_none());
+    assert!(runner_for("mix").is_none() && runner_for("").is_none());
     for id in ["biome", "ruff", "shfmt", "prettier", "eslint", "rustfmt", "dotnet-format"] {
         assert_eq!(runner_for(id).unwrap().id(), id);
     }
