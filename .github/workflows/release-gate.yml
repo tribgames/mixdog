@@ -259,16 +259,15 @@ jobs:
       - name: Check the tracked files for developer-machine paths
         run: node scripts/check-machine-paths.mjs
 
-      # The gate runs on this clean checkout, which has none of the owner's local-only comparison material
-      # (docs/testing.md). A tracked Node test that reads a recording from it passes on the owner's machine and fails
-      # here, or, when it skips a missing file, passes without testing: this names it before any lane runs. The Rust
-      # side is guarded where it compiles (core-build and core-lint run the same script with --build). Every event.
+      # The gate runs on this clean checkout. A tracked file that .gitignore also covers is not in a clean checkout of the change,
+      # so a tracked Node test that reads one passes in the working tree that has it and fails here, or, when it skips a missing
+      # file, passes without testing: this names it before any lane runs. Every event.
       #
       # Advisory, like the scan below: it reads source text, so a path built at run time is invisible to it and a read it flags may
       # be harmless. The guarantee is the clean-checkout run of every lane plus the skip enforcement (check-skips.mjs): a test that
-      # needs absent material fails there or is a reviewed skip. Hits become warnings and never fail the job (docs/testing.md, "What
+      # needs an absent file fails there or is a reviewed skip. Hits become warnings and never fail the job (docs/testing.md, "What
       # each layer guarantees"). `--build` in core-build and core-lint is not a scan of source: it fails on the files themselves.
-      - name: Point at tracked scripts that read local-only comparison material
+      - name: Point at tracked scripts that read files a clean checkout lacks
         continue-on-error: true
         run: node scripts/ci/check-clean-checkout.mjs --readers
 
@@ -1782,8 +1781,8 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.ref || github.sha }}
-      # The archive below is what every test leg and the Postgres job run, so it must be built from a clean checkout: none of
-      # the local-only comparison material on disk (cargo would build a local-only `tests/*.rs` it finds into the archive). A
+      # The archive below is what every test leg and the Postgres job run, so it must be built from a clean checkout: no
+      # Cargo test target git does not track (cargo would build an untracked `tests/*.rs` it finds into the archive). A
       # checkout step gives that by construction; the check keeps it so if a self-hosted or cached workspace ever stands in
       # for it.
       - name: Check that the build is a clean checkout
@@ -2050,7 +2049,7 @@ jobs:
 
   # The #[ignore]d tests that need a PostgreSQL runtime, from the archive core-build made (nothing compiles here):
   #   services-pg  mixdog-services' memory tests that need only a Postgres runtime
-  #   pg           the daemon's composed-core tests (compose::tests, review_restart_tests, session_project_tests, server::tests, ...)
+  #   pg           the daemon's composed-core tests (compose::tests, session_project_flow_tests, server::tests, ...)
   #                and the runner's own cluster proof, ssh_origin_tests among those the profile's filter selects
   # (the filters and their time budgets are in native/core/.config/nextest.toml). The runtime is the one the shipped manifest
   # names for the runner, hash-checked (scripts/ci/provision-pg-runtime.mjs), and the tests read it through MIXDOG_PG_RUNTIME.

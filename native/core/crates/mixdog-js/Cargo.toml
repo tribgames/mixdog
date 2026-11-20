@@ -17,14 +17,11 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
 iana-time-zone = { workspace = true }
-sha2 = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 
 [features]
-# Named by the test-feature lists of the workspace; it gates no code of this crate (it only adds sha2).
-fixture-tools = ["dep:sha2"]
 # Test hooks of the literal pre-check of long texts (`regex::prefilter_probe`): the patterns built, the engine's own
 # decision, and when the pre-check applies.
 prefilter-probe = []
@@ -32,4 +29,4 @@ prefilter-probe = []
 [dev-dependencies]
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
-mixdog-js = { path = ".", features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { path = ".", features = ["prefilter-probe"] }

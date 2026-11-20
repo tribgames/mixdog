@@ -464,7 +464,7 @@ test('release-gate.yml: the Postgres-backed tests run from the core-build archiv
     assert.match(body.slice(0, body.indexOf('\n]')), new RegExp(`package\\(${pkg}\\)`), `${profile} selects ${pkg}`);
   }
   // the tests the issue named: the daemon's session-project and ssh-origin modules are in the profile's filter and its time budget
-  assert.match(nextest, /\[profile\.pg\][\s\S]*session_project_tests[\s\S]*\^ssh_origin_tests::/);
+  assert.match(nextest, /\[profile\.pg\][\s\S]*session_project_flow_tests[\s\S]*\^ssh_origin_tests::/);
   assert.match(
     nextest,
     /\[\[profile\.default\.overrides\]\]\nfilter = '''package\(mixdog-app-server-daemon\)[\s\S]*\^ssh_origin_tests::[\s\S]*terminate-after = 6/
@@ -540,7 +540,7 @@ test('release-gate.yml: a failed shard discovery fails changes, and no one-shard
     }
   }
 });
-test('release-gate.yml: the build is a clean checkout and no tracked script reads the local-only comparison material', () => {
+test('release-gate.yml: the build is a clean checkout and no tracked script reads a file a clean checkout lacks', () => {
   const runs = (name) => stepsOf(gate.jobs[name]).map((step) => step.run ?? '');
   assert.ok(runs('changes').includes('node scripts/ci/check-clean-checkout.mjs --readers'));
   for (const name of ['core-build', 'core-lint']) {

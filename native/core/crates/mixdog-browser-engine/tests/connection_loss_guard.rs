@@ -1,10 +1,10 @@
-//! Guard over the whole engine: the host connection is lost on the Nth host call of each mutating command of the recorded script
-//! (form fill, sequence, click, navigation, upload, ...), and every one of those commands answers as a command that may have
-//! executed (`CommandFailure::connection_lost`), whichever layer between the host call and the answer would have swallowed or
-//! worded the error. A refusal at the very first call, before anything was handed over, is not that.
+//! Guard over the whole engine: the host connection is lost at each host call of a mutating command (navigate, reload, back, a
+//! navigate into a background tab the command opens, a cookie write), and every one of those commands answers as a command that may have executed
+//! (`CommandFailure::connection_lost`), whichever layer between the host call and the answer would have swallowed or worded the
+//! error. A refusal at the very first call, before anything was handed over, is not that.
 //!
-//! The recorded host (`browser-engine-transcript.jsonl`) is replayed up to the command under test with every call answered, then the
-//! command runs with the loss injected at one of its host calls; the calls of each command are counted by a first, whole pass.
+//! Each command runs against a scripted host written here; a first, whole pass counts its host calls and checks the script is the
+//! one the command follows.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -21,10 +21,11 @@ use mixdog_browser_engine::HostCallError;
 use mixdog_browser_engine::TakeoverPort;
 use mixdog_browser_engine::actions::registry::is_action;
 use mixdog_browser_engine::approval::classify::ActionPolicy;
+use mixdog_browser_engine::fake::Expect;
 use mixdog_browser_engine::fake::FakeHost;
+use mixdog_browser_engine::fake::page_facts;
 use mixdog_browser_engine::lane::mirror::Mirror;
 use mixdog_browser_engine::lane::sink::EngineSinkImpl;
-use mixdog_browser_engine::limits::OBSERVATION_ACTIONS;
 use mixdog_browser_engine::port::HostWire;
 use mixdog_browser_engine::queue::user_hold::UserHold;
 use mixdog_browser_engine::runner::guard::SecretGuard;
@@ -40,9 +41,10 @@ use mixdog_browser_policy::url_policy::UrlPolicy;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::CancellationToken;
-use regex::Regex;
-use serde_json::Map;
 use serde_json::Value;
+use serde_json::json;
+
+const THREAD: &str = "s1";
 
 struct NoSecrets;
 
@@ -76,16 +78,16 @@ struct NoBlobs;
 #[async_trait]
 impl BlobPort for NoBlobs {
     async fn read(&self, digest: &str) -> Result<Bytes, String> {
-        Err(format!("the transcript holds no blob {digest}"))
+        Err(format!("the script holds no blob {digest}"))
     }
 }
 
-struct RecordedFiles;
+struct NoFiles;
 
 #[async_trait]
-impl FilePort for RecordedFiles {
-    async fn stat(&self, path: &Path) -> FileFacts {
-        FileFacts { exists: true, is_file: true, size: 22, canonical: Some(path.to_path_buf()), modified: None }
+impl FilePort for NoFiles {
+    async fn stat(&self, _path: &Path) -> FileFacts {
+        FileFacts::default()
     }
 
     async fn write_frame(&self, run_dir: &Path, _bytes: Bytes, _mime_type: &str) -> std::io::Result<PathBuf> {
@@ -93,7 +95,7 @@ impl FilePort for RecordedFiles {
     }
 }
 
-/// The recorded host, counting every call it is asked and failing the one at `fail_at` (not forwarded) with `error`.
+/// The scripted host, counting every call it is asked and failing the one at `fail_at` (not forwarded) with `error`.
 struct Chaos {
     inner: Arc<FakeHost>,
     calls: AtomicUsize,
@@ -116,109 +118,117 @@ impl HostWire for Chaos {
     }
 }
 
-/// One command of the corpus as it ran: its action, the host calls it made (by index over the whole replay) and what it answered.
-struct Ran {
-    action: String,
-    calls: std::ops::Range<usize>,
-    outcome: Result<(), CommandFailure>,
+fn page_row(page: &str) -> Value {
+    json!({"pageId": page, "tabId": "v1", "sessionId": THREAD, "background": false, "facts": page_facts(page, 1)})
 }
 
-struct Script {
-    transcript: String,
-    origin: String,
-    commands: Vec<Value>,
+/// The page the command works on, already open.
+fn resolved(page: &str) -> Expect {
+    Expect::ok("host/browser/pages/resolve", json!({"page": page_row(page), "leaseId": "lease-1"}))
 }
 
-impl Script {
-    fn load() -> Self {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/desktop-host/browser-golden.json")).expect("browser-golden.json is JSON");
-        let steps = golden["steps"].as_array().expect("the corpus has steps");
-        let upload_path = steps.iter().find(|step| step["request"]["action"] == "upload").and_then(|step| step["request"]["paths"][0].as_str()).expect("the corpus has an upload");
-        let transcript = mixdog_testkit::fixture!("../../fixtures/desktop-host/browser-engine-transcript.jsonl")
-            .replace("<UPLOAD>", serde_json::to_string(upload_path).expect("a path is JSON").trim_matches('"'));
-        let origin = Regex::new(r"http://127\.0\.0\.1:\d+").expect("a valid pattern").find(&transcript).map_or_else(|| "<ORIGIN>".to_owned(), |found| found.as_str().to_owned());
-        let commands = steps.iter().map(|step| step["request"].clone()).collect();
-        Self { transcript, origin, commands }
-    }
-
-    /// Replays the commands up to and including `last`, the host losing its connection (or refusing) at call `fail_at`.
-    async fn replay(&self, last: usize, fail_at: Option<usize>, error: HostCallError) -> Vec<Ran> {
-        let inner = Arc::new(FakeHost::from_transcript_str(&self.transcript).expect("the transcript is readable"));
-        let chaos = Arc::new(Chaos { inner: inner.clone(), calls: AtomicUsize::new(0), fail_at, error });
-        let mirror = Arc::new(Mirror::new());
-        let hold = Arc::new(UserHold::new());
-        let engine = BrowserEngine::new(
-            chaos.clone(),
-            EnginePorts {
-                mirror: mirror.clone(),
-                hold: hold.clone(),
-                approvals: Arc::new(Allows),
-                takeover: Arc::new(NoTakeover),
-                blobs: Arc::new(NoBlobs),
-                files: Arc::new(RecordedFiles),
-                secrets: Arc::new(NoSecrets),
-                approval_policy: ActionPolicy::from_env(None, None, None, is_action),
-                urls: UrlPolicy::default(),
-                frame_dir: PathBuf::from("frames"),
-            },
-        );
-        inner.attach_sink(engine.sink(Arc::new(EngineSinkImpl::new(mirror, hold))));
-        let thread = ThreadId::from("loss-guard");
-        let mut ran = Vec::new();
-        for request in self.commands.iter().take(last.saturating_add(1)) {
-            let request = request.as_object().expect("a step has its request");
-            let command: Map<String, Value> = serde_json::from_str(&Value::Object(request.clone()).to_string().replace("<ORIGIN>", &self.origin)).expect("a request is JSON");
-            let started = chaos.calls.load(Ordering::SeqCst);
-            // A request the bridge refuses never reaches the engine.
-            let (action, outcome) = match mixdog_tools::desktop::browser_bridge_run::validated_command(command) {
-                Err(_) => (String::new(), Ok(())),
-                Ok((action, input)) => {
-                    let outcome = engine.run(&thread, &action, &input, &CancellationToken::new()).await.map(|_| ());
-                    (action, outcome)
-                }
-            };
-            ran.push(Ran { action, calls: started..chaos.calls.load(Ordering::SeqCst), outcome });
-        }
-        ran
-    }
+/// The blank background page the command just opened: its facts name the document and no address yet.
+fn resolved_blank(page: &str) -> Expect {
+    let mut row = page_row(page);
+    row["background"] = json!(true);
+    row["created"] = json!(true);
+    row["disposable"] = json!(true);
+    row["facts"]["url"] = json!("");
+    row["facts"]["background"] = json!(true);
+    row["facts"]["visible"] = json!(false);
+    Expect::ok("host/browser/pages/resolve", json!({"page": row, "leaseId": "lease-1"}))
 }
 
-fn mutating(action: &str) -> bool {
-    !action.is_empty() && !OBSERVATION_ACTIONS.contains(&action)
+/// The move answered on a new document with a dialog open: the command answers with the dialog, without the settle.
+fn moved(page: &str) -> Expect {
+    let mut facts = page_facts(page, 2);
+    facts["documentId"] = json!(format!("{page}:2"));
+    facts["url"] = json!("https://b.test/app");
+    facts["pendingDialog"] = json!({"type": "alert", "message": "Arrived", "openedAt": 1, "bridge": false});
+    Expect::ok("host/browser/page/navigate", json!({"facts": facts}))
 }
 
-// The settle and poll waits run on the paused clock: the recorded host answers at once.
+/// A cookie written on the page: a mutation that moves nothing.
+fn cookie_set() -> Expect {
+    Expect::ok("host/browser/cookies", json!({"facts": page_facts("p1", 2)}))
+}
+
+/// One mutating command, the host calls it makes, in order, and what its answer says when they all succeed.
+struct Command {
+    action: &'static str,
+    input: Value,
+    script: fn() -> Vec<Expect>,
+    says: &'static str,
+}
+
+fn commands() -> Vec<Command> {
+    vec![
+        Command { action: "navigate", input: json!({"url": "https://b.test/app"}), script: || vec![resolved("p1"), moved("p1")], says: "Arrived" },
+        Command { action: "navigate", input: json!({"reload": true}), script: || vec![resolved("p1"), moved("p1")], says: "Arrived" },
+        Command { action: "back", input: json!({}), script: || vec![resolved("p1"), moved("p1")], says: "Arrived" },
+        Command { action: "navigate", input: json!({"url": "https://b.test/app", "background": true, "tab": "live"}), script: || vec![resolved_blank("p1"), moved("p1")], says: "Arrived" },
+        Command { action: "cookies", input: json!({"operation": "set", "name": "a", "value": "1"}), script: || vec![resolved("p1"), cookie_set()], says: "Set cookie \"a\"" },
+    ]
+}
+
+/// Runs `command` once against its script, the host losing its connection (or refusing) at call `fail_at`: the outcome, the number
+/// of host calls the command made, and the scripted host.
+async fn run(command: &Command, fail_at: Option<usize>, error: HostCallError) -> (Result<String, CommandFailure>, usize, Arc<FakeHost>) {
+    let inner = Arc::new(FakeHost::scripted((command.script)()));
+    let chaos = Arc::new(Chaos { inner: inner.clone(), calls: AtomicUsize::new(0), fail_at, error });
+    let mirror = Arc::new(Mirror::new());
+    let hold = Arc::new(UserHold::new());
+    let engine = BrowserEngine::new(
+        chaos.clone(),
+        EnginePorts {
+            mirror: mirror.clone(),
+            hold: hold.clone(),
+            approvals: Arc::new(Allows),
+            takeover: Arc::new(NoTakeover),
+            blobs: Arc::new(NoBlobs),
+            files: Arc::new(NoFiles),
+            secrets: Arc::new(NoSecrets),
+            approval_policy: ActionPolicy::from_env(None, None, None, is_action),
+            urls: UrlPolicy::default(),
+            frame_dir: PathBuf::from("frames"),
+        },
+    );
+    inner.attach_sink(engine.sink(Arc::new(EngineSinkImpl::new(mirror, hold))));
+    let input = command.input.as_object().cloned().unwrap_or_default();
+    let outcome = engine.run(&ThreadId::from(THREAD), command.action, &input, &CancellationToken::new()).await.map(|reply| reply.text);
+    (outcome, chaos.calls.load(Ordering::SeqCst), inner)
+}
+
+// Any settle or poll wait runs on the paused clock: the scripted host answers at once.
 #[tokio::test(start_paused = true)]
 async fn a_connection_lost_after_a_mutating_command_was_handed_over_is_never_answered_as_a_plain_failure() {
-    let script = Script::load();
-    let whole = script.replay(usize::MAX, None, HostCallError::ConnectionLost).await;
     let mut losses = 0;
     let mut refusals = 0;
     let mut problems = Vec::new();
-    for (index, step) in whole.iter().enumerate() {
-        if !mutating(&step.action) || step.calls.is_empty() {
-            continue;
-        }
+    for command in commands() {
+        let name = format!("{} {}", command.action, command.input);
+        let (whole, calls, host) = run(&command, None, HostCallError::ConnectionLost).await;
+        let text = whole.unwrap_or_else(|failure| panic!("{name}: the whole pass failed: {}", failure.error.message_for_model));
+        assert!(text.contains(command.says), "{name}: {text}");
+        host.finish().unwrap_or_else(|mismatch| panic!("{name}: the command does not follow its script: {mismatch}"));
+        assert!(calls >= 2, "{name}: {calls} host call(s)");
         // The loss at each host call of the command: a request was handed to the host, so the command may have run.
-        for call in step.calls.clone() {
-            let ran = script.replay(index, Some(call), HostCallError::ConnectionLost).await;
+        for call in 0..calls {
             losses += 1;
-            match &ran[index].outcome {
+            match run(&command, Some(call), HostCallError::ConnectionLost).await.0 {
                 Err(failure) if failure.connection_lost => {}
-                Err(failure) => problems.push(format!("{} (step {index}), loss at call {call}: answered {:?} without the loss", step.action, failure.error.message_for_model)),
-                Ok(()) => problems.push(format!("{} (step {index}), loss at call {call}: answered as a success", step.action)),
+                Err(failure) => problems.push(format!("{name}, loss at call {call}: answered {:?} without the loss", failure.error.message_for_model)),
+                Ok(_) => problems.push(format!("{name}, loss at call {call}: answered as a success")),
             }
         }
         // A refusal at the first call, with nothing handed over, is the plain unavailable kind.
-        let first = step.calls.start;
-        let ran = script.replay(index, Some(first), HostCallError::Unavailable { detail: "noClaimant".into() }).await;
         refusals += 1;
-        if let Err(failure) = &ran[index].outcome
-            && failure.connection_lost
-        {
-            problems.push(format!("{} (step {index}), no claimant at call {first}: answered as a possible execution", step.action));
+        match run(&command, Some(0), HostCallError::Unavailable { detail: "noClaimant".into() }).await.0 {
+            Err(failure) if !failure.connection_lost => {}
+            Err(_) => problems.push(format!("{name}, no claimant at call 0: answered as a possible execution")),
+            Ok(_) => problems.push(format!("{name}, no claimant at call 0: answered as a success")),
         }
     }
-    assert!(losses >= 20 && refusals >= 10, "the script exercises mutating commands: {losses} losses, {refusals} refusals");
+    assert!(losses >= 10 && refusals == 5, "every command was exercised: {losses} losses, {refusals} refusals");
     assert!(problems.is_empty(), "{} case(s):\n{}", problems.len(), problems.join("\n"));
 }

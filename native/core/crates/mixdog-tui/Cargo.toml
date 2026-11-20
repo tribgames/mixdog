@@ -54,7 +54,7 @@ mixdog-core-session = { workspace = true, features = ["crash-gates", "replay-set
 mixdog-exthost = { workspace = true, features = ["test-support"] }
 mixdog-exthost-worker = { workspace = true, features = ["test-support"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
-mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-launch = { workspace = true, features = ["fake-core"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }

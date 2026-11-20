@@ -515,15 +515,21 @@ impl<'a> UserText<'a> {
 mod attachment_text_tests {
     use super::attachment_text;
 
-    /// The wrapped and plain texts Node's `attachmentTextForPart` produced for stored text parts.
     #[test]
-    fn matches_node() {
-        let twin: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/model-proxy-twin.json")).unwrap();
-        for case in twin["textCases"].as_array().unwrap() {
-            let got = attachment_text(case["text"].as_str().unwrap(), case["textKind"].as_str(), case["filename"].as_str());
-            assert_eq!(got, case["value"].as_str().unwrap(), "{case}");
-        }
+    fn a_paste_stays_plain_and_a_file_is_wrapped_with_its_name() {
+        assert_eq!(attachment_text("line one\nline two", Some("paste"), Some("notes.txt")), "line one\nline two");
+        assert_eq!(attachment_text("body", None, None), "body");
+        assert_eq!(attachment_text("fn main() {}", Some("file"), Some("main.rs")), "<file name=\"main.rs\">\nfn main() {}\n</file>");
+    }
+
+    #[test]
+    fn an_unnamed_file_is_an_attachment() {
+        assert_eq!(attachment_text("body", Some("file"), None), "<file name=\"attachment\">\nbody\n</file>");
+        assert_eq!(attachment_text("body", Some("file"), Some("")), "<file name=\"attachment\">\nbody\n</file>");
+    }
+
+    #[test]
+    fn quotes_and_angle_brackets_in_a_file_name_become_underscores() {
+        assert_eq!(attachment_text("x", Some("file"), Some("<a> \"b\" 'c'.txt")), "<file name=\"_a_ _b_ _c_.txt\">\nx\n</file>");
     }
 }
-
-

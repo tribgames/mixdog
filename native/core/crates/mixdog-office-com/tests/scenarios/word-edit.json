@@ -555,7 +555,7 @@
           }
         },
         {
-          "copy": "../word-edit/inputs/pixel.png",
+          "copy": "pixel.png",
           "as": "pixel.png",
           "prepare": true
         },

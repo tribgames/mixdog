@@ -7,7 +7,7 @@
       "description": "A deck of text boxes, a rotated text box, shapes of several geometries, a table, a group, notes, a comment, an animation, a transition and a slide background: the whole snapshot, paged, and by pages.",
       "steps": [
         {
-          "copy": "../ppt-read/inputs/pixel.png",
+          "copy": "pixel.png",
           "as": "pixel.png",
           "prepare": true
         },
@@ -592,7 +592,7 @@
       "description": "The issue pass: text that overflows its box, text too small, text outside the slide, a low-contrast box, overlapping text boxes, a text-only slide between two others and a picture without alternative text; by pages; and the model-backed profile (numbers without a source in the notes).",
       "steps": [
         {
-          "copy": "../ppt-read/inputs/pixel.png",
+          "copy": "pixel.png",
           "as": "pixel.png",
           "prepare": true
         },

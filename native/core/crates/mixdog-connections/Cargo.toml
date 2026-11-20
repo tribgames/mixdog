@@ -55,7 +55,7 @@ mixdog-core-config = { workspace = true, features = ["count-work"] }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-exthost = { workspace = true, features = ["test-support"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
-mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }

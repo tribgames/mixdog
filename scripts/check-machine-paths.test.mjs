@@ -117,9 +117,8 @@ test('production files beside allow-listed material are still scanned', () => {
 
 test('the allow-listed material itself is exempt', () => {
   const exempt = [
-    'apps/desktop/src/renderer/remote-protocol-chat-roster.node/01.json',
-    'apps/desktop/src/renderer/remote-protocol-chat.record.mjs',
-    'apps/mobile/fixtures/phone-files/golden.json',
+    'apps/desktop/src/renderer/remote-protocol-chat-live.core/01.json',
+    'apps/desktop/src/renderer/transcript-tool-live-rows.fixture.json',
     'benchmarks/terminal-bench-2.1/records/run/out.log',
   ];
   assert.deepEqual(

@@ -3126,10 +3126,10 @@
     },
     {
       "id": "drawings",
-      "description": "add_image by cell and by points with alternative text, set_drawing by name and by position, delete_drawing, and the refusals (no drawing named, no property to set, a drawing that is not there). The picture is the 1 x 1 PNG of the ppt-read inputs.",
+      "description": "add_image by cell and by points with alternative text, set_drawing by name and by position, delete_drawing, and the refusals (no drawing named, no property to set, a drawing that is not there). The picture is the 1 x 1 PNG of tests/inputs.",
       "steps": [
         {
-          "copy": "../ppt-read/inputs/pixel.png",
+          "copy": "pixel.png",
           "as": "pixel.png",
           "prepare": true
         },

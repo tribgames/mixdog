@@ -747,12 +747,12 @@
       ],
       "steps": [
         {
-          "copy": "../ppt-edit/inputs/pixel.png",
+          "copy": "pixel.png",
           "as": "pixel.png",
           "prepare": true
         },
         {
-          "copy": "../ppt-edit/inputs/tone.wav",
+          "copy": "tone.wav",
           "as": "tone.wav",
           "prepare": true
         },

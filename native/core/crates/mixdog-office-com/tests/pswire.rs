@@ -1,9 +1,5 @@
-//! The PowerShell value semantics the Office COM hosts' results depend on (`mixdog_office_com::ps`), checked against the
-//! text Windows PowerShell 5.1 produced: every entry of `tests/fixtures/pswire/corpus.json` (a recorded file;
-//! `MANIFEST.json` records the PowerShell version, the culture, the time zone and the corpus' sha256) is run through the Rust
-//! function and must give byte-identical text or the identical value. The recording is a fixture: it is not edited by hand.
-//!
-//! The entries are specs in a small typed JSON grammar. No COM object and no Office is involved.
+//! The PowerShell value semantics the Office COM hosts' results depend on (`mixdog_office_com::ps`): each test states the
+//! text or the value Windows PowerShell 5.1 gives for its input. No COM object and no Office is involved.
 
 
 use mixdog_office_com::ps::Value;

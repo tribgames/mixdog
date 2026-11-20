@@ -61,7 +61,7 @@ mixdog-core-prompt = { workspace = true }
 mixdog-statefile = { workspace = true }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
-mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-ledger = { workspace = true }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }

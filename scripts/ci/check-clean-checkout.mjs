@@ -1,56 +1,34 @@
 #!/usr/bin/env node
-// The gate runs on a clean checkout: nothing a tracked file reads may exist only on the owner's machine. The local-only comparison
-// material (native/core/fixtures, benchmarks/rust-core, `node-twin/` folders and the crate-local recordings and test files listed
-// in the "Node-comparison material" block of .gitignore) is what such a file would reach for.
+// The gate runs on a clean checkout: nothing a tracked file reads or Cargo builds may exist only in one working tree.
 //
 // What this script guarantees, and what it does not (docs/testing.md, "What each layer guarantees"). The guarantee is behavioural: the
-// gate runs every suite on a clean checkout, so a test that reads absent material FAILS there, and one that skips is caught by
+// gate runs every suite on a clean checkout, so a test that reads an absent file FAILS there, and one that skips is caught by
 // scripts/ci/check-skips.mjs. That leaves one thing no layer sees: a test that guards its read and returns early without reporting a
-// skip. This script is an early pointer for the common cases, not a proof: it reads source text, so a path assembled at run time
+// skip. `--readers` is an early pointer for the common case, not a proof: it reads source text, so a path assembled at run time
 // (joined from pieces, taken from a variable or the environment) is invisible to it. Two checks:
 //
-//   --readers  (default) a tracked JavaScript or TypeScript file whose code holds a string naming a folder of that material, or that
-//              imports, requires, spawns or names (a string literal) a file that does or that a clean checkout lacks, followed
-//              until nothing new is found. Imports are resolved as Node resolves them (the file, `.js`, `.json`, `.node` and the
+//   --readers  (default) a tracked JavaScript or TypeScript file that imports, requires, spawns or names (a string literal) a
+//              tracked file that .gitignore also covers (one waiting to be untracked, so absent from a clean checkout of the
+//              change), or a file that does, followed until nothing new is found. Imports are resolved as Node resolves them (the file, `.js`, `.json`, `.node` and the
 //              repository's own extensions, a directory's package.json `main`, an index file), a `?query` or `#hash` is dropped, and
 //              the source is tokenized, not matched line by line: comments (line and block, shebang included) are dropped without
 //              dropping the code beside them, strings are read as strings (template literals with their interpolations), and an
 //              import split over several lines is one import. Nothing is exempt, the gate's own scripts included. Rust needs no such
 //              check: a `mod`, `include_str!` or `include!` of a missing file fails the build.
-//   --build    the checkout the Rust jobs build has none of the material on disk, and no Cargo test target that is not
-//              tracked, ignored or not. Cargo builds every `tests/<name>.rs` and `tests/<name>/main.rs` of a package it finds,
-//              so a test file left on a runner (or restored with a cache) would be built into the archive the legs run, and a
-//              test reading a recording that is there would pass where a clean checkout fails it.
+//   --build    the checkout the Rust jobs build has no Cargo test target that is not tracked, ignored or not. Cargo builds every
+//              `tests/<name>.rs` and `tests/<name>/main.rs` of a package it finds, so a test file left on a runner (or restored
+//              with a cache) would be built into the archive the legs run.
 //// Usage: node scripts/ci/check-clean-checkout.mjs [--readers | --build]      (from anywhere inside the repository)
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, posix, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const MARKER = 'Node-comparison material:';
 const SCRIPT = /\.(?:mjs|cjs|js|jsx|ts|tsx|mts|cts)$/;
 // What a resolver tries for a relative specifier, in Node's order (the file as written, then .js, .json, .node), then the extensions the
 // repository's own sources and TypeScript add, then a directory: its package.json main, then an index file.
 const EXTENSIONS = ['', '.js', '.json', '.node', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.mts', '.cts'];
 const INDEXES = ['index.js', 'index.json', 'index.node', 'index.mjs', 'index.cjs', 'index.ts', 'index.tsx'];
-
-// The paths of the "Node-comparison material" block of .gitignore: the lines from its marker comment to the first blank line,
-// as repository-relative paths (a folder ends in `/`). `**/node-twin/` stays a bare folder name, which is how it is matched.
-export function comparisonMaterial(gitignore) {
-  const lines = gitignore.split(/\r?\n/);
-  const start = lines.findIndex((line) => line.startsWith('#') && line.includes(MARKER));
-  if (start < 0) throw new Error(`.gitignore has no "${MARKER}" block`);
-  const entries = [];
-  for (const line of lines.slice(start + 1)) {
-    if (line.trim() === '') break;
-    if (line.startsWith('#')) continue;
-    entries.push(line.replace(/^\*\*\//, '').replace(/^\//, ''));
-  }
-  if (entries.length === 0) throw new Error('the "Node-comparison material" block of .gitignore is empty');
-  return entries;
-}
-
-const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const isIdentifierStart = (char) => /[A-Za-z_$]/.test(char);
 const isIdentifierPart = (char) => /[\w$]/.test(char);
@@ -191,17 +169,14 @@ function normalize(path) {
   return out.join('/');
 }
 
-// Per script: the strings that name material, and the paths it imports, requires, spawns or names (as written, with the
-// directory of the file or the repository root to resolve them against).
-export function scan(path, source, named) {
+// Per script: the paths it imports, requires, spawns or names (as written, with the directory of the file or the repository root
+// to resolve them against).
+export function scan(source) {
   const tokens = tokenize(source);
-  const hits = [];
   const specifiers = [];
   const literals = [];
   tokens.forEach((token, index) => {
     if (token.kind !== 'str') return;
-    const hit = named.exec(token.value);
-    if (hit) hits.push({ line: token.line, entry: hit[0] });
     const before = tokens[index - 1];
     const before2 = tokens[index - 2];
     // `from 'x'`, `import 'x'`, `import('x')`, `require('x')`
@@ -213,7 +188,7 @@ export function scan(path, source, named) {
     if (isSpecifier && /^\.{1,2}\//.test(token.value)) specifiers.push(token.value);
     else if (token.value !== '' && !/[\s$]/.test(token.value)) literals.push(token.value);
   });
-  return { hits, specifiers, literals };
+  return { specifiers, literals };
 }
 
 // What Node would open for the path `base` (already normalized, no query): the file as written or with an extension, else the
@@ -266,30 +241,15 @@ function targetsOf(path, { specifiers, literals }, known, textOf) {
 }
 // `files` maps a tracked path to its text; `gone` are tracked paths that .gitignore also covers (a file waiting to be untracked: a
 // clean checkout of the change does not have it, so a file that reaches one is a reader and it is not scanned itself).
-// Returns one line per reader: `path:line: entry` for a string that names material, `path: reaches target, which ...` for a file
-// that gets there through imports, requires or spawned paths, followed to a fixed point.
-export function findReaders(files, entries, gone = new Set()) {
-  // Only the folders: a script that names a local-only test file (scripts/rust-core/k1-lanes.mjs lists some) does not read it.
-  const named = new RegExp(
-    entries
-      .filter((entry) => entry.endsWith('/'))
-      .map(escape)
-      .join('|')
-  );
+// Returns one line per reader, `path: reaches target, which ...`, for a file that gets to a gone file through imports, requires or
+// spawned paths, followed to a fixed point.
+export function findReaders(files, gone) {
   const scripts = new Map([...files].filter(([path]) => SCRIPT.test(path) && !gone.has(path)));
   const found = [];
-  // path -> where the first read of material or of a missing file is
+  // path -> the gone file it leads to
   const reads = new Map();
-  const scans = new Map();
-  for (const [path, text] of scripts) {
-    const result = scan(path, text, named);
-    scans.set(path, result);
-    for (const hit of result.hits) {
-      found.push(`${path}:${hit.line}: ${hit.entry}`);
-      if (!reads.has(path)) reads.set(path, `${path}:${hit.line}`);
-    }
-  }
-  for (const path of gone) reads.set(path, `${path} (ignored by .gitignore, not in a clean checkout)`);
+  const scans = new Map([...scripts].map(([path, text]) => [path, scan(text)]));
+  for (const path of gone) reads.set(path, `${path} (tracked, and covered by .gitignore: not in a clean checkout)`);
   // Every tracked path, not only the scripts: a require of './recording' may resolve to a .json, a directory to its package.json.
   const known = new Set([...files.keys(), ...gone]);
   const textOf = (path) => files.get(path);
@@ -301,7 +261,7 @@ export function findReaders(files, entries, gone = new Set()) {
       const via = [...targets].find((target) => reads.has(target));
       if (!via) continue;
       reads.set(path, reads.get(via));
-      found.push(`${path}: reaches ${via}, which reads local-only material at ${reads.get(via)}`);
+      found.push(`${path}: reaches ${via}, which leads to ${reads.get(via)}`);
       grew = true;
     }
   }
@@ -317,14 +277,9 @@ export function testTargetsOf(dir, entries) {
   );
 }
 
-// `present` are the paths of the material that exist in the checkout (ignored and untracked); `targets` the Cargo test targets on
-// disk, of which every one not in `tracked` is refused.
-export const buildViolations = ({ present, targets, tracked }) => [
-  ...present.map((path) => `${path} is local-only comparison material, present in the checkout`),
-  ...targets
-    .filter((path) => !tracked.has(path))
-    .map((path) => `${path} is a Cargo test target on disk that is not tracked`),
-];
+// `targets` are the Cargo test targets on disk, of which every one not in `tracked` is refused.
+export const buildViolations = ({ targets, tracked }) =>
+  targets.filter((path) => !tracked.has(path)).map((path) => `${path} is a Cargo test target on disk that is not tracked`);
 
 // NUL-delimited: the newline form quotes a path with non-ASCII bytes (`"tests/caf\303\251.rs"`), which would match no path.
 function lsFiles(root, ...args) {
@@ -350,23 +305,19 @@ export function testTargetsOnDisk(root, manifests) {
   });
 }
 
-// `--build` over the checkout at `root`, with the material's .gitignore `entries`.
-export function buildCheck(root, entries) {
-  const ignored = lsFiles(root, '--others', '--ignored', '--exclude-standard', '--directory');
-  const named = (path) =>
-    entries.some((entry) => (entry.endsWith('/') ? path.startsWith(entry) || path.includes(`/${entry}`) : path === entry));
+// `--build` over the checkout at `root`.
+export function buildCheck(root) {
   const tracked = new Set(lsFiles(root));
   // Every package of the tree: the directory of each tracked Cargo.toml.
   const targets = testTargetsOnDisk(
     root,
     [...tracked].filter((path) => posix.basename(path) === 'Cargo.toml')
   );
-  return buildViolations({ present: ignored.filter(named), targets, tracked });
+  return buildViolations({ targets, tracked });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
-  const entries = comparisonMaterial(readFileSync(join(root, '.gitignore'), 'utf8'));
   const mode = process.argv[2] ?? '--readers';
   let found;
   if (mode === '--readers') {
@@ -381,9 +332,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
           SCRIPT.test(path) || /(?:^|\/)package\.json$/.test(path) ? readFileSync(join(root, path), 'utf8') : '',
         ])
     );
-    found = findReaders(files, entries, gone);
+    found = findReaders(files, gone);
   } else if (mode === '--build') {
-    found = buildCheck(root, entries);
+    found = buildCheck(root);
   } else {
     throw new Error(`unknown mode ${mode} (--readers | --build)`);
   }
@@ -394,7 +345,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   if (found.length > 0) {
     console.error(
-      `${found.length} reference(s) to material a clean checkout does not have (docs/testing.md, "local-only comparison material")`
+      `${found.length} file(s) a clean checkout would not have or would not build (docs/testing.md, "What each layer guarantees")`
     );
     process.exit(1);
   }

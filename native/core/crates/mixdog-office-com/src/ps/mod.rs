@@ -4,8 +4,7 @@
 //! friends, sort and group with `Sort-Object` and `Group-Object`, write each answer with `ConvertTo-Json -Compress` and
 //! fingerprint a snapshot by the hash of that text. A host written in Rust has to produce the same answers byte for byte
 //! (a journal written by the PowerShell host must still verify), so these modules reproduce the PowerShell rules over one
-//! value model, [`Value`]. `tests/pswire.rs` checks every function against `tests/fixtures/pswire/corpus.json`, the text
-//! Windows PowerShell 5.1 produced for the same inputs (`recorder/pswire-corpus.ps1`).
+//! value model, [`Value`]. `tests/pswire.rs` states, case by case, the text or the value Windows PowerShell 5.1 gives.
 //!
 //! * [`payload`] reads a request line as `ConvertFrom-Json` does and looks properties up as `$payload.name` does.
 //! * [`convert`] holds the casts, number text, `[Math]` overloads, `-f '{0:X2}'` and the arithmetic of the colour code.

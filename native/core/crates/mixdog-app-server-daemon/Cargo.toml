@@ -119,7 +119,7 @@ tokio-tungstenite = { workspace = true, features = ["handshake"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-app-protocol = { workspace = true }
-mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }

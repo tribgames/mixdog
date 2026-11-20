@@ -4579,7 +4579,6 @@ dependencies = [
  "mixdog-secrets",
  "mixdog-spawn",
  "mixdog-store",
- "mixdog-testkit",
  "mixdog-tools",
  "mixdog-workspace",
  "mixdog-workspace-hack",
@@ -5670,7 +5669,6 @@ dependencies = [
  "rand 0.9.5",
  "regress",
  "serde_json",
- "sha2 0.10.9",
 ]
 
 [[package]]
@@ -6146,7 +6144,6 @@ version = "1.5.0"
 dependencies = [
  "mixdog-js",
  "mixdog-protocol",
- "mixdog-testkit",
  "mixdog-workspace-hack",
  "schemars 0.8.22",
  "serde",

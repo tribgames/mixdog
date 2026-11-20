@@ -132,6 +132,59 @@ async function commandIn(
   }
 }
 
+/**
+ * A fixed Chromium trace, delivered as the CDP events Chromium would send. Live traces never repeat (GC and sampling events differ
+ * per run), so the tracer is fed this list at its event input and renders it through its real code path.
+ */
+const FIXED_TRACE_EVENTS = [
+  { name: 'RunTask', ph: 'X', dur: 1200 },
+  { name: 'RunTask', ph: 'X', dur: 800 },
+  { name: 'V8.GC_MARK_COMPACTOR', ph: 'X', dur: 5400 },
+  { name: 'FunctionCall', ph: 'X', dur: 300 },
+  { name: 'FunctionCall', ph: 'X', dur: 150 },
+  { name: 'FunctionCall', ph: 'X', dur: 50 },
+  { name: 'thread_name', ph: 'M' },
+];
+
+/** What the product renders for those events (sorted by total time, then count). */
+const FIXED_TRACE_LINES = [
+  'Events: 7',
+  '- V8.GC_MARK_COMPACTOR: 1 event(s), 5.40ms total',
+  '- RunTask: 2 event(s), 2.00ms total',
+  '- FunctionCall: 3 event(s), 0.50ms total',
+  '- thread_name: 1 event(s), 0.00ms total',
+];
+
+/** Chromium is not asked to trace: `Tracing.start` is acknowledged, and `Tracing.end` answers with the fixed events as
+ *  `Tracing.dataCollected` followed by `Tracing.tracingComplete`, through the debugger's own message event that the product's CDP
+ *  router listens to. Answers the function that puts every page's own `sendCommand` back. */
+function feedFixedTrace(pages: WebContents[]): () => void {
+  const restores: Array<() => void> = [];
+  for (const page of pages) {
+    if (page.isDestroyed()) continue;
+    const cdp = page.debugger;
+    const real = cdp.sendCommand;
+    const bound = real.bind(cdp);
+    cdp.sendCommand = ((method: string, params?: object, sessionId?: string) => {
+      if (method === 'Tracing.start') return Promise.resolve({});
+      if (method === 'Tracing.end') {
+        setImmediate(() => {
+          cdp.emit('message', {}, 'Tracing.dataCollected', { value: FIXED_TRACE_EVENTS });
+          cdp.emit('message', {}, 'Tracing.tracingComplete', {});
+        });
+        return Promise.resolve({});
+      }
+      return bound(method, params, sessionId);
+    }) as typeof cdp.sendCommand;
+    restores.push(() => {
+      cdp.sendCommand = real;
+    });
+  }
+  return () => {
+    for (const restore of restores) restore();
+  };
+}
+
 const suite: CoreHarnessSuite = async (harness) => {
   const profile = mkdtempSync(join(tmpdir(), 'mixdog-browser-host-profile-'));
   const downloadsDirectory = join(profile, 'downloads');
@@ -1413,6 +1466,18 @@ const suite: CoreHarnessSuite = async (harness) => {
     assert.equal(traceJson.metadata.redacted, true);
     const metrics = await command({ action: 'performance', operation: 'metrics', tab: 'beta' });
     assert.match(metrics.text, /JSHeapUsedSize|TaskDuration/);
+    // The same trace rendered from a fixed event list: the counts and the cumulative durations are the whole contract.
+    const restoreTracing = feedFixedTrace(webContents.getAllWebContents().filter((page) => !page.getURL().startsWith('data:')));
+    try {
+      await command({ action: 'performance', operation: 'start', tab: 'beta' });
+      const fixedTrace = await command({ action: 'performance', operation: 'stop', tab: 'beta' });
+      assert.ok(fixedTrace.text.startsWith('Performance trace stopped.\n'), fixedTrace.text);
+      for (const line of FIXED_TRACE_LINES) {
+        assert.ok(fixedTrace.text.includes(line), `the fixed trace was not rendered: missing ${line}\n${fixedTrace.text}`);
+      }
+    } finally {
+      restoreTracing();
+    }
 
     await command({
       action: 'evaluate',

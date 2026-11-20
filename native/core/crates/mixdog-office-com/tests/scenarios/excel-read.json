@@ -1,6 +1,6 @@
 {
   "area": "excel-read",
-  "description": "The workbook reader of office-com-host.ps1: Snapshot-Excel (whole, and paged by cells and by row blocks, with styles, with a range, with a sheet and range for the values), Snapshot-Selection and Issues-Excel (sampled and financial-model). The workbooks are built by the hosts' own operations in a prepare step, so no binary input is needed. Not covered by these scenarios, which need workbooks only the migration PC can supply (place them in tests/fixtures/inputs and add a copy step): a Korean-UI Excel with colour number formats, pivots, pictures (with and without alternative text), hidden _xlfn names, an external link and a sheet whose merged cells run past 2,000.",
+  "description": "The workbook reader of office-com-host.ps1: Snapshot-Excel (whole, and paged by cells and by row blocks, with styles, with a range, with a sheet and range for the values), Snapshot-Selection and Issues-Excel (sampled and financial-model). The workbooks are built by the hosts' own operations in a prepare step, so no binary input is needed. Not covered by these scenarios, which need workbooks only the migration PC can supply (place them in tests/inputs and add a copy step): a Korean-UI Excel with colour number formats, pivots, pictures (with and without alternative text), hidden _xlfn names, an external link and a sheet whose merged cells run past 2,000.",
   "scenarios": [
     {
       "id": "workbook-features",

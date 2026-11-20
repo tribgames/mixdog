@@ -51,41 +51,24 @@ export const ALLOW = [
     ),
     why: "prebuilt helpers embed the build machine's cargo registry path; open: rebuild with a path remap, then remove this entry",
   },
-  // Rust-core-versus-Node-1.4.5 comparison material (data recorded from Node and the tests built on it). It leaves git
-  // with the ci-rust-lane change; the entries are the families still tracked, each a data directory or an exact file.
+  // Recordings and recording-based tests still tracked: paths are what the recording machine saw, kept as data.
   {
     path: under(
-      'apps/desktop/src/renderer/fixtures/phone-scm',
-      'apps/desktop/src/renderer/remote-protocol-chat-history.node',
-      'apps/desktop/src/renderer/remote-protocol-chat-roster.node',
       'apps/desktop/src/renderer/remote-protocol-chat-live.core',
-      'apps/desktop/src/renderer/remote-protocol-chat-refusals.core',
-      'apps/desktop/src/shared/test-recorded',
-      'apps/mobile/fixtures',
-      'benchmarks/terminal-bench-2.1/analysis/parity/fixtures'
+      'apps/desktop/src/renderer/remote-protocol-chat-refusals.core'
     ),
-    why: 'recorded-from-Node data directories: nothing but recordings lives there',
+    why: 'recorded data directories: nothing but recordings lives there',
   },
   {
     path: exact(
-      'apps/desktop/src/renderer/remote-protocol-chat.recorded.json',
-      'apps/desktop/src/renderer/remote-protocol-chat.record.mjs',
-      'apps/desktop/src/renderer/remote-protocol-chat-roster.record.mjs',
-      'apps/desktop/src/renderer/remote-protocol-chat-node-export.mjs',
-      'apps/desktop/src/renderer/remote-protocol-files.slow.test.mjs',
-      'apps/desktop/src/renderer/remote-protocol-files-downloads.slow.test.mjs',
-      'apps/desktop/src/renderer/remote-protocol-settings.slow.test.mjs',
       'apps/desktop/src/renderer/transcript-tool-live-rows.fixture.json',
       'apps/desktop/src/renderer/transcript-tool-row-pairs.test.mjs',
       'apps/desktop/src/main/desktop-state-project.test.mjs',
       'packages/protocol-client/test/live-turn-items.json',
-      'packages/protocol-client/test/live-turn-rows.node.json',
-      'packages/protocol-client/test/live-turn-state.node.json',
-      'packages/protocol-client/test/rows/node-oracle/moved-tests.test.mjs',
       'native/core/crates/mixdog-highlight/tests/corpus/bash.docs.txt',
       'native/core/crates/mixdog-markdown-ansi/tests/corpus/docs.json'
     ),
-    why: 'recorders, recordings and recording-based tests of the same move, named file by file',
+    why: 'recordings and recording-based tests, named file by file',
   },
   // Held by other owners, named file by file; delete each entry when its owner has rewritten the file.
   {
@@ -94,10 +77,6 @@ export const ALLOW = [
       'apps/desktop/src/main/protocol/session-lane.test.mjs'
     ),
     why: 'frozen by the desktop protocol owner in this pass; remove once rewritten',
-  },
-  {
-    path: exact('native/core/crates/mixdog-entry/Cargo.toml', 'native/core/crates/mixdog-entry/tests/pty_twin.rs'),
-    why: 'owned by the entry change; remove once rewritten',
   },
 ];
 export function scan(files, read, allow = ALLOW) {
