@@ -14,9 +14,13 @@ const UNSAFE_NAME = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\\/:*?"<>|]/;
 
 const invalid = () => new TypeError('Feedback attachments are invalid.');
 
+function paddingLength(data) {
+  if (data.endsWith('==')) return 2;
+  return data.endsWith('=') ? 1 : 0;
+}
+
 function decodedLength(data) {
-  const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
-  return (data.length / 4) * 3 - padding;
+  return (data.length / 4) * 3 - paddingLength(data);
 }
 
 function prefixBytes(data, count) {
@@ -38,7 +42,7 @@ function hasSignature(mimeType, data) {
 /** Strict canonical base64: alphabet, padding and zeroed trailing bits. */
 function canonicalBase64(data) {
   if (!data || data.length % 4 !== 0 || !BASE64.test(data)) return false;
-  const pad = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+  const pad = paddingLength(data);
   if (!pad) return true;
   const last = BASE64_ALPHABET.indexOf(data[data.length - pad - 1]);
   return last % (pad === 2 ? 16 : 4) === 0;

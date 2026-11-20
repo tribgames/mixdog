@@ -213,7 +213,10 @@ const targetKey = (path) => {
 };
 function useOf(key) {
   let use = targetUse.get(key);
-  if (!use) targetUse.set(key, (use = { reads: 0, renaming: null, draining: null, drained: [] }));
+  if (!use) {
+    use = { reads: 0, renaming: null, draining: null, drained: [] };
+    targetUse.set(key, use);
+  }
   return use;
 }
 function forgetIfIdle(key, use) {

@@ -7,8 +7,6 @@ import {
 } from './task-notification-envelope.mjs';
 import {
   isBracketedShellNotificationEnvelope,
-  isInternalRuntimeNotificationText,
-  isModelVisibleToolCompletionWrapper,
   modelVisibleToolCompletionMessage,
   shouldPersistModelVisibleToolCompletion,
 } from './tool-execution-contract.mjs';
