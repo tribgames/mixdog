@@ -98,7 +98,7 @@ function harness(options = {}) {
   return { sessions, power, displayed, origin, unloaded, held, downloading, page, background, run };
 }
 
-test('every page of a live turn waits 30 minutes; once the turn ended all wait 5', () => {
+test('every page of a live turn waits 10 minutes; once the turn ended all wait 5', () => {
   const h = harness();
   h.page('live', 1);
   h.background('live', 'tab', 2, { kind: 'user' });
