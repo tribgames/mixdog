@@ -107,8 +107,7 @@ fn opts_with(provider: &str, agent: Option<&str>, auto_clear: &Value, env_ttl: &
 
 /// `buildSessionProviderCacheOpts(provider, sessionId, agent, config, session)`; `auto_clear` is the config's `autoClear`
 /// section (Node loads the config when it is not given one). `None` when the provider and the agent state no policy.
-/// The policy is per provider and agent: neither the session id nor the session record is read (Node read the record only
-/// to tell a Lead class from an agent, which no longer decides anything).
+/// The policy is per provider and agent: neither the session id nor the session record is read.
 pub fn session_provider_cache_opts(provider: &str, agent: Option<&str>, auto_clear: &Value) -> Option<Value> {
     let agent = agent.filter(|a| !a.is_empty());
     let env = std::env::var("MIXDOG_CACHE_MESSAGES_TTL").unwrap_or_default();

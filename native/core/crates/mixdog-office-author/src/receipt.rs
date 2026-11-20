@@ -34,7 +34,7 @@ pub fn canvas_of(document: &Value) -> Page {
     if width > 0.0 && height > 0.0 { Page { width, height } } else { WIDE_CANVAS }
 }
 
-// ---- JSON reading, as the script reads it ----------------------------------------------------------------------------
+// JSON reading, as the script reads it
 
 fn field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
     value.as_object().and_then(|map| map.get(key))
@@ -115,7 +115,7 @@ fn optional(number: Option<f64>) -> Value {
     number.map_or(Value::Null, json_number)
 }
 
-// ---- colour --------------------------------------------------------------------------------------------------------------
+// colour
 
 fn background_role(slide: &Value) -> &'static str {
     let Some(luminance) = relative_luminance(&text_or_empty(field_of(field(slide, "background"), "color"))) else {
@@ -224,7 +224,7 @@ fn has_text(shape: &Value) -> bool {
     !js_trim(&text_or_empty(field(shape, "text"))).is_empty()
 }
 
-// ---- spec carriers -------------------------------------------------------------------------------------------------------
+// spec carriers
 
 /// Spec carriers (kit.md section 1 SPEC): the kit signs a badge, a callout, a chevron stage, a stat numeral or a table
 /// with its spec name and variant (`mixdog-spec:badge:positive`); the receipt reads the signature back: how many of
@@ -276,7 +276,7 @@ fn note_spec(specs: &mut Specs, shape: &Value) {
     }
 }
 
-// ---- observations --------------------------------------------------------------------------------------------------------
+// observations
 // What a designer would read off the canvas, as numbers: air, quadrant air, the largest object's share, the visual
 // footprint, text left edges, fill areas, and where the title sits. Read from shape footprints on a 5 pt raster; no
 // threshold turns any of them into a verdict.
@@ -504,7 +504,7 @@ fn field_fill_of(surfaces: &[Frame], grid: &Raster, page: Page) -> Vec<f64> {
     shares
 }
 
-// ---- reading the shapes of a slide ---------------------------------------------------------------------------------------
+// reading the shapes of a slide
 
 #[derive(Default)]
 struct Counts {
@@ -846,7 +846,7 @@ pub fn slide_receipt(slide: &Value, page: Page) -> Value {
     Value::Object(receipt)
 }
 
-// ---- the deck ------------------------------------------------------------------------------------------------------------
+// the deck
 
 fn count_of(slide: &Value, key: &str) -> f64 {
     number_or_zero(field(slide, key))
@@ -1006,7 +1006,7 @@ pub fn composition_receipt(document: &Value, brief: Option<&Value>) -> Value {
     })
 }
 
-// ---- the rendered page, read after the fact -------------------------------------------------------------------------------
+// the rendered page, read after the fact
 
 /// What a render read of one page (an entry of `renderedAirByPage`): the air, and when the reading has them the colour,
 /// the share of the largest object and the visual-weight balance.
@@ -1149,7 +1149,7 @@ pub fn attach_rendered_air(receipt: &mut Value, air_by_page: &[(f64, PageRead)])
     }
 }
 
-// ---- what a session already holds ------------------------------------------------------------------------------------------
+// what a session already holds
 
 /// A receipt is resent on every author and render of a session, and between two of them most slides keep their shapes.
 /// The session remembers the structure it last sent per slide and for the deck; a part that still matches goes out as

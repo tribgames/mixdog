@@ -691,7 +691,7 @@ fn correct_label_position(kind: ChartKind, options: &mut ChartOptions) {
     }
 }
 
-// ---- the chart part -------------------------------------------------------------------------------------------------
+// the chart part
 
 impl Chart {
     fn point_color(&self, index: usize) -> &str {

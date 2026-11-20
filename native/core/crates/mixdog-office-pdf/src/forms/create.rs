@@ -66,7 +66,7 @@ fn numbers(values: &[f64]) -> Obj {
     Obj::Array(Arc::new(values.iter().map(|value| Obj::Num(*value)).collect()))
 }
 
-// ---- making the field ----------------------------------------------------------------------------------------------
+// making the field
 
 fn split_field_name(name: &str) -> FormResult<(Vec<String>, String)> {
     if name.is_empty() {

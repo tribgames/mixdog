@@ -197,7 +197,7 @@ impl Flow {
     }
 }
 
-// ---- measuring --------------------------------------------------------------------------------------------------------
+// measuring
 
 /// `wrapText(text, font, size, width)`.
 pub fn wrap(face: &Face, text: &str, size: f64, width: f64) -> WriterResult<Vec<String>> {
@@ -252,7 +252,7 @@ fn heading_level(block: &Value) -> f64 {
     min(3.0, max(1.0, declared))
 }
 
-// ---- lines ------------------------------------------------------------------------------------------------------------
+// lines
 
 /// What `drawLines` is asked for beside the text and its size.
 pub struct LineOpts {
@@ -495,7 +495,7 @@ fn paragraph_lead_height(flow: &Flow, block: &Value) -> WriterResult<f64> {
     Ok((if count <= 3 { count } else { 2 }) as f64 * lh)
 }
 
-// ---- lists ------------------------------------------------------------------------------------------------------------
+// lists
 
 /// A list is the marker plus a hanging indent, so a wrapped item lines up under its own text rather than under the
 /// bullet. The measured lines serve the drawing and the room a heading keeps for the list it opens.
@@ -608,7 +608,7 @@ struct ImageUnit {
     needed: f64,
 }
 
-// ---- the flow ---------------------------------------------------------------------------------------------------------
+// the flow
 
 fn present(amount: f64) -> bool {
     amount != 0.0 && !amount.is_nan()
@@ -659,7 +659,7 @@ mod tests {
     }
 }
 
-// ---- pictures ---------------------------------------------------------------------------------------------------------
+// pictures
 
 /// The picture a block places, embedded once per document: the heading before it measures it, and the block draws the
 /// same embedding rather than a second copy of the image.

@@ -374,7 +374,7 @@ pub fn extract_pdf_text_layout<P: ReadProof>(proof: &P, source: PdfSource<'_>, o
     Ok(PdfLayout { page_count: document.num_pages(), pages, truncated })
 }
 
-// ---- the JSON Node returns -------------------------------------------------------------------------------------------
+// the JSON Node returns
 
 impl LayoutItem {
     pub fn to_json(&self) -> Value {

@@ -76,7 +76,7 @@ pub struct FormFont {
     pub reference: Ref,
 }
 
-// ---- flags ---------------------------------------------------------------------------------------------------------
+// flags
 
 pub(crate) const FLAG_READ_ONLY: i64 = 1;
 pub(crate) const FLAG_REQUIRED: i64 = 1 << 1;
@@ -97,7 +97,7 @@ pub(crate) const ANNOT_PRINT: i64 = 1 << 2;
 /// How far up a chain of `Parent` entries is followed (a loop in a damaged file ends there).
 const MAX_PARENT_DEPTH: usize = 256;
 
-// ---- model ---------------------------------------------------------------------------------------------------------
+// model
 
 /// The type vocabulary `add_form_field` and `fill_form` use (`formFieldKind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,7 +168,7 @@ pub struct PdfForm {
     default_font: Option<FormFont>,
 }
 
-// ---- numbers and text ----------------------------------------------------------------------------------------------
+// numbers and text
 
 /// pdf-lib's `numberToString`: a number in decimal, never in exponent notation.
 pub(crate) fn pdf_number(number: f64) -> String {
@@ -248,7 +248,7 @@ fn mismatch(expected: &str, got: Option<&Obj>) -> FormError {
     FormError::new(format!("Expected instance of {expected}, but got instance of {actual}"))
 }
 
-// ---- reading the object store --------------------------------------------------------------------------------------
+// reading the object store
 
 fn parent_of(store: &ObjectStore, field: Ref) -> Option<Ref> {
     let dict = store.dict(field)?;
@@ -489,7 +489,7 @@ pub(crate) fn border_style_width(store: &ObjectStore, widget: &Widget) -> Option
     }
 }
 
-// ---- values --------------------------------------------------------------------------------------------------------
+// values
 
 /// `acroField.V()`: the value, inherited and resolved.
 fn value_object(store: &ObjectStore, field: Ref) -> Option<Obj> {
@@ -636,7 +636,7 @@ fn set_button_state(store: &mut ObjectStore, field: Ref, value: &str) -> FormRes
     Ok(())
 }
 
-// ---- the form ------------------------------------------------------------------------------------------------------
+// the form
 
 static TF_OPERATOR: LazyLock<JsRegex> =
     LazyLock::new(|| JsRegex::new_static(r"/([^\x00\t\n\f\r\x20]+)[\x00\t\n\f\r\x20]*(\d*\.\d+|\d+)?[\x00\t\n\f\r\x20]+Tf", ""));
@@ -750,7 +750,7 @@ impl PdfForm {
         self.dirty.contains(&field.num)
     }
 
-    // ---- value setters (the methods of the field classes) ----------------------------------------------------------
+    // value setters (the methods of the field classes)
 
     /// `PDFTextField.setText`: a text longer than the field's `MaxLen` is refused.
     pub fn set_text(&mut self, doc: &mut PdfDocument, field: &Field, text: Option<&str>) -> FormResult<()> {
@@ -926,7 +926,7 @@ impl PdfForm {
     }
 }
 
-// ---- describing a field --------------------------------------------------------------------------------------------
+// describing a field
 
 /// `fieldWidgets(field, document)`: where the widgets of a field sit; none when a widget cannot be read.
 pub fn field_widgets(doc: &PdfDocument, field: &Field) -> Vec<WidgetBox> {

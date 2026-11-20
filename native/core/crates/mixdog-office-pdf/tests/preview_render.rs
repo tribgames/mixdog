@@ -189,7 +189,7 @@ fn the_convertible_formats_are_the_documents_libreoffice_reads() {
     }
 }
 
-// ---- documentPreviewPages ---------------------------------------------------------------------------------------------
+// documentPreviewPages
 
 /// Counts what it is asked for and answers `px-<call>-<page>` for each page.
 struct Pixels {

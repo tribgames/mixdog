@@ -33,7 +33,7 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-// ---- stand-in engines ------------------------------------------------------------------------------------------------
+// stand-in engines
 
 /// An engine that never answers a page, and notes that it was ended.
 struct Stub {
@@ -152,7 +152,7 @@ fn a_released_engine_is_started_again_by_the_next_caller() {
     });
 }
 
-// ---- the downloads ---------------------------------------------------------------------------------------------------
+// the downloads
 
 /// A server of fixed answers by path; a path it does not know is 404. It reports each request line.
 async fn serve(routes: HashMap<String, Vec<u8>>) -> (String, tokio::sync::mpsc::UnboundedReceiver<String>) {
@@ -228,7 +228,7 @@ impl EngineStarter for StubStarter {
         })
     }
 }
-// ---- the lifecycle ---------------------------------------------------------------------------------------------------
+// the lifecycle
 
 #[test]
 fn a_start_that_never_finishes_times_out_and_is_ended_leaving_nothing_running() {

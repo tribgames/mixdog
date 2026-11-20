@@ -4,7 +4,6 @@ use crate::coerce::*;
 use crate::registry::Table;
 use crate::value::{ErrorValue as E, Failure, Value as V};
 
-macro_rules! functions { ($($name:ident),*) => { $(fn $name(a:&[V])->Result<V,Failure>{run(stringify!($name),a)})* pub const FUNCTIONS:Table=&[$((stringify!($name),$name)),*]; }; }
 #[allow(non_snake_case)]
 mod exports {
     use super::*;

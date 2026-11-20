@@ -475,7 +475,7 @@ pub async fn build_execution_tail(ctx: &TailContext<'_>, transcript: &[AgentMess
 
 /// Retains `group` if it fits the tool-history budget, shedding evidence in
 /// levels when it does not.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "the group and the tail's books it is judged against, each an independent input")]
 async fn keep_group(
     ctx: &TailContext<'_>,
     transcript: &[AgentMessage],

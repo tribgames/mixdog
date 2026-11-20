@@ -451,7 +451,6 @@ fn fixed(n: &V, d: &V, no_commas: bool) -> Result<V, Failure> {
     };
     Ok(V::Text(if no_commas { s } else { commas(&s) }))
 }
-macro_rules! functions { ($($name:ident),* $(,)?) => { $(fn $name(a:&[V])->Result<V,Failure>{run(stringify!($name),a)})* pub const FUNCTIONS:Table=&[$((stringify!($name),$name)),*]; }; }
 #[allow(non_snake_case)]
 mod exports {
     use super::*;

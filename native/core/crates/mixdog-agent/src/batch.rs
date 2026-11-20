@@ -467,7 +467,7 @@ impl Run {
 
     /// What one call is, in Node's order: surface denial, one-per-turn tools,
     /// intra-turn twin and repeat-failure guards.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the call's per-turn lookups, each an independent guard input")]
     async fn decide(
         &mut self,
         call: &ToolCall,

@@ -105,7 +105,7 @@ pub(super) fn prune_cache<P: WriteProof>(proof: &P, root: &Path) {
     }
 }
 
-// ---- ownership ----------------------------------------------------------------------------------------------------------------
+// ownership
 //
 // Two things are shared between worker processes and need an owner the operating system enforces: a key directory of the cache
 // (published into and evicted from) and a staging directory (made by one conversion, abandoned if its process dies). Both are
