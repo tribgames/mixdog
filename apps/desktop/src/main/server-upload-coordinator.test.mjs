@@ -86,7 +86,8 @@ class Core {
           feed: { id: 'app', epoch: `ae-${instance}`, seq: 1 },
         });
       case 'transfer/beginWrite': {
-        const id = `t${(state.counter += 1)}`;
+        state.counter += 1;
+        const id = `t${state.counter}`;
         this.uploads.set(`${this.generations}:${id}`, {
           name: frame.params.name,
           size: frame.params.size,
@@ -504,11 +505,7 @@ test('a cancel drops unsent work at once, returns without waiting on a held repl
 
 test('an abort barrier that never answers retires the link at the deadline, and later uploads proceed on the reopened one', async () => {
   const { core, connection } = await target({ setup: (c) => (c.hold = true) });
-  const timers = [];
-  const clock = {
-    setTimeout: (run, ms) => (timers.push({ run, ms }), timers.length),
-    clearTimeout: (h) => void (timers[h - 1] = null),
-  };
+  const { timers, clock } = manualClock();
   let reopened = 0;
   const link = {
     get status() {
@@ -516,7 +513,10 @@ test('an abort barrier that never answers retires the link at the deadline, and 
     },
     client: () => connection.client(),
     onEvent: (listener) => connection.onEvent(listener),
-    reopen: () => ((reopened += 1), connection.reopen()),
+    reopen: () => {
+      reopened += 1;
+      return connection.reopen();
+    },
   };
   const uploads = new ServerUploadCoordinator(link, { clock, deadlineMs: 30_000 });
   const mine = {};
@@ -544,7 +544,7 @@ test('an abort barrier that never answers retires the link at the deadline, and 
 });
 
 test('a lost connection rejects held chunks, and a reconnect starts a fresh generation: no replay, no old handle on a reused id', async () => {
-  const { core, net, connection } = await target({ setup: (c) => (c.hold = true) });
+  const { core, connection } = await target({ setup: (c) => (c.hold = true) });
   const uploads = serverUploadCoordinatorFor(connection);
   const mine = {};
   const first = await uploads.begin(mine, 'a.bin', CHUNK * 5, 'draft');
@@ -600,16 +600,38 @@ const coordinatorOn = (connection, extra = {}) => {
     },
     client: () => connection.client(),
     onEvent: (listener) => connection.onEvent(listener),
-    reopen: () => (extra.reopened && (extra.reopened.count += 1), connection.reopen()),
+    reopen: () => {
+      if (extra.reopened) extra.reopened.count += 1;
+      return connection.reopen();
+    },
   };
   return new ServerUploadCoordinator(link, extra);
+};
+
+const holdAll = (c) => {
+  c.hold = true;
+  c.holdAbort = true;
+};
+
+const manualClock = () => {
+  const timers = [];
+  const clock = {
+    setTimeout: (run, ms) => {
+      timers.push({ run, ms });
+      return timers.length;
+    },
+    clearTimeout: (h) => {
+      timers[h - 1] = null;
+    },
+  };
+  return { timers, clock };
 };
 
 test("a settled write's credit comes back once: an abort answered later cannot release it again and the window is never exceeded", async () => {
   const window = 2 * ENCODED;
   const { core, connection } = await target({
     limits: { maxUploadInFlightBytes: window },
-    setup: (c) => ((c.hold = true), (c.holdAbort = true)),
+    setup: holdAll,
   });
   const uploads = coordinatorOn(connection);
   const a = {};
@@ -649,12 +671,8 @@ test("a settled write's credit comes back once: an abort answered later cannot r
 });
 
 test('an answered abort barrier retires the deadlines of the writes it drained; an unanswered one keeps the reopen', async () => {
-  const { core, connection } = await target({ setup: (c) => ((c.hold = true), (c.holdAbort = true)) });
-  const timers = [];
-  const clock = {
-    setTimeout: (run, ms) => (timers.push({ run, ms }), timers.length),
-    clearTimeout: (h) => void (timers[h - 1] = null),
-  };
+  const { core, connection } = await target({ setup: holdAll });
+  const { timers, clock } = manualClock();
   const reopened = { count: 0 };
   const uploads = coordinatorOn(connection, { clock, reopened });
   const owner = {};
@@ -687,7 +705,12 @@ test('an answered abort barrier retires the deadlines of the writes it drained; 
 });
 
 test('a chunk failure retires the handle, detaches every producer and issues one abort itself', async () => {
-  const { core, connection } = await target({ setup: (c) => ((c.hold = true), c.failAt.add(CHUNK)) });
+  const { core, connection } = await target({
+    setup: (c) => {
+      c.hold = true;
+      c.failAt.add(CHUNK);
+    },
+  });
   const uploads = coordinatorOn(connection);
   const owner = {};
   const { uploadId } = await uploads.begin(owner, 'a.bin', CHUNK * 6, 'draft');
@@ -722,7 +745,12 @@ test('a chunk failure retires the handle, detaches every producer and issues one
 });
 
 test('staging ends at the first chunk failure without waiting for the other writes', async () => {
-  const { core, connection } = await target({ setup: (c) => ((c.hold = true), c.failAt.add(0)) });
+  const { core, connection } = await target({
+    setup: (c) => {
+      c.hold = true;
+      c.failAt.add(0);
+    },
+  });
   const uploads = serverUploadCoordinatorFor(connection);
   const staged = uploadServerBytes(uploads, {}, file(CHUNK * 8), 'p.png', 'transcript');
   staged.catch(() => undefined);
@@ -782,7 +810,10 @@ test('an owner released between the begin reply and its continuation leaves no l
     const owner = {};
     let begun = null;
     const outcome = uploads.begin(owner, 'a.bin', CHUNK * 2, 'draft').then(
-      (value) => ((begun = value), 'begun'),
+      (value) => {
+        begun = value;
+        return 'begun';
+      },
       (e) => e.message
     );
     await turns();

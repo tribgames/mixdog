@@ -264,8 +264,14 @@ export class ServerUploadCoordinator {
       gen.calls.add(sent);
       try {
         gen.client.call(method, params).then(
-          (value) => (sent.end(), resolve(value)),
-          (error: unknown) => (sent.end(), reject(error))
+          (value) => {
+            sent.end();
+            resolve(value);
+          },
+          (error: unknown) => {
+            sent.end();
+            reject(error);
+          }
         );
       } catch (error) {
         sent.end();

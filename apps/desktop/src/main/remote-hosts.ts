@@ -71,12 +71,9 @@ const asRecord = (value: unknown): Record<string, unknown> =>
 export function touchesHostLists(notification: unknown): boolean {
   const note = asRecord(notification);
   const params = asRecord(note.params);
-  const updates =
-    note.method === 'feed/snapshot'
-      ? asRecord(params.state).sections
-      : note.method === 'connections/updated'
-        ? [params]
-        : [];
+  let updates: unknown = [];
+  if (note.method === 'feed/snapshot') updates = asRecord(params.state).sections;
+  else if (note.method === 'connections/updated') updates = [params];
   return (
     Array.isArray(updates) &&
     updates.some((update) => {

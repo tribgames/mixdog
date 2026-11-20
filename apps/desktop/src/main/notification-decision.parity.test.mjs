@@ -51,13 +51,15 @@ const conversationOf = (input) => {
   });
 };
 
+const settingOf = (entry, now) => {
+  if (entry.mode === 'always') return { mode: 'always' };
+  return { mode: 'muted', until: entry.untilOffsetMs === undefined ? null : now + entry.untilOffsetMs };
+};
+
 const overridesOf = (list = [], now) =>
   list.map((entry) => ({
     target: { kind: entry.kind, id: entry.id },
-    setting:
-      entry.mode === 'always'
-        ? { mode: 'always' }
-        : { mode: 'muted', until: entry.untilOffsetMs === undefined ? null : now + entry.untilOffsetMs },
+    setting: settingOf(entry, now),
   }));
 
 const targetOf = (entry) => (entry ? { kind: entry.target.kind, id: entry.target.id } : null);

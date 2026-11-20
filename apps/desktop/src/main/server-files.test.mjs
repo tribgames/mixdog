@@ -12,11 +12,6 @@ import {
   serverByteStream,
   serverCoreInvoke,
 } from './server-file-access.ts';
-async function stage(f, payload, name, scope) {
-  const { uploadId } = await f.ops.invoke('serverUploadBegin', [name, payload.length, scope]);
-  await f.ops.invoke('serverUploadChunk', [uploadId, 0, payload.toString('base64')]);
-  return f.ops.invoke('serverUploadCommit', [uploadId]);
-}
 
 function bytes(length, seed = 7) {
   const out = Buffer.alloc(length);
@@ -128,7 +123,12 @@ function fakeCore(answers) {
   const calls = [];
   return {
     calls,
-    core: { call: async (method, params) => (calls.push([method, params]), answers[method]?.(params)) },
+    core: {
+      call: async (method, params) => {
+        calls.push([method, params]);
+        return answers[method]?.(params);
+      },
+    },
   };
 }
 

@@ -126,7 +126,7 @@ test('closing the window retires its reclaim controller without affecting a repl
     return { window, controller };
   }
   const first = attach('first');
-  const second = attach('second');
+  attach('second');
   first.window.emit('closed');
   elapse(t, 20);
   assert.deepEqual(calls, ['second']);

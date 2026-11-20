@@ -26,7 +26,8 @@ async function fixture(t, outside = false, distinctCase = false) {
   t.after(() => fs.rm(base, { recursive: true, force: true }));
   const root = join(base, 'project');
   const original = join(root, distinctCase ? 'A' : 'original');
-  const other = outside ? join(base, 'outside') : join(root, distinctCase ? 'a' : 'other');
+  const otherInside = join(root, distinctCase ? 'a' : 'other');
+  const other = outside ? join(base, 'outside') : otherInside;
   const alias = join(root, 'alias');
   const kind = process.platform === 'win32' ? 'junction' : 'dir';
   await fs.mkdir(original, { recursive: true });

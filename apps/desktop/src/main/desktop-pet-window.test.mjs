@@ -346,7 +346,7 @@ function setup({
         return stored;
       }
       if (method === 'desktopPet/placement/resolve') return placementRules[params.op](params);
-      throw new Error('unexpected method ' + method);
+      throw new Error(`unexpected method ${method}`);
     },
     reportError: (what, error) => calls.errors.push([what, error]),
     createWindow: (bounds, layer) => {

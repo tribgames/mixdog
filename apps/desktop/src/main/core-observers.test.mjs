@@ -13,8 +13,18 @@ function setup() {
     { section: 'config', key: 'desktop', revision: 1, value: { keepAwake: false } },
   ];
   const connection = {
-    onStoreChange: (l) => ((store = l), () => (store = null)),
-    onEvent: (l) => ((event = l), () => (event = null)),
+    onStoreChange: (l) => {
+      store = l;
+      return () => {
+        store = null;
+      };
+    },
+    onEvent: (l) => {
+      event = l;
+      return () => {
+        event = null;
+      };
+    },
     snapshot: () => ({ status: 'ready', entries }),
   };
   const off = observeCoreForMain({
@@ -53,7 +63,12 @@ test('a paged config read that a newer change or the unsubscribe superseded is d
   let entries = [{ section: 'config', key: 'desktop', revision: 1, value: null }];
   const pending = [];
   const connection = {
-    onStoreChange: (l) => ((store = l), () => (store = null)),
+    onStoreChange: (l) => {
+      store = l;
+      return () => {
+        store = null;
+      };
+    },
     onEvent: () => () => undefined,
     snapshot: () => ({ status: 'ready', entries }),
     call: () => new Promise((resolve) => pending.push(resolve)),

@@ -3,8 +3,7 @@
  * Space / PageDown at the TOP of a long transcript must move the view down
  * and LEAVE it there. Chrome's own key scrolling animates the container
  * while the virtualizer still holds the pre-key offset, and the following
- * anchor correction used to snap the view straight back up (user report:
- * 최상단에서 스페이스를 누르면 내려갔다가 다시 위로 복귀).
+ * anchor correction used to snap the view straight back up.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';

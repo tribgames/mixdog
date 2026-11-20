@@ -285,7 +285,7 @@ async function measureScrollToTop(
     '(() => { const w = window; w.__jitter.stop(); return w.__jitter.samples.length; })()'
   );
 
-  // Phase 4: first-scroll-to-top jank (user report: entering a session and
+  // Phase 4: first-scroll-to-top jank (entering a session and
   // scrolling to the TOP always lags the first time). Two identical upward
   // passes: pass 1 is COLD (every row above the viewport mounts + measures +
   // compensates), pass 2 is WARM (virtualizer measurement cache hit). The

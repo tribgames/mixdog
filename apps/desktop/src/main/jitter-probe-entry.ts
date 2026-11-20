@@ -554,7 +554,7 @@ export async function runEntryProbe({
   outPath,
 }: EntryProbeDeps): Promise<{ reversals: number }> {
   // ── Phase A: COLD FIRST ENTRY into a session that already has history ────
-  // Runs before every other phase on purpose: this is the user's "최초 진입"
+  // Runs before every other phase on purpose: this is the first entry
   // — no cached row heights, and the markdown/diff chunks are as cold as they
   // are right after launch. The transcript must land bottom-pinned and hold
   // still while the estimated rows are re-measured.
@@ -577,7 +577,7 @@ export async function runEntryProbe({
 
   // ── Phase B: tool-card expand / collapse ────────────────────────────────
   // The toggled card's own top must not move, and neither may the rest of
-  // the visible transcript (user: 도구 사용 표기 펼침/접힘도 같은 출렁임).
+  // the visible transcript.
   // Pinned pass first (the common case: the newest tool card at the bottom of
   // a followed transcript), then the scrolled-up reading case.
   const pinnedExpand = await toggleToolCard(window, 'pinned-expand', true, true);

@@ -101,7 +101,7 @@ async function measureWidthSweeps(window: BrowserWindow) {
     // A real drag delivers a new width almost every frame: step in small
     // increments so the rewrap path is exercised the way a pointer does it.
     // 1920 -> 489 crosses the 2xl/md frame boundaries and the narrow
-    // working-pane range from the user report. The physical sash pass below
+    // working-pane range. The physical sash pass below
     // continues down to the 324px pane floor.
     for (let width = bounds.width; width >= narrowWidth; width -= 12) {
       window.setBounds({ ...bounds, width: Math.max(narrowWidth, width) });

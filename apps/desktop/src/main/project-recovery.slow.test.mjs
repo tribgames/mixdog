@@ -314,7 +314,7 @@ for (const replaceRoot of [true, false]) {
       async after(path) {
         if (!moved && path === join(target, 'a.txt')) {
           moved = true;
-          await fs.rename(target, target + '-old');
+          await fs.rename(target, `${target}-old`);
           await fs.mkdir(target);
           await fs.writeFile(join(target, 'a.txt'), 'A1');
           await fs.writeFile(join(target, 'b.txt'), 'B0');
@@ -329,7 +329,7 @@ for (const replaceRoot of [true, false]) {
       'A1',
       'rollback must not write to the replacement directory'
     );
-    assert.equal(await fs.readFile(join(target + '-old', 'b.txt'), 'utf8'), 'B0');
+    assert.equal(await fs.readFile(join(`${target}-old`, 'b.txt'), 'utf8'), 'B0');
     assert.equal((await projectRecoveryIn(f.data, f.root, { action: 'list' })).records.length, 1);
   });
 }
@@ -462,7 +462,7 @@ test('a root change after a prepared file read is rejected before any target mut
         // after closing but before the preparation caller validates identity.
         if (!moved) {
           moved = true;
-          await fs.rename(f.root, f.root + '-old');
+          await fs.rename(f.root, `${f.root}-old`);
           await fs.mkdir(f.root);
           await fs.writeFile(join(f.root, 'a.txt'), 'A0');
           await fs.writeFile(join(f.root, 'b.txt'), 'B0');
@@ -473,7 +473,7 @@ test('a root change after a prepared file read is rejected before any target mut
   });
   await assert.rejects(writeProjectTextFilesIn(f.root, writes, f.data), /changed/);
   assert.equal(await fs.readFile(join(f.root, 'a.txt'), 'utf8'), 'A0');
-  assert.equal(await fs.readFile(join(f.root + '-old', 'a.txt'), 'utf8'), 'A0');
+  assert.equal(await fs.readFile(join(`${f.root}-old`, 'a.txt'), 'utf8'), 'A0');
   assert.deepEqual((await projectRecoveryIn(f.data, f.root, { action: 'list' })).records, []);
 });
 
@@ -505,7 +505,7 @@ test('list reports bounded metadata, unknown sizes and resolved slots without re
 test('missing project keeps its inventory and supports only inspected backup disposal', async (t) => {
   const f = await fixture(t);
   const id = await record(f);
-  await fs.rename(f.root, f.root + '-moved');
+  await fs.rename(f.root, `${f.root}-moved`);
   const listed = await projectRecoveryIn(f.data, f.root, { action: 'list' });
   assert.equal(listed.rootAvailable, false);
   assert.equal(listed.records.length, 1);
@@ -513,7 +513,7 @@ test('missing project keeps its inventory and supports only inspected backup dis
   assert.ok(detail.files.every((file) => file.status === 'missing'));
   const result = await projectRecoveryIn(f.data, f.root, { action: 'discard', id, revision: detail.revision });
   assert.equal(result.records.length, 0);
-  assert.equal(await fs.readFile(join(f.root + '-moved', 'a.txt'), 'utf8'), 'A0');
+  assert.equal(await fs.readFile(join(`${f.root}-moved`, 'a.txt'), 'utf8'), 'A0');
 });
 
 test('capacity errors retain all records and leave target bytes unchanged', async (t) => {
@@ -626,7 +626,7 @@ test('aggregate UTF-16 preflight byte exhaustion returns the batch-limit code be
       ['a.txt', 'b.txt'].map((relPath) => ({
         relPath,
         expectedContent: content,
-        content: content + 'y',
+        content: `${content}y`,
       })),
       f.data
     ),

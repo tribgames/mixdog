@@ -806,7 +806,8 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
       const raw = wire as Record<string, unknown>;
       const compactRaw = raw.__v === COMPACT_WIRE_VERSION;
       const rawPatch = raw.__itemsPatch as ItemsPatch | undefined;
-      const rawBase = compactRaw ? (Number.isSafeInteger(raw.r) ? (raw.r as number) - 1 : undefined) : rawPatch?.base;
+      let rawBase = rawPatch?.base;
+      if (compactRaw) rawBase = Number.isSafeInteger(raw.r) ? (raw.r as number) - 1 : undefined;
       // The sender rewound to the revision this decoder claimed, while frames
       // it had already sent kept arriving: the patch builds on the claim.
       const restored = claimed !== null && rawBase !== revision && rawBase === claimed.revision ? claimed : null;
@@ -991,17 +992,5 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
     };
     restoreStreamingTailEpoch(record, snapshot);
     return { ok: true, snapshot };
-  }
-}
-
-// Transport-level resync frame (mirrors the IPC stateResync channel): a
-// client whose patch base did not match asks for a fresh full snapshot.
-export function isStateResyncFrame(raw: string): boolean {
-  if (!raw.includes('stateResync')) return false;
-  try {
-    const message = JSON.parse(raw) as { method?: unknown; id?: unknown };
-    return message.method === 'stateResync' && typeof message.id !== 'number';
-  } catch {
-    return false;
   }
 }

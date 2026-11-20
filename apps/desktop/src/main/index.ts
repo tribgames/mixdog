@@ -210,6 +210,7 @@ import { createRendererCache, type RendererCaches } from './ipc-renderer-cache';
 import { createPaneLayoutFile, flushPaneLayoutFiles, PANE_LAYOUT_FILE } from './pane-layout-file';
 import { RENDERER_CACHE_NAMES } from '../shared/renderer-cache';
 import { displayExitCode } from './desktop-service-client';
+import { installSyncSpawnDiagnostics } from './sync-spawn-diagnostics';
 
 const desktopProcessStartedAt = Date.now();
 // The launcher's stdio pipe can close while the app keeps running (started
@@ -412,9 +413,8 @@ if (softwareRenderingThisLaunch) {
 // Windows-only Chromium occlusion tracking can leave a RESTORED window marked
 // occluded: document.hidden stays true, requestAnimationFrame never fires, and
 // every rAF-based surface reveal (PaneSurfaceGate — terminal/editor/studio
-// panes) stalls indefinitely while timers throttle to once a minute (user:
-// 터미널이 안 뜬다 — reproduced with a visible window still reporting
-// visibilityState "hidden"). Disabling the native occlusion calculation is the
+// panes) stalls indefinitely while timers throttle to once a minute, with a
+// visible window still reporting visibilityState "hidden". Disabling the native occlusion calculation is the
 // standard Electron workaround; genuine minimize still suspends painting.
 if (process.platform === 'win32') {
   app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
@@ -450,54 +450,7 @@ if (acceptanceDebugPort && /^\d+$/.test(acceptanceDebugPort)) {
   app.commandLine.appendSwitch('remote-debugging-port', acceptanceDebugPort);
 }
 
-// Perf triage (MIXDOG_DESKTOP_PERF=1): any synchronous child process spawned on
-// the MAIN thread freezes the event loop (timers, IPC, transitions) for its
-// full runtime while showing near-zero CPU. Attribute every long sync spawn.
-if (process.env.MIXDOG_DESKTOP_PERF === '1') {
-  void (async () => {
-    // ESM namespace exports are read-only; patch the mutable CJS exports object.
-    const { createRequire } = await import('node:module');
-    const cp = createRequire(import.meta.url)('node:child_process') as typeof import('node:child_process');
-    const { appendFile } = await import('node:fs/promises');
-    let writeQueue: Promise<void> = Promise.resolve();
-    const wrap = <K extends 'spawnSync' | 'execSync' | 'execFileSync'>(name: K) => {
-      const original = (cp as Record<K, (...values: unknown[]) => unknown>)[name];
-      const wrapped = (...values: unknown[]) => {
-        const started = Date.now();
-        try {
-          return original(...values);
-        } finally {
-          const ms = Date.now() - started;
-          if (ms >= 150) {
-            const caller = (new Error().stack || '')
-              .split('\n')
-              .slice(2, 5)
-              .map((line) => line.trim())
-              .join(' <- ');
-            const entry = `${new Date().toISOString()} main-sync-spawn ${name} ms=${ms} cmd=${String(values[0] ?? '')} by=${caller}\n`;
-            writeQueue = writeQueue
-              .then(() => appendFile(join(app.getPath('userData'), 'desktop-perf.log'), entry))
-              .catch(() => {
-                /* diagnostics only */
-              });
-          }
-        }
-      };
-      try {
-        (cp as Record<K, (...values: unknown[]) => unknown>)[name] = wrapped;
-        return true;
-      } catch {
-        // Electron/Vite can expose a read-only ESM namespace here even through
-        // createRequire. Diagnostics must never reject desktop startup.
-        return false;
-      }
-    };
-    const installed = [wrap('spawnSync'), wrap('execSync'), wrap('execFileSync')].some(Boolean);
-    if (!installed) console.warn('Mixdog desktop sync-spawn diagnostics disabled: exports are read-only.');
-  })().catch((error) => {
-    console.warn('Mixdog desktop sync-spawn diagnostics disabled:', error instanceof Error ? error.name : 'Error');
-  });
-}
+if (process.env.MIXDOG_DESKTOP_PERF === '1') installSyncSpawnDiagnostics(() => app.getPath('userData'));
 
 let diagnostics: DesktopDiagnostics | null = null;
 const bootTimeline = createBootTimeline();
@@ -2965,7 +2918,7 @@ if (!app.requestSingleInstanceLock()) {
   // main thread is otherwise idle. Started from whenReady, the client import
   // and the fork queued behind window creation and the renderer load (215ms
   // for a 25ms import), and the data lane finished a full second after the
-  // window had shown (user: 부팅 속도). Nothing here needs Electron ready:
+  // window had shown. Nothing here needs Electron ready:
   // the transport is plain Node and the daemon is a separate process. The
   // transport holds the daemon spawn until the login-shell read settles.
   loginShellEnvironmentReady = adoptLoginShellEnvironment();

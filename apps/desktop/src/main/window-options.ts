@@ -50,20 +50,18 @@ function pinNativeThemeSource(source: 'system' | 'light' | 'dark'): void {
 }
 
 function titleBarOverlay(light = false, zoom = 1) {
-  const opaqueBand =
-    process.platform === 'linux' ? (light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR) : null;
+  const themeBand = light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR;
   return {
-    // TRANSPARENT caption band: the native overlay paints
-    // no pixels of its own, so the DOM titlebar — and any fullscreen scrim —
-    // shows through and the band can never sit off-theme for even a frame
-    // (user: - ㅁ x 저기만 짜증나게 계속 튀네). Maximize/restore exposure is
-    // covered by the window backgroundColor, which tracks the theme band.
-    // Linux paints the overlay band itself and ignores alpha (it rendered solid
-    // white under the dark theme), so it gets the opaque theme band instead.
-    color: '#00000000',
+    // TRANSPARENT caption band: the native overlay paints no pixels of its
+    // own, so the DOM titlebar — and any fullscreen scrim — shows through and
+    // the band can never sit off-theme for even a frame. Maximize/restore
+    // exposure is covered by the window backgroundColor, which tracks the
+    // theme band. Linux paints the overlay band itself and ignores alpha (it
+    // rendered solid white under the dark theme), so it gets the opaque theme
+    // band instead.
+    color: process.platform === 'linux' ? themeBand : '#00000000',
     symbolColor: light ? 'black' : 'white',
     height: Math.max(DESKTOP_TITLEBAR_HEIGHT, Math.round(DESKTOP_TITLEBAR_HEIGHT * zoom)),
-    ...(opaqueBand ? { color: opaqueBand } : {}),
   };
 }
 
@@ -115,7 +113,7 @@ export function setDesktopTitleBarTheme(window: DesktopTitleBarWindow, value: un
 
 /** The WCO caption controls are NATIVE: DOM scrims cannot cover them, so a
  *  fullscreen modal used to dim everything EXCEPT the min/max/close band
- *  (user: 딤드도 안 먹고 색도 튀던데). The renderer sends the composited
+ *  (the dim never reached it). The renderer sends the composited
  *  scrim-over-band colors while a modal is open; null restores the theme. */
 export function setDesktopTitleBarDim(window: DesktopTitleBarWindow, dim: DesktopTitleBarDim | null): void {
   if (dim) titleBarDims.set(window as object, dim);

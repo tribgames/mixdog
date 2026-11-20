@@ -16,11 +16,6 @@ import { readSecretFile, writeSecretFile } from './secret-file';
 
 export const REVOKE_TIMEOUT_MS = 5_000;
 
-/** Packaged default: every install dials this relay so phone pairing works
- *  out of the box, with no VPS/env setup on the user side.
- *  MIXDOG_RELAY_URL=<wss url> overrides; 0/false/off disables. */
-const DEFAULT_RELAY_URL = 'wss://192-255-139-161.sslip.io';
-
 export function validatedRelayUrl(raw: string): string {
   let url: URL;
   try {
@@ -37,13 +32,6 @@ export function validatedRelayUrl(raw: string): string {
     throw new TypeError('MIXDOG_RELAY_URL must not contain credentials.');
   }
   return url.toString();
-}
-
-export function resolveRelayUrl(env: NodeJS.ProcessEnv): string | null {
-  const raw = (env.MIXDOG_RELAY_URL || '').trim();
-  const flag = raw.toLowerCase();
-  if (flag === '0' || flag === 'false' || flag === 'off') return null;
-  return validatedRelayUrl(raw || DEFAULT_RELAY_URL);
 }
 
 export interface DeviceIdentity {
@@ -292,19 +280,6 @@ function revokeIdentity(
   });
 }
 
-/** The entry URL carries a ROUTE, not a credential: it only says which desktop
- *  to ask. An install captures this URL through the manifest's start_url, which
- *  is what lets a freshly installed web app — a storage container that can
- *  inherit nothing — request approval from the right machine. */
-export function relayClientUrl(relayUrl: string, deviceId: string): string {
-  const url = new URL(relayUrl);
-  url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
-  url.pathname = `/d/${deviceId}/`;
-  url.search = '';
-  url.hash = '';
-  return url.toString();
-}
-
 export interface RevocationDrainDeps {
   relayUrl: string;
   userDataPath: string;
@@ -343,65 +318,4 @@ export function createRevocationDrain(deps: RevocationDrainDeps): () => Promise<
       draining = false;
     }
   };
-}
-
-/** Delete this install's authenticated registration over the live relay leg,
- *  waiting (briefly) for the leg to be open before sending. */
-export function revokeDeviceOverSocket(deps: { currentSocket(): WebSocket | null; closed(): boolean }): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let retryTimer: NodeJS.Timeout | null = null;
-    let target: WebSocket | null = null;
-    let settled = false;
-    const cleanup = () => {
-      clearTimeout(timeout);
-      if (retryTimer) clearTimeout(retryTimer);
-      target?.off('message', onMessage);
-      target?.off('close', onClose);
-    };
-    const succeed = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve();
-    };
-    const fail = (error: Error) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(error);
-    };
-    const onMessage = (raw: WebSocket.RawData) => {
-      const reply = readDeviceRevokedReply(raw);
-      if (!reply) return;
-      if (reply.ok === false) {
-        fail(new Error('Relay registration was not found.'));
-        return;
-      }
-      succeed();
-    };
-    const onClose = () => fail(new Error('Relay disconnected before confirming revocation.'));
-    const send = () => {
-      if (deps.closed()) {
-        fail(new Error('Relay client is closed.'));
-        return;
-      }
-      const socket = deps.currentSocket();
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        retryTimer = setTimeout(send, 50);
-        retryTimer.unref?.();
-        return;
-      }
-      target = socket;
-      target.on('message', onMessage);
-      target.once('close', onClose);
-      target.send(JSON.stringify({ type: 'revoke-device' }), (error) => {
-        if (error) fail(error);
-      });
-    };
-    const timeout = setTimeout(() => {
-      fail(new Error('Timed out waiting for relay revocation.'));
-    }, REVOKE_TIMEOUT_MS);
-    timeout.unref?.();
-    send();
-  });
 }

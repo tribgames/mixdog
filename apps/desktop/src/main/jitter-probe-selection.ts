@@ -5,7 +5,7 @@
  * the document Selection, focus, and the drag markers did at every step.
  *
  * Reporting pass: the JSON is read by a human chasing a reversed or lost
- * selection (user: 컴포저 영역으로 끌면 포커싱을 잃고 드래그가 뒤집힘).
+ * selection (a drag into the composer area loses focus and flips).
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -367,7 +367,7 @@ export async function runSelectionProbe({
   });
 
   // E. Drag out of the window's RIGHT edge — across the transcript's reserved
-  //    scrollbar gutter, the exit the user reported (앱 창 밖으로 드래그).
+  //    scrollbar gutter, the exit a drag out of the app window takes.
   report.sideWindowRight = await scenario('sideWindowRight', async (g, out) => {
     const side = { x: g.inner.width + 160, y: g.row.y + 40 };
     await glide(g.row, { x: g.view.right - 4, y: g.row.y + 40 }, 8, 'to viewport edge', out);
@@ -456,7 +456,7 @@ export async function runSelectionProbe({
       steps.push(await sample('held outside'));
       console.log(`[jitter-probe] real ${name}: held outside`);
       // Come back in a little (still outside the viewport) — the moment the
-      // user reported: the range should follow, not flip.
+      // the range should follow, not flip.
       const back = { x: (edge.x + outside.x) / 2, y: (edge.y + outside.y) / 2 };
       await realGlide(outside, back, 4, 'back toward window', steps);
       await sleep(300);
