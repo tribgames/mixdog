@@ -1,9 +1,9 @@
 # Principles
 
-The ladder, lenses and slop table in `agent-cleanup.md` are procedure. These
-are the ideas behind them: use them to judge a case the tables do not name,
-and to say why a finding matters. A principle never widens the scope or
-overrides a tier.
+What quality means here. Every unit in scope is checked against each test
+below; the ladder, lenses and slop table in `agent-cleanup.md` are their
+common cases, and a case the tables do not name is judged here. A principle
+never widens the scope or overrides a tier.
 
 ## Reader load is the measure
 
@@ -13,8 +13,14 @@ the hidden or mutable state the reader has to keep in mind.
 
 - A wrapper with one caller, an adapter with one implementation, or a layer
   built for a future that did not come adds hops and earns nothing.
+- One responsibility scattered over small functions, files or re-exports
+  costs a hop per piece; one long unit doing several jobs makes the reader
+  hold them all at once. Each responsibility gets one home, named so a reader
+  finds it.
 - State kept wider than its use (a field for a local, module state for a
   field, a stored copy of something derivable) adds things to remember.
+- A comment is read too: one that restates the code, or runs longer than the
+  fact it carries, adds load.
 - Line counts and complexity scores are proxies; a short file can still be
   hard to follow.
 
@@ -45,7 +51,9 @@ Borrow the tiredness of the person who maintains it.
   re-derived at each site.
 - A new signal threaded through types, schemas and pipelines usually has a
   shorter path: find it before adding the plumbing.
-- A new helper or abstraction needs a second real use.
+- A new helper needs a second real use, or one responsibility of a long unit
+  to name so its caller reads without opening it; a pass-through or a
+  numbered chunk has neither.
 
 Test: would a maintainer find the result less tiring than what it replaced?
 
@@ -62,6 +70,24 @@ another process); past that point the types are believed.
 
 Test: is this value crossing into the system here? If not, the guard has an
 owner elsewhere, or none is needed.
+
+## Know, don't guess
+
+Code decides on the exact signal: a type, an error kind, a field the producer
+sends, a value the platform documents. A heuristic stands in for a signal
+nobody reached for, and breaks when wording, naming or timing shifts.
+
+- Sniffing error or message text, special cases keyed on names, paths,
+  vendors or versions, and fallbacks that infer what the caller meant are
+  heuristics when the exact signal is within reach.
+- A threshold, limit, sleep or retry states its source (a measurement, a
+  contract, a platform value); without one it papers over an ordering or a
+  missing signal.
+- When the exact signal needs a contract change, the finding names what it
+  would need.
+
+Test: if the wording, a name or the timing changed tomorrow, would the code
+still decide correctly?
 
 ## Types carry the proof
 

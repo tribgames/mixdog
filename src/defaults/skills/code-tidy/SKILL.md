@@ -18,6 +18,7 @@ behavior and public API; this is not a bug hunt. The `tidy` schema owns action
 fields; this file owns scope, order, and boundaries.
 
 ## 1. Job and mode
+
 - New behavior and public-API refactors are out of scope. A correctness defect
   found while cleaning is reported, never fixed in a cleanup edit; a linter
   finding that points at one (a wrong result, a swallowed failure, a test that
@@ -31,6 +32,7 @@ fields; this file owns scope, order, and boundaries.
   targeted edits, or report the limitation and ask before widening.
 
 ## 2. Scope
+
 1. Scope comes from the user: named files, directories, a feature area
    resolved to confirmed paths, or an explicitly requested whole project; ask
    first when absent or ambiguous. Never infer it from a diff, branch, commit,
@@ -55,6 +57,7 @@ fields; this file owns scope, order, and boundaries.
    edits only.
 
 ## 3. Deterministic layers
+
 1. `tidy action:'scan'` first (languages, engines used/missing,
    `installHint`); it never downloads. Files come from `git ls-files`: outside
    a git repository, or with a `.mixdog/tidy.json` tidy cannot honour, the
@@ -90,10 +93,11 @@ fields; this file owns scope, order, and boundaries.
    rejected or listed in `unprocessed`.
 
 ## 4. Agent-level cleanup
+
 Read `references/principles.md` (what quality means here: reader load,
-subtraction, the smallest change, guards at the edge, types as proof, one
-path, tools for repeated edits, mechanisms over instructions, shown
-equivalence) and `references/agent-cleanup.md` (the ladder, lenses, slop, risk
+subtraction, the smallest change, guards at the edge, knowing over guessing,
+types as proof, one path, tools for repeated edits, mechanisms over
+instructions, shown equivalence) and `references/agent-cleanup.md` (the ladder, lenses, slop, risk
 tiers, source-text guards, structural findings, language-specific checks and
 prose tells) first; also `references/test-suite-slop.md` when tests are in
 scope and `references/cleanup-report.md` for the report.
@@ -101,9 +105,9 @@ scope and `references/cleanup-report.md` for the report.
 1. **Pin behavior (read-only).** Find the source-text guards a planned move
    can affect. A unit whose touched behavior no test covers gets only SAFE
    changes; report it instead of adding tests.
-2. **Ladder, then lenses, then structure** on each selected source unit;
-   structural findings need evidence and a reader benefit, and rank first. A
-   case the tables do not name is judged by the principles. Engine diagnostics
+2. **Ladder, then lenses, then structure** on each selected source unit,
+   then every principle's test; structural findings need evidence and a
+   reader benefit, and rank first. Engine diagnostics
    point at units, not coverage. Findings need path+symbol evidence. Use
    history only when code, contracts, and tests leave intent unclear;
    unresolved intent blocks deletion.
@@ -116,6 +120,7 @@ scope and `references/cleanup-report.md` for the report.
    both.
 
 ## 5. Verify
+
 Use the shared evidence budget: scoped `tidy check`, plus behavioral checks
 and typechecking only where the edits can invalidate their contracts. Reuse
 valid passes. Attribute failures from evidence, not from whether the failing
@@ -128,6 +133,7 @@ patches that preserve prior or concurrent work, never `git checkout`, `reset`,
 report the blocker.
 
 ## 6. Keep: never remove or rename
+
 Trust-boundary validation, contracts (exports, routes, flags, columns, keys,
 event and wire names; a rename is RISKY even when the name is bad), the
 never-dead list, intentional complexity, directives and public or
@@ -135,6 +141,7 @@ security docs, and the project's own idioms. The full list is in
 `references/agent-cleanup.md`.
 
 ## 7. Reporting
+
 Report once, after the last partition, using `references/cleanup-report.md`,
 with everything needing the user's decision in one list. The run is not done
 until that report is delivered: never call the cleanup finished before it,
