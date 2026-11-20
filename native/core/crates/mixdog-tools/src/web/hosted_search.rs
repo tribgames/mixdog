@@ -50,7 +50,7 @@ pub struct SearchCandidate {
 }
 
 /// The web-search route chain (Node `nativeWebSearchRoutes`), already
-/// resolved to candidates: de-duplicated by provider, in route order. Both
+/// resolved to candidates: de-duplicated by provider and model, in route order. Both
 /// reads are the asking thread's runtime's.
 #[async_trait]
 pub trait SearchRoutes: Send + Sync {

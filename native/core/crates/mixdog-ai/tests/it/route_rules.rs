@@ -311,8 +311,8 @@ fn a_workflow_chain_keeps_its_fallbacks_and_strict_mode_refuses_a_repeated_provi
     let chain = json!({"provider": "openai-oauth", "model": "gpt-5", "fallbacks": [{"provider": "anthropic-oauth", "model": "claude-opus-4-5"}]});
     let got = normalize_workflow_route(&chain, &json!({}), true).unwrap().unwrap();
     assert_eq!(got["fallbacks"], json!([{"provider": "anthropic-oauth", "model": "claude-opus-4-5"}]));
-    let repeated = json!({"provider": "openai-oauth", "model": "gpt-5", "fallbacks": [{"provider": "openai-oauth", "model": "gpt-4.1"}]});
-    assert_eq!(normalize_workflow_route(&repeated, &json!({}), true).unwrap_err(), "duplicate route provider \"openai-oauth\"");
+    let repeated = json!({"provider": "openai-oauth", "model": "gpt-5", "fallbacks": [{"provider": "openai-oauth", "model": "gpt-5"}]});
+    assert_eq!(normalize_workflow_route(&repeated, &json!({}), true).unwrap_err(), "duplicate route \"openai-oauth/gpt-5\"");
     assert!(normalize_workflow_route(&repeated, &json!({}), false).unwrap().is_some());
 }
 

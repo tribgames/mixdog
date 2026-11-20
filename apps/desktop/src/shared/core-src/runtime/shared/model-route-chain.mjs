@@ -29,25 +29,32 @@ export function routeChain(route) {
 export function executionFallbacks(route) {
   const [primary, ...fallbacks] = routeChain(route);
   if (!primary) return [];
-  const seen = new Set([canonicalRouteProvider(primary.provider)]);
+  const seen = new Set([routeIdentity(primary)]);
   return fallbacks.filter((entry) => {
-    const provider = canonicalRouteProvider(entry.provider);
-    if (seen.has(provider)) return false;
-    seen.add(provider);
+    const identity = routeIdentity(entry);
+    if (seen.has(identity)) return false;
+    seen.add(identity);
     return true;
   });
 }
 
-/** `allowDuplicates` accepts a stored chain whose fallbacks repeat a provider
+/** A route's identity: canonical provider plus model. */
+export function routeIdentity(route) {
+  return `${canonicalRouteProvider(route.provider)}\n${String(route.model || '').trim()}`;
+}
+
+/** `allowDuplicates` accepts a stored chain whose fallbacks repeat a provider and model
  *  (see executionFallbacks); an explicit save validates without it. */
 export function validateRouteChainProviders(routes, { allowDuplicates = false } = {}) {
-  const providers = new Set();
+  const seen = new Set();
   for (const route of routes) {
     const provider = canonicalRouteProvider(route.provider);
-    if (!provider || !String(route.model || '').trim()) throw new Error('route requires provider and model');
-    if (!allowDuplicates && providers.has(provider)) throw new Error(`duplicate route provider "${provider}"`);
-    if (providers.size && provider === 'default') throw new Error('follow Main is only allowed as the primary route');
-    providers.add(provider);
+    const model = String(route.model || '').trim();
+    if (!provider || !model) throw new Error('route requires provider and model');
+    const identity = routeIdentity(route);
+    if (!allowDuplicates && seen.has(identity)) throw new Error(`duplicate route "${provider}/${model}"`);
+    if (seen.size && provider === 'default') throw new Error('follow Main is only allowed as the primary route');
+    seen.add(identity);
   }
 }
 

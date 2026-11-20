@@ -81,7 +81,7 @@ test('fallback rows add empty, block saving, reorder with tuning, and remove', a
   assert.equal(saved[0].fallbacks[0].effort, 'high');
   await act(async () => dialog.querySelector('[aria-label="Add fallback model"]').click());
   assert.equal(dialog.querySelectorAll('.route-chain-row').length, 3);
-  assert.match(dialog.querySelector('.route-chain-hint').textContent, /Fallback models must use different providers/);
+  assert.match(dialog.querySelector('.route-chain-hint').textContent, /Each combination of provider and model can appear only once/);
   assert.equal(dialog.querySelector('button[type="submit"]').disabled, true);
   assert.equal(dialog.querySelector('[aria-label="Add fallback model"]').disabled, true);
   await act(async () => dialog.querySelector('[aria-label="Remove model 3"]').click());
@@ -304,7 +304,7 @@ test('registration explains why no further provider can be added', async (t) => 
   const dialog = document.querySelector('[role="dialog"]');
   assert.equal(dialog.querySelector('[aria-label="Add fallback model"]').disabled, true);
   assert.equal(dialog.querySelector('.route-chain-hint'), null);
-  assert.match(dialog.querySelector('[role="status"]').textContent, /No other providers are available to add/);
+  assert.match(dialog.querySelector('[role="status"]').textContent, /No other models are available to add/);
 });
 
 test('Web Search adds from its own catalog and excludes the occupied provider', async (t) => {
@@ -320,7 +320,7 @@ test('Web Search adds from its own catalog and excludes the occupied provider', 
   );
   const dialog = document.querySelector('[role="dialog"]');
   await act(async () => dialog.querySelector('[aria-label="Add fallback model"]').click());
-  assert.match(dialog.querySelector('.route-chain-hint').textContent, /Fallback models must use different providers/);
+  assert.match(dialog.querySelector('.route-chain-hint').textContent, /Each combination of provider and model can appear only once/);
   await act(async () => dialog.querySelectorAll('.model-trigger')[1].click());
   await act(async () => new Promise((resolve) => dom.window.requestAnimationFrame(resolve)));
   const sheet = document.querySelector('.route-sheet');

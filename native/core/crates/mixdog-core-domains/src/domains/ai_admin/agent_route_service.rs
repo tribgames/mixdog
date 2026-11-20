@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use mixdog_ai::service::admin_route::{Obj, clean, normalize_workflow_route, truthy};
-use mixdog_ai::service::routes::{canonical_route_provider, route_chain, validate_route_chain_providers};
+use mixdog_ai::service::routes::{route_chain, route_identity, validate_route_chain_providers};
 use serde_json::Value;
 
 use super::chain::RouteContext;
@@ -160,9 +160,9 @@ impl AgentRouteSetter {
         validate_route_chain_providers(&chain, !explicit_fallbacks)?;
         let stored_chain = route_chain(&Value::Object(stored.clone()))?;
         let mut resolved: Vec<Value> = Vec::new();
-        let mut used: HashSet<String> = HashSet::new();
+        let mut used: HashSet<(String, String)> = HashSet::new();
         for entry in &chain {
-            let inactive = !used.insert(canonical_route_provider(&clean(entry.get("provider"))));
+            let inactive = !used.insert(route_identity(entry));
             let previous = stored_chain
                 .iter()
                 .find(|c| c.get("provider") == entry.get("provider") && c.get("model") == entry.get("model"))

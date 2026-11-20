@@ -146,8 +146,8 @@ fn the_fallbacks_of_a_web_search_route_are_normalized_and_may_not_repeat_a_provi
             "fallbacks": [{"provider": "gemini", "model": "gemini-2.5-pro", "effort": "low"}, {"provider": "anthropic", "model": "claude-sonnet-4-5"}],
         })
     );
-    let repeated = json!({"provider": "openai", "model": "a", "fallbacks": [{"provider": "openai-api", "model": "b"}]});
-    assert_eq!(normalize_web_search_route_config(&repeated, &json!({})), Err("duplicate route provider \"openai\"".to_owned()));
+    let repeated = json!({"provider": "openai", "model": "a", "fallbacks": [{"provider": "openai-api", "model": "a"}]});
+    assert_eq!(normalize_web_search_route_config(&repeated, &json!({})), Err("duplicate route \"openai/a\"".to_owned()));
     let unfinished = json!({"provider": "openai", "model": "a", "fallbacks": [{"provider": "gemini"}]});
     assert_eq!(normalize_web_search_route_config(&unfinished, &json!({})), Err("fallback route requires provider and model".to_owned()));
     let follow = json!({"provider": "openai", "model": "a", "fallbacks": [{"provider": "default", "model": "default"}]});
@@ -178,13 +178,13 @@ fn the_first_candidate_that_normalizes_is_the_route_and_none_means_follow_the_ma
 fn a_chain_runs_the_primary_then_the_fallbacks_on_providers_not_already_used() {
     let route = json!({
         "provider": "openai-api", "model": "a",
-        "fallbacks": [{"provider": "openai", "model": "b"}, {"provider": "gemini", "model": "c"}, {"provider": "gemini-api", "model": "d"}, {"provider": "xai", "model": "e"}],
+        "fallbacks": [{"provider": "openai", "model": "a"}, {"provider": "gemini", "model": "c"}, {"provider": "gemini-api", "model": "c"}, {"provider": "xai", "model": "e"}],
     });
     let chain: Vec<String> = route_chain(&route).unwrap().iter().map(|r| r["model"].as_str().unwrap().to_owned()).collect();
-    assert_eq!(chain, ["a", "b", "c", "d", "e"], "the chain lists every route, primary first, without its own fallbacks key");
+    assert_eq!(chain, ["a", "a", "c", "c", "e"], "the chain lists every route, primary first, without its own fallbacks key");
     assert!(route_chain(&route).unwrap()[0].get("fallbacks").is_none());
     let run: Vec<String> = execution_fallbacks(&route).unwrap().iter().map(|r| r["model"].as_str().unwrap().to_owned()).collect();
-    assert_eq!(run, ["c", "e"], "the alias of the primary's provider and a repeated provider are skipped");
+    assert_eq!(run, ["c", "e"], "the primary's route under its alias and a repeated route are skipped");
     assert!(route_chain(&json!("not a route")).unwrap().is_empty());
     assert!(execution_fallbacks(&json!(null)).unwrap().is_empty());
 }
