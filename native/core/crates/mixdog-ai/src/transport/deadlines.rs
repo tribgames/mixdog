@@ -143,6 +143,12 @@ pub const fn abort_signal(wait: Duration) -> Exchange {
     Exchange::new(Liveness::unary(wait), Redirect::Follow, Surface::FetchSignal)
 }
 
+/// `work` under one deadline of its own, for a listing of several exchanges that must answer within the catalog's
+/// budget (Vertex's publisher pages); `None` when the deadline passed first, the work dropped.
+pub async fn bounded<F: std::future::Future>(wait: Duration, work: F) -> Option<F::Output> {
+    mixdog_rt::time::timeout(wait, work).await.ok()
+}
+
 /// The Gemini cache delete: `gemini.mjs:640` `AbortSignal.timeout(10_000)` on a raw `fetch` (`:636`), errors dropped.
 pub const CACHE_DELETE: Exchange = abort_signal(secs(10));
 

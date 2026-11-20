@@ -36,7 +36,7 @@ static NON_CHAT: LazyLock<Regex> = LazyLock::new(|| {
     let words = [
         "embed", "embedding", "embeddings", "tts", "stt", "whisper", "audio", "speech", "voice", "image", "images", "video",
         "videos", "moderation", "moderations", "rerank", "reranker", "similarity", r"dall[-_]?e", "sora", "imagen", "imagine",
-        "veo", "kling", "runway", "realtime", "transcribe", "transcription", "diarize", "guard", "safety", "classifier",
+        "veo", "kling", "runway", "realtime", "live", "transcribe", "transcription", "diarize", "guard", "safety", "classifier",
         "robotics", r"computer[-_]?use",
     ]
     .join("|");
@@ -97,8 +97,14 @@ static PREVIEW: LazyLock<Regex> = LazyLock::new(|| {
     rx(&format!(r"(^|[-_.:/{WS}])(preview|exp|experimental)([-_.:/{WS}]|$)"))
 });
 
-const HOSTED: [&str; 15] = [
-    "openai", "openai-oauth", "openai-ws", "anthropic", "anthropic-oauth", "gemini", "google", "xai", "grok-oauth",
+/// A Gemini id names its tier after the version (`gemini-<version>-<tier>`). The tier is the staleness family: the
+/// catalog files every tier under one family, where the newest tier's model would supersede the others'.
+static GEMINI_TIER: LazyLock<Regex> = LazyLock::new(|| rx(r"(?:^|/)gemini-[0-9]+(?:\.[0-9]+)*-([a-z][a-z0-9-]*)$"));
+/// What follows the tier's name in such an id: a preview marker with its own suffix, or trailing numbers.
+static GEMINI_TIER_SUFFIX: LazyLock<Regex> = LazyLock::new(|| rx(r"-(?:preview|exp|experimental)(?:-.*)?$|(?:-[0-9]+)+$"));
+
+const HOSTED: [&str; 16] = [
+    "openai", "openai-oauth", "openai-ws", "anthropic", "anthropic-oauth", "gemini", "google", "vertex-ai", "xai", "grok-oauth",
     "deepseek", "groq", "mistral", "opencode-go", "openrouter", "azure",
 ];
 
@@ -167,6 +173,9 @@ fn staleness_family(row: &Value, id: &str) -> Option<String> {
     let model_id = lower(js_trim(id));
     if let Some(c) = CLAUDE_FAMILY.captures(&model_id) {
         return Some(format!("claude-{}", &c[1]));
+    }
+    if let Some(c) = GEMINI_TIER.captures(&model_id) {
+        return Some(format!("gemini-{}", GEMINI_TIER_SUFFIX.replace(&c[1], "")));
     }
     let family = row.get("family").and_then(Value::as_str).map(|f| lower(js_trim(f)))?;
     (!family.is_empty()).then_some(family)
@@ -243,6 +252,26 @@ mod tests {
         record.max_output_tokens =value.get("outputTokens").and_then(Value::as_u64).filter(|n| *n > 0);
         record.created = value.get("created").and_then(Value::as_i64);
         record
+    }
+
+    #[test]
+    fn a_newer_gemini_tier_does_not_supersede_the_others_on_vertex() {
+        // Tiers no list in the code names, filed by the catalog under one family: each is its own, read from its id.
+        let family = "gemini";
+        let catalog = crate::catalog::Overlay::from_projected_models_dev(&json!({
+            "google-vertex": { "models": {
+                "gemini-9-hydrogen": { "family": family, "release_date": "2026-05-01", "tool_call": true },
+                "gemini-9-neon": { "family": family, "release_date": "2026-11-10", "tool_call": true },
+                "gemini-9-neon-preview-11-2026": { "family": family, "release_date": "2026-11-01", "tool_call": true },
+            } }
+        }));
+        let ctx = Context { models_dev: Some(&catalog), now_ms: date_utc(2026, 10, 20), stale_months: 9.0 };
+        let rows = ["gemini-9-hydrogen", "gemini-9-neon"].map(ModelRecord::new).to_vec();
+        let kept: Vec<String> = sanitize_model_list(rows, "vertex-ai", &ctx).into_iter().map(|r| r.id).collect();
+        assert_eq!(kept, ["gemini-9-hydrogen", "gemini-9-neon"]);
+        let family_of = |id: &str| staleness_family(&json!({ "family": family }), id);
+        assert_eq!(family_of("gemini-9-neon-preview-11-2026"), family_of("gemini-9-neon"), "a preview of a tier is of that tier");
+        assert_eq!(family_of("gemini-9-neon-002").as_deref(), Some("gemini-neon"));
     }
 
     #[test]

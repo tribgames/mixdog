@@ -449,7 +449,7 @@ impl ModelSource {
                 Ok(listed) if listed.rows.is_empty() && listed.provenance == Provenance::Fetched && self.floor.is_some_and(Floor::covers_empty) => {
                     Ok(SourceListing { rows: self.floor.expect("checked").rows(&self.provider, &env), stale: None })
                 }
-                Ok(listed) => Ok(self.shown(listed.rows, proxy_stale(listed.provenance))),
+                Ok(listed) => Ok(self.shown(listed.rows, uncached_stale(listed.provenance))),
                 Err(error) => self.failed(error, &env),
             };
         };
@@ -581,6 +581,15 @@ enum Answer {
 
 const KEPT_AFTER_SEED: &str = "The provider's model list could not be fetched; showing the last list it returned.";
 const KEPT_AFTER_EMPTY: &str = "The provider returned no models; showing the last list it returned.";
+
+/// A roster with no disk copy: a seed answer (the fixed list standing in for a listing that could not be completed) is
+/// shown stale, so the catalog asks again when its backoff passes and keeps no failed fetch as a finished one.
+fn uncached_stale(provenance: Provenance) -> Option<String> {
+    match provenance {
+        Provenance::Seed => Some("The provider's model list could not be fully fetched; showing what is known.".to_owned()),
+        other => proxy_stale(other),
+    }
+}
 
 fn proxy_stale(provenance: Provenance) -> Option<String> {
     matches!(provenance, Provenance::Proxied { complete: false })

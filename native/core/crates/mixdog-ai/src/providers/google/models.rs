@@ -231,8 +231,9 @@ pub fn gemini_records(models: &[Value]) -> Vec<ModelRecord> {
 /// `VERTEX_MODELS` (`vertex-ai-models.mjs`): id, name, context window, Claude
 /// family. The open models are the ids with a `publisher/` prefix; their
 /// availability is the serving table's.
-const VERTEX_MODELS: [(&str, &str, Option<u64>, Option<&str>); 51] = [
+const VERTEX_MODELS: [(&str, &str, Option<u64>, Option<&str>); 52] = [
     ("gemini-4-argon", "Gemini 4 Argon", Some(1_048_576), None),
+    ("gemini-4-carbon", "Gemini 4 Carbon", Some(1_048_576), None),
     ("gemini-4-argon-cyber-permissive", "Gemini 4 Argon Cyber Permissive", None, None),
     ("gemini-3.8-flash", "Gemini 3.8 Flash", Some(1_048_576), None),
     ("gemini-3.8-flash-cyber", "Gemini 3.8 Flash Cyber", None, None),
@@ -310,44 +311,111 @@ fn tier_option(id: &str) -> Option<ParameterOption> {
     Some(ParameterOption { id: "serviceTier".into(), label: "Service tier".into(), kind: "enum".into(), options })
 }
 
-/// Vertex AI's own list: no endpoint, no credential. This is Node's listing,
-/// not a fallback.
-pub fn vertex_records() -> Vec<ModelRecord> {
-    VERTEX_MODELS
-        .iter()
-        .map(|&(id, name, context_window, family)| {
-            let mut row = Map::new();
-            row.insert("id".into(), json!(id));
-            row.insert("name".into(), json!(name));
-            if let Some(family) = family {
-                row.insert("family".into(), json!(family));
-            }
-            if let Some(window) = context_window {
-                row.insert("contextWindow".into(), json!(window));
-            }
-            if let Some(locations) = listed_locations(id) {
-                row.insert("locations".into(), json!(locations));
-            }
-            row.insert("provider".into(), json!("vertex-ai"));
-            let mut record = ModelRecord::new(id);
-            record.display_name = Some(name.to_owned());
-            record.name = Some(name.to_owned());
-            record.context_window = context_window;
-            // The picker offers effort only from a declared ladder.
-            if let Some(levels) = documented_levels(id) {
-                row.insert("supportsReasoning".into(), json!(true));
-                row.insert("reasoningOptions".into(), json!([{"type": "effort", "values": levels}]));
-                record.supports_reasoning = Some(true);
-                record.picker.reasoning_options = vec![ReasoningOption { kind: "effort".into(), values: levels }];
-            }
-            if let Some(option) = tier_option(id) {
-                row.insert("modelParameterOptions".into(), json!([option]));
-                record.picker.model_parameter_options = vec![option];
-            }
-            record.raw = Some(Value::Object(row));
-            record
-        })
-        .collect()
+/// The Model Garden service endpoint; the publisher listing is not scoped to a project or location.
+const PUBLISHER_ORIGIN: &str = "https://aiplatform.googleapis.com";
+
+/// One page of `publishers.models.list` (`GET /v1beta1/publishers/{publisher}/models`). The credential header is
+/// the adapter's.
+pub fn publisher_request(publisher: &str, page_token: Option<&str>) -> WireRequest {
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    query.append_pair("pageSize", "1000");
+    if let Some(token) = page_token {
+        query.append_pair("pageToken", token);
+    }
+    WireRequest {
+        transport: TransportKind::Http1,
+        method: "GET".into(),
+        url: format!("{PUBLISHER_ORIGIN}/v1beta1/publishers/{publisher}/models?{}", query.finish()),
+        headers: Vec::new(),
+        body: Vec::new(),
+    }
+}
+
+/// A page's `publisherModels[]` and its `nextPageToken` (absent or empty ends the listing).
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+pub fn publisher_page(body: &[u8]) -> Result<GeminiPage, ProviderError> {
+    let data: Value = serde_json::from_slice(body).map_err(|e| unreadable(format!("vertex model listing is not JSON: {e}")))?;
+    Ok(GeminiPage {
+        models: data.get("publisherModels").and_then(Value::as_array).cloned().unwrap_or_default(),
+        next: data
+            .get("nextPageToken")
+            .and_then(Value::as_str)
+            .filter(|token| !token.is_empty())
+            .map(str::to_owned),
+    })
+}
+
+/// A discovered model's id: `publishers/{publisher}/models/{id}` where the id is a bare `gemini-` (publisher google) or
+/// `claude-` (publisher anthropic) one, as `vertex_model` routes them. Which of them are chat models is the catalog
+/// sanitizer's to say, as for every listed provider.
+pub fn discovered_id<'a>(publisher: &str, model: &'a Value) -> Option<&'a str> {
+    let name = model.get("name").and_then(Value::as_str)?;
+    let id = name.strip_prefix("publishers/")?.strip_prefix(publisher)?.strip_prefix("/models/")?;
+    let prefix = if publisher == "anthropic" { "claude-" } else { "gemini-" };
+    (id.starts_with(prefix) && !id.contains('/')).then_some(id)
+}
+
+/// Vertex AI's fixed table, with the hand-written facts of each row.
+pub fn vertex_table() -> Vec<ModelRecord> {
+    VERTEX_MODELS.iter().map(|&(id, name, window, family)| vertex_record(id, name, window, family, None)).collect()
+}
+
+/// The models the publisher listings found that `table` lacks, in listing order; `found` is
+/// `(publisher, publisherModels[] row)`.
+pub fn vertex_discovered(found: &[(&str, Value)], table: &[ModelRecord]) -> Vec<ModelRecord> {
+    let mut added: Vec<ModelRecord> = Vec::new();
+    for (publisher, model) in found {
+        let Some(id) = discovered_id(publisher, model) else { continue };
+        if table.iter().chain(&added).any(|record| record.id == id) {
+            continue;
+        }
+        let family = ["opus", "sonnet", "haiku", "fable"].into_iter().find(|f| *publisher == "anthropic" && id.contains(f));
+        let mut record = vertex_record(id, id, None, family, Some(model));
+        // The catalog names it when it knows the model; the id stands in when it does not.
+        record.display_name = None;
+        record.name = None;
+        added.push(record);
+    }
+    added
+}
+
+fn vertex_record(id: &str, name: &str, context_window: Option<u64>, family: Option<&str>, found: Option<&Value>) -> ModelRecord {
+    let mut row = Map::new();
+    row.insert("id".into(), json!(id));
+    row.insert("name".into(), json!(name));
+    if let Some(family) = family {
+        row.insert("family".into(), json!(family));
+    }
+    if let Some(window) = context_window {
+        row.insert("contextWindow".into(), json!(window));
+    }
+    if let Some(locations) = listed_locations(id) {
+        row.insert("locations".into(), json!(locations));
+    }
+    for key in ["versionId", "launchStage"] {
+        if let Some(value) = found.and_then(|model| model.get(key)).filter(|value| value.is_string()) {
+            row.insert(key.into(), value.clone());
+        }
+    }
+    row.insert("provider".into(), json!("vertex-ai"));
+    let mut record = ModelRecord::new(id);
+    record.display_name = Some(name.to_owned());
+    record.name = Some(name.to_owned());
+    record.context_window = context_window;
+    // The picker offers effort only from a declared ladder, and a tier only where `serving_problem` allows it; both
+    // are keyed by id, so a discovered model gets them only when the tables name it.
+    if let Some(levels) = documented_levels(id) {
+        row.insert("supportsReasoning".into(), json!(true));
+        row.insert("reasoningOptions".into(), json!([{"type": "effort", "values": levels}]));
+        record.supports_reasoning = Some(true);
+        record.picker.reasoning_options = vec![ReasoningOption { kind: "effort".into(), values: levels }];
+    }
+    if let Some(option) = tier_option(id) {
+        row.insert("modelParameterOptions".into(), json!([option]));
+        record.picker.model_parameter_options = vec![option];
+    }
+    record.raw = Some(Value::Object(row));
+    record
 }
 
 // ---------------------------------------------------------------------------
