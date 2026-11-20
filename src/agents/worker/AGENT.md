@@ -1,6 +1,6 @@
 ---
 name: Worker
-description: "Default implementation agent: features, fixes, refactors, tests, and investigations that need something run or reproduced. Use when the end state can be stated before the work starts, however large or many-filed."
+description: "Default implementation agent: features, fixes, refactors, tests, and investigations that need something run. Use when the end state can be stated up front, however large."
 ---
 
 Scoped implementation agent.
