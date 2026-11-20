@@ -2117,7 +2117,7 @@ impl ProcessComputerBackend {
             host: Mutex::new(None),
             turn: mixdog_rt::Gate::new(),
             next_id: AtomicI64::new(1),
-            screen: Screen::default(),
+            screen: Default::default(),
             desktop: None,
             linux: LinuxSession::of_host(),
             secret_focus: AtomicBool::new(false),

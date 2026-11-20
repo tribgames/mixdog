@@ -7714,6 +7714,44 @@
      "macos/core-real/1of1#process-tree"
     ]
    }
+  },
+  {
+   "id": [
+    "node",
+    "scripts/rust-core/tree-helper.test.mjs",
+    "an NTSTATUS exit arrives as it is, with no signal and no launch failure in the record"
+   ],
+   "platform": "linux",
+   "kind": "skip",
+   "reasonCode": "uncoded",
+   "reasonText": "Windows status codes",
+   "owner": "release-engineering",
+   "reason": "Windows-only behaviour of the process-tree helper (skips on Linux and macOS)",
+   "replacement": {
+    "kind": "runs",
+    "in": [
+     "windows/core-real/1of1#process-tree"
+    ]
+   }
+  },
+  {
+   "id": [
+    "node",
+    "scripts/rust-core/tree-helper.test.mjs",
+    "an NTSTATUS exit arrives as it is, with no signal and no launch failure in the record"
+   ],
+   "platform": "macos",
+   "kind": "skip",
+   "reasonCode": "uncoded",
+   "reasonText": "Windows status codes",
+   "owner": "release-engineering",
+   "reason": "Windows-only behaviour of the process-tree helper (skips on Linux and macOS)",
+   "replacement": {
+    "kind": "runs",
+    "in": [
+     "windows/core-real/1of1#process-tree"
+    ]
+   }
   }
  ]
 }
