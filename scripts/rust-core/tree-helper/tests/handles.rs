@@ -14,11 +14,18 @@ use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
-use windows::Win32::Foundation::{CloseHandle, GetHandleInformation, SetHandleInformation, HANDLE, HANDLE_FLAGS, HANDLE_FLAG_INHERIT, WAIT_OBJECT_0};
-use windows::Win32::System::JobObjects::{
-    CreateJobObjectW, JobObjectBasicAccountingInformation, QueryInformationJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+use windows::Win32::Foundation::{
+    CloseHandle, GetHandleInformation, SetHandleInformation, HANDLE, HANDLE_FLAGS,
+    HANDLE_FLAG_INHERIT, WAIT_OBJECT_0,
 };
-use windows::Win32::System::Threading::{GetCurrentProcessId, GetProcessId, OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows::Win32::System::JobObjects::{
+    CreateJobObjectW, JobObjectBasicAccountingInformation, QueryInformationJobObject,
+    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+};
+use windows::Win32::System::Threading::{
+    GetCurrentProcessId, GetProcessId, OpenProcess, WaitForSingleObject,
+    PROCESS_QUERY_LIMITED_INFORMATION,
+};
 
 /// How many open handles of this process are jobs, and how many are processes.
 fn count_handles() -> (usize, usize) {
@@ -33,7 +40,15 @@ fn count_handles() -> (usize, usize) {
             }
             let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
             let size = std::mem::size_of_val(&info) as u32;
-            if QueryInformationJobObject(Some(handle), JobObjectBasicAccountingInformation, (&mut info as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(), size, None).is_ok() {
+            if QueryInformationJobObject(
+                Some(handle),
+                JobObjectBasicAccountingInformation,
+                (&mut info as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
+                size,
+                None,
+            )
+            .is_ok()
+            {
                 jobs += 1;
             }
             if GetProcessId(handle) != 0 {
@@ -72,19 +87,30 @@ fn the_program_holds_no_job_and_no_process_handle() {
     // SAFETY: the two handles are created here and closed by `Caller`.
     let caller = unsafe {
         let job = CreateJobObjectW(None, windows::core::PCWSTR::null()).unwrap();
-        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, true, GetCurrentProcessId()).unwrap();
+        let process = OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION,
+            true,
+            GetCurrentProcessId(),
+        )
+        .unwrap();
         SetHandleInformation(job, HANDLE_FLAG_INHERIT.0, HANDLE_FLAG_INHERIT).unwrap();
         Caller(job, process)
     };
     let (jobs, processes) = count_handles();
-    assert!(jobs >= 1 && processes >= 1, "control: jobs={jobs} processes={processes}");
+    assert!(
+        jobs >= 1 && processes >= 1,
+        "control: jobs={jobs} processes={processes}"
+    );
     // SAFETY: both handles are this process's own and open.
     let inheritable = |handle: HANDLE| unsafe {
         let mut flags = 0u32;
         GetHandleInformation(handle, &mut flags).unwrap();
         flags & HANDLE_FLAG_INHERIT.0 != 0
     };
-    assert!(inheritable(caller.0) && inheritable(caller.1), "control: the caller's handles must be inheritable");
+    assert!(
+        inheritable(caller.0) && inheritable(caller.1),
+        "control: the caller's handles must be inheritable"
+    );
 
     // CREATE_NO_WINDOW: a test run without a console (a detached runner) would otherwise give the helper a console window.
     let mut helper = Command::new(env!("CARGO_BIN_EXE_treerun"))
@@ -106,11 +132,18 @@ fn the_program_holds_no_job_and_no_process_handle() {
         // The helper is this test's own child, ended by its handle; its job ends the program with it.
         let killed = helper.kill();
         // SAFETY: as above.
-        let ended = unsafe { WaitForSingleObject(HANDLE(helper.as_raw_handle()), 10_000) } == WAIT_OBJECT_0;
+        let ended =
+            unsafe { WaitForSingleObject(HANDLE(helper.as_raw_handle()), 10_000) } == WAIT_OBJECT_0;
         panic!("the helper running the inspection did not exit within {HELPER_DEADLINE_MS} ms (kill: {killed:?}; ended within 10 s of the kill: {ended})");
     }
     let status = helper.wait().unwrap();
-    let pipe = |rx: mpsc::Receiver<Vec<u8>>, name: &str| String::from_utf8_lossy(&rx.recv_timeout(Duration::from_secs(30)).unwrap_or_else(|_| panic!("the helper's {name} did not close within 30 s of its exit"))).into_owned();
+    let pipe =
+        |rx: mpsc::Receiver<Vec<u8>>, name: &str| {
+            String::from_utf8_lossy(&rx.recv_timeout(Duration::from_secs(30)).unwrap_or_else(
+                |_| panic!("the helper's {name} did not close within 30 s of its exit"),
+            ))
+            .into_owned()
+        };
     let (stdout, stderr) = (pipe(stdout, "stdout"), pipe(stderr, "stderr"));
     assert!(status.success(), "{stdout}{stderr}");
     assert!(stdout.contains("HANDLES jobs=0 processes=0"), "{stdout}");

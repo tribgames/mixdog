@@ -95,16 +95,31 @@ struct Tree {
 
 impl Tree {
     fn new() -> Tree {
-        Tree { escapes: sys::ESCAPES, ended: Vec::new(), failure: Vec::new() }
+        Tree {
+            escapes: sys::ESCAPES,
+            ended: Vec::new(),
+            failure: Vec::new(),
+        }
     }
 }
 
 /// The record's body. `"complete":true` is its last member: a record cut short anywhere does not end with it.
 fn record(launch: Option<(&str, String)>, signal: Option<i32>, tree: &Tree) -> String {
-    let launch = launch.map_or("null".to_owned(), |(code, message)| format!("{},\"message\":{}", json_str(code), json_str(&message)));
+    let launch = launch.map_or("null".to_owned(), |(code, message)| {
+        format!("{},\"message\":{}", json_str(code), json_str(&message))
+    });
     let signal = signal.map_or("null".to_owned(), |s| s.to_string());
-    let ended = tree.ended.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
-    let failure = if tree.failure.is_empty() { "null".to_owned() } else { json_str(&tree.failure.join("; ")) };
+    let ended = tree
+        .ended
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let failure = if tree.failure.is_empty() {
+        "null".to_owned()
+    } else {
+        json_str(&tree.failure.join("; "))
+    };
     format!(
         "{{\"launch\":{launch},\"signal\":{signal},\"escapes\":{},\"escaped_ended\":[{ended}],\"failure\":{failure},\"complete\":true}}",
         json_str(tree.escapes)
@@ -120,11 +135,16 @@ fn publish(channel: Option<impl Write>, body: &str) -> Result<(), i32> {
     if let Some(signal) = sys::caught_signal() {
         return Err(128 + signal);
     }
-    let Some(mut channel) = channel else { return Ok(()) };
-    channel.write_all(body.as_bytes()).and_then(|()| channel.flush()).map_err(|error| {
-        eprintln!("treerun: could not send the record: {error}");
-        70
-    })
+    let Some(mut channel) = channel else {
+        return Ok(());
+    };
+    channel
+        .write_all(body.as_bytes())
+        .and_then(|()| channel.flush())
+        .map_err(|error| {
+            eprintln!("treerun: could not send the record: {error}");
+            70
+        })
 }
 
 /// Where the record goes: the pipe at index 4 of the helper's stdio, when the parent passed one.
@@ -159,18 +179,35 @@ impl Stop {
 
 /// Ends the helper: publishes the record when the stop calls for one, and exits with `code`, 128 + a signal caught at any
 /// time before the record was in place, or 70 when something could not be ended.
-fn finish(out: &Out, stop: Stop, launch: Option<(&str, String)>, signal: Option<i32>, tree: &Tree, code: i32) -> ! {
+fn finish(
+    out: &Out,
+    stop: Stop,
+    launch: Option<(&str, String)>,
+    signal: Option<i32>,
+    tree: &Tree,
+    code: i32,
+) -> ! {
     if stop.publishes() {
         match publish(out.channel.as_ref(), &record(launch, signal, tree)) {
             Ok(()) => leave(code, tree),
             Err(code) => leave(code, tree),
         }
     }
-    leave(sys::caught_signal().map_or(code, |signal| 128 + signal), tree)
+    leave(
+        sys::caught_signal().map_or(code, |signal| 128 + signal),
+        tree,
+    )
 }
 
 fn launch_failed(out: &Out, message: String) -> ! {
-    finish(out, Stop::Finished, Some(("ELAUNCH", message)), None, &Tree::new(), 126)
+    finish(
+        out,
+        Stop::Finished,
+        Some(("ELAUNCH", message)),
+        None,
+        &Tree::new(),
+        126,
+    )
 }
 
 /// Exits: what could not be ended is said, and changes the status.
@@ -187,7 +224,10 @@ fn leave(code: i32, tree: &Tree) -> ! {
 /// has no `--end-inside`, so only the tests use it there.
 #[cfg(any(windows, target_os = "linux", test))]
 fn inside(path: &std::path::Path, dir: &std::path::Path) -> Result<bool, String> {
-    let resolved = |p: &std::path::Path| p.canonicalize().map_err(|e| format!("{} cannot be resolved: {e}", p.display()));
+    let resolved = |p: &std::path::Path| {
+        p.canonicalize()
+            .map_err(|e| format!("{} cannot be resolved: {e}", p.display()))
+    };
     Ok(resolved(path)?.starts_with(resolved(dir)?))
 }
 
@@ -222,7 +262,11 @@ impl Event {
 
 /// Waits for the spawn to return until `deadline`. The first stop that arrives meanwhile is kept in `stop` and brings the
 /// deadline to TREE_END_DEADLINE from then at the latest. None: the spawn did not return in time.
-fn await_started(rx: &Receiver<Event>, mut deadline: Instant, stop: &mut Option<Stop>) -> Option<std::io::Result<Child>> {
+fn await_started(
+    rx: &Receiver<Event>,
+    mut deadline: Instant,
+    stop: &mut Option<Stop>,
+) -> Option<std::io::Result<Child>> {
     loop {
         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(Event::Started(result)) => return Some(result),
@@ -240,7 +284,11 @@ fn await_started(rx: &Receiver<Event>, mut deadline: Instant, stop: &mut Option<
 fn main() {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     if args.first().is_some_and(|a| a == "--end-inside") {
-        let (Some(dir), Some(pid)) = (args.get(1), args.get(2).and_then(|p| p.to_string_lossy().parse::<u32>().ok())) else {
+        let (Some(dir), Some(pid)) = (
+            args.get(1),
+            args.get(2)
+                .and_then(|p| p.to_string_lossy().parse::<u32>().ok()),
+        ) else {
             eprintln!("usage: treerun --end-inside <dir> <pid>");
             exit(64);
         };
@@ -250,7 +298,9 @@ fn main() {
     // inheritable, so no program this helper starts, and nothing that program starts, can hold the parent channel or the
     // record pipe open.
     let channel = sys::take_parent_channel();
-    let out = Out { channel: sys::take_record_channel() };
+    let out = Out {
+        channel: sys::take_record_channel(),
+    };
     if args.len() < 3 {
         eprintln!("usage: treerun <parent-pid> args|shell <program> [args...]");
         exit(64);
@@ -274,7 +324,11 @@ fn main() {
         Err(message) => launch_failed(&out, format!("could not create the job: {message}")),
     };
 
-    let mut command = if args[1] == "shell" { sys::shell_command(&args[2]) } else { Command::new(&args[2]) };
+    let mut command = if args[1] == "shell" {
+        sys::shell_command(&args[2])
+    } else {
+        Command::new(&args[2])
+    };
     if args[1] != "shell" {
         command.args(&args[3..]);
     }
@@ -294,7 +348,14 @@ fn main() {
         let mut tree = Tree::new();
         tree.failure.push(message.clone());
         sys::end_unstarted(&mut tree, Instant::now() + TREE_END_DEADLINE);
-        finish(&out, stop.unwrap_or(Stop::Finished), Some(("ETIMEDOUT", message)), None, &tree, 70);
+        finish(
+            &out,
+            stop.unwrap_or(Stop::Finished),
+            Some(("ETIMEDOUT", message)),
+            None,
+            &tree,
+            70,
+        );
     };
     let child = match started {
         Ok(child) => child,
@@ -304,7 +365,14 @@ fn main() {
                 std::io::ErrorKind::PermissionDenied => "EACCES",
                 _ => "ELAUNCH",
             };
-            finish(&out, stop.unwrap_or(Stop::Finished), Some((code, error.to_string())), None, &Tree::new(), 127);
+            finish(
+                &out,
+                stop.unwrap_or(Stop::Finished),
+                Some((code, error.to_string())),
+                None,
+                &Tree::new(),
+                127,
+            );
         }
     };
     let program = child.id();
@@ -315,7 +383,12 @@ fn main() {
         Some(stop) => (stop, None),
         None => match rx.recv().expect("the senders live in this function") {
             Event::Exited(waited) => (Stop::Finished, Some(waited)),
-            other => (other.stop().expect("the spawn's event came once, so every later event is a stop"), None),
+            other => (
+                other
+                    .stop()
+                    .expect("the spawn's event came once, so every later event is a stop"),
+                None,
+            ),
         },
     };
     // The program exited, the parent asked or is gone, or a signal came: either way nothing of the tree may stay.
@@ -325,11 +398,19 @@ fn main() {
         Some(Ok(Some(status))) => Some(status),
         Some(Ok(None)) => reaped,
         Some(Err(message)) => {
-            tree.failure.push(format!("waiting for the program failed: {message}"));
+            tree.failure
+                .push(format!("waiting for the program failed: {message}"));
             None
         }
     };
-    finish(&out, stop, None, status.as_ref().and_then(sys::signal_of), &tree, status.and_then(|s| s.code()).unwrap_or(0));
+    finish(
+        &out,
+        stop,
+        None,
+        status.as_ref().and_then(sys::signal_of),
+        &tree,
+        status.and_then(|s| s.code()).unwrap_or(0),
+    );
 }
 
 #[cfg(windows)]
@@ -341,8 +422,9 @@ mod sys {
     use win32job::{ExtendedLimitInfo, Job};
     use windows::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, WAIT_OBJECT_0};
     use windows::Win32::System::Threading::{
-        GetCurrentProcess, GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject, INFINITE,
-        PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
+        GetCurrentProcess, GetProcessTimes, OpenProcess, QueryFullProcessImageNameW,
+        TerminateProcess, WaitForSingleObject, INFINITE, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
     };
 
     /// Every descendant is in the job, so nothing can escape unnoticed.
@@ -384,13 +466,18 @@ mod sys {
     /// duplicates for the child itself. The caller's own handles are untouched: inheritance is a flag of each process's copy.
     pub fn prepare(command: &mut Command) {
         use std::os::windows::process::CommandExt;
-        use windows::Win32::Foundation::{GetHandleInformation, SetHandleInformation, HANDLE_FLAGS, HANDLE_FLAG_INHERIT};
-        use windows::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
+        use windows::Win32::Foundation::{
+            GetHandleInformation, SetHandleInformation, HANDLE_FLAGS, HANDLE_FLAG_INHERIT,
+        };
+        use windows::Win32::System::Console::{
+            GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+        };
         use windows::Win32::System::Threading::GetProcessHandleCount;
         // SAFETY: probing a handle value is defined for any value; every out-pointer is a valid local. Only the inherit
         // flag of handles this process holds is changed, and the standard streams keep theirs.
         unsafe {
-            let std_handles = [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE].map(|id| GetStdHandle(id).map(|h| h.0 as usize).unwrap_or(0));
+            let std_handles = [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE]
+                .map(|id| GetStdHandle(id).map(|h| h.0 as usize).unwrap_or(0));
             let mut open = 0u32;
             if GetProcessHandleCount(GetCurrentProcess(), &mut open).is_ok() {
                 let (mut seen, mut value) = (0u32, 4usize);
@@ -401,7 +488,11 @@ mod sys {
                     if GetHandleInformation(handle, &mut flags).is_ok() {
                         seen += 1;
                         if flags & HANDLE_FLAG_INHERIT.0 != 0 && !std_handles.contains(&value) {
-                            let _ = SetHandleInformation(handle, HANDLE_FLAG_INHERIT.0, HANDLE_FLAGS(0));
+                            let _ = SetHandleInformation(
+                                handle,
+                                HANDLE_FLAG_INHERIT.0,
+                                HANDLE_FLAGS(0),
+                            );
                         }
                     }
                     value += 4;
@@ -436,10 +527,16 @@ mod sys {
                 return None;
             }
             let count = base.cast::<u32>().read_unaligned() as usize;
-            if count <= FD || size < 4 + count + count * HANDLE_SIZE || *base.add(4 + FD) & FOPEN == 0 {
+            if count <= FD
+                || size < 4 + count + count * HANDLE_SIZE
+                || *base.add(4 + FD) & FOPEN == 0
+            {
                 return None;
             }
-            let raw = base.add(4 + count + FD * HANDLE_SIZE).cast::<isize>().read_unaligned();
+            let raw = base
+                .add(4 + count + FD * HANDLE_SIZE)
+                .cast::<isize>()
+                .read_unaligned();
             if raw == 0 || raw == -1 {
                 return None;
             }
@@ -465,26 +562,55 @@ mod sys {
 
     pub fn adopt(mut child: Child, tx: Sender<Event>) -> Held {
         thread::spawn(move || {
-            let _ = tx.send(Event::Exited(child.wait().map(Some).map_err(|e| e.to_string())));
+            let _ = tx.send(Event::Exited(
+                child.wait().map(Some).map_err(|e| e.to_string()),
+            ));
         });
         Held
     }
 
     /// Sends ParentGone when the parent process has exited. A parent created after this helper is a stranger on a reused pid.
-    pub fn watch_parent(_channel: Result<(), String>, pid: u32, tx: Sender<Event>) -> Result<(), String> {
+    pub fn watch_parent(
+        _channel: Result<(), String>,
+        pid: u32,
+        tx: Sender<Event>,
+    ) -> Result<(), String> {
         let on_gone = move || {
             let _ = tx.send(Event::ParentGone);
         };
         // SAFETY: handles opened here are owned by the thread and closed there (OpenProcess is called with bInheritHandle
         // false, so the handle is never inherited by the program); the FILETIME out-pointers are valid locals.
         thread::spawn(move || unsafe {
-            let Ok(parent) = OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+            let Ok(parent) = OpenProcess(
+                PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+                false,
+                pid,
+            ) else {
                 return on_gone();
             };
-            let (mut mine, mut theirs, mut ignored) = (FILETIME::default(), FILETIME::default(), FILETIME::default());
-            let own_ok = GetProcessTimes(GetCurrentProcess(), &mut mine, &mut ignored, &mut ignored, &mut ignored).is_ok();
-            let their_ok = GetProcessTimes(parent, &mut theirs, &mut ignored, &mut ignored, &mut ignored).is_ok();
-            let key = |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
+            let (mut mine, mut theirs, mut ignored) = (
+                FILETIME::default(),
+                FILETIME::default(),
+                FILETIME::default(),
+            );
+            let own_ok = GetProcessTimes(
+                GetCurrentProcess(),
+                &mut mine,
+                &mut ignored,
+                &mut ignored,
+                &mut ignored,
+            )
+            .is_ok();
+            let their_ok = GetProcessTimes(
+                parent,
+                &mut theirs,
+                &mut ignored,
+                &mut ignored,
+                &mut ignored,
+            )
+            .is_ok();
+            let key =
+                |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
             if !(own_ok && their_ok && key(theirs) > key(mine)) {
                 WaitForSingleObject(parent, INFINITE);
             }
@@ -507,7 +633,11 @@ mod sys {
     pub fn end_inside(dir: &str, pid: u32) -> i32 {
         // SAFETY: one process handle, opened, queried, terminated and closed here; the buffer and length are valid locals.
         unsafe {
-            let Ok(process) = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, false, pid) else {
+            let Ok(process) = OpenProcess(
+                PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+                false,
+                pid,
+            ) else {
                 eprintln!("treerun: pid {pid} cannot be opened (gone, or not ours)");
                 return 3;
             };
@@ -520,7 +650,14 @@ mod sys {
     unsafe fn terminate_if_inside(process: HANDLE, dir: &str, pid: u32) -> i32 {
         let mut buffer = [0u16; 32_768];
         let mut length = buffer.len() as u32;
-        if QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, windows::core::PWSTR(buffer.as_mut_ptr()), &mut length).is_err() {
+        if QueryFullProcessImageNameW(
+            process,
+            PROCESS_NAME_WIN32,
+            windows::core::PWSTR(buffer.as_mut_ptr()),
+            &mut length,
+        )
+        .is_err()
+        {
             eprintln!("treerun: the image path of pid {pid} cannot be read");
             return 3;
         }
@@ -564,7 +701,11 @@ mod sys {
     use std::time::Instant;
 
     /// Linux adopts every descendant that leaves the group, so each is found and ended; macOS cannot, and says so.
-    pub const ESCAPES: &str = if cfg!(target_os = "linux") { "checked" } else { "undetectable" };
+    pub const ESCAPES: &str = if cfg!(target_os = "linux") {
+        "checked"
+    } else {
+        "undetectable"
+    };
 
     /// Linux: a child subreaper, so descendants whose starters die are re-parented to the helper, not to init.
     pub struct Jail;
@@ -572,7 +713,8 @@ mod sys {
     impl Jail {
         pub fn new() -> Result<Jail, String> {
             #[cfg(target_os = "linux")]
-            rustix::process::set_child_subreaper(Some(rustix::process::getpid())).map_err(|e| format!("PR_SET_CHILD_SUBREAPER: {e}"))?;
+            rustix::process::set_child_subreaper(Some(rustix::process::getpid()))
+                .map_err(|e| format!("PR_SET_CHILD_SUBREAPER: {e}"))?;
             Ok(Jail)
         }
     }
@@ -591,8 +733,13 @@ mod sys {
             });
             match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                 Ok(Ok(status)) => Ok(status),
-                Ok(Err(error)) => Err(format!("waiting for the program (pid {pid}) failed: {error}")),
-                Err(_) => Err(format!("the program (pid {pid}) did not exit within {} s of being killed", TREE_END_DEADLINE.as_secs())),
+                Ok(Err(error)) => Err(format!(
+                    "waiting for the program (pid {pid}) failed: {error}"
+                )),
+                Err(_) => Err(format!(
+                    "the program (pid {pid}) did not exit within {} s of being killed",
+                    TREE_END_DEADLINE.as_secs()
+                )),
             }
         }
     }
@@ -632,7 +779,8 @@ mod sys {
             }
             .map_err(|e| format!("could not watch for termination signals: {e}"))?;
         }
-        let mut signals = signal_hook::iterator::Signals::new([SIGTERM, SIGINT, SIGHUP]).map_err(|e| format!("could not watch for termination signals: {e}"))?;
+        let mut signals = signal_hook::iterator::Signals::new([SIGTERM, SIGINT, SIGHUP])
+            .map_err(|e| format!("could not watch for termination signals: {e}"))?;
         thread::spawn(move || {
             for _ in signals.forever() {
                 let _ = tx.send(Event::Signalled);
@@ -663,12 +811,17 @@ mod sys {
         let pid = Pid::from_raw(child.id() as i32).expect("a child's pid is positive");
         thread::spawn(move || {
             let waited = loop {
-                match waitid(WaitId::Pid(pid), WaitIdOptions::EXITED | WaitIdOptions::NOWAIT) {
+                match waitid(
+                    WaitId::Pid(pid),
+                    WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+                ) {
                     Err(Errno::INTR) => continue,
                     other => break other,
                 }
             };
-            let _ = tx.send(Event::Exited(waited.map(|_| None).map_err(|e| e.to_string())));
+            let _ = tx.send(Event::Exited(
+                waited.map(|_| None).map_err(|e| e.to_string()),
+            ));
         });
         Held(child)
     }
@@ -678,7 +831,8 @@ mod sys {
         // SAFETY: descriptor 3 is the socket the parent reserved at index 3 of this process's stdio; nothing else in this
         // process owns it, and it is owned by the returned file from here on.
         let fd = unsafe { OwnedFd::from_raw_fd(3) };
-        fcntl_setfd(&fd, FdFlags::CLOEXEC).map_err(|e| format!("descriptor 3 (the parent channel) is not open: {e}"))?;
+        fcntl_setfd(&fd, FdFlags::CLOEXEC)
+            .map_err(|e| format!("descriptor 3 (the parent channel) is not open: {e}"))?;
         Ok(std::fs::File::from(fd))
     }
 
@@ -697,7 +851,11 @@ mod sys {
 
     /// The parent channel: a byte is the parent asking for the tree to be ended (Asked); EOF before any byte is its death
     /// (ParentGone), as is a failed read (the parent cannot be watched any more).
-    pub fn watch_parent(channel: Result<std::fs::File, String>, _pid: u32, tx: Sender<Event>) -> Result<(), String> {
+    pub fn watch_parent(
+        channel: Result<std::fs::File, String>,
+        _pid: u32,
+        tx: Sender<Event>,
+    ) -> Result<(), String> {
         let mut socket = channel?;
         thread::spawn(move || {
             let mut byte = [0u8; 1];
@@ -722,13 +880,18 @@ mod sys {
     pub fn end_tree(held: Held, program: u32, exited: bool) -> (Option<ExitStatus>, Tree) {
         let mut tree = Tree::new();
         let deadline = Instant::now() + TREE_END_DEADLINE;
-        match kill_process_group(Pid::from_raw(program as i32).expect("a child's pid is positive"), Signal::KILL) {
+        match kill_process_group(
+            Pid::from_raw(program as i32).expect("a child's pid is positive"),
+            Signal::KILL,
+        ) {
             Ok(()) => {}
             // macOS answers EPERM, not ESRCH, to a signal for a group whose only members are zombies; `wait_empty` below
             // still shows the group empty before the tree counts as ended.
             Err(Errno::SRCH) if exited && !cfg!(target_os = "linux") => {}
             Err(Errno::PERM) if exited && cfg!(target_os = "macos") => {}
-            Err(error) => tree.failure.push(format!("signalling the group of pid {program} failed: {error}")),
+            Err(error) => tree.failure.push(format!(
+                "signalling the group of pid {program} failed: {error}"
+            )),
         }
         // Once the program has been reaped (it is waited for first, so the kernel has re-parented its children to the
         // helper before it counts as dead), every descendant outside the group that is still alive is a child of the helper.
@@ -745,7 +908,10 @@ mod sys {
         // own child by now and was ended and reaped above; elsewhere the group itself must be seen empty.
         #[cfg(not(target_os = "linux"))]
         if status.is_some() {
-            if let Err(message) = group::wait_empty(Pid::from_raw(program as i32).expect("a child's pid is positive"), deadline) {
+            if let Err(message) = group::wait_empty(
+                Pid::from_raw(program as i32).expect("a child's pid is positive"),
+                deadline,
+            ) {
                 tree.failure.push(message);
             }
         }
@@ -794,10 +960,14 @@ mod sys {
         /// room, so a large group is not cut short by the buffer itself. libproc answers a failed call with 0, the same as
         /// an empty group, so errno is cleared first and a 0 with errno set is the failure it is.
         fn members(pgid: i32) -> Result<Vec<i32>, String> {
-            let failed = |what: &str| format!("the members of the group of pid {pgid} cannot be listed: {what}");
+            let failed = |what: &str| {
+                format!("the members of the group of pid {pgid} cannot be listed: {what}")
+            };
             let unit = std::mem::size_of::<libc::pid_t>();
             // SAFETY: a null buffer only asks for the room the listing needs.
-            let mut bytes = unsafe { libc::proc_listpids(PROC_PGRP_ONLY, pgid as u32, std::ptr::null_mut(), 0) };
+            let mut bytes = unsafe {
+                libc::proc_listpids(PROC_PGRP_ONLY, pgid as u32, std::ptr::null_mut(), 0)
+            };
             loop {
                 if bytes <= 0 {
                     return Err(failed(&std::io::Error::last_os_error().to_string()));
@@ -807,7 +977,12 @@ mod sys {
                 // SAFETY: errno is this thread's own; the buffer is valid for `capacity * unit` bytes and outlives the call.
                 let got = unsafe {
                     *libc::__error() = 0;
-                    libc::proc_listpids(PROC_PGRP_ONLY, pgid as u32, buffer.as_mut_ptr().cast(), (capacity * unit) as libc::c_int)
+                    libc::proc_listpids(
+                        PROC_PGRP_ONLY,
+                        pgid as u32,
+                        buffer.as_mut_ptr().cast(),
+                        (capacity * unit) as libc::c_int,
+                    )
                 };
                 if got < 0 || (got == 0 && errno() != 0) {
                     return Err(failed(&std::io::Error::last_os_error().to_string()));
@@ -817,12 +992,19 @@ mod sys {
                     buffer.truncate(listed);
                     return Ok(buffer);
                 }
-                bytes = bytes.checked_mul(2).ok_or_else(|| failed("the group does not fit in a listing"))?;
+                bytes = bytes
+                    .checked_mul(2)
+                    .ok_or_else(|| failed("the group does not fit in a listing"))?;
             }
         }
 
         /// `proc_pidinfo` for `pid` into `info`, zombies included (arg 1). None when no process holds the pid.
-        fn pid_info<T>(pid: i32, flavor: libc::c_int, info: &mut T, what: &str) -> Result<Option<()>, String> {
+        fn pid_info<T>(
+            pid: i32,
+            flavor: libc::c_int,
+            info: &mut T,
+            what: &str,
+        ) -> Result<Option<()>, String> {
             let size = std::mem::size_of::<T>() as libc::c_int;
             // SAFETY: `info` is `size` bytes of plain data, valid for the call.
             let got = unsafe { libc::proc_pidinfo(pid, flavor, 1, (info as *mut T).cast(), size) };
@@ -839,7 +1021,10 @@ mod sys {
         fn unique_id(pid: i32) -> Result<Option<u64>, String> {
             // SAFETY: all-zero is a valid value of this plain-data struct.
             let mut info: UniqIdentifierInfo = unsafe { std::mem::zeroed() };
-            Ok(pid_info(pid, PROC_PIDUNIQIDENTIFIERINFO, &mut info, "unique id")?.map(|()| info.uniqueid))
+            Ok(
+                pid_info(pid, PROC_PIDUNIQIDENTIFIERINFO, &mut info, "unique id")?
+                    .map(|()| info.uniqueid),
+            )
         }
 
         /// What one read found the holder of a listed pid to be.
@@ -855,12 +1040,16 @@ mod sys {
         /// The state of `pid`'s holder, tied to its unique id: the id is read before and after the state, and only an
         /// unchanged id shows that the state read belongs to that process.
         fn state(pid: i32) -> Result<State, String> {
-            let Some(before) = unique_id(pid)? else { return Ok(State::Unknown) };
+            let Some(before) = unique_id(pid)? else {
+                return Ok(State::Unknown);
+            };
             // SAFETY: all-zero is a valid `proc_bsdshortinfo`.
             let mut info: libc::proc_bsdshortinfo = unsafe { std::mem::zeroed() };
             let read = pid_info(pid, libc::PROC_PIDT_SHORTBSDINFO, &mut info, "state")?;
             Ok(match (read, unique_id(pid)?) {
-                (Some(()), Some(after)) if after == before && info.pbsi_status == libc::SZOMB => State::Exited(before),
+                (Some(()), Some(after)) if after == before && info.pbsi_status == libc::SZOMB => {
+                    State::Exited(before)
+                }
                 (Some(()), Some(after)) if after == before => State::Living,
                 _ => State::Unknown,
             })
@@ -932,9 +1121,15 @@ mod sys {
                     Seen::Empty | Seen::Unfinished => {}
                 }
                 if left.is_zero() {
-                    let shown = format!("the group of pid {pgid} was not shown empty by the deadline after SIGKILL");
+                    let shown = format!(
+                        "the group of pid {pgid} was not shown empty by the deadline after SIGKILL"
+                    );
                     // Alive at the last finished scan only: one may have exited since, too late to count.
-                    return Err(if living.is_empty() { shown } else { format!("{shown}; members last observed alive: {living:?}") });
+                    return Err(if living.is_empty() {
+                        shown
+                    } else {
+                        format!("{shown}; members last observed alive: {living:?}")
+                    });
                 }
                 std::thread::sleep(left.min(RECHECK));
             }
@@ -947,7 +1142,10 @@ mod sys {
         use super::{Instant, Pid};
 
         pub fn wait_empty(group: Pid, _deadline: Instant) -> Result<(), String> {
-            Err(format!("this system has no way to show that the group of pid {} is empty", group.as_raw_nonzero()))
+            Err(format!(
+                "this system has no way to show that the group of pid {} is empty",
+                group.as_raw_nonzero()
+            ))
         }
     }
 
@@ -956,7 +1154,9 @@ mod sys {
         use super::{Errno, Instant, Signal, Tree};
         use rustix::event::{poll, PollFd, PollFlags};
         use rustix::fs::Timespec;
-        use rustix::process::{pidfd_open, pidfd_send_signal, waitid, Pid, PidfdFlags, WaitId, WaitIdOptions};
+        use rustix::process::{
+            pidfd_open, pidfd_send_signal, waitid, Pid, PidfdFlags, WaitId, WaitIdOptions,
+        };
         use std::collections::BTreeSet;
         use std::os::fd::AsFd;
 
@@ -964,8 +1164,12 @@ mod sys {
         /// the thread it was re-parented to). A kernel without CONFIG_PROC_CHILDREN cannot answer: that is an error, never "none".
         fn own_children() -> Result<Vec<u32>, String> {
             let mut pids = BTreeSet::new();
-            for task in std::fs::read_dir("/proc/self/task").map_err(|e| format!("/proc/self/task cannot be read: {e}"))? {
-                let dir = task.map_err(|e| format!("/proc/self/task cannot be read: {e}"))?.path();
+            for task in std::fs::read_dir("/proc/self/task")
+                .map_err(|e| format!("/proc/self/task cannot be read: {e}"))?
+            {
+                let dir = task
+                    .map_err(|e| format!("/proc/self/task cannot be read: {e}"))?
+                    .path();
                 match std::fs::read_to_string(dir.join("children")) {
                     Ok(text) => {
                         for word in text.split_whitespace() {
@@ -982,10 +1186,15 @@ mod sys {
 
         /// Whether the helper has no child at all, living or dead, in any of its threads: `waitid(P_ALL)` answers ECHILD.
         fn childless() -> Result<bool, String> {
-            match waitid(WaitId::All, WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT) {
+            match waitid(
+                WaitId::All,
+                WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT,
+            ) {
                 Err(Errno::CHILD) => Ok(true),
                 Ok(_) => Ok(false),
-                Err(error) => Err(format!("asking whether the helper still has children failed: {error}")),
+                Err(error) => Err(format!(
+                    "asking whether the helper still has children failed: {error}"
+                )),
             }
         }
 
@@ -1026,28 +1235,49 @@ mod sys {
 
         /// One adopted child, through a pidfd: it is unreaped, so the pid is its own until this function reaps it.
         fn end_one(tree: &mut Tree, pid: u32, deadline: Instant) {
-            let Some(target) = Pid::from_raw(pid as i32) else { return };
+            let Some(target) = Pid::from_raw(pid as i32) else {
+                return;
+            };
             let pidfd = match pidfd_open(target, PidfdFlags::empty()) {
                 Ok(fd) => fd,
-                Err(error) => return tree.failure.push(format!("adopted descendant pid {pid} cannot be opened: {error}")),
+                Err(error) => {
+                    return tree.failure.push(format!(
+                        "adopted descendant pid {pid} cannot be opened: {error}"
+                    ))
+                }
             };
             if let Err(error) = pidfd_send_signal(&pidfd, Signal::KILL) {
-                return tree.failure.push(format!("adopted descendant pid {pid} could not be signalled: {error}"));
+                return tree.failure.push(format!(
+                    "adopted descendant pid {pid} could not be signalled: {error}"
+                ));
             }
             loop {
                 let left = deadline.saturating_duration_since(Instant::now());
-                let timeout = Timespec { tv_sec: left.as_secs() as i64, tv_nsec: i64::from(left.subsec_nanos()) };
+                let timeout = Timespec {
+                    tv_sec: left.as_secs() as i64,
+                    tv_nsec: i64::from(left.subsec_nanos()),
+                };
                 let mut fds = [PollFd::new(&pidfd, PollFlags::IN)];
                 match poll(&mut fds, Some(&timeout)) {
                     Err(Errno::INTR) => continue,
-                    Err(error) => return tree.failure.push(format!("waiting for adopted descendant pid {pid} failed: {error}")),
-                    Ok(0) => return tree.failure.push(format!("adopted descendant pid {pid} is still alive at the deadline after SIGKILL")),
+                    Err(error) => {
+                        return tree.failure.push(format!(
+                            "waiting for adopted descendant pid {pid} failed: {error}"
+                        ))
+                    }
+                    Ok(0) => {
+                        return tree.failure.push(format!(
+                        "adopted descendant pid {pid} is still alive at the deadline after SIGKILL"
+                    ))
+                    }
                     Ok(_) => break,
                 }
             }
             match waitid(WaitId::PidFd(pidfd.as_fd()), WaitIdOptions::EXITED) {
                 Ok(_) => tree.ended.push(pid),
-                Err(error) => tree.failure.push(format!("adopted descendant pid {pid} could not be reaped: {error}")),
+                Err(error) => tree.failure.push(format!(
+                    "adopted descendant pid {pid} could not be reaped: {error}"
+                )),
             }
         }
     }
@@ -1060,7 +1290,9 @@ mod sys {
     pub fn end_inside(dir: &str, pid: u32) -> i32 {
         use rustix::event::{poll, PollFd, PollFlags};
         use rustix::process::{pidfd_open, pidfd_send_signal, PidfdFlags};
-        let Some(target) = Pid::from_raw(pid as i32) else { return 3 };
+        let Some(target) = Pid::from_raw(pid as i32) else {
+            return 3;
+        };
         let Ok(pidfd) = pidfd_open(target, PidfdFlags::empty()) else {
             eprintln!("treerun: pid {pid} cannot be opened (gone)");
             return 3;
@@ -1072,7 +1304,10 @@ mod sys {
         // A pidfd becomes readable when its process exits: still unreadable now means the process was alive for the whole
         // read, so /proc/<pid> described the process this descriptor names.
         let mut fds = [PollFd::new(&pidfd, PollFlags::IN)];
-        let now = rustix::fs::Timespec { tv_sec: 0, tv_nsec: 0 };
+        let now = rustix::fs::Timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
         if poll(&mut fds, Some(&now)) != Ok(0) {
             eprintln!("treerun: pid {pid} exited while it was being verified");
             return 3;
@@ -1081,7 +1316,11 @@ mod sys {
         match super::inside(&exe, dir) {
             Ok(true) => {}
             Ok(false) => {
-                eprintln!("treerun: pid {pid} runs {}, not inside {}", exe.display(), dir.display());
+                eprintln!(
+                    "treerun: pid {pid} runs {}, not inside {}",
+                    exe.display(),
+                    dir.display()
+                );
                 return 3;
             }
             Err(message) => {
@@ -1117,7 +1356,8 @@ mod tests {
 
     impl Scratch {
         fn new(name: &str) -> Scratch {
-            let dir = std::env::temp_dir().join(format!("treerun-test-{}-{name}", std::process::id()));
+            let dir =
+                std::env::temp_dir().join(format!("treerun-test-{}-{name}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             Scratch(dir)
@@ -1132,22 +1372,44 @@ mod tests {
 
     #[test]
     fn the_record_ends_with_its_completion_member_in_every_shape() {
-        let failed = Tree { escapes: "checked", ended: vec![7], failure: vec!["pid 7 is still alive".into()] };
-        for body in [record(None, None, &Tree::new()), record(None, Some(9), &Tree::new()), record(Some(("ENOENT", "no such file".into())), None, &failed)] {
+        let failed = Tree {
+            escapes: "checked",
+            ended: vec![7],
+            failure: vec!["pid 7 is still alive".into()],
+        };
+        for body in [
+            record(None, None, &Tree::new()),
+            record(None, Some(9), &Tree::new()),
+            record(Some(("ENOENT", "no such file".into())), None, &failed),
+        ] {
             assert!(body.ends_with(",\"complete\":true}"), "{body}");
         }
     }
 
     #[test]
     fn the_record_carries_the_launch_signal_escapes_and_failure() {
-        let tree = Tree { escapes: "checked", ended: Vec::new(), failure: Vec::new() };
-        assert_eq!(record(None, None, &tree), r#"{"launch":null,"signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#);
-        assert_eq!(record(None, Some(9), &tree), r#"{"launch":null,"signal":9,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#);
+        let tree = Tree {
+            escapes: "checked",
+            ended: Vec::new(),
+            failure: Vec::new(),
+        };
+        assert_eq!(
+            record(None, None, &tree),
+            r#"{"launch":null,"signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#
+        );
+        assert_eq!(
+            record(None, Some(9), &tree),
+            r#"{"launch":null,"signal":9,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#
+        );
         assert_eq!(
             record(Some(("EACCES", "denied".into())), None, &tree),
             r#"{"launch":"EACCES","message":"denied","signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#
         );
-        let adopted = Tree { escapes: "undetectable", ended: vec![11, 12], failure: vec!["a".into(), "b".into()] };
+        let adopted = Tree {
+            escapes: "undetectable",
+            ended: vec![11, 12],
+            failure: vec!["a".into(), "b".into()],
+        };
         assert_eq!(
             record(None, None, &adopted),
             r#"{"launch":null,"signal":null,"escapes":"undetectable","escaped_ended":[11,12],"failure":"a; b","complete":true}"#
@@ -1157,7 +1419,11 @@ mod tests {
     #[test]
     fn strings_are_escaped_so_a_message_cannot_end_the_record_early() {
         assert_eq!(json_str("a\"b\\c\n\u{1}"), r#""a\"b\\c\u000a\u0001""#);
-        let body = record(Some(("ELAUNCH", "\",\"complete\":true}".into())), None, &Tree::new());
+        let body = record(
+            Some(("ELAUNCH", "\",\"complete\":true}".into())),
+            None,
+            &Tree::new(),
+        );
         assert_eq!(body.matches("\"complete\":true}").count(), 1, "{body}");
     }
 
@@ -1172,7 +1438,9 @@ mod tests {
             let started = await_started(&rx, deadline, &mut stop);
             let _ = done_tx.send((started.is_none(), stop.is_none(), Instant::now()));
         });
-        let (timed_out, no_stop, at) = done_rx.recv_timeout(Duration::from_secs(30)).expect("the wait for a spawn that never returns did not end within 30 s: it has no deadline");
+        let (timed_out, no_stop, at) = done_rx.recv_timeout(Duration::from_secs(30)).expect(
+            "the wait for a spawn that never returns did not end within 30 s: it has no deadline",
+        );
         drop(tx);
         assert!(timed_out && no_stop);
         assert!(at >= deadline, "the wait gave up before its deadline");
@@ -1182,7 +1450,10 @@ mod tests {
     fn a_stop_during_the_spawn_is_kept_and_the_spawn_still_awaited() {
         let (tx, rx) = mpsc::channel::<Event>();
         tx.send(Event::ParentGone).unwrap();
-        tx.send(Event::Started(Err(std::io::Error::from(std::io::ErrorKind::NotFound)))).unwrap();
+        tx.send(Event::Started(Err(std::io::Error::from(
+            std::io::ErrorKind::NotFound,
+        ))))
+        .unwrap();
         let mut stop = None;
         let started = await_started(&rx, Instant::now() + Duration::from_secs(30), &mut stop);
         assert!(matches!(started, Some(Err(_))));
@@ -1197,10 +1468,18 @@ mod tests {
     fn a_signal_caught_before_publication_withholds_the_record() {
         let (tx, rx) = mpsc::channel();
         super::sys::watch_signals(tx).unwrap();
-        rustix::process::kill_process(rustix::process::getpid(), rustix::process::Signal::TERM).unwrap();
-        assert!(matches!(rx.recv_timeout(Duration::from_secs(30)).expect("the SIGTERM sent to this process was not seen within 30 s"), Event::Signalled));
+        rustix::process::kill_process(rustix::process::getpid(), rustix::process::Signal::TERM)
+            .unwrap();
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_secs(30))
+                .expect("the SIGTERM sent to this process was not seen within 30 s"),
+            Event::Signalled
+        ));
         let mut sent = Vec::new();
-        assert_eq!(super::publish(Some(&mut sent), &record(None, None, &Tree::new())), Err(143));
+        assert_eq!(
+            super::publish(Some(&mut sent), &record(None, None, &Tree::new())),
+            Err(143)
+        );
         assert!(sent.is_empty(), "no record after a signal");
     }
 
@@ -1213,21 +1492,37 @@ mod tests {
         use super::sys::group::{observe, wait_empty, Seen};
         use rustix::process::{waitid, Pid, WaitId, WaitIdOptions};
         use std::os::unix::process::CommandExt;
-        let mut zombie = std::process::Command::new("/usr/bin/true").process_group(0).spawn().unwrap();
+        let mut zombie = std::process::Command::new("/usr/bin/true")
+            .process_group(0)
+            .spawn()
+            .unwrap();
         let pid = Pid::from_raw(zombie.id() as i32).unwrap();
-        waitid(WaitId::Pid(pid), WaitIdOptions::EXITED | WaitIdOptions::NOWAIT).unwrap();
+        waitid(
+            WaitId::Pid(pid),
+            WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+        )
+        .unwrap();
         let zombie_only = wait_empty(pid, Instant::now() + Duration::from_secs(10));
         zombie.wait().unwrap();
         assert_eq!(zombie_only, Ok(()));
 
-        let mut living = std::process::Command::new("/bin/sleep").arg("30").process_group(0).spawn().unwrap();
+        let mut living = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap();
         let pid = living.id() as i32;
         let seen = observe(pid, Instant::now() + Duration::from_secs(30));
         let late = wait_empty(Pid::from_raw(pid).unwrap(), Instant::now());
         living.kill().unwrap();
         living.wait().unwrap();
         assert_eq!(seen, Ok(Seen::Living(vec![pid])));
-        assert_eq!(late, Err(format!("the group of pid {pid} was not shown empty by the deadline after SIGKILL")));
+        assert_eq!(
+            late,
+            Err(format!(
+                "the group of pid {pid} was not shown empty by the deadline after SIGKILL"
+            ))
+        );
     }
 
     #[test]
@@ -1240,7 +1535,11 @@ mod tests {
         std::fs::write(sibling.join("core"), "").unwrap();
         assert_eq!(inside(&dir.join("bin").join("core"), &dir), Ok(true));
         assert_eq!(inside(&sibling.join("core"), &dir), Ok(false));
-        assert_eq!(inside(&dir, &dir.join("bin")), Ok(false), "the parent is not inside its child");
+        assert_eq!(
+            inside(&dir, &dir.join("bin")),
+            Ok(false),
+            "the parent is not inside its child"
+        );
     }
 
     #[test]
@@ -1278,14 +1577,46 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("core.exe"), "").unwrap();
         let plain = dir.to_string_lossy().trim_start_matches(r"\\?\").to_owned();
-        assert_eq!(inside(&dir.join("core.exe"), &PathBuf::from(plain.to_uppercase())), Ok(true));
-        assert_eq!(inside(&dir.join("core.exe"), &PathBuf::from(plain.replace('\\', "/"))), Ok(true));
+        assert_eq!(
+            inside(&dir.join("core.exe"), &PathBuf::from(plain.to_uppercase())),
+            Ok(true)
+        );
+        assert_eq!(
+            inside(
+                &dir.join("core.exe"),
+                &PathBuf::from(plain.replace('\\', "/"))
+            ),
+            Ok(true)
+        );
         let verbatim = PathBuf::from(format!(r"\\?\{plain}"));
-        assert_eq!(inside(&PathBuf::from(format!(r"{plain}\core.exe")), &verbatim), Ok(true), "a plain path in a verbatim directory");
-        assert_eq!(inside(&PathBuf::from(format!(r"\\?\{plain}\core.exe")), &PathBuf::from(&plain)), Ok(true), "a verbatim path in a plain directory");
+        assert_eq!(
+            inside(&PathBuf::from(format!(r"{plain}\core.exe")), &verbatim),
+            Ok(true),
+            "a plain path in a verbatim directory"
+        );
+        assert_eq!(
+            inside(
+                &PathBuf::from(format!(r"\\?\{plain}\core.exe")),
+                &PathBuf::from(&plain)
+            ),
+            Ok(true),
+            "a verbatim path in a plain directory"
+        );
         let sibling = root.0.join("Profile-other");
         std::fs::create_dir_all(&sibling).unwrap();
         std::fs::write(sibling.join("core.exe"), "").unwrap();
-        assert_eq!(inside(&PathBuf::from(format!(r"\\?\{}", sibling.join("core.exe").to_string_lossy().trim_start_matches(r"\\?\"))), &verbatim), Ok(false));
+        assert_eq!(
+            inside(
+                &PathBuf::from(format!(
+                    r"\\?\{}",
+                    sibling
+                        .join("core.exe")
+                        .to_string_lossy()
+                        .trim_start_matches(r"\\?\")
+                )),
+                &verbatim
+            ),
+            Ok(false)
+        );
     }
 }

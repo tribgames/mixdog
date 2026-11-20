@@ -18,28 +18,26 @@ use std::{
     os::windows::{ffi::OsStrExt, io::AsRawHandle},
 };
 
-use anyhow::{anyhow, Result};
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use anyhow::{Result, anyhow};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use chromium_importer::chromium::ADMIN_TO_USER_PIPE_NAME;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::windows::named_pipe::{NamedPipeServer, ServerOptions},
     sync::oneshot,
     task::JoinHandle,
-    time::{timeout, Duration},
+    time::{Duration, timeout},
 };
 use windows::{
-    core::PCWSTR,
     Win32::{
         Foundation::{CloseHandle, HANDLE},
         System::{Pipes::GetNamedPipeClientProcessId, Threading::GetProcessId},
         UI::{
-            Shell::{
-                ShellExecuteExW, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
-            },
+            Shell::{SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW},
             WindowsAndMessaging::SW_HIDE,
         },
     },
+    core::PCWSTR,
 };
 use zeroize::Zeroizing;
 
@@ -62,10 +60,7 @@ fn is_base64(input: &str) -> bool {
 }
 
 fn to_wide(value: &str) -> Vec<u16> {
-    OsStr::new(value)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect()
+    OsStr::new(value).encode_wide().chain(std::iter::once(0)).collect()
 }
 
 /// Aborts the wrapped task when dropped, so no path leaves the pipe server
@@ -89,11 +84,7 @@ fn client_process_id(server: &NamedPipeServer) -> Option<u32> {
 /// base64 key, so both buffers are wiped on drop.
 async fn read_reply(server: &mut NamedPipeServer) -> Option<Zeroizing<String>> {
     let mut buffer = Zeroizing::new(vec![0_u8; 64 * 1024]);
-    let read = server
-        .read(buffer.as_mut_slice())
-        .await
-        .ok()
-        .filter(|read| *read > 0)?;
+    let read = server.read(buffer.as_mut_slice()).await.ok().filter(|read| *read > 0)?;
     let reply = Zeroizing::new(std::str::from_utf8(&buffer[..read]).ok()?.to_owned());
     // The helper waits for an acknowledgement before exiting.
     let _ = server.write_all(b"ok").await;
@@ -103,10 +94,7 @@ async fn read_reply(server: &mut NamedPipeServer) -> Option<Zeroizing<String>> {
 /// Serve the one expected client: only the process the launcher reports as the
 /// elevated helper is read from. Any other connection is dropped unread and the
 /// instance goes back to listening for the real helper.
-async fn serve_helper(
-    mut server: NamedPipeServer,
-    helper_pid: oneshot::Receiver<u32>,
-) -> Option<Zeroizing<String>> {
+async fn serve_helper(mut server: NamedPipeServer, helper_pid: oneshot::Receiver<u32>) -> Option<Zeroizing<String>> {
     // The helper may connect before `launch` has returned its pid; the
     // instance is already listening, so that connection simply waits here.
     let helper_pid = helper_pid.await.ok()?;
@@ -158,41 +146,23 @@ where
     }
 
     // The decode error is not reported: it can echo bytes of the key text.
-    let mut key = Zeroizing::new(
-        BASE64_STANDARD
-            .decode(reply.trim())
-            .map_err(|_| anyhow!("elevated helper returned an invalid key"))?,
-    );
+    let mut key = Zeroizing::new(BASE64_STANDARD.decode(reply.trim()).map_err(|_| anyhow!("elevated helper returned an invalid key"))?);
     if key.len() != 32 {
-        return Err(anyhow!(
-            "elevated helper returned a {}-byte key (expected 32)",
-            key.len()
-        ));
+        return Err(anyhow!("elevated helper returned a {}-byte key (expected 32)", key.len()));
     }
     Ok(std::mem::take(&mut *key))
 }
 
 /// Launch the elevated helper with the `runas` verb (one UAC prompt) and return
 /// the decrypted 32-byte v20 master key.
-pub async fn unwrap_app_bound_key(
-    admin_exe: &str,
-    app_bound_encrypted_key: &str,
-) -> Result<Vec<u8>> {
-    unwrap_with(
-        ADMIN_TO_USER_PIPE_NAME,
-        Duration::from_secs(WAIT_FOR_ADMIN_TIMEOUT_SECS),
-        app_bound_encrypted_key,
-        || launch_admin(admin_exe, app_bound_encrypted_key),
-    )
+pub async fn unwrap_app_bound_key(admin_exe: &str, app_bound_encrypted_key: &str) -> Result<Vec<u8>> {
+    unwrap_with(ADMIN_TO_USER_PIPE_NAME, Duration::from_secs(WAIT_FOR_ADMIN_TIMEOUT_SECS), app_bound_encrypted_key, || {
+        launch_admin(admin_exe, app_bound_encrypted_key)
+    })
     .await
 }
 
-async fn unwrap_with<F>(
-    pipe_name: &str,
-    wait: Duration,
-    app_bound_encrypted_key: &str,
-    launch: F,
-) -> Result<Vec<u8>>
+async fn unwrap_with<F>(pipe_name: &str, wait: Duration, app_bound_encrypted_key: &str, launch: F) -> Result<Vec<u8>>
 where
     F: FnOnce() -> Result<u32>,
 {
@@ -201,9 +171,7 @@ where
     }
     // Detail text (a helper's own reply, an OS error) is dropped: only the
     // fixed class is ever reported.
-    receive_key(pipe_name, wait, launch)
-        .await
-        .classify(Failure::ElevationFailed)
+    receive_key(pipe_name, wait, launch).await.classify(Failure::ElevationFailed)
 }
 
 /// Launch the helper elevated and return its process id, which is the only
@@ -222,8 +190,7 @@ fn launch_admin(admin_exe: &str, encrypted: &str) -> Result<u32> {
         nShow: SW_HIDE.0,
         ..Default::default()
     };
-    unsafe { ShellExecuteExW(&mut info) }
-        .map_err(|e| anyhow!("failed to launch the elevated helper: {}", e))?;
+    unsafe { ShellExecuteExW(&mut info) }.map_err(|e| anyhow!("failed to launch the elevated helper: {}", e))?;
     if info.hProcess.0.is_null() {
         return Err(anyhow!("the elevated helper did not report a process handle"));
     }
@@ -250,15 +217,7 @@ mod tests {
 
     #[test]
     fn rejects_shell_metacharacters() {
-        for bad in [
-            r#"abc"def"#,
-            r"abc\def",
-            "abc def",
-            "abc&def",
-            "abc|def",
-            "abc;def",
-            "abc^def",
-        ] {
+        for bad in [r#"abc"def"#, r"abc\def", "abc def", "abc&def", "abc|def", "abc;def", "abc^def"] {
             assert!(!is_base64(bad), "expected rejection of: {bad:?}");
         }
     }
@@ -336,10 +295,7 @@ mod tests {
     #[tokio::test]
     async fn refuses_a_pipe_name_that_already_has_a_server() {
         let name = test_pipe_name();
-        let _squatter = ServerOptions::new()
-            .first_pipe_instance(true)
-            .create(&name)
-            .unwrap();
+        let _squatter = ServerOptions::new().first_pipe_instance(true).create(&name).unwrap();
         let mut launched = false;
         let error = receive_key(&name, Duration::from_millis(100), || {
             launched = true;
@@ -378,11 +334,7 @@ mod tests {
 
         // A launch failure whose OS text carries a path.
         let name = test_pipe_name();
-        let error = unwrap_with(&name, Duration::from_secs(10), ENCRYPTED, || {
-            Err(anyhow!(r"failed to launch C:\Users\SECRET\helper.exe"))
-        })
-        .await
-        .unwrap_err();
+        let error = unwrap_with(&name, Duration::from_secs(10), ENCRYPTED, || Err(anyhow!(r"failed to launch C:\Users\SECRET\helper.exe"))).await.unwrap_err();
         assert_eq!(user_message(&error), FIXED);
         assert!(!format!("{error:?}").contains("SECRET"), "{error:?}");
 
@@ -399,29 +351,19 @@ mod tests {
 
         // Timeout and a wrong-length key are the same class.
         let name = test_pipe_name();
-        let error = unwrap_with(&name, Duration::from_millis(100), ENCRYPTED, || Ok(1))
-            .await
-            .unwrap_err();
+        let error = unwrap_with(&name, Duration::from_millis(100), ENCRYPTED, || Ok(1)).await.unwrap_err();
         assert_eq!(user_message(&error), FIXED);
 
         // Bad Local State input is a data problem, and never launches anything.
         let name = test_pipe_name();
-        let invalid = unwrap_with(&name, Duration::from_secs(10), "not base64!", || {
-            panic!("must not launch the helper")
-        })
-        .await
-        .unwrap_err();
+        let invalid = unwrap_with(&name, Duration::from_secs(10), "not base64!", || panic!("must not launch the helper")).await.unwrap_err();
         assert_eq!(user_message(&invalid), "Chrome data could not be read.");
     }
 
     #[tokio::test]
     async fn failed_launch_is_reported_without_waiting() {
         let name = test_pipe_name();
-        let error = receive_key(&name, Duration::from_secs(10), || {
-            Err(anyhow!("launch refused"))
-        })
-        .await
-        .expect_err("launch failure must propagate");
+        let error = receive_key(&name, Duration::from_secs(10), || Err(anyhow!("launch refused"))).await.expect_err("launch failure must propagate");
         assert!(error.to_string().contains("launch refused"));
     }
 }

@@ -1,8 +1,8 @@
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit};
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use aes_gcm::{Aes256Gcm, KeyInit, aead::Aead};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use serde::Serialize;
 use zeroize::Zeroizing;
 
@@ -24,18 +24,14 @@ struct EncryptedEnvelope {
 }
 
 fn argument(args: &[String], name: &str) -> Option<String> {
-    args.windows(2)
-        .find(|pair| pair[0] == name)
-        .map(|pair| pair[1].clone())
+    args.windows(2).find(|pair| pair[0] == name).map(|pair| pair[1].clone())
 }
 
 /// The GPL `runas` admin helper shipped beside the importer; absent in a dev
 /// build, in which case the manual route reports it as unavailable.
 fn admin_helper_path() -> Option<PathBuf> {
     let current = std::env::current_exe().ok()?;
-    let helper = current
-        .parent()?
-        .join("bitwarden_chromium_import_helper.exe");
+    let helper = current.parent()?.join("bitwarden_chromium_import_helper.exe");
     helper.exists().then_some(helper)
 }
 
@@ -63,21 +59,14 @@ fn read_stdin_keys(saved_key: bool) -> Result<([u8; 32], Option<Zeroizing<Vec<u8
     // Wiped on drop. Pre-sized to the read limit so reading never reallocates
     // and leaves an unwiped copy of the base64 key behind.
     let mut encoded = Zeroizing::new(String::with_capacity(MAX_KEY_INPUT_BYTES as usize));
-    io::stdin()
-        .take(MAX_KEY_INPUT_BYTES)
-        .read_to_string(&mut encoded)
-        .map_err(|_| ())?;
+    io::stdin().take(MAX_KEY_INPUT_BYTES).read_to_string(&mut encoded).map_err(|_| ())?;
     parse_stdin_keys(&encoded, saved_key)
 }
 
 fn parse_stdin_keys(encoded: &str, saved_key: bool) -> Result<([u8; 32], Option<Zeroizing<Vec<u8>>>), ()> {
     let mut lines = encoded.lines();
     let transport = decode_key(lines.next().ok_or(())?)?;
-    let saved = if saved_key {
-        Some(decode_key(lines.next().ok_or(())?)?)
-    } else {
-        None
-    };
+    let saved = if saved_key { Some(decode_key(lines.next().ok_or(())?)?) } else { None };
     if lines.any(|line| !line.trim().is_empty()) {
         return Err(());
     }
@@ -96,15 +85,9 @@ fn seal<T: Serialize>(key: [u8; 32], value: &T) -> Result<String, ()> {
     let plaintext = Zeroizing::new(serde_json::to_vec(value).map_err(|_| ())?);
     let cipher = Aes256Gcm::new_from_slice(&key[..]).map_err(|_| ())?;
     let nonce = rand::random::<[u8; 12]>();
-    let ciphertext = cipher
-        .encrypt((&nonce).into(), plaintext.as_slice())
-        .map_err(|_| ())?;
-    serde_json::to_string(&EncryptedEnvelope {
-        version: 1,
-        nonce: BASE64_STANDARD.encode(nonce),
-        ciphertext: BASE64_STANDARD.encode(ciphertext),
-    })
-    .map_err(|_| ())
+    let ciphertext = cipher.encrypt((&nonce).into(), plaintext.as_slice()).map_err(|_| ())?;
+    serde_json::to_string(&EncryptedEnvelope { version: 1, nonce: BASE64_STANDARD.encode(nonce), ciphertext: BASE64_STANDARD.encode(ciphertext) })
+        .map_err(|_| ())
 }
 
 fn fail(message: &str, code: i32) -> ! {
@@ -135,18 +118,13 @@ async fn main() {
 /// junctions.
 fn valid_profile_id(value: &str) -> bool {
     let mut components = Path::new(value).components();
-    !value.is_empty()
-        && value.len() <= MAX_PROFILE_ID_LEN
-        && matches!(components.next(), Some(std::path::Component::Normal(_)))
-        && components.next().is_none()
+    !value.is_empty() && value.len() <= MAX_PROFILE_ID_LEN && matches!(components.next(), Some(std::path::Component::Normal(_))) && components.next().is_none()
 }
 
 /// Validate the shared argument shape and return the requested profile id.
 fn parse_common(args: &[String], command: &str) -> String {
     let profile = argument(args, "--profile");
-    let upstream_browser = argument(args, "--browser")
-        .as_deref()
-        .and_then(upstream_browser_name);
+    let upstream_browser = argument(args, "--browser").as_deref().and_then(upstream_browser_name);
     let valid = args.first().is_some_and(|value| value == command)
         && upstream_browser.is_some()
         && args.iter().any(|value| value == "--json")
@@ -161,11 +139,7 @@ async fn run_import_passwords(args: &[String]) -> ! {
     let profile = parse_common(args, "import-passwords");
     let key = read_transport_key().unwrap_or_else(|_| fail("Invalid importer transport key.", 2));
     let admin_exe_path = admin_helper_path();
-    let route = keys::V20Route {
-        admin_exe: admin_exe_path.as_deref().and_then(Path::to_str),
-        saved_key: None,
-        allow_elevation: true,
-    };
+    let route = keys::V20Route { admin_exe: admin_exe_path.as_deref().and_then(Path::to_str), saved_key: None, allow_elevation: true };
     let key = Zeroizing::new(key);
     let outcome = match logins::import_chrome_logins(&profile, &route).await {
         Ok(credentials) => {
@@ -190,8 +164,7 @@ async fn run_import_passwords(args: &[String]) -> ! {
 
 async fn run_import_cookies(args: &[String]) -> ! {
     let profile = parse_common(args, "import-cookies");
-    let (key, saved_key) = read_stdin_keys(has_flag(args, "--v20-key-stdin"))
-        .unwrap_or_else(|_| fail("Invalid importer transport key.", 2));
+    let (key, saved_key) = read_stdin_keys(has_flag(args, "--v20-key-stdin")).unwrap_or_else(|_| fail("Invalid importer transport key.", 2));
     let admin_exe_path = admin_helper_path();
     let route = keys::V20Route {
         admin_exe: admin_exe_path.as_deref().and_then(Path::to_str),
@@ -200,18 +173,15 @@ async fn run_import_cookies(args: &[String]) -> ! {
         allow_elevation: !has_flag(args, "--no-elevation"),
     };
     let key = Zeroizing::new(key);
-    let outcome =
-        match cookies::import_chrome_cookies(&profile, &route, has_flag(args, "--return-v20-key"))
-            .await
-        {
-            Ok(cookies) => {
-                let sealed = seal(*key, &cookies);
-                // Wipes the cookie values and any key grant.
-                drop(cookies);
-                sealed.map_err(|_| "Chrome cookie import encryption failed.")
-            }
-            Err(error) => Err(failure::user_message(&error)),
-        };
+    let outcome = match cookies::import_chrome_cookies(&profile, &route, has_flag(args, "--return-v20-key")).await {
+        Ok(cookies) => {
+            let sealed = seal(*key, &cookies);
+            // Wipes the cookie values and any key grant.
+            drop(cookies);
+            sealed.map_err(|_| "Chrome cookie import encryption failed.")
+        }
+        Err(error) => Err(failure::user_message(&error)),
+    };
     // `process::exit` runs no destructors, so on success and failure alike
     // (a rejected saved key included) the key material is wiped before leaving.
     drop(route);
@@ -238,19 +208,7 @@ mod tests {
         }
         // Structural rejects only; escapes that still look like one component
         // (junctions, trailing dots) are decided by canonicalization.
-        for bad in [
-            "",
-            ".",
-            "..",
-            "a/b",
-            "a\\b",
-            "../Default",
-            "..\\Default",
-            "C:",
-            "C:Users",
-            "\\\\server\\share",
-            "\\Default",
-        ] {
+        for bad in ["", ".", "..", "a/b", "a\\b", "../Default", "..\\Default", "C:", "C:Users", "\\\\server\\share", "\\Default"] {
             assert!(!valid_profile_id(bad), "expected {bad:?} to be rejected");
         }
         assert!(valid_profile_id(&"a".repeat(MAX_PROFILE_ID_LEN)));
@@ -304,21 +262,11 @@ mod tests {
         let output = seal(key, &credentials).expect("seal");
         assert!(!output.contains("fixture-secret"));
         let envelope: serde_json::Value = serde_json::from_str(&output).expect("json");
-        let nonce: [u8; 12] = BASE64_STANDARD
-            .decode(envelope["nonce"].as_str().expect("nonce"))
-            .expect("nonce base64")
-            .try_into()
-            .expect("nonce length");
-        let ciphertext = BASE64_STANDARD
-            .decode(envelope["ciphertext"].as_str().expect("ciphertext"))
-            .expect("ciphertext base64");
+        let nonce: [u8; 12] = BASE64_STANDARD.decode(envelope["nonce"].as_str().expect("nonce")).expect("nonce base64").try_into().expect("nonce length");
+        let ciphertext = BASE64_STANDARD.decode(envelope["ciphertext"].as_str().expect("ciphertext")).expect("ciphertext base64");
         let cipher = Aes256Gcm::new_from_slice(&key).expect("cipher");
-        let plaintext = cipher
-            .decrypt((&nonce).into(), ciphertext.as_ref())
-            .expect("decrypt");
-        assert!(String::from_utf8(plaintext)
-            .expect("utf8")
-            .contains("fixture-secret"));
+        let plaintext = cipher.decrypt((&nonce).into(), ciphertext.as_ref()).expect("decrypt");
+        assert!(String::from_utf8(plaintext).expect("utf8").contains("fixture-secret"));
     }
 
     #[cfg(target_os = "windows")]
@@ -326,51 +274,31 @@ mod tests {
     fn windows_dpapi_key_and_v10_aes_fixture_round_trip() {
         use chromium_importer::chromium::crypt_unprotect_data;
         use windows::Win32::{
-            Foundation::{LocalFree, HLOCAL},
-            Security::Cryptography::{
-                CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
-            },
+            Foundation::{HLOCAL, LocalFree},
+            Security::Cryptography::{CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData},
         };
 
         let key = [0x42_u8; 32];
-        let input = CRYPT_INTEGER_BLOB {
-            cbData: key.len() as u32,
-            pbData: key.as_ptr() as *mut u8,
-        };
+        let input = CRYPT_INTEGER_BLOB { cbData: key.len() as u32, pbData: key.as_ptr() as *mut u8 };
         let mut output = CRYPT_INTEGER_BLOB::default();
         unsafe {
-            CryptProtectData(
-                &input,
-                None,
-                None,
-                None,
-                None,
-                CRYPTPROTECT_UI_FORBIDDEN,
-                &mut output,
-            )
-            .expect("protect fixture key");
+            CryptProtectData(&input, None, None, None, None, CRYPTPROTECT_UI_FORBIDDEN, &mut output).expect("protect fixture key");
         }
-        let protected =
-            unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec() };
+        let protected = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec() };
         unsafe {
             LocalFree(Some(HLOCAL(output.pbData as *mut _)));
         }
-        let unwrapped = crypt_unprotect_data(&protected, CRYPTPROTECT_UI_FORBIDDEN)
-            .expect("unprotect fixture key");
+        let unwrapped = crypt_unprotect_data(&protected, CRYPTPROTECT_UI_FORBIDDEN).expect("unprotect fixture key");
         assert_eq!(unwrapped, key);
 
         let nonce = [0x24_u8; 12];
         let cipher = Aes256Gcm::new_from_slice(&unwrapped).expect("fixture cipher");
-        let ciphertext = cipher
-            .encrypt((&nonce).into(), b"fixture-password".as_ref())
-            .expect("encrypt fixture password");
+        let ciphertext = cipher.encrypt((&nonce).into(), b"fixture-password".as_ref()).expect("encrypt fixture password");
         let mut v10 = b"v10".to_vec();
         v10.extend_from_slice(&nonce);
         v10.extend_from_slice(&ciphertext);
         assert_eq!(&v10[..3], b"v10");
-        let decrypted = cipher
-            .decrypt((&nonce).into(), &v10[15..])
-            .expect("decrypt fixture password");
+        let decrypted = cipher.decrypt((&nonce).into(), &v10[15..]).expect("decrypt fixture password");
         assert_eq!(decrypted, b"fixture-password");
     }
 }
