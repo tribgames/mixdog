@@ -1,5 +1,4 @@
-// Token expiry reading for dev-isolated.mjs, moved from Node's
-// src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs when K1 deleted it.
+// Token expiry reading for dev-isolated.mjs.
 
 function decodeJwtPayload(token) {
   try {

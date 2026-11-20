@@ -36,11 +36,11 @@ test('a coded refusal keeps the wire message, and a typed detail does not replac
     })
   );
   assert.equal(shown.message, 'Member is switched off.');
-  // Only the params the code declares public, as Node's client keeps them (codedErrorParams).
+  // Only the params the code declares public are kept (codedErrorParams).
   assert.deepEqual(shown.details, { name: 'Bench' });
 });
 
-test("a coded worktree refusal keeps no details beside its message, as Node's reached the app", () => {
+test("a coded worktree refusal keeps no details beside its message", () => {
   const shown = coreErrorForWindow(
     rpcFailure({
       reason: 'domainError',
@@ -87,7 +87,7 @@ test('a coded worktree refusal reaches the page in the shape worktreeFailure rea
       detail: { type: 'worktreeDirty', reason: 'project-dirty', count: 2, paths: ['a.ts', 'b.ts'] },
     })
   );
-  // The same framing worktreeErrorWithCode gives Node's error: the code leads, the details trail as JSON.
+  // The same framing worktreeErrorWithCode gives an error: the code leads, the details trail as JSON.
   const node = worktreeErrorWithCode(
     Object.assign(new Error('WORKTREE_DIRTY'), {
       code: 'WORKTREE_DIRTY',
@@ -102,9 +102,8 @@ test('a coded worktree refusal reaches the page in the shape worktreeFailure rea
   assert.deepEqual(failure.details, { reason: 'project-dirty', count: 2, paths: ['a.ts', 'b.ts'] });
 });
 
-test('an unregistered Project reads on the Rust path as the Node desktop shows it', () => {
-  // Node's daemon sends `code` and `details` (project-branches.mjs throws worktreeError('WORKTREE_PROJECT_UNKNOWN',
-  // undefined, { projectPath })); the desktop session host frames it with worktreeErrorWithCode (session-host-lifecycle.ts).
+test('an unregistered Project reads as the framed worktree error', () => {
+  // The expected error is a `WORKTREE_PROJECT_UNKNOWN` code with `{ projectPath }` details, framed with worktreeErrorWithCode.
   const projectPath = 'C:\\work\\app';
   const node = worktreeErrorWithCode(
     Object.assign(new Error('Project is not available.'), {

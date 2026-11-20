@@ -1,5 +1,5 @@
-// The phone's page also loads this module for the capability request rules (remote-protocol-capabilities.ts), so it imports nothing of
-// Node's: what depends on the host's platform (whether a project path is absolute) is the caller's isAbsolutePath. The desktop's callers
+// The phone's page also loads this module for the capability request rules (remote-protocol-capabilities.ts), so it imports nothing
+// from Node: what depends on the host's platform (whether a project path is absolute) is the caller's isAbsolutePath. The desktop's callers
 // get the host's own check from ipc-capability-request.ts; the phone passes one that accepts either syntax.
 import {
   optionalGithubLoginOptions,
@@ -905,7 +905,7 @@ function requireSafeModelId(modelId: string): void {
 
 /**
  * Check one model override with the runtime normalizer's accept set
- * (custom-provider-config.mjs; parity is table-tested). `patch` additionally
+ * (custom-provider-config.mjs; checked by custom-provider-validation.test.mjs). `patch` additionally
  * allows null to delete a property; its wire values are not tied to levels
  * because the service prunes them against the merged levels.
  */

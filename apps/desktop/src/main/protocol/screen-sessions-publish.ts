@@ -1,4 +1,4 @@
-// The sessions the user is looking at, sent to the core as `ui/screenSessions/changed` (DS §12): what Node's
+// The sessions the user is looking at, sent to the core as `ui/screenSessions/changed` (DS §12): what
 // `isSessionOnScreen` answers (screen-sessions.ts) as one set. It changes with the page's paint report and with the
 // window's visibility, minimize and focus; a reload, navigation or renderer crash clears the report and so the set.
 import type { UiScreenSessionsChangedParams } from '../../../../../packages/protocol/src/index.ts';

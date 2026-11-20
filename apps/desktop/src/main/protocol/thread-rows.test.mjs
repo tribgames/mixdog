@@ -1,4 +1,4 @@
-// A core connection's sidebar rows are classified as Node's are: a stored classification is kept, a row the core sends with
+// A core connection's sidebar rows are classified like the desktop's own session rows: a stored classification is kept, a row the core sends with
 // none (`classification: {}`) falls back to its folder (`desktopSessionSummaries`).
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -28,12 +28,12 @@ test('a stored classification of a core row is kept', () => {
   assert.equal(project.projectPath, 'C:\\Repo');
 });
 
-test("an agent's worker session keeps the mark the sidebar hides it by, as Node's stored row gives it", () => {
+test("an agent's worker session keeps the mark the sidebar hides it by, as a stored row gives it", () => {
   const [lead, worker] = summariesOfThreadRows([
     row('t_lead', { cwd: 'C:\\Repo', classification: 'project', projectPath: 'C:\\Repo' }),
     row('t_worker', { cwd: 'C:\\Repo', classification: 'project', projectPath: 'C:\\Repo', agentSession: true }),
   ]);
-  // The same two as Node's listing holds them: the worker is `agent-only`.
+  // The same two as a stored listing holds them: the worker is `agent-only`.
   const node = desktopSessionSummaries([
     {
       ...row('t_lead', { cwd: 'C:\\Repo' }),
@@ -57,7 +57,7 @@ test("an agent's worker session keeps the mark the sidebar hides it by, as Node'
   );
 });
 
-test('a core row with no stored classification falls back to its folder, as a Node row does', () => {
+test('a core row with no stored classification falls back to its folder', () => {
   const folder = 'C:\\Users\\me\\AppData\\Roaming\\Mixdog\\workspace\\unclassified';
   const [inTasks, inProject] = summariesOfThreadRows(
     [row('t_a', { cwd: folder }), row('t_b', { cwd: 'C:\\Repo' })],

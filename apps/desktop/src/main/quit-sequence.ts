@@ -15,8 +15,8 @@ import { IN_TREE_DAEMON_STOP_GRACE_MS } from '../shared/core-src/standalone/daem
  *  arms its own forced PostgreSQL stop at the start of its shutdown, at this
  *  constant less the stop's signal margin (`daemon-stop-budget.mjs`
  *  PG_FORCED_STOP_AT_MS, mirrored by the core's `PG_FORCED_STOP_AT`), and its
- *  whole-shutdown backstop is Node's 15 s (`SHUTDOWN_BUDGET`): this is Node's
- *  launcher wait (`stopInTreeDaemon`), not a longer one. Windows are
+ *  whole-shutdown backstop is 15 s (`SHUTDOWN_BUDGET`): this is the launcher's
+ *  wait (`stopInTreeDaemon`), not a longer one. Windows are
  *  already hidden, so a longer wait only delays the invisible process exit. */
 export const DESKTOP_DAEMON_STOP_TIMEOUT_MS = IN_TREE_DAEMON_STOP_GRACE_MS;
 

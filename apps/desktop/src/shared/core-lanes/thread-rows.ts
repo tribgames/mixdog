@@ -1,12 +1,11 @@
-// The sidebar rows of a core connection (`thread/list` rows and `thread/summary/updated`) through the same projection Node's
-// rows take (`desktopSessionSummaries`, desktop-state.ts), so a row the core sends with no stored classification (`classification`
-// is `{}`: the thread was not classified when it was created) is classified by its folder exactly as Node classifies it.
+// The sidebar rows of a core connection (`thread/list` rows and `thread/summary/updated`) through the desktop's session
+// projection (`desktopSessionSummaries`, desktop-state.ts), so a row the core sends with no stored classification (`classification`
+// is `{}`: the thread was not classified when it was created) is classified by its folder.
 // The core's row carries the stored `desktopSession` flattened as `classification` and `projectPath`; the projection reads it nested.
 //
-// Node's roster row is that projection plus what the host laid over it (session-host.ts sessionCatalog: rooms, archive, retired,
-// favorite, read cursors) and the turn activity the daemon overlaid. The core's row already carries those as fields of its own, which
-// the projection does not read: they are taken from the core row as Node's overlays wrote them (a flag only when set, a cursor only
-// when one exists), and `activityAt` is the core's (`lastUsedAt || updatedAt`, which the projection would recompute from `updatedAt`).
+// A roster row is that projection plus what the host lays over it (rooms, archive, retired, favorite, read cursors) and the
+// turn activity. The core's row already carries those as fields of its own, which the projection does not read: they are
+// taken from the core row (a flag only when set, a cursor only when one exists), and `activityAt` is the core's (`lastUsedAt || updatedAt`, which the projection would recompute from `updatedAt`).
 import { desktopSessionSummaries } from '../desktop-state';
 import type { DesktopSessionSummary } from '../contract';
 import { cleanIncomingTail } from '../incoming-tail';
@@ -24,7 +23,7 @@ export function summariesOfThreadRows(
 ): DesktopSessionSummary[] {
   const raw = rows.map((row) => {
     const { classification, projectPath, forkedFromId, ...rest } = row;
-    // The core names the inherit source `forkedFromId`; the projection reads Node's `inheritedFromSessionId`.
+    // The core names the inherit source `forkedFromId`; the projection reads `inheritedFromSessionId`.
     const named =
       typeof forkedFromId === 'string' && forkedFromId ? { ...rest, inheritedFromSessionId: forkedFromId } : rest;
     return typeof classification === 'string'
@@ -38,7 +37,7 @@ export function summariesOfThreadRows(
     const readMessageCount = finite(core.readMessageCount);
     const readRevision = finite(core.readRevision);
     const incomingTail = cleanIncomingTail(core.incomingTail);
-    // The core's row says compactCount: 0 for a thread never compacted; Node's summary has no such field until the first compaction (>= 1).
+    // The core's row says compactCount: 0 for a thread never compacted; the summary has no such field until the first compaction (>= 1).
     const {
       working: _w,
       leadWorking: _l,
@@ -51,8 +50,7 @@ export function summariesOfThreadRows(
       ...rest,
       ...(typeof compactCount === 'number' && compactCount > 0 ? { compactCount } : {}),
       ...(activityAt ? { activityAt } : {}),
-      // Node's listing leaves an agent's worker sessions out of the sidebar by the stored `owner`/`visibility`, which the core's
-      // row does not carry: it says `agentSession` itself.
+      // An agent's worker sessions are left out of the sidebar; the core's row says `agentSession` itself.
       ...(core.agentSession === true ? { agentSession: true } : {}),
       // The runtime's own activity flags, not the projection's reading of `working` (it would make every working row a lead's).
       ...(core.working === true ? { working: true } : {}),

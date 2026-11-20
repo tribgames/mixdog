@@ -257,5 +257,3 @@ test('a subscription not renewed for 4s lapses, and a disconnected client is dro
   assert.deepEqual(f.requests.at(-1), ['s', null]);
 });
 
-// The reveal/hide broadcast case drove the Node relay's push lanes (remote-relay-push-lanes.ts), which went with the relay; the
-// core now forwards browser open requests to a phone (uncovered-cases.md).

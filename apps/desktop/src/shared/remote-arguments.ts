@@ -1,5 +1,5 @@
-// The argument checks Node's remote methods ran before a call reached the desktop, with their exact error texts. The phone's
-// adapters make the same checks before they send a protocol request, so a bad argument fails the way it did on Node.
+// The argument checks of the remote methods, with their exact error texts, run before a call reaches the desktop. The phone's
+// adapters make the same checks before they send a protocol request, so a bad argument fails with the same text.
 
 export function requiredString(value: unknown, name: string, maximum = 32_768): string {
   if (typeof value !== 'string') throw new TypeError(`${name} must be a string.`);
@@ -40,7 +40,7 @@ export function isAbsoluteOn(platform: HostPlatform, text: string): boolean {
 export const needsHostDevice = (platform: HostPlatform, text: string): boolean =>
   platform === 'windows' && windowsRoot(text.replace(/\//g, '\\')).device === null;
 
-/** `path.resolve` of an absolute path on the host (Node's `absoluteLocalPath`): separators unified, `.`/`..` and repeated or trailing
+/** `path.resolve` of an absolute path on the host: separators unified, `.`/`..` and repeated or trailing
  *  separators removed, the root kept. `hostDevice` is the working directory's device (`D:`, `\\server\share`) for a path without one. */
 export function resolveOn(platform: HostPlatform, text: string, hostDevice: string): string {
   const windows = platform === 'windows';

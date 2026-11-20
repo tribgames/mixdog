@@ -1,7 +1,6 @@
 // Settings › Notifications from stored facts: each device's stored preferences or the default its kind and pairing give it, the
 // conversation overrides in force, and the device list (this PC, then the paired devices). Pure, so the desktop's operation lane
-// (main/protocol/section-reads.ts) and a paired phone's adapter (renderer/remote-protocol-settings.ts) build Node's answer
-// (notification-center.ts `state`, notification-preferences.ts at b6f10295a) from the same core sections.
+// (main/protocol/section-reads.ts) and a paired phone's adapter (renderer/remote-protocol-settings.ts) build it from the same core sections.
 import type { DesktopRemoteClientInfo } from './contract';
 import {
   type ConversationNotificationOverride,
@@ -128,16 +127,15 @@ export function pairedDeviceInfo(client: DesktopRemoteClientInfo): NotificationD
   };
 }
 
-/** The stored overrides, as Node's store reads them (an entry that does not validate is dropped). */
+/** The stored overrides (an entry that does not validate is dropped). */
 export function storedOverrides(notifications: unknown): ConversationNotificationOverride[] {
   const stored = record(notifications);
   const list = Array.isArray(stored.overrides) ? stored.overrides : [];
   return list.map(storedOverride).filter((entry): entry is ConversationNotificationOverride => entry !== null);
 }
 
-/** The store's `migratedAt`. With no document at all Node's store writes one stamped `now` on its first load
- *  (`notification-preferences.ts:228`): a device paired before this moment gets the plain default. A document
- *  without a valid stamp reads 0 (`:120`). */
+/** The store's `migratedAt`. With no document at all the store is stamped `now` on its first load:
+ *  a device paired before this moment gets the plain default. A document without a valid stamp reads 0. */
 export function migratedAtOf(subtree: unknown, now = Date.now()): number {
   if (subtree === undefined) return now;
   const stamp = record(subtree).migratedAt;
@@ -166,9 +164,9 @@ export function pairedClients(remote: unknown): DesktopRemoteClientInfo[] {
     }));
 }
 
-/** How the core merges `setNotificationPreferences`' patch for `deviceId` (Node's `setPreferences`, notification-center.ts:106-117):
+/** How the core merges `setNotificationPreferences`' patch for `deviceId`:
  *  onto the default a device without stored preferences has, which is bot chats only for a phone app paired at or after the store
- *  was first written (`devicePreferencesIn`). A device that is not paired (or whose unpair is queued) is refused as Node refused it,
+ *  was first written (`devicePreferencesIn`). A device that is not paired (or whose unpair is queued) is refused
  *  before anything is written. */
 export function notificationWriteMode(
   deviceId: string,

@@ -1,6 +1,5 @@
 // The desktop operations whose answer is state the core already pushes (desktop-services.md §2.4, §3): the main
-// process reads the sections its connection holds and applies Node's own normalizers to them, so the value is what
-// the Node handlers returned from the same facts. Nothing is requested from the core and nothing is cached here:
+// process reads the sections its connection holds and normalizes them into the value the caller gets. Nothing is requested from the core and nothing is cached here:
 // each call reads the held store as it is.
 import type { ActivityRailPinsState } from '../activity-rail-pins';
 import type { DesktopEditorSettings, DesktopSettings } from '../contract';
@@ -75,7 +74,7 @@ export const SECTION_READ_CONFIG: Readonly<Record<string, readonly string[]>> = 
   listConversationNotifications: ['notifications'],
   notificationPreferencesState: ['notifications'],
 };
-/** `readSettings`: Node's `desktopSettingsFromConfig` over the subtrees it reads. */
+/** `readSettings`: the desktop settings from the config subtrees it reads. */
 export function readSettings(snapshot: DesktopSectionsSnapshot): DesktopSettings {
   return desktopSettingsFromConfig({ agent: configTree(snapshot, 'agent'), desktop: configTree(snapshot, 'desktop') });
 }
@@ -127,7 +126,7 @@ export async function notificationPreferencesState(
   });
 }
 
-/** `visualizeRemoteViewing(sessionId)`: whether a paired device shows the session (Node's `relay.viewsSessionLane`). The core
+/** `visualizeRemoteViewing(sessionId)`: whether a paired device shows the session. The core
  *  publishes the sessions they show as `hostState` key `remoteViewing` = { sessionIds }. */
 export function visualizeRemoteViewing(snapshot: DesktopSectionsSnapshot, args: readonly unknown[]): boolean {
   const shown = record(held(snapshot, 'hostState', 'remoteViewing')).sessionIds;
@@ -144,7 +143,7 @@ export function remoteSection(snapshot: DesktopSectionsSnapshot): unknown {
   return entry.value;
 }
 
-/** A member of the `remote` section's value, as Node's remote-access handler returned it (`remoteAccessInfo` is the
+/** A member of the `remote` section's value, as the remote-access operations return it (`remoteAccessInfo` is the
  *  section's `info`, ...). */
 export function remoteMember(section: unknown, member: string): unknown {
   const members = record(section);

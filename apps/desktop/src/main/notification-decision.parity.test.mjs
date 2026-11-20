@@ -1,4 +1,4 @@
-// Pins the TypeScript decider to the case table the Rust decider (mixdog-core-domains notify::decision) also runs:
+// Runs the TypeScript decider over the case table the Rust decider (mixdog-core-domains notify::decision) also runs:
 // native/core/crates/mixdog-testkit/parity/notification-decision.json. Case input:
 //   fn: decide | conversation | quietHours | override | activeOverrides | taskbarFlash | deviceNotice
 //   prefs: { base: 'default' | 'newPhone', ...fields to replace; events and quietHours merge }
@@ -98,7 +98,7 @@ function run(input) {
       return decision.notify ? { notify: true } : { notify: false, reason: decision.reason };
     }
     default:
-      throw new Error(`unknown parity fn ${input.fn}`);
+      throw new Error(`unknown case fn ${input.fn}`);
   }
 }
 
@@ -108,8 +108,8 @@ test('the shared notification-decision table has at least 40 cases', () => {
   if (cases.length < 40) throw new Error(`only ${cases.length} cases`);
 });
 
-for (const parityCase of cases) {
-  test(`notification decision parity: ${parityCase.id}`, () => {
-    assertCase(parityCase, run(parityCase.input), 'notification-decision');
+for (const tableCase of cases) {
+  test(`notification decision: ${tableCase.id}`, () => {
+    assertCase(tableCase, run(tableCase.input), 'notification-decision');
   });
 }

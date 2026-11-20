@@ -91,8 +91,7 @@ export interface FileDownloadGrant {
  *  only its first `pages.included` of `pages.total` pages. */
 export interface FolderLeftOut {
   ignored: number;
-  /** Secret-bearing files a host before PC parity left out of a zip; this
-   *  host leaves none out (always 0). */
+  /** Secret-bearing files left out of a zip; this host leaves none out (always 0). */
   secret: number;
   pages?: { included: number; total: number };
 }
@@ -163,7 +162,7 @@ export const FILE_DOWNLOAD_REMOTE_METHODS = {
 
 /** Why a download was refused. The first six are the reasons a UI shows;
  *  the rest are transport/lookup outcomes. `sensitive` comes only from a host
- *  before PC parity; `not-linked` names an attachment the session lacks. */
+ *  that withholds secret-bearing files; `not-linked` names an attachment the session lacks. */
 export type FileDownloadErrorReason =
   | 'not-linked'
   | 'outside-project'

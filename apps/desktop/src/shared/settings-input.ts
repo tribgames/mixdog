@@ -1,5 +1,4 @@
-// The argument checks of the desktop settings and notification calls, with Node's exact texts (main/ipc-validation.ts at
-// b6f10295a, :2195-2329): the window's IPC handlers and the paired phone's adapter (renderer/remote-protocol-settings.ts) run
+// The argument checks of the desktop settings and notification calls, with their exact error texts: the window's IPC handlers and the paired phone's adapter (renderer/remote-protocol-settings.ts) run
 // the same ones before anything is written.
 import { isBotHandoffLimit } from './desktop-settings';
 import {

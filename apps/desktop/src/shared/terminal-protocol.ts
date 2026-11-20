@@ -1,13 +1,13 @@
-// How Node's terminal calls read on the protocol, shared by the desktop's operation route and terminal host (main) and the phone's
+// How the terminal calls read on the protocol, shared by the desktop's operation route and terminal host (main) and the phone's
 // terminal adapter (renderer): the request a call becomes, what a reply is made into, and the pushes (output, activity, size owner)
-// read from the core's feeds and sections, so both answer and push as Node did.
+// read from the core's feeds and sections, so both answer and push alike.
 import { readRemoteTerminalRun, remoteTerminalRun, type DesktopTerminalRunRequest } from './terminal-command';
 import { readTerminalActivityEvent, type TerminalActivityEvent } from './terminal-activity';
 import type { TerminalSizeOwner, TerminalSizeOwnerEvent } from './terminal-size-owner';
 
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined);
 
-/** Node's `termEnsure(id, cwd, shell)`: each value counts only as a non-empty string; with no id the core makes one. */
+/** `termEnsure(id, cwd, shell)`: each value counts only as a non-empty string; with no id the core makes one. */
 export function terminalEnsureRequest(
   tabId: unknown,
   cwd: unknown,
@@ -19,11 +19,10 @@ export function terminalEnsureRequest(
   return { method: 'terminal/ensure', params: { ...(text(tabId) ? { tabId } : {}), options } };
 }
 
-/** Node's `termResize(id, cols, rows, phoneOwner)` as the `terminal/resize` notification. The phone's call reached Node as a JSON frame
- *  (NaN, Infinity and undefined arrive as null), the remote method took `Number` of each size (remote-methods.ts:1163) and the manager
- *  released a claim that is not positive in both, or floored and clamped the size to 2..500 x 2..200, 0 and NaN standing for 80 x 24
- *  (terminal-manager.ts:429-436). The same is done here, so every size the phone sends is one the core takes, a release included
- *  (a claim of 0 x 0). Recorded: apps/mobile/fixtures/terminal-resize/golden.json. */
+/** `termResize(id, cols, rows, phoneOwner)` as the `terminal/resize` notification. The phone's call arrives as a JSON frame
+ *  (NaN, Infinity and undefined arrive as null); each size is taken as a `Number`, and a claim that is not positive in both
+ *  is a release, otherwise the size is floored and clamped to 2..500 x 2..200, 0 and NaN standing for 80 x 24. So every size
+ *  the phone sends is one the core takes, a release included (a claim of 0 x 0). */
 export function terminalResizeRequest(
   tabId: unknown,
   cols: unknown,
@@ -44,9 +43,9 @@ export function terminalResizeRequest(
   };
 }
 
-/** Node answered `{id, replay, sizeOwner?}` and left `sizeOwner` out when no phone owns the size, where the core writes null.
- *  `client` is the asking connection's key in the core's size-owner events; it is not part of Node's answer. `replayLeadUnit` is the lone
- *  low surrogate Node's replay starts with when its window cut a non-BMP character (the core's JSON cannot hold it): it goes back in front. */
+/** The answer is `{id, replay, sizeOwner?}`; `sizeOwner` is left out when no phone owns the size, where the core writes null.
+ *  `client` is the asking connection's key in the core's size-owner events; it is not part of the answer. `replayLeadUnit` is the lone
+ *  low surrogate the replay starts with when its window cut a non-BMP character (the core's JSON cannot hold it): it goes back in front. */
 export function terminalReply(reply: unknown): {
   id: string;
   replay: string;
@@ -68,7 +67,7 @@ export function terminalActivityRows(section: unknown): { id: string; state: unk
   return Object.entries(value).map(([id, state]) => ({ id, state }));
 }
 
-/** Node's per-change `terminal-activity` events, from a change of the `terminalActivity` section: each tab whose state differs from
+/** The per-change `terminal-activity` events, from a change of the `terminalActivity` section: each tab whose state differs from
  *  `held` (the section as last read, which becomes this read) and `state: null` for a tab no longer listed. */
 export function terminalActivityChanges(held: Map<string, unknown>, section: unknown): TerminalActivityEvent[] {
   const next = new Map(terminalActivityRows(section).map((row) => [row.id, row.state] as const));
@@ -81,9 +80,9 @@ export function terminalActivityChanges(held: Map<string, unknown>, section: unk
   return events.map(readTerminalActivityEvent).filter((event): event is TerminalActivityEvent => event !== null);
 }
 
-/** Node's `termSizeOwner` events, from a change of the `terminalTabs` section against `held` (each tab's owner as last read, which
+/** The `termSizeOwner` events, from a change of the `terminalTabs` section against `held` (each tab's owner as last read, which
  *  becomes this read): a tab whose owner changed, and a zero size for a released claim on a tab still listed. A disposed tab pushes
- *  nothing, as Node's dispose cleared its claims without an event (forgetSizeClaims). `own`: the claim is `client`'s, the connection
+ *  nothing: disposing clears its claims without an event. `own`: the claim is `client`'s, the connection
  *  key the core's replies name (a desktop window never claims, and passes ''). */
 export function terminalSizeOwnerChanges(
   held: Map<string, TerminalSizeOwner>,
@@ -115,8 +114,8 @@ export function terminalSizeOwnerChanges(
   return events;
 }
 
-/** A terminal's output as Node's `termData` text, per tab (`processHandle`): each `process/outputDelta` through its tab's streaming
- *  decoder, with the lone units at the edges of a frame Node cut inside a surrogate pair (the core's bytes cannot hold half a
+/** A terminal's output as `termData` text, per tab (`processHandle`): each `process/outputDelta` through its tab's streaming
+ *  decoder, with the lone units at the edges of a frame cut inside a surrogate pair (the core's bytes cannot hold half a
  *  character). `end` drops a tab's decoder once its shell has exited. */
 export type TerminalReplayCut = { stream: string; offset: number };
 
@@ -158,7 +157,7 @@ export function createTerminalOutputDecoder(): {
   };
 }
 
-/** What a paired client is told of `ui/openRequested{kind: 'terminal'}`: no ack id and no path (Node's relay push), or null
+/** What a paired client is told of `ui/openRequested{kind: 'terminal'}`: no ack id and no path, or null
  *  when the payload is not a reveal. */
 export function terminalRunPush(open: unknown): DesktopTerminalRunRequest | null {
   const { kind: _kind, ...request } = (open ?? {}) as Record<string, unknown>;

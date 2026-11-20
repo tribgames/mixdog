@@ -1,7 +1,7 @@
-// The core's announcements of Node's desktop events between UI peers: Node's desktop service broadcast `settings-changed` and
-// `provider-models-changed` to its windows (ipc-state-bridge.ts:113-114) and to every paired device (remote-relay-push-lanes.ts
-// :53-54); the core publishes them on the app feed to every client, which turns each into the same event here (the desktop's
-// windows: protocol/desktop-operation-route.ts `watchAnnouncements`; a phone's page: renderer/remote-protocol-settings.ts).
+// The core's announcements of desktop events between UI peers: `settings-changed` and `provider-models-changed` reach
+// every window and every paired device; the core publishes them on the app feed to every client, which turns each into
+// the same event here (the desktop's windows: protocol/desktop-operation-route.ts `watchAnnouncements`; a phone's page:
+// renderer/remote-protocol-settings.ts).
 import { CONVERSATION_IMPORT_PROGRESS_EVENT } from './contract-import';
 import { PROVIDER_MODELS_EVENT, readProviderModelsChange } from './provider-models';
 import { readSettingsChange, SETTINGS_CHANGED_EVENT } from './settings-changed';

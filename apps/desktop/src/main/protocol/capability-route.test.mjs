@@ -131,7 +131,7 @@ function recordingLane(answer = async () => ({ ok: true })) {
   return { calls, all, states, world, emit, replace, link, lane: createCapabilityLane({ protocol }) };
 }
 // The 14 `mcp/*` actions: `[capability, positional args, params without threadId]`. The names are the fields of the
-// Rust `Mcp*Params` structs in declared order (`v2/params.rs`), which is the order of Node's `resource-mcp-api.mjs`.
+// Rust `Mcp*Params` structs in declared order (`v2/params.rs`).
 const SERVER = { name: 'x', url: 'http://127.0.0.1:9/mcp' };
 const CONFIG = { type: 'http', url: 'http://127.0.0.1:9/mcp' };
 const LOGIN = { openBrowser: false };
@@ -619,8 +619,8 @@ test('reads are answered together, in order, from the control session whatever s
       { method: 'skills/skillsStatus', params: { threadId: 'control-1', options: { cwd: '/w' } } },
     ].sort(byMethod)
   );
-  // Node's readCapabilities never reads a request's sessionId, and a read reads no state; only the MCP read is addressed
-  // to the control thread (as Node's MCP carrier does), which it starts once.
+  // readCapabilities never reads a request's sessionId, and a read reads no state; only the MCP read is addressed
+  // to the control thread, which it starts once.
   assert.deepEqual(
     all.filter((call) => call.method === 'thread/start'),
     [{ method: 'thread/start', params: { kind: 'control' } }]
@@ -653,11 +653,11 @@ test('a domain error of the core reaches the window as the error Node raised', a
   });
 });
 
-test('the service client sends capabilities to its lane and never to the Node service', async () => {
+test('the service client sends capabilities to its lane and never to a local service', async () => {
   const { calls, lane } = recordingLane();
   const client = new DesktopServiceClient({
     connect() {
-      throw new Error('the Node service must not be reached');
+      throw new Error('a local service must not be reached');
     },
     sessionOptions: () => ({}),
     capabilityLane: lane,
@@ -756,7 +756,7 @@ test('the queue, review and model actions send the exact op and params of deskto
   });
 });
 
-test('setEffort, setToolMode and setModel answer as the Node session-api wrapper does, not with the core route reply', async () => {
+test('setEffort, setToolMode and setModel answer the effort, nothing and true, not the core route reply', async () => {
   const value = async (capability, args, reply) => {
     const { lane } = recordingLane(async () => reply);
     return (await lane.invoke(capability, args, 'pane-1')).value;
@@ -791,7 +791,7 @@ function renameClient(returned) {
   });
   const client = new DesktopServiceClient({
     connect() {
-      throw new Error('the Node service must not be reached');
+      throw new Error('a local service must not be reached');
     },
     sessionOptions: () => ({}),
     capabilityLane: lane,
@@ -846,11 +846,10 @@ test('renameSession keeps the host check for the session id before the title', a
   assert.deepEqual(all, []);
 });
 
-// Node's `forwardedArgs` (session-host-lifecycle.ts) resolved a project path before the call: `skillsStatus({ projectPath })`
-// to `{ cwd }`, and the five session-less project-branch capabilities to the registered Project. On a core connection the
-// host sends the renderer's arguments as they are and the core resolves them: `skills/skillsStatus` reads `options.projectPath`
-// (skills_service.rs `requested_cwd`, folder from `SessionProjectWorkspaces`) and `project/*Branch*` read `input.projectPath`
-// (project/service.rs `registered_project`). This pins what reaches the core for every capability Node's host rewrote.
+// On a core connection the host sends the renderer's arguments as they are and the core resolves a project path itself:
+// `skills/skillsStatus` reads `options.projectPath` (skills_service.rs `requested_cwd`, folder from
+// `SessionProjectWorkspaces`) and the five session-less `project/*Branch*` capabilities read `input.projectPath`
+// (project/service.rs `registered_project`). This pins what reaches the core for each of them.
 test('a draft skillsStatus names its Project in options, never a folder, and a session call still addresses its thread', async () => {
   const { calls, lane } = recordingLane(async () => ({ cwd: '/resolved' }));
   await lane.invoke('skillsStatus', [{ projectPath: 'C:\\work\\app' }]);
@@ -913,9 +912,9 @@ test('the project-branch capabilities Node resolved through the registry send th
   }
 });
 
-// `inheritFrom` of a source session the core does not have: the core answers `threadNotFound`, the window shows what Node's own
-// `inheritFrom` threw (recorded from Node b6f10295a over an empty heir and a manager that holds no session).
-test('inheritFrom of a missing session is refused with the text Node throws', async () => {
+// `inheritFrom` of a source session the core does not have: the core answers `threadNotFound`, the window shows the
+// lane's own refusal text.
+test('inheritFrom of a missing session is refused with the lane text', async () => {
   const thrown = 'inheritFrom: session src-1 was not found';
   const missing = Object.assign(new Error('rpc'), {
     detail: { kind: 'rpc', code: -32600, data: { reason: 'threadNotFound', threadId: 'src-1' } },
@@ -960,9 +959,8 @@ test('rewindToItem returns null for a missing item or a busy session, but propag
   );
 });
 
-// A call naming a session the core does not have: Node's daemon answered its session action with its own text
-// (`session-action.mjs`), recorded for the phone's reads in apps/mobile/fixtures/phone-worktree.
-test('a call naming a session the core does not have is refused with the text Node answered', async () => {
+// A call naming a session the core does not have is refused with the lane's own text.
+test('a call naming a session the core does not have is refused with the lane text', async () => {
   const missing = wireRefusal('threadNotFound', { threadId: 'sess_gone' });
   const { lane } = recordingLane(async () => {
     throw missing;
@@ -1014,7 +1012,7 @@ test('getQuotaAutoResume finds its own config subtree and is on unless it is exp
 // `resolveToolApprovalForSession` has no request op: the card's `id` is the id of the `item/*` server request the core asked
 // (the lane's own projection shows it as a string), and the decision goes to `thread/approval/answer` for the request's own
 // thread, without `device` (the core stamps the answering connection's device: `ToolApprovalDecision`). The card is told the
-// core's `accepted`: false when another decision resolved the request first (Node's serialized answer).
+// core's `accepted`: false when another decision resolved the request first.
 test("resolveToolApproval answers the server request the card shows with the core's acceptance, and false for an id the core no longer asks", async () => {
   const { emit, lane, calls } = recordingLane(async (_method, params) => ({ accepted: params.approvalId === '7' }));
   const ask = (id, thread, surface) => ({
@@ -1205,9 +1203,8 @@ test('an approval held under another surface, or not held at all, is refused wit
   assert.equal(calls[0].params.threadId, 'sub-1');
 });
 
-// Node's recorded sign-in (`fixtures/mcp-oauth-control-session-cases/golden.json`) replaced its control session after a failed call and
-// sent a failed read once more on the new one. The core's control thread is the client's (held, resumed after a redial, never named
-// once lost), so a failed call is only that call's failure: the same thread serves the next call and nothing is sent twice.
+// The core's control thread is the client's (held, resumed after a redial, never named once lost), so a failed call is
+// only that call's failure: the same thread serves the next call and nothing is sent twice.
 test("a failed control call is that call's failure, and the next call uses the same control thread", async () => {
   let next = 0;
   const { calls, world, lane } = recordingLane(async (method) => {

@@ -150,7 +150,7 @@ test('a core that does not leave within the wait is recorded as not exited, with
 
 test('the in-tree daemon stop wait stays bounded: a measured healthy shutdown is ~0.6 s', () => {
   assert.ok(DESKTOP_DAEMON_STOP_TIMEOUT_MS >= 1_000 && DESKTOP_DAEMON_STOP_TIMEOUT_MS <= 5_000);
-  // The one contract with the core: Node's launcher wait, from which the core derives its database fallback point (5000 - 800 = 4200 ms).
+  // The one contract with the core: the launcher's wait, from which the core derives its database fallback point (5000 - 800 = 4200 ms).
   assert.equal(DESKTOP_DAEMON_STOP_TIMEOUT_MS, IN_TREE_DAEMON_STOP_GRACE_MS);
   assert.equal(PG_FORCED_STOP_AT_MS, 4_200);
 });

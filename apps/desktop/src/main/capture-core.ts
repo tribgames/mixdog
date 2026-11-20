@@ -4,8 +4,8 @@
 // CorePortRelay a main window uses. Nothing here reads or writes the person's own profile: every location the core
 // reads is one of the profile's folders.
 //
-// PARITY (what the capture host served, and what serves it now)
-//   what the old capture host answered            now provided by
+// What serves each call the window makes
+//   call                                           served by
 //   listSessions / listProjects / listAgentPool    the core (empty profile; a new task is a real thread)
 //   getSnapshot / subscribe* / setVisibleSessions  the core over the window's port (core-direct sessions)
 //   submitNewTask / startTask / abortSession       the core: thread/start, turn/start on the scripted endpoint
@@ -19,15 +19,12 @@
 //   publishProbeSnapshot (tool showcase)           a real turn on the scripted endpoint (captureShowcaseAnswers)
 //   transcribeAudio / voice status                 the core's voice runtime: present only where one is installed
 //   prepareJitter* / publishProbeSnapshot (probe)  none: see capture-window.ts (the probe has no seam on a core)
-//   every other answer was an empty value or a refusal ("unavailable in UI capture") and is now whatever the core
-//   answers from its empty profile.
+//   every other call is whatever the core answers from its empty profile.
 //
-// DECISION (reused submission id): the old capture host was a fake that answered submitNewTask itself, without the
-// receipt gate, so a screenshot script could submit twice under one clientSubmissionId and get two tasks. The capture
-// window now runs the real core, and the receipt gate (mixdog-core-session new_task.rs) is the product's own
-// behaviour: a request that arrives twice under one id starts one task, and other content under the id is refused.
-// That fake-host leniency is not carried over: it was a property of a test double, the capture scripts submit with a
-// fresh id each time, and a second gate in the capture profile would be the fork the owner forbids.
+// DECISION (reused submission id): the capture window runs the real core, so the receipt gate (mixdog-core-session
+// new_task.rs) is the product's own behaviour: a request that arrives twice under one clientSubmissionId starts one
+// task, and other content under the id is refused. The capture scripts submit with a fresh id each time, and a second
+// gate in the capture profile would be a fork of the product's.
 //
 // assertions (capture-assertions.ts): readDesktopAssertions, readLightThemeAssertions, readMobileClosedAssertions,
 // readMobileOpenAssertions, readModalStackAssertions, readPhoneSettingsAssertions and readSettingsPlacement read the

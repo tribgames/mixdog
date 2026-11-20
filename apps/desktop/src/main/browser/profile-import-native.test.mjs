@@ -1,4 +1,4 @@
-// The Node side of the Chrome import envelope: readEncryptedChildJson spawns the
+// The main-process side of the Chrome import envelope: readEncryptedChildJson spawns the
 // importer, sends a one-time AES-256 key on stdin, and decrypts the AES-256-GCM
 // envelope the child prints. These suites drive it against a tiny fake child that
 // speaks the same protocol (reads the base64 key, prints an envelope), so the

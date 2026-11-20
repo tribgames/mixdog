@@ -1,5 +1,5 @@
 {
-  "note": "Classification parity corpus of the Browser Use approval: which steps ask, and as which kinds, for the same commands as action-approval.ts. Expectations were recorded from createBrowserActionApproval. A command with upload:true stands for an upload of one real file; paymentEvidence is what the page probe answers (read only for a step that submits or posts). The TypeScript test (action-approval.test.mjs) and the Rust test (mixdog-browser-engine approval::classify) read this file.",
+  "note": "Classification corpus of the Browser Use approval: which steps ask, and as which kinds, for commands classified by action-approval.ts (createBrowserActionApproval). A command with upload:true stands for an upload of one real file; paymentEvidence is what the page probe answers (read only for a step that submits or posts). The TypeScript test (action-approval.test.mjs) and the Rust test (mixdog-browser-engine approval::classify) read this file.",
   "cases": [
     {
       "name": "a plain read asks nothing",

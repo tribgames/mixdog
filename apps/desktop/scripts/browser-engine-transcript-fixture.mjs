@@ -5,7 +5,7 @@
 //
 //   node apps/desktop/scripts/browser-engine-transcript-fixture.mjs <engine-pid.jsonl> <browser-engine-transcript.jsonl>
 //
-// The recording comes from a run of the golden twin on the core harness (`--engine core`, every step the same as the corpus): the
+// The recording comes from a run of the golden corpus script (golden-twin.integration.ts) on the core harness (`--engine core`, every step the same as the corpus): the
 // session the harness used is named as the replay's thread; each call keeps the time its answer was given (`t`).
 import { readFileSync, writeFileSync } from 'node:fs';
 

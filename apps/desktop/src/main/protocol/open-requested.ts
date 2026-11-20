@@ -21,7 +21,7 @@ export interface OpenRequestedTargets {
   terminal(request: OpenOf<'terminal'>): void;
   /** The visualize open: to the main window as `DESKTOP_IPC.visualizeChanged`. */
   visualize(event: OpenOf<'visualize'>): void;
-  /** Node's `watchNewTab`: resolves with the page id of the tab the pane made for `requestId`, else null. */
+  /** Watches for a new tab: resolves with the page id of the tab the pane made for `requestId`, else null. */
   watchNewTab(sessionId: string, requestId: string): { page: Promise<string | null> } | undefined;
   /** A client notification to the core. */
   notify(method: typeof UI_NEW_TAB_CREATED, params: UiNewTabCreatedParams): void;

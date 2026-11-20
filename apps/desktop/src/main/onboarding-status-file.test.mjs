@@ -23,8 +23,8 @@ test('missing config answers onboarding status without starting the engine', asy
   }
 });
 
-// The config Node b6f10295a left on disk after `skipOnboarding()` and two `saveStarterGuideState` calls (recorded by running
-// settings-profile-api.mjs over an empty data directory); the guide merges `visited` across saves and keeps the first `closed`/`welcomed`.
+// The config left on disk after `skipOnboarding()` and two `saveStarterGuideState` calls over an empty data directory;
+// the guide merges `visited` across saves and keeps the first `closed`/`welcomed`.
 const NODE_SAVED_CONFIG = {
   agent: {
     onboarding: {

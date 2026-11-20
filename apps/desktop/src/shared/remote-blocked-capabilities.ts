@@ -21,8 +21,8 @@ export function isAllowAllActionsEnable(capability: string, args: readonly unkno
   return capability === 'setDeveloperOption' && args[0] === 'allowAllActions' && args[1] === true;
 }
 
-/** The argument-sensitive refusals Node's host made of a remote client's capability call before it ran it
- *  (`assertRemoteCapabilityCall`, remote-methods.ts at v1.4.5): a standing allow is never created from a phone, and "Allow all actions"
+/** The argument-sensitive refusals of a remote client's capability call before it runs:
+ *  a standing allow is never created from a phone, and "Allow all actions"
  *  is only turned on at this PC (any other permission mode, and turning the option off, stay allowed). The core refuses the same
  *  calls to a relay connection (mixdog-core-agents agents/service.rs, mixdog-core-config config/service.rs); this is the page's
  *  answer without a round trip. */

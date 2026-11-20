@@ -62,11 +62,7 @@ export function streamingTailWithPartial(state: LiveRowState): DesktopTranscript
 
 /** The text `after` appends to `before` when both are the same unfinished
  *  line (same row, offset and row identity), else null — the wire then sends
- *  the whole partial. Wire contract shared with streamingPartialSuffix in
- *  src/standalone/session-state-patch.mjs (the daemon hop; that module needs
- *  node:crypto and cannot load in the renderer): the two must agree on every
- *  input, which the parity test in main/remote-streaming-mailbox.test.mjs
- *  pins. Change both together. */
+ *  the whole partial. Pinned by shared/streaming-partial-replay.test.mjs. */
 export function streamingPartialSuffix(before: unknown, after: unknown): string | null {
   const left = record(before);
   const right = record(after);

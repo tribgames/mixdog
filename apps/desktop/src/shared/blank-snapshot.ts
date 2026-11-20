@@ -1,6 +1,5 @@
-// The three start calls (`startTask`, `startProject`, `startProjectTask`) create no thread: they answer Node's blank snapshot, the
-// folder the next task starts in (session-host-lifecycle.ts blankSnapshot/startProject/startProjectTask), composed from the
-// core's project methods. The desktop's service lane and the phone's chat adapter both compose it here, so there is one copy.
+// The three start calls (`startTask`, `startProject`, `startProjectTask`) create no thread: they answer a blank snapshot, the
+// folder the next task starts in, composed from the core's project methods. The desktop's service lane and the phone's chat adapter both compose it here, so there is one copy.
 // No Node imports: the phone's web build includes this file.
 import type { SessionSnapshot } from './contract';
 
@@ -27,7 +26,7 @@ export function withRemoteSession<T>(snapshot: T, remoteSessionId: string): T {
   return { ...snapshot, remoteEnabled: Boolean(remoteSessionId), remoteSessionId: remoteSessionId || null };
 }
 
-/** Node's `blankSnapshot`: no session yet, the folder the next task starts in. */
+/** The blank snapshot: no session yet, the folder the next task starts in. */
 export function blankSnapshot(cwd: string, projectPath: string | null, remoteSessionId: string): SessionSnapshot {
   return withRemoteSession(
     {
@@ -47,8 +46,8 @@ export function blankSnapshot(cwd: string, projectPath: string | null, remoteSes
 const reasonOf = (error: unknown): unknown =>
   (error as { detail?: { data?: { reason?: unknown } } } | null)?.detail?.data?.reason;
 
-/** The error Node's `canonicalDirectory` / `knownProject` threw, from the core's coded failure (project/create, directory, touch):
- *  `pathMissing` carries the path `realpath` named, `notADirectory` Node's text, a refused (unregistered) Project is the
+/** The error a start call throws for the core's coded failure (project/create, directory, touch):
+ *  `pathMissing` becomes an ENOENT carrying the path `realpath` named, `notADirectory` a TypeError with the core's text, a refused (unregistered) Project is the
  *  core's `permissionDenied`. Any other failure is returned as it came. */
 export function nodeStartError(error: unknown): unknown {
   const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
@@ -64,7 +63,7 @@ export function nodeStartError(error: unknown): unknown {
   return error;
 }
 
-/** The folder a start call begins in, and the Project it names (null for a task), in Node's order: the folder is resolved
+/** The folder a start call begins in, and the Project it names (null for a task): the folder is resolved
  *  first, then the Project is registered (`startProject`) and marked used. A touch that fails changes nothing for the caller. */
 export async function startFolder(
   send: StartSend,

@@ -1,5 +1,5 @@
-// setNotificationPreferences end to end against Node: the lane's answer must equal what Node's own notification center
-// answered for the same stored state, devices and patch. Needs the notificationPreferencesState section read of
+// setNotificationPreferences end to end against the desktop's own notification center: the lane's answer must equal what the
+// center answers for the same stored state, devices and patch. Needs the notificationPreferencesState section read of
 // desktop-ops-new-a (the lane asks it for the state after the write).
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync } from 'node:fs';
@@ -13,7 +13,7 @@ import { createOperationLane } from './desktop-operation-route.ts';
 import { migratedAtOf } from './section-reads.ts';
 
 const NOW = 5_000;
-// Paired devices as Node lists them (DesktopRemoteClientInfo) and as the core's `remote` section carries them
+// Paired devices as the notification center lists them (DesktopRemoteClientInfo) and as the core's `remote` section carries them
 // (mixdog-remote ClientInfo: the same fields, camelCase).
 const clients = [
   {
@@ -72,21 +72,21 @@ const document = (file) => {
   return rest;
 };
 
-test('setNotificationPreferences answers the notification state Node answered for the same write', async () => {
+test('setNotificationPreferences answers the notification state the center answers for the same write', async () => {
   const dir = () => mkdtempSync(join(tmpdir(), 'notification-lane-'));
   for (const [deviceId, patch] of [
     ['phone', { events: { error: false }, quietHours: { enabled: true, start: '22:00', end: '07:00' } }],
     ['older', { scope: 'off' }],
     ['pc', { taskbarFlash: false }],
   ]) {
-    // Node: the write, then the state, on a store that starts like the lane's.
+    // The center: the write, then the state, on a store that starts like the lane's.
     const node = nodeCenter(dir());
     await node.store.ready();
     const initial = document(node.file);
     const expected = await node.center.setPreferences('pc', true, deviceId, patch);
 
-    // The core's document after the same write (its merge is the Rust test's subject): Node's, taken before it
-    // read the state back, so defaults Node writes for other devices on reading are not in it.
+    // The core's document after the same write (its merge is the Rust test's subject): the center's, taken before it
+    // read the state back, so defaults the center writes for other devices on reading are not in it.
     const written = nodeCenter(dir());
     await written.store.ready();
     const info = deviceId === 'pc' ? { kind: 'pc' } : undefined;
@@ -126,7 +126,7 @@ test('setNotificationPreferences answers the notification state Node answered fo
   }
 });
 
-test('setNotificationPreferences for a device that is not paired is refused as Node refused it, and writes nothing', async () => {
+test('setNotificationPreferences for a device that is not paired is refused by the lane as by the center, and writes nothing', async () => {
   const node = nodeCenter(mkdtempSync(join(tmpdir(), 'notification-lane-')));
   await assert.rejects(
     node.center.setPreferences('pc', true, 'stranger', {}),
@@ -155,8 +155,8 @@ test('setNotificationPreferences for a device that is not paired is refused as N
   assert.deepEqual(calls, []);
 });
 
-// Node's store, with no document, writes one stamped now on its first load (notification-preferences.ts:228); a document
-// whose `migratedAt` is missing or not a safe integer reads 0 (:120).
+// The store, with no document, writes one stamped now on its first load; a document
+// whose `migratedAt` is missing or not a safe integer reads 0.
 test('migratedAtOf: no document is now, a document without a valid stamp is 0, a stamp is itself', () => {
   assert.equal(migratedAtOf(undefined, 777), 777);
   assert.equal(migratedAtOf({ devices: {} }, 777), 0);

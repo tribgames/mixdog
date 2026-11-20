@@ -1,5 +1,5 @@
-// The argument checks Node's remote methods ran on the Files and editor calls before they reached the desktop (ipc-validation.ts,
-// host-directories.ts at b6f10295a), with the same error texts. The phone's adapter makes them before it sends a protocol request.
+// The argument checks of the remote Files and editor calls before they reach the desktop (ipc-validation.ts), with the
+// same error texts. The phone's adapter makes them before it sends a protocol request.
 import { DESKTOP_LSP_REQUEST_METHODS } from './contract-workspace';
 import { requiredString } from './remote-arguments';
 

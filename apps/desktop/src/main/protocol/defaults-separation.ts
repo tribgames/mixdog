@@ -1,5 +1,5 @@
 // The core reports how its one-time `desktop` defaults separation ended in the `initialize` reply (`defaultsSeparation`); a failure
-// is handed on to be recorded in the desktop's diagnostics log as Node's app-ready catch recorded it (main/boot-timeline.ts), and never\n// stops the desktop.
+// is handed on to be recorded in the desktop's diagnostics log (main/boot-timeline.ts), and never stops the desktop.
 import type { InitializeResponse } from '../../../../../packages/protocol/src/index';
 
 export function reportDefaultsSeparation(
