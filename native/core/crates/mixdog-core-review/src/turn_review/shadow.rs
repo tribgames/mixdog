@@ -10,7 +10,6 @@
 // Every std::fs call is behind `ReviewDisk`; the only sync probes are Node's `*Sync` ones.
 #![allow(clippy::disallowed_methods, reason = "Node's canonicalPath is synchronous")]
 
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
@@ -1356,10 +1355,4 @@ pub(super) fn pending_content(before: &ReviewContent) -> (Option<Vec<u8>>, Optio
         ReviewContent::Bytes(bytes) => (None, Some(bytes.len() as u64)),
         ReviewContent::Omitted { size, .. } => (None, Some(*size)),
     }
-}
-
-/// The root states by key, for tests of the cleanup.
-#[allow(dead_code)]
-pub(super) fn state_keys(repos: &ShadowRepos) -> HashMap<String, PathBuf> {
-    repos.shared.states.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(k, v)| (k.clone(), v.git_dir.clone())).collect()
 }

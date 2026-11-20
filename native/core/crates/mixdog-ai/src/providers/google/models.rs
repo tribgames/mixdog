@@ -64,9 +64,7 @@ fn count(value: &Value) -> Option<u64> {
 
 use mixdog_js::json_number as number;
 
-// ---------------------------------------------------------------------------
 // Gemini API
-// ---------------------------------------------------------------------------
 
 /// One page of `GET /v1beta/models` (`fetchGeminiModelPages`); the key rides
 /// in the credential header the adapter adds.
@@ -218,9 +216,7 @@ pub fn gemini_records(models: &[Value]) -> Vec<ModelRecord> {
     rows.iter().map(GeminiRow::record).collect()
 }
 
-// ---------------------------------------------------------------------------
 // Vertex AI
-// ---------------------------------------------------------------------------
 
 /// `VERTEX_MODELS` (`vertex-ai-models.mjs`): id, name, context window, Claude
 /// family. The open models are the ids with a `publisher/` prefix; their
@@ -407,9 +403,7 @@ fn vertex_record(id: &str, name: &str, context_window: Option<u64>, family: Opti
     record
 }
 
-// ---------------------------------------------------------------------------
 // Antigravity
-// ---------------------------------------------------------------------------
 
 /// `fetchAvailableModels`: the daily host's catalog of the account's project.
 pub fn antigravity_request(origin: &str, project: &str, client_version: &str) -> WireRequest {

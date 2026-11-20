@@ -113,7 +113,7 @@ async fn a_lookup_that_is_never_answered_ends_after_six_and_a_half_seconds() {
     assert_eq!((seen[0].text.as_str(), error.message.as_str()), ("This operation was aborted", "This operation was aborted"));
 }
 
-// ---- the lookups over a scripted network ------------------------------------------------------------------------
+// the lookups over a scripted network
 
 const DEEPSEEK_URL: &str = "https://api.deepseek.com/user/balance";
 const BALANCE: &str = r#"{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"1.00"},{"currency":"USD","total_balance":"12.34567"}]}"#;

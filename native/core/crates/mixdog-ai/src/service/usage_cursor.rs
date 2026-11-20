@@ -40,7 +40,7 @@ pub const PLAN_PATH: &str = "/aiserver.v1.DashboardService/GetPlanInfo";
 /// Node's `AUTO_POOL_MODELS`: Auto under both of its ids and the Composer family.
 const AUTO_POOL_MODELS: [&str; 3] = ["auto", "default", "composer"];
 
-// -- Node's protobuf codec, as the usage messages use it ---------------------------------
+// Node's protobuf codec, as the usage messages use it
 
 #[derive(Clone, Copy)]
 enum Ty {
@@ -209,7 +209,7 @@ fn decode_message(all: &[u8], start: usize, end: usize, schema: &'static [(u128,
     Ok(out)
 }
 
-// -- normalizeCursorUsage -------------------------------------------------------------------
+// normalizeCursorUsage
 
 fn truthy(value: Option<&Value>) -> bool {
     match value {
@@ -375,7 +375,7 @@ pub fn normalize_cursor_usage(usage: &Map<String, Value>, plan_response: &Map<St
     Value::Object(out)
 }
 
-// -- the two calls ---------------------------------------------------------------------------
+// the two calls
 
 /// Cursor's plan usage over the dashboard service.
 pub struct CursorUsage {

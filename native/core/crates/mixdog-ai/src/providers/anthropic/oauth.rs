@@ -221,9 +221,7 @@ fn auth_error(message: &str, reauth_required: bool) -> ProviderError {
     err
 }
 
-// ---------------------------------------------------------------------------
 // Token endpoint
-// ---------------------------------------------------------------------------
 
 fn token_request(url: &str, body: Value, cli_version: &str) -> WireRequest {
     WireRequest {
@@ -455,9 +453,7 @@ async fn token_call(
     apply_token_response(previous, &parsed, now, flow).map_err(TokenFailure::Failed)
 }
 
-// ---------------------------------------------------------------------------
 // Session
-// ---------------------------------------------------------------------------
 
 /// What one refresh needs, cloneable into the shared flight.
 #[derive(Clone)]
@@ -634,9 +630,7 @@ impl OAuthSession {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Login
-// ---------------------------------------------------------------------------
 
 /// The provider side of the shared PKCE login: the authorize URL and the code
 /// exchange that writes the credential. Run it with

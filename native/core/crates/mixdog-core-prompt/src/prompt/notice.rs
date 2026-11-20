@@ -83,8 +83,6 @@ impl OwnedSections {
     }
 }
 
-// ---- section parsing ----------------------------------------------------------------------------
-
 type Ordered = Vec<(String, String)>;
 
 /// A `Map` set: a key set again keeps its place.
@@ -216,8 +214,6 @@ fn line_diff(before: &str, after: &str, max: usize) -> String {
     out.join("\n")
 }
 
-// ---- records ---------------------------------------------------------------------------------------
-
 /// A section a record predates counts as unchanged.
 fn changed_keys(from: &Value, to: &Value) -> Vec<String> {
     SECTIONS
@@ -238,8 +234,6 @@ fn told_text<'a>(told: &'a Map<String, Value>, key: &str) -> &'a str {
 fn told_skills(told: &Map<String, Value>) -> Vec<String> {
     told.get("skills").and_then(Value::as_array).map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default()
 }
-
-// ---- the notice builder ------------------------------------------------------------------------------
 
 fn language_section(sections: &OwnedSections) -> String {
     match sections.response_language.get("name").filter(|name| !name.is_null() && name.as_str() != Some("")) {
@@ -621,8 +615,6 @@ fn build_notice(keys: &[String], sections: &OwnedSections, told: &Map<String, Va
 pub fn notice_content(keys: &[String], sections: &OwnedSections, told: &Map<String, Value>) -> String {
     build_notice(keys, sections, told, false).content
 }
-
-// ---- staging --------------------------------------------------------------------------------------------
 
 /// What the model was last told: an acknowledged notice, else its prompt; a staged working-folder change tells its own
 /// instruction files and core memory (workspace notice), so they count as told.

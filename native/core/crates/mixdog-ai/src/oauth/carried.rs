@@ -82,9 +82,7 @@ pub const CARRIED_CAP: usize = 4_096;
 /// The fingerprint of a form: its first this many bytes (a shorter form is indexed whole).
 const PRINT: usize = 8;
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Provenance
-// ---------------------------------------------------------------------------------------------------------------------
 
 /// A credential an exchange carries, each once.
 fn add(out: &mut Vec<String>, value: &str) {
@@ -213,9 +211,7 @@ pub fn attach_upgrade(uri: &str, headers: &[(String, String)]) -> Lease {
     Lease::of(&REGISTRY, &of_upgrade(uri, headers))
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // The canonical view
-// ---------------------------------------------------------------------------------------------------------------------
 
 /// The source bytes `[start, end)` one byte of a view came from.
 type Span = (usize, usize);
@@ -510,9 +506,7 @@ fn canonical(source: &[u8], context: Context, last: bool) -> (Layer, Vec<usize>,
     (layer, ends, hold)
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // The forms and their index
-// ---------------------------------------------------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {
@@ -640,9 +634,7 @@ fn mix(mut word: u64) -> u64 {
     word ^ (word >> 31)
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // The persistent trie
-// ---------------------------------------------------------------------------------------------------------------------
 
 /// The bits of a key level `depth` of a [`Trie`] takes, highest first: six a level, the last (60 taken) the four left.
 fn width(depth: u32) -> u32 {
@@ -868,9 +860,7 @@ impl<V: Clone> Trie<V> {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // The index
-// ---------------------------------------------------------------------------------------------------------------------
 
 #[cfg(test)]
 thread_local! {
@@ -1164,9 +1154,7 @@ impl Index {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // The matcher
-// ---------------------------------------------------------------------------------------------------------------------
 
 /// What the text handed on before the text being read ended with, in the view: its last byte (the left side of a whole
 /// token) and the length of the base64 run it ended in (a wrapped line that continues).
@@ -1277,9 +1265,7 @@ impl Matcher {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // The registry
-// ---------------------------------------------------------------------------------------------------------------------
 
 /// The line a value nothing holds waits in to be forgotten.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

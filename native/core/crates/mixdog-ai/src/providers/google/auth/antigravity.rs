@@ -142,9 +142,7 @@ impl RequestAuth for AntigravityAuth {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Login-side requests
-// ---------------------------------------------------------------------------
 
 pub fn authorize_url(state: &str, code_challenge: &str, redirect_uri: &str) -> String {
     let mut url = url::Url::parse(AUTH_URL).expect("constant url");
@@ -443,9 +441,7 @@ mod tests {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Stored credentials
-// ---------------------------------------------------------------------------
 
 /// `antigravity-oauth.json`: the file keeps today's names and schema.
 #[derive(Clone, Debug, PartialEq, Eq)]

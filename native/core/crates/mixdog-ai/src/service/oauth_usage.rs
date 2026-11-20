@@ -198,7 +198,7 @@ pub struct OAuthUsage {
     cursor_resolve: tokio::sync::Semaphore,
 }
 
-// -- keys and freshness ---------------------------------------------------------------
+// keys and freshness
 
 /// The snapshot field naming the sign-in a reading was measured under.
 const CREDENTIAL_STAMP: &str = "credentialStamp";
@@ -308,7 +308,7 @@ fn newest_provider_snapshot<'a>(entries: impl Iterator<Item = (&'a String, &'a V
     best
 }
 
-// -- disk cache -----------------------------------------------------------------------
+// disk cache
 
 // The file functions below are the bodies of lane jobs (`CredentialIo`): reads run on the
 // interactive lane, the locked read-modify-write on the durability lane.
@@ -582,7 +582,7 @@ impl OAuthUsage {
         let _ = self.update_disk_cache(move |routes| routes.retain(|k, _| !owned(k))).await;
     }
 
-    // -- Codex ------------------------------------------------------------------------
+    // Codex
 
     async fn codex_auth(&self, account_id: &str, force_refresh: bool) -> Result<Option<CodexAuth>, UsageError> {
         let auth = self.deps.source.ensure_auth("openai-oauth", account_id, force_refresh).await?;
@@ -671,7 +671,7 @@ impl OAuthUsage {
         Ok(Some(usage))
     }
 
-    // -- Anthropic -----------------------------------------------------------------------
+    // Anthropic
 
     async fn fetch_anthropic_usage(&self, account_id: &str, force_refresh: bool) -> Result<Option<Value>, UsageError> {
         let auth = self.deps.source.ensure_auth("anthropic-oauth", account_id, force_refresh).await?;
@@ -694,7 +694,7 @@ impl OAuthUsage {
         Ok(Some(usage))
     }
 
-    // -- Grok ------------------------------------------------------------------------------
+    // Grok
 
     fn grok_headers(token: &str, user_id: &str, extra: Vec<(String, String)>) -> Vec<(String, String)> {
         let mut h = vec![
@@ -778,7 +778,7 @@ impl OAuthUsage {
         Ok(self.probe_grok_generic(&generic, route).await)
     }
 
-    // -- measurement -------------------------------------------------------------------------
+    // measurement
 
     async fn measure_usage(&self, route: &RouteInfo, force_refresh: bool) -> Result<Option<Value>, UsageError> {
         let provider = provider_key(route);

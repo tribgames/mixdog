@@ -96,9 +96,7 @@ fn block_type(block: &Value) -> Option<&str> {
     block.get("type").and_then(Value::as_str)
 }
 
-// ---------------------------------------------------------------------------
 // Tool-call ids at the wire
-// ---------------------------------------------------------------------------
 
 /// id → wire id for every id Anthropic would refuse. A valid id passes
 /// unchanged; a call and its result always map to the same stand-in.
@@ -113,9 +111,7 @@ fn wire_id_map(messages: &[Message]) -> HashMap<String, String> {
     tool_call_ids::wire_id_map(ids, ANTHROPIC_IDS)
 }
 
-// ---------------------------------------------------------------------------
 // Content parts
-// ---------------------------------------------------------------------------
 
 fn data_url_parts(url: &str) -> Option<(&str, &str)> {
     let rest = url.strip_prefix("data:")?;
@@ -223,9 +219,7 @@ fn wire_to_json(content: WireContent) -> Value {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Tool results
-// ---------------------------------------------------------------------------
 
 /// An `is_error` tool result may hold only text: media is hoisted out as
 /// sibling blocks of the same user message.
@@ -285,9 +279,7 @@ fn tool_result_content(message: &Message, references: &[String], available: &Has
     }
 }
 
-// ---------------------------------------------------------------------------
 // Folding of user text into the trailing tool result
-// ---------------------------------------------------------------------------
 
 /// `true` when the text was folded (the caller must not push the message).
 fn fold_user_text_into_tool_result_tail(result: &mut [WireMessage], content: &WireContent) -> bool {
@@ -368,9 +360,7 @@ fn sibling_blocks(content: WireContent) -> Vec<Value> {
     blocks.into_iter().filter(|b| !(block_type(b) == Some("text") && b.get("text").and_then(Value::as_str).is_some_and(is_blank))).collect()
 }
 
-// ---------------------------------------------------------------------------
 // Lowering
-// ---------------------------------------------------------------------------
 
 pub(crate) struct LowerContext<'a> {
     /// Owner of the replay envelopes this wire reads.
@@ -508,9 +498,7 @@ fn assistant_blocks(message: &Message, cx: &LowerContext<'_>, wire_id: &dyn Fn(&
     Some(blocks)
 }
 
-// ---------------------------------------------------------------------------
 // Tool-pair repair (final)
-// ---------------------------------------------------------------------------
 
 fn strip_orphan_tool_results(message: &mut WireMessage, allowed: &HashSet<String>) {
     let Some(blocks) = message.user_blocks_mut() else {

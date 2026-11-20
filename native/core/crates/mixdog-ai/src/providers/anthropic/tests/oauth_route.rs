@@ -107,9 +107,7 @@ async fn a_learned_cli_minimum_updates_the_messages_replay_listing_and_token_exc
     );
 }
 
-// ---------------------------------------------------------------------------
 // Requests
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn the_subscription_listing_is_one_get_on_anthropics_origin_with_the_cli_identity_and_the_bearer_token() {
@@ -195,9 +193,7 @@ async fn an_error_event_after_text_ends_the_subscription_stream_with_its_typed_e
     assert_eq!(http.sent().len(), 1, "one attempt replays nothing on its own");
 }
 
-// ---------------------------------------------------------------------------
 // Refusals
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn a_transient_refusal_is_worded_by_its_status_alone_and_another_one_carries_the_scrubbed_body() {
@@ -213,9 +209,7 @@ async fn a_transient_refusal_is_worded_by_its_status_alone_and_another_one_carri
     assert_eq!(http.sent().len(), 1);
 }
 
-// ---------------------------------------------------------------------------
 // A refused floor feature and a refused fast request on the subscription route
-// ---------------------------------------------------------------------------
 
 fn display_caps() -> ModelCaps {
     ModelCaps {
@@ -293,9 +287,7 @@ async fn a_fast_request_the_pool_refuses_is_replayed_at_standard_speed_on_the_su
     assert!(!fast.available(crate::providers::anthropic::fast_mode::now_ms()));
 }
 
-// ---------------------------------------------------------------------------
 // Timers and a failed listing
-// ---------------------------------------------------------------------------
 
 struct TimedOut;
 

@@ -97,9 +97,7 @@ fn entries<'a>(stored: Option<&'a Value>, key: &str) -> impl Iterator<Item = (&'
     stored.and_then(|s| s.get(key)).and_then(Value::as_object).into_iter().flat_map(Map::iter)
 }
 
-// ---------------------------------------------------------------------------------------------
 // The touch store
-// ---------------------------------------------------------------------------------------------
 
 /// The last confirmed touch of a session's cached prefix: when a call whose usage showed a read or
 /// write on it was sent, the tier it wrote, the account that holds it and the prompt size.
@@ -274,9 +272,7 @@ impl TouchStore {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // The idle-gap store
-// ---------------------------------------------------------------------------------------------
 
 #[derive(Default)]
 struct Entry {

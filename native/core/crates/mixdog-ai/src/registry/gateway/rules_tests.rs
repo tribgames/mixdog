@@ -37,7 +37,7 @@ fn refusal(status: u16, body: Value) -> Refusal {
     Refusal { status, headers: Vec::new(), body }
 }
 
-// ---- which refusals reroute ----------------------------------------------------------------------------------------------
+// which refusals reroute
 
 #[test]
 fn a_refusal_naming_the_endpoint_as_unsupported_means_the_model_is_not_served_on_this_wire() {
@@ -88,7 +88,7 @@ fn a_failure_that_showed_output_or_needs_a_new_sign_in_or_left_no_refusal_never_
     assert!(!wire_unsupported(&quota, Some(&refusal(405, Value::Null))));
 }
 
-// ---- lowering the history -----------------------------------------------------------------------------------------------
+// lowering the history
 
 fn assistant(account: &str) -> Message {
     let mut message = Message::new(Role::Assistant, Content::Text("a".into()));
@@ -123,7 +123,7 @@ fn a_reroute_sends_the_first_assistant_turns_without_their_wire_native_state() {
     assert!(request.messages[1].account_routing.is_some(), "the caller's request is not changed");
 }
 
-// ---- the gateway's transport ----------------------------------------------------------------------------------------------
+// the gateway's transport
 
 fn post(url: &str, headers: &[(&str, &str)], body: &str) -> WireRequest {
     WireRequest {
@@ -201,7 +201,7 @@ async fn a_model_request_never_follows_a_redirect_so_the_gateways_key_cannot_lea
     assert_eq!(answered.status, 302, "a listing read is a plain fetch");
 }
 
-// ---- header order -------------------------------------------------------------------------------------------------------------
+// header order
 
 #[test]
 fn the_openai_sdk_writes_its_own_headers_then_the_key_then_the_clients_then_the_body_type_then_the_requests() {

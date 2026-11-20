@@ -91,9 +91,7 @@ fn one_tool_body(schema: Value) -> Value {
         .clone()
 }
 
-// ---------------------------------------------------------------------------
 // Tool schema lowering
-// ---------------------------------------------------------------------------
 
 #[test]
 fn alternatives_at_the_top_of_a_tool_schema_are_merged_into_one_object() {
@@ -180,9 +178,7 @@ fn a_deferred_tool_is_marked_and_names_the_tool_search_beta() {
     assert!(!beta(&without).contains("advanced-tool-use"));
 }
 
-// ---------------------------------------------------------------------------
 // Native web search and tool-search references
-// ---------------------------------------------------------------------------
 
 fn search(max_uses: Option<u32>, domains: &[&str], location: Option<UserLocation>) -> HostedTool {
     HostedTool::WebSearch(HostedWebSearch {
@@ -263,9 +259,7 @@ fn a_tool_search_result_of_another_provider_is_plain_text() {
     assert_eq!(content, "loaded");
 }
 
-// ---------------------------------------------------------------------------
 // Cache breakpoints and the shared prefix
-// ---------------------------------------------------------------------------
 
 fn marked(message: &Value) -> bool {
     message["content"].as_array().is_some_and(|blocks| blocks.iter().any(|b| b.get("cache_control").is_some()))
@@ -418,9 +412,7 @@ fn a_tail_reminder_is_a_turn_scoped_system_message_that_later_requests_replay_be
     assert_eq!(second["messages"][1], messages[1]);
 }
 
-// ---------------------------------------------------------------------------
 // A frame the computer tool already sized
-// ---------------------------------------------------------------------------
 
 #[test]
 fn an_image_frame_the_tool_already_sized_goes_out_with_its_bytes_and_media_type_unchanged() {
@@ -443,9 +435,7 @@ fn an_image_frame_the_tool_already_sized_goes_out_with_its_bytes_and_media_type_
     );
 }
 
-// ---------------------------------------------------------------------------
 // Reasoning, effort, tool choice
-// ---------------------------------------------------------------------------
 
 fn with_effort(caps: ModelCaps, effort: Option<&str>, parameters: Option<Value>) -> (Value, String) {
     let options = RequestOptions { effort: effort.map(str::to_owned), model_parameters: parameters, ..RequestOptions::default() };
@@ -562,9 +552,7 @@ fn effort_changes_inside_a_conversation_ride_as_empty_system_messages_on_models_
     }
 }
 
-// ---------------------------------------------------------------------------
 // Server-side fallback
-// ---------------------------------------------------------------------------
 
 #[test]
 fn a_model_of_the_fallback_families_asks_for_the_servers_fallback() {
@@ -594,9 +582,7 @@ fn a_model_of_the_fallback_families_asks_for_the_servers_fallback() {
     assert_eq!(oauth[oauth.iter().position(|k| k == "stream").unwrap() + 1], "fallbacks");
 }
 
-// ---------------------------------------------------------------------------
 // Response threads
-// ---------------------------------------------------------------------------
 
 #[test]
 fn a_conversations_first_request_is_a_thread_create_and_a_fork_of_it_is_never_threaded() {

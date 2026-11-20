@@ -175,9 +175,7 @@ fn oauth_codec() -> AnthropicCodec {
     AnthropicCodec::new(Flavor::OAuth, config("https://api.anthropic.com"))
 }
 
-// ---------------------------------------------------------------------------
 // Scripted transport
-// ---------------------------------------------------------------------------
 
 pub(super) struct Scripted {
     status: u16,
@@ -339,9 +337,7 @@ fn cache_breakpoints_follow_the_layout() {
     assert_eq!(system[3]["text"], "\n\nenvironment");
 }
 
-// ---------------------------------------------------------------------------
 // Lowering
-// ---------------------------------------------------------------------------
 
 fn lowered(messages: Vec<Message>) -> Value {
     let wire = api_codec().encode(&request(messages, RequestOptions::default())).expect("encode");
@@ -503,17 +499,13 @@ fn an_error_event_is_a_typed_provider_error() {
     assert_eq!(err.code.as_deref(), Some("overloaded_error"));
 }
 
-// ---------------------------------------------------------------------------
 // Failure classification
-// ---------------------------------------------------------------------------
 
 fn response(status: u16, headers: &[(&str, &str)], body: &str) -> ErrorResponse {
     ErrorResponse { status: Some(status), headers: headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(), body: body.as_bytes().to_vec() }
 }
 
-// ---------------------------------------------------------------------------
 // Retry rows
-// ---------------------------------------------------------------------------
 
 #[test]
 fn retry_rows_hold_the_recorded_numbers() {
@@ -597,9 +589,7 @@ async fn a_401_refresh_with_a_plain_body_marks_the_account_with_nodes_text() {
     assert_eq!(store.load().await.expect("stored").reauth_required, Some(true));
 }
 
-// ---------------------------------------------------------------------------
 // OAuth plumbing
-// ---------------------------------------------------------------------------
 
 #[test]
 fn token_responses_normalise_like_node() {
@@ -853,9 +843,7 @@ async fn a_dead_grant_marks_the_account_and_does_not_replay() {
     assert_eq!(http.sent().len(), 2);
     assert_eq!(store.load().await.expect("stored").reauth_required, Some(true));
 }
-// ---------------------------------------------------------------------------
 // No content timer
-// ---------------------------------------------------------------------------
 
 #[test]
 fn no_timer_exists_in_the_provider_sources() {
@@ -971,18 +959,10 @@ async fn an_anthropic_sends_ledger_row_keeps_the_cache_out_of_its_input() {
     assert!((rate - 11746.0 / 13666.0).abs() < 1e-9);
 }
 
-// ---------------------------------------------------------------------------
 // Fixtures and helpers
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
 // Request bytes
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
 // Stream decoding
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
 // Adapter attempts
-// ---------------------------------------------------------------------------

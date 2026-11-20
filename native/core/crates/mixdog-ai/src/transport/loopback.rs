@@ -202,6 +202,43 @@ enum Mode {
     Frames,
 }
 
+/// The first whole client frame in `buffer`: its first byte, whether it was masked, the bytes it spans and its unmasked payload.
+fn split_frame(buffer: &[u8]) -> Option<(u8, bool, usize, Vec<u8>)> {
+    if buffer.len() < 2 {
+        return None;
+    }
+    let masked = buffer[1] & 128 != 0;
+    let mut length = (buffer[1] & 127) as usize;
+    let mut at = 2;
+    if length == 126 {
+        if buffer.len() < 4 {
+            return None;
+        }
+        length = u16::from_be_bytes([buffer[2], buffer[3]]) as usize;
+        at = 4;
+    } else if length == 127 {
+        if buffer.len() < 10 {
+            return None;
+        }
+        length = u64::from_be_bytes(buffer[2..10].try_into().unwrap()) as usize;
+        at = 10;
+    }
+    let mask: Option<[u8; 4]> = if masked { Some(buffer.get(at..at + 4)?.try_into().unwrap()) } else { None };
+    if masked {
+        at += 4;
+    }
+    if buffer.len() < at + length {
+        return None;
+    }
+    let mut payload = buffer[at..at + length].to_vec();
+    if let Some(mask) = mask {
+        for (i, b) in payload.iter_mut().enumerate() {
+            *b ^= mask[i % 4];
+        }
+    }
+    Some((buffer[0], masked, at + length, payload))
+}
+
 async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
     let Ok(mut io) = acceptor.accept(tcp).await else { return };
     let (gone, ended) = watch::channel(false);
@@ -345,43 +382,8 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                     mode = Mode::Head;
                 }
                 Mode::Frames => {
-                    if buffer.len() < 2 {
-                        break;
-                    }
-                    let masked = buffer[1] & 128 != 0;
-                    let mut length = (buffer[1] & 127) as usize;
-                    let mut at = 2;
-                    if length == 126 {
-                        if buffer.len() < 4 {
-                            break;
-                        }
-                        length = u16::from_be_bytes([buffer[2], buffer[3]]) as usize;
-                        at = 4;
-                    } else if length == 127 {
-                        if buffer.len() < 10 {
-                            break;
-                        }
-                        length = u64::from_be_bytes(buffer[2..10].try_into().unwrap()) as usize;
-                        at = 10;
-                    }
-                    let mask: Option<[u8; 4]> = masked.then(|| buffer.get(at..at + 4).map(|m| m.try_into().unwrap())).flatten();
-                    if masked {
-                        if mask.is_none() {
-                            break;
-                        }
-                        at += 4;
-                    }
-                    if buffer.len() < at + length {
-                        break;
-                    }
-                    let mut payload = buffer[at..at + length].to_vec();
-                    if let Some(mask) = mask {
-                        for (i, b) in payload.iter_mut().enumerate() {
-                            *b ^= mask[i % 4];
-                        }
-                    }
-                    let first = buffer[0];
-                    buffer.drain(..at + length);
+                    let Some((first, masked, consumed, payload)) = split_frame(&buffer) else { break };
+                    buffer.drain(..consumed);
                     let opcode = first & 15;
                     let mut event = json!({
                         "kind": "ws-frame", "opcode": opcode, "fin": first & 128 != 0,

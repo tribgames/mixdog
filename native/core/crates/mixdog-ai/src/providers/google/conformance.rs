@@ -67,9 +67,7 @@ fn traits() -> Arc<dyn ModelTraits> {
     Arc::new(AllGemini)
 }
 
-// ---------------------------------------------------------------------------
 // Fixtures
-// ---------------------------------------------------------------------------
 
 fn fixture_request(model: &str) -> ModelRequest {
     let text = |role, t: &str| Message::new(role, Content::Text(t.into()));
@@ -87,9 +85,7 @@ fn fixture_request(model: &str) -> ModelRequest {
     }
 }
 
-// ---------------------------------------------------------------------------
 // The four recorded providers
-// ---------------------------------------------------------------------------
 
 const VERTEX_ADC_BASE: &str = "https://us-central1-aiplatform.googleapis.com/v1/projects/projectaa-a5af6/locations/us-central1";
 
@@ -120,9 +116,7 @@ fn fold(events: &[StreamEvent]) -> Folded {
     (text, calls, usage, stop)
 }
 
-// ---------------------------------------------------------------------------
 // Retry rows against the recorded sleeps
-// ---------------------------------------------------------------------------
 
 fn delays(error: &ProviderError, policy: &RetryPolicy, class: RetryClass, samples: impl Fn(usize) -> JitterSamples) -> (Vec<u64>, Verdict) {
     let decider = MockRetryDecider;
@@ -160,9 +154,7 @@ fn antigravity_retry_kinds_follow_the_typed_error_fields() {
     assert_eq!(overloaded.len(), 15, "503 runs the inner ladder (3), then a capacity retry (1) that restarts it, three times, then a last ladder");
 }
 
-// ---------------------------------------------------------------------------
 // Adapters over scripted HTTP
-// ---------------------------------------------------------------------------
 
 struct Chunks(VecDeque<Result<Bytes, TransportFault>>);
 
@@ -557,9 +549,7 @@ async fn a_recorded_assistant_turn_replays_with_its_signatures() {
     // The recorded part carried no id, so the response carries none either.
     assert_eq!(body["contents"][2]["parts"][0], json!({"functionResponse": {"name": "lookup", "response": {"result": "42"}}}));
 }
-// ---------------------------------------------------------------------------
 // Structure
-// ---------------------------------------------------------------------------
 
 /// The stream's content windows Node has (`createRestStreamWatchdogs`) live in `watchdog.rs` on the runtime's clock
 /// (`mixdog_rt::Deadline`); no provider source holds a timer of its own.

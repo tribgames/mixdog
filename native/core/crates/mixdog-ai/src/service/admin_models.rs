@@ -13,7 +13,7 @@ fn text(v: Option<&Value>) -> String {
     clean(v)
 }
 
-// -- version parsing ---------------------------------------------------------------------
+// version parsing
 
 fn digit_run(b: &[u8], i: usize) -> usize {
     let mut j = i;
@@ -281,7 +281,7 @@ pub fn is_selectable_llm_model(model: &Value) -> bool {
     true
 }
 
-// -- cache row ---------------------------------------------------------------------------
+// cache row
 
 fn flag(m: &Value, key: &str) -> Value {
     Value::Bool(m.get(key) == Some(&Value::Bool(true)))
@@ -395,7 +395,7 @@ pub fn provider_model_cache_row(name: &str, m: &Value, web_search_capable: bool)
     row
 }
 
-// -- model-select providerRows -----------------------------------------------------------
+// model-select providerRows
 
 fn norm(value: &str) -> String {
     value.to_lowercase().chars().filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit()).collect()
@@ -415,7 +415,7 @@ pub fn provider_rows(rows: &[Value], provider: &str) -> Vec<Value> {
     rows.iter().filter(|r| row_norm(r).contains(&wanted)).cloned().collect()
 }
 
-// -- provider-availability ---------------------------------------------------------------
+// provider-availability
 
 /// The environment switch for remote (SSH) mode.
 pub const MODEL_PROXY_ENV: &str = "MIXDOG_MODEL_PROXY";
@@ -453,7 +453,7 @@ pub fn provider_unavailable_message(name: &str) -> String {
     format!("Provider \"{name}\" is disabled: its Developer option was switched off before the request was sent.")
 }
 
-// -- hydration ---------------------------------------------------------------------------
+// hydration
 
 /// The facts row hydration reads from the model capabilities, the effort ladder, the effort
 /// configuration and the registry.

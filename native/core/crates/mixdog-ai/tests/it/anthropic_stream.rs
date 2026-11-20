@@ -114,9 +114,7 @@ fn text_turn(pieces: &[&str], reason: &str) -> Vec<Value> {
     events
 }
 
-// ---------------------------------------------------------------------------
 // Text, usage, stop reasons
-// ---------------------------------------------------------------------------
 
 #[test]
 fn text_deltas_arrive_in_order_and_the_turn_completes_with_its_stop_reason() {
@@ -181,9 +179,7 @@ fn a_gateways_reported_cost_rides_the_usage_and_a_negative_one_is_not_a_cost() {
     assert!(cost(Value::Null).is_none());
 }
 
-// ---------------------------------------------------------------------------
 // Framing
-// ---------------------------------------------------------------------------
 
 #[test]
 fn the_same_stream_decodes_alike_whatever_the_chunking_line_endings_or_comments() {
@@ -227,9 +223,7 @@ fn a_ping_is_a_keepalive_and_nothing_else() {
     assert!(matches!(events.as_slice(), [StreamEvent::ProviderKeepalive]), "{events:?}");
 }
 
-// ---------------------------------------------------------------------------
 // Tool use
-// ---------------------------------------------------------------------------
 
 #[test]
 fn a_tool_call_is_dispatched_when_its_block_closes_with_the_input_assembled_from_its_fragments() {
@@ -305,9 +299,7 @@ fn a_call_written_into_the_text_is_recovered_once_and_the_turn_then_replays_with
     assert!(calls_of(&events).is_empty());
 }
 
-// ---------------------------------------------------------------------------
 // Thinking
-// ---------------------------------------------------------------------------
 
 #[test]
 fn thinking_streams_as_reasoning_and_replays_with_its_signature_ahead_of_the_text() {
@@ -361,9 +353,7 @@ fn an_empty_text_block_between_two_thinking_blocks_does_not_let_them_merge_on_re
     assert_eq!(replay_of(&decode(&events)), json!([{ "type": "thinking", "thinking": "", "signature": "a" }]));
 }
 
-// ---------------------------------------------------------------------------
 // Hosted tools and citations
-// ---------------------------------------------------------------------------
 
 #[test]
 fn a_hosted_search_call_and_its_result_are_reported_whole_and_replayed_in_order_with_the_citations() {
@@ -394,9 +384,7 @@ fn a_hosted_search_call_and_its_result_are_reported_whole_and_replayed_in_order_
     assert_eq!(replay[2]["citations"], json!([{ "type": "web_search_result_location", "url": "https://example.com" }]));
 }
 
-// ---------------------------------------------------------------------------
 // Server-side fallback
-// ---------------------------------------------------------------------------
 
 #[test]
 fn a_fallback_block_hands_the_turn_to_the_fallback_model_and_is_recorded() {
@@ -432,9 +420,7 @@ fn a_message_naming_another_model_than_the_requested_one_reports_the_served_mode
     assert!(!same.iter().any(|e| matches!(e, StreamEvent::ServedModel(_))));
 }
 
-// ---------------------------------------------------------------------------
 // Errors in the middle of a stream
-// ---------------------------------------------------------------------------
 
 fn error_event(kind: &str, message: &str) -> Value {
     json!({ "type": "error", "error": { "type": kind, "message": message } })

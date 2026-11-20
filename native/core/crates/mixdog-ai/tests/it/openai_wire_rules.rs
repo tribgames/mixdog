@@ -92,7 +92,7 @@ fn body(codec: &OpenAiCodec, request: &ModelRequest) -> Value {
     serde_json::from_slice(&codec.encode(request).unwrap().body).unwrap()
 }
 
-// ---- freeform (custom) tools ------------------------------------------------------------------------------------
+// freeform (custom) tools
 
 const GRAMMAR: &str = "start: line+\nline: /.+/";
 
@@ -192,7 +192,7 @@ fn a_deferred_tool_is_marked_only_where_the_route_searches_tools_natively() {
     assert_eq!(tools[0]["defer_loading"], true);
 }
 
-// ---- Codex identity -----------------------------------------------------------------------------------------------
+// Codex identity
 
 const V7: &str = "0190a1b2-c3d4-7e5f-8a6b-1c2d3e4f5a6b";
 
@@ -347,7 +347,7 @@ fn a_frames_own_client_metadata_is_kept_and_the_api_key_route_adds_none() {
     assert_eq!(header(&wire.headers, "x-client-request-id"), Some("0".repeat(32).as_str()));
 }
 
-// ---- process settings --------------------------------------------------------------------------------------------
+// process settings
 
 fn stateless(setting: Option<&str>) -> Ctx {
     Ctx { settings: setting.map(|v| ("MIXDOG_OAI_STATELESS_HTTP".to_owned(), v.to_owned())).into_iter().collect(), ..Ctx::default() }
@@ -421,7 +421,7 @@ fn the_reasoning_replay_switch_stops_reasoning_items_going_back_and_keeps_the_re
     assert_eq!(spelled_off, default);
 }
 
-// ---- a cut stream ---------------------------------------------------------------------------------------------------
+// a cut stream
 
 #[test]
 fn a_cut_responses_stream_names_its_route_and_transport() {

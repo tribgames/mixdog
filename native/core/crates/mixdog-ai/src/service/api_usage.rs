@@ -246,7 +246,7 @@ impl ApiUsageService {
         stored
     }
 
-    // -- the cache file ------------------------------------------------------------------
+    // the cache file
 
     /// `diskJsonCache.read`: the file, not read again inside a second.
     async fn read_cache_file(&self) -> Option<Value> {
@@ -309,7 +309,7 @@ impl ApiUsageService {
         }
     }
 
-    // -- one request ---------------------------------------------------------------------
+    // one request
 
     /// `fetchJson`: the parsed body (null when empty or not JSON); a non-2xx answer is an error
     /// carrying its status and parsed body.
@@ -336,7 +336,7 @@ impl ApiUsageService {
         self.unavailable(provider, &ApiError::plain(message))
     }
 
-    // -- DeepSeek ------------------------------------------------------------------------
+    // DeepSeek
 
     async fn deepseek(&self) -> Lookup {
         let Some(key) = self.agent_key("deepseek").await else { return Ok(None) };
@@ -355,7 +355,7 @@ impl ApiUsageService {
         ])))
     }
 
-    // -- OpenAI --------------------------------------------------------------------------
+    // OpenAI
 
     fn parse_openai_credit_grants(&self, data: &Value) -> Option<Value> {
         let remaining = num(first_present(data, &["total_available", "totalAvailable", "available"]), None)?;
@@ -526,7 +526,7 @@ impl ApiUsageService {
         self.openai_completion_usage(key.as_deref()).await
     }
 
-    // -- Anthropic -----------------------------------------------------------------------
+    // Anthropic
 
     async fn anthropic(&self) -> Lookup {
         let stored = self.agent_key("anthropic").await;
@@ -589,7 +589,7 @@ impl ApiUsageService {
         ]))
     }
 
-    // -- Gemini --------------------------------------------------------------------------
+    // Gemini
 
     async fn gemini(&self) -> Lookup {
         let Some(key) = self.agent_key("gemini").await else { return Ok(None) };
@@ -600,7 +600,7 @@ impl ApiUsageService {
         }))
     }
 
-    // -- xAI -----------------------------------------------------------------------------
+    // xAI
 
     fn parse_xai_prepaid_balance(&self, data: &Value) -> Option<Value> {
         let remaining =
@@ -658,7 +658,7 @@ impl ApiUsageService {
         })
     }
 
-    // -- the entry point -----------------------------------------------------------------
+    // the entry point
 
     /// `fetchApiUsageSnapshot`.
     pub async fn fetch(&self, provider: &str, force: bool) -> Lookup {

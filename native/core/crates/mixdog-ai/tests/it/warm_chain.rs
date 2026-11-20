@@ -42,7 +42,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-// ---- the request -------------------------------------------------------------------------------------------------------
+// the request
 
 #[derive(Clone)]
 struct Req {
@@ -125,7 +125,7 @@ fn arc(req: Req) -> Arc<dyn WarmRequest> {
     Arc::new(req)
 }
 
-// ---- eligibility -------------------------------------------------------------------------------------------------------
+// eligibility
 
 #[test]
 fn only_a_session_request_of_an_explicit_breakpoint_provider_with_an_expiring_tail_may_be_warmed() {
@@ -146,7 +146,7 @@ fn only_a_session_request_of_an_explicit_breakpoint_provider_with_an_expiring_ta
     assert_eq!(reason(tier(Some("forever"))), Some("no expiring message-tail cache"));
 }
 
-// ---- the scripted world -----------------------------------------------------------------------------------------------
+// the scripted world
 
 struct Pending {
     id: u64,
@@ -398,7 +398,7 @@ impl Fixture {
     }
 }
 
-// ---- arming ------------------------------------------------------------------------------------------------------------
+// arming
 
 #[tokio::test]
 async fn a_real_request_that_wrote_a_one_hour_entry_arms_a_chain_and_records_the_touch() {
@@ -454,7 +454,7 @@ async fn a_new_request_replaces_the_chain_and_its_timer() {
     assert_eq!(f.warmer.chain_state("s1").unwrap().touch_at, T0 + 10.0 * MINUTE);
 }
 
-// ---- the setting -------------------------------------------------------------------------------------------------------
+// the setting
 
 #[tokio::test]
 async fn nothing_is_armed_while_warming_is_off_and_turning_it_off_cancels_every_chain() {
@@ -472,7 +472,7 @@ async fn nothing_is_armed_while_warming_is_off_and_turning_it_off_cancels_every_
     assert_eq!(f.pending_timers(), 0);
 }
 
-// ---- warming -----------------------------------------------------------------------------------------------------------
+// warming
 
 #[tokio::test]
 async fn warms_follow_the_sessions_history_of_returns_and_stop_when_none_that_long_is_known() {
@@ -629,7 +629,7 @@ async fn warming_turned_off_before_the_timer_stops_the_chain_without_a_send() {
     assert!(f.logged("cache warming off"));
 }
 
-// ---- turns, activity and the prefix ----------------------------------------------------------------------------------
+// turns, activity and the prefix
 
 #[tokio::test]
 async fn a_turn_stops_the_chain_and_the_chain_returns_when_the_turn_ends_without_a_request() {
@@ -703,7 +703,7 @@ async fn purging_a_session_drops_its_chain_touch_warm_use_and_what_it_learned() 
     assert!(f.gaps.gaps("s1").is_empty() && f.gaps.open_at("s1") == 0.0);
 }
 
-// ---- after a restart ---------------------------------------------------------------------------------------------------
+// after a restart
 
 #[tokio::test]
 async fn a_restart_rearms_the_sessions_whose_entry_is_still_alive_and_drops_the_expired_touches() {

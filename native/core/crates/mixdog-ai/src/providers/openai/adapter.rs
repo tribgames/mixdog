@@ -116,9 +116,7 @@ pub(crate) fn reset_zstd_latch() {
 /// `CODEX_BACKEND_ORIGIN` (`openai-codex-endpoints.mjs:10`), the one origin the Codex route warms.
 const CODEX_BACKEND_ORIGIN: &str = "https://chatgpt.com";
 
-// ---------------------------------------------------------------------------
 // Credentials
-// ---------------------------------------------------------------------------
 
 /// What one attempt authenticates with.
 #[derive(Clone, PartialEq, Eq)]
@@ -143,9 +141,7 @@ pub trait CredentialSource: Send + Sync {
     async fn after_rejection(&self, rejected: &Credential) -> Result<Option<Credential>, ProviderError>;
 }
 
-// ---------------------------------------------------------------------------
 // Per-process request context
-// ---------------------------------------------------------------------------
 
 /// One scope's turn state (`openai-turn-state.mjs` `_turnStateByScope`): the logical turn, the token its responses
 /// issued, and the WebSocket connection that owns it while it is open.
@@ -336,9 +332,7 @@ impl WireContext for SessionContext {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Adapter
-// ---------------------------------------------------------------------------
 
 #[derive(Clone)]
 pub struct OpenAiAdapter {
@@ -971,9 +965,7 @@ impl AuthRetry {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Stream
-// ---------------------------------------------------------------------------
 
 /// One logical send's handshake and stream ladder. Neither the pool nor the
 /// caller owns another WebSocket counter. Replays preserve the full request,

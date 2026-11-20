@@ -341,7 +341,7 @@ impl AccountRotation {
         Ok(policy::choose_account(&pool, &HashSet::new(), self.now(), &ctx.model, bound.as_deref()).map(|r| r.id.clone()))
     }
 
-    // -- refusal judgement ---------------------------------------------------
+    // refusal judgement
 
     fn policy_cooldown_ms(&self, policy: &CooldownPolicy, strike_key: &str, reason: &str) -> i64 {
         if reason == "rate_limited" {
@@ -501,7 +501,7 @@ impl AccountRotation {
         Ok(true)
     }
 
-    // -- roster-level verdicts -------------------------------------------------
+    // roster-level verdicts
 
     async fn pool_for_service(&self, provider: &str, plan_meters_apply: bool) -> Result<Pool, AccountError> {
         let mut pool = SendContext::scope(self.store.pool(provider).await?, plan_meters_apply);

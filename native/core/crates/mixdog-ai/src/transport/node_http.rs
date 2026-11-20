@@ -68,9 +68,7 @@ const KEEP_ALIVE_THRESHOLD: Duration = Duration::from_secs(2);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const HEADERS_TIMEOUT: Duration = Duration::from_secs(600);
 
-// ---------------------------------------------------------------------------
 // The head
-// ---------------------------------------------------------------------------
 
 /// Which Node client wrote the request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -177,9 +175,7 @@ pub fn head(request: &WireRequest, url: &url::Url, writer: Writer) -> (Vec<u8>, 
     (bytes, close)
 }
 
-// ---------------------------------------------------------------------------
 // What undici refuses to send
-// ---------------------------------------------------------------------------
 
 /// `core/request.js` `processHeader`: the names and values the dispatcher accepts. Nothing is written for a request
 /// that fails here; a CR, LF or NUL cannot reach the socket, and the headers undici owns (`transfer-encoding`,
@@ -221,9 +217,7 @@ pub fn check_headers(headers: &[(String, String)]) -> Result<(), String> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // The client
-// ---------------------------------------------------------------------------
 
 /// A failed exchange. `replay` says that no byte of the request reached the server whole, so it may be sent again on
 /// another connection: the connection was gone before the write, or the write itself failed, or the server refused

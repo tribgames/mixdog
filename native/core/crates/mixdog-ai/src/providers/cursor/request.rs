@@ -130,9 +130,7 @@ fn json_str(text: &str) -> String {
     serde_json::to_string(text).expect("a string serializes")
 }
 
-// ---------------------------------------------------------------------------
 // History entries (written with the key order the transcript blobs carry)
-// ---------------------------------------------------------------------------
 
 fn text_of(content: &Content) -> String {
     match content {
@@ -271,9 +269,7 @@ pub fn parse_messages(messages: &[Message]) -> Result<ParsedMessages, ProviderEr
     Ok(ParsedMessages { systems, history, user_text, user_images })
 }
 
-// ---------------------------------------------------------------------------
 // Tool definitions
-// ---------------------------------------------------------------------------
 
 const SCHEMA_ANNOTATIONS: [&str; 9] = ["$comment", "$id", "$schema", "default", "deprecated", "examples", "readOnly", "title", "writeOnly"];
 

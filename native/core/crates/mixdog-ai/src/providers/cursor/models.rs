@@ -106,9 +106,7 @@ impl CursorModel {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Wire
-// ---------------------------------------------------------------------------
 
 /// `AvailableModelsRequest`: long-context models, with model parameters.
 pub fn available_models_request() -> Vec<u8> {
@@ -411,9 +409,7 @@ pub fn fallback_models() -> Vec<CursorModel> {
     models
 }
 
-// ---------------------------------------------------------------------------
 // Selection
-// ---------------------------------------------------------------------------
 
 /// What a request asks of the model's parameters.
 #[derive(Debug, Clone, Default)]

@@ -60,7 +60,7 @@ fn truthy_str(v: Option<&Value>) -> Option<&Value> {
     })
 }
 
-// -- route chains -------------------------------------------------------------------------
+// route chains
 
 /// `canonicalRouteProvider`.
 pub fn canonical_route_provider(value: &str) -> String {
@@ -174,7 +174,7 @@ pub fn normalize_route_chain(
     Ok(Some(Value::Object(out)))
 }
 
-// -- web search routes ------------------------------------------------------------------------
+// web search routes
 
 pub fn normalize_web_search_provider_id(provider: &str) -> String {
     canonical_route_provider(provider)
@@ -249,7 +249,7 @@ pub fn web_search_route_or_default(candidates: &[&Value]) -> Result<Value, Strin
     Ok(normalize_web_search_route_config(&default, &empty)?.unwrap_or(default))
 }
 
-// -- hosted web-search capability -------------------------------------------------------------
+// hosted web-search capability
 
 const NON_CHAT_ID: [&str; 13] =
     ["embedding", "rerank", "moderation", "image", "imagen", "imagine", "video", "veo", "audio", "tts", "stt", "aqa", "search-preview"];
@@ -469,7 +469,7 @@ pub fn capacity_fallback(error: &ProviderError, aborted: bool, pool_quota_refusa
     matches!(error.status, Some(429 | 503)) || (error.kind == ErrorKind::QuotaExhausted && pool_quota_refusal)
 }
 
-// -- compaction lighter model -----------------------------------------------------------------
+// compaction lighter model
 
 /// `gptVersion`: `[major, minor]` of `gpt-N[.M]`, or `None`.
 pub fn gpt_version(id: &str) -> Option<(u64, u64)> {

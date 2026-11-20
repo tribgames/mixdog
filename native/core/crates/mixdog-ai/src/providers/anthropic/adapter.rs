@@ -267,9 +267,7 @@ pub fn gzip_latched() -> bool {
     GZIP_LATCHED.load(Ordering::SeqCst)
 }
 
-// ---------------------------------------------------------------------------
 // Credentials
-// ---------------------------------------------------------------------------
 
 pub use crate::providers::key_source::ApiKeySource;
 
@@ -332,9 +330,7 @@ impl Credentials {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Adapter
-// ---------------------------------------------------------------------------
 
 /// The retry counts `CLAUDE_CODE_MAX_RETRIES` can name (0..=100).
 const BUDGET_COUNTS: usize = 101;
@@ -510,9 +506,7 @@ impl ProviderAdapter for AnthropicAdapter {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Stream
-// ---------------------------------------------------------------------------
 
 struct AnthropicStream {
     body: Option<Box<dyn BodyStream>>,

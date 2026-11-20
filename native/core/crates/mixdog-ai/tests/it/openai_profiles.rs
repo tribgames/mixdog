@@ -38,7 +38,7 @@ fn body_of(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Map<String, 
     build_request(profile, inputs).body
 }
 
-// ---- histories (the fixtures' transcripts) --------------------------------
+// histories (the fixtures' transcripts)
 
 fn text(role: Role, text: &str) -> Message {
     Message::new(role, Content::Text(text.into()))
@@ -97,7 +97,7 @@ fn request(model: &str, messages: Vec<Message>, tools: Vec<ToolDefinition>, cach
     ModelRequest { model: model.into(), messages, tools, options: RequestOptions { prompt_cache_key: cache_key.map(str::to_owned), ..Default::default() } }
 }
 
-// ---- gateway family: OpenCode Go, Muse Code, Command Code, xAI, ... -------
+// gateway family: OpenCode Go, Muse Code, Command Code, xAI, ...
 
 fn gateway(name: &str, prompt_cache_key: bool) -> ResponsesProfile {
     let mut profile = ResponsesProfile::gateway(ProviderId::from(format!("compat-responses:{name}").as_str()));
@@ -105,7 +105,7 @@ fn gateway(name: &str, prompt_cache_key: bool) -> ResponsesProfile {
     profile
 }
 
-// ---- xAI -----------------------------------------------------------------
+// xAI
 
 fn xai_http() -> ResponsesProfile {
     let mut profile = ResponsesProfile::gateway(ProviderId::from("xai-responses"));
@@ -131,7 +131,7 @@ fn server_search_declares_one_server_tool_and_marks_deferred_tools() {
     assert_eq!(searches, 1);
 }
 
-// ---- first-party profile (the same builder) --------------------------------
+// first-party profile (the same builder)
 
 struct Facts;
 impl ModelFactsSource for Facts {
@@ -200,7 +200,7 @@ fn downgrade_replay_drops_server_search_where_verbatim_keeps_it() {
     assert!(!serde_json::to_string(&body).unwrap().contains("tool_search"));
 }
 
-// ---- first-party heads that need the contract's native call types ---------
+// first-party heads that need the contract's native call types
 
 fn first_party_configs() -> [(&'static str, OpenAiConfig); 2] {
     let identity = CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: "b".into() };
@@ -210,7 +210,7 @@ fn first_party_configs() -> [(&'static str, OpenAiConfig); 2] {
     ]
 }
 
-// ---- tool choice, parallel calls, schema exclusion --------------------------
+// tool choice, parallel calls, schema exclusion
 
 #[test]
 fn forced_tool_choice_names_the_function_and_parallel_override_is_honored_per_profile() {
@@ -243,7 +243,7 @@ fn a_tool_with_an_unusable_schema_is_left_out_and_reported_once() {
     assert!(built.excluded[0].message.starts_with("[xai] tool \"Broken\""));
 }
 
-// ---- continuation and effort -------------------------------------------------
+// continuation and effort
 
 use mixdog_ai::providers::openai::continuation::Continuation;
 use mixdog_ai::providers::openai::continuation::ContinuationSpec;
@@ -569,7 +569,7 @@ fn frames_buffered_behind_a_terminal_frame_finish_the_turn_once() {
     assert_eq!(count(|e| matches!(e, StreamEvent::Completed { .. })), 1);
 }
 
-// ---- effort-update rejection ---------------------------------------------------
+// effort-update rejection
 
 use mixdog_ai::providers::openai::effort_retry::EffortUpdateSupport;
 use mixdog_ai::providers::openai::effort_retry::without_effort_updates;
@@ -803,7 +803,7 @@ fn a_multi_step_reasoning_turn_replays_each_steps_reasoning_in_place() {
     assert_eq!(sent, want, "the reasoning of both steps is sent verbatim, with its field order");
 }
 
-// ---- the whole request head of each route, with small tracked inputs ---------------------------------------------
+// the whole request head of each route, with small tracked inputs
 //
 // Node 1.4.5 `openai-compat-responses` / `openai-oauth` / xAI heads: the key order is part of the contract (the prompt
 // cache is a byte prefix), so the bodies are compared as text. The expected bodies are written out here from Node's
