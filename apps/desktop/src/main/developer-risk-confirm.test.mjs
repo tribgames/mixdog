@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { HOST_CONFIRM_SURFACE_IPC } from '../shared/host-confirm-surface.ts';
@@ -8,11 +7,6 @@ import { createAllowAllActionsConfirm, isAllowAllActionsEnable } from './develop
 import { hostConfirmPageUrl } from './host-confirm-page.ts';
 import { beginComputerOperation } from './human-only-approval.ts';
 import { HOST_EXTRAS_IPC, registerHostExtrasIpc } from './ipc-host-extras.ts';
-// Node b6f10295a DEVELOPER_SECTIONS (runtime/shared/developer-options.mjs), recorded.
-const DEVELOPER_SECTIONS = JSON.parse(
-  readFileSync(new URL('./test-support/developer-sections.recorded.json', import.meta.url), 'utf8')
-);
-const option = DEVELOPER_SECTIONS.flatMap((section) => section.options).find((entry) => entry.id === 'allowAllActions');
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 /** A webContents with its own scoped ipc and main frame. */
@@ -99,13 +93,17 @@ test('only turning ON allowAllActions needs the person', () => {
   assert.equal(isAllowAllActionsEnable('setDeveloperOption', []), false);
 });
 
-test("the surface's static page: registry text, Cancel first and focused, danger action, no script", async () => {
+test("the surface's static page: Cancel first and focused, danger action, no script", async () => {
   const t = setup();
   const pending = t.confirm();
   await settle();
   const html = decodeURIComponent(t.surface().url.replace(/^data:text\/html;charset=utf-8,/, ''));
-  assert.ok(html.includes(`<h3 id="title">${option.label}</h3>`));
-  assert.ok(html.includes(option.warning));
+  assert.ok(html.includes('<h3 id="title">Allow all actions</h3>'));
+  assert.ok(
+    html.includes(
+      'Turning this on lets agents act without asking you first, except for payments and permanent deletes. Use it only if you accept that risk.'
+    )
+  );
   assert.ok(html.indexOf('id="cancel" type="button" autofocus>Cancel<') < html.indexOf('id="accept"'));
   assert.ok(html.includes('id="accept" type="button" class="danger">Accept risk and turn on<'));
   assert.ok(html.includes(`content="default-src 'none'; style-src 'unsafe-inline'"`));

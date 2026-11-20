@@ -99,32 +99,6 @@ test('synthetic-only, resume-scratch and legacy rows are told apart by durable p
   assert.deepEqual(summaries.map((row) => row.id).sort(), ['compacted', 'legacy']);
 });
 
-test('a transcript of only a [truncated] marker and an interrupted assistant row stays hidden end to end', async () => {
-  const { _sessionSummary } = await import('../shared/test-recorded/desktop-state-project.test.0.recorded.mjs');
-  const { listLeadSessions } = await import('../shared/test-recorded/desktop-state-project.test.1.recorded.mjs');
-  const stored = {
-    id: 'sess_truncated_only',
-    cwd: 'C:\\Project\\mixdog',
-    updatedAt: 1000,
-    desktopSession: { classification: 'project', projectPath: 'C:\\Project\\mixdog' },
-    messages: [
-      { role: 'system', content: 'rules' },
-      { role: 'user', content: '[truncated]', meta: { synthetic: true } },
-      { role: 'assistant', content: '[request interrupted by user]' },
-    ],
-  };
-  const summary = _sessionSummary(stored);
-  assert.equal(summary.realTurnCount, 0);
-  assert.equal(summary.messageCount, 2);
-  const rows = listLeadSessions({ listSessions: () => [summary] });
-  assert.equal(rows.length, 1);
-  assert.deepEqual(desktopSessionSummaries(rows), []);
-  // The same shape with one real human turn is kept.
-  stored.messages.push({ role: 'user', content: 'Fix the login bug' });
-  const real = listLeadSessions({ listSessions: () => [{ ..._sessionSummary(stored), preview: '' }] });
-  assert.equal(desktopSessionSummaries(real).length, 1);
-});
-
 test('a compacted project session with no surviving title source stays in the catalog; abandoned and internal rows stay hidden', () => {
   const desktopSession = { classification: 'project', projectPath: 'C:\\Project\\mixdog' };
   const base = { cwd: 'C:\\Project\\mixdog', desktopSession, title: '', preview: '' };

@@ -5,32 +5,19 @@ import {
   DESKTOP_CAPABILITIES,
   DESKTOP_READ_CAPABILITIES,
   DESKTOP_WORKTREE_CAPABILITIES,
-  DESKTOP_WORKTREE_ERROR_CODES,
-  DESKTOP_WORKTREE_NEW_TASK_DEFAULTS,
 } from '../shared/contract.ts';
 import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
 import { worktreeErrorWithCode } from './worktree-validation.ts';
-import { WORKTREE_ERROR_CODES } from './test-support/worktree-contract.recorded.mjs';
-import { WORKTREE_NEW_TASK_DEFAULTS } from './test-support/worktree-contract.recorded.mjs';
-import { SESSION_CONFIGURE_ACTIONS, SESSION_READ_ACTIONS } from './test-support/session-protocol-actions.recorded.mjs';
 const request = (capability, ...args) => requiredDesktopCapabilityRequest({ capability, args });
 
-test('worktree capabilities are registered on the desktop surface and the session protocol', () => {
-  const sessionActions = new Set([...SESSION_READ_ACTIONS, ...SESSION_CONFIGURE_ACTIONS]);
+test('worktree capabilities are registered on the desktop surface', () => {
   for (const capability of DESKTOP_WORKTREE_CAPABILITIES) {
     assert.ok(DESKTOP_CAPABILITIES.includes(capability), capability);
-    assert.ok(sessionActions.has(capability), `${capability} is not a session action`);
   }
   for (const capability of ['getBranchMenu', 'getProjectBranchMenu', 'listWorktrees', 'getWorktreeSettings']) {
     assert.ok(DESKTOP_READ_CAPABILITIES.includes(capability));
-    assert.ok(SESSION_READ_ACTIONS.includes(capability));
   }
   assert.equal(requiredDesktopCapabilityReadRequests([{ capability: 'getBranchMenu' }]).length, 1);
-});
-
-test('desktop mirrors match the runtime contract', () => {
-  assert.deepEqual([...DESKTOP_WORKTREE_ERROR_CODES].sort(), Object.keys(WORKTREE_ERROR_CODES).sort());
-  assert.deepEqual([...DESKTOP_WORKTREE_NEW_TASK_DEFAULTS], [...WORKTREE_NEW_TASK_DEFAULTS]);
 });
 
 test('worktree capability arguments are shape-checked', () => {

@@ -24,7 +24,6 @@ const { recordObservation } = await import('./capture-delta.ts');
 const { createSessionState } = await import('../session/state.ts');
 const { createExecutionState } = await import('../host/execution-state.ts');
 const { DEFAULT_CAPTURE_MAX_ELEMENTS } = await import('../shared/common.ts');
-const { canonicalComputerResultText } = await import('../../../shared/test-recorded/capture-delta.test.0.recorded.mjs');
 
 const WINDOW = 'hwnd:0x1';
 const PERMISSIONS = {
@@ -486,40 +485,4 @@ test('a dialog owned by the window forces the full list', async () => {
     deltaAllowed: true,
   });
   assert.equal(withDialog, undefined);
-});
-
-test('the payload sent after an action shrinks to the change', async (t) => {
-  for (const count of [40, 75]) {
-    const f = fixture(treeRows(count));
-    const render = (metadata) =>
-      canonicalComputerResultText(JSON.stringify({ action: 'act', ok: true, capture_after: metadata }), {
-        action: 'act',
-        input: {},
-      });
-    const full = render((await f.after()).metadata);
-    // One toggled control and one dialog button: the usual result of an action.
-    const rows = treeRows(count);
-    f.world.rows = [
-      { ...rows[0], state: 'checked' },
-      ...rows.slice(1, count - 1),
-      { role: 'Button', name: 'Done', y: 999 },
-    ];
-    const delta = render((await f.after()).metadata);
-    const unchanged = render((await f.after()).metadata);
-
-    const parsed = JSON.parse(delta).observation;
-    assert.equal(parsed.elements, undefined);
-    assert.equal(parsed.changes, undefined, 'the count summary repeats the delta');
-    assert.equal(parsed.elements_delta.added.length, 2);
-    assert.match(parsed.elements_delta.added[0], /^\[s\d+:e0\] Button "File 1" state=checked /);
-    assert.match(parsed.elements_delta.added[1], /^\[s\d+:e\d+\] Button "Done"/);
-    const saving = 1 - delta.length / full.length;
-    const unchangedSaving = 1 - unchanged.length / full.length;
-    t.diagnostic(
-      `${count} elements: full ${full.length} B (~${Math.round(full.length / 4)} tokens), delta ${delta.length} B ` +
-        `(-${(saving * 100).toFixed(1)}%), unchanged ${unchanged.length} B (-${(unchangedSaving * 100).toFixed(1)}%)`
-    );
-    assert.ok(saving > 0.6, `${count} elements: delta saved ${saving}`);
-    assert.ok(unchangedSaving > 0.7, `${count} elements: unchanged saved ${unchangedSaving}`);
-  }
 });

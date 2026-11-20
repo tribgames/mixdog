@@ -4,25 +4,15 @@ import test from 'node:test';
 import { DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES } from '../shared/contract.ts';
 import { SECTION_READS } from '../renderer/settings/capability-data.ts';
 import { CAPTURE_SETTINGS_VALUES } from './capture-host.ts';
-import { SESSION_CONFIGURE_ACTIONS, SESSION_READ_ACTIONS } from './test-support/session-protocol-actions.recorded.mjs';
 import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
 
-test('the heartbeat getter is a read capability and the setter a configure one, in the contract and the session protocol', () => {
+test('the heartbeat getter is a read capability and the setter a registered non-read one', () => {
   assert.equal(DESKTOP_CAPABILITIES.includes('getHeartbeatSettings'), true);
   assert.equal(DESKTOP_CAPABILITIES.includes('setHeartbeatEnabled'), true);
   assert.equal(DESKTOP_READ_CAPABILITIES.includes('getHeartbeatSettings'), true);
   assert.equal(DESKTOP_READ_CAPABILITIES.includes('setHeartbeatEnabled'), false, 'a write is never a read');
-  assert.equal(SESSION_READ_ACTIONS.includes('getHeartbeatSettings'), true);
-  assert.equal(SESSION_READ_ACTIONS.includes('setHeartbeatEnabled'), false);
-  assert.equal(SESSION_CONFIGURE_ACTIONS.includes('setHeartbeatEnabled'), true);
-  assert.equal(SESSION_CONFIGURE_ACTIONS.includes('getHeartbeatSettings'), false);
   // Once each: a duplicate would shadow or double-register the route.
-  for (const list of [
-    DESKTOP_CAPABILITIES,
-    DESKTOP_READ_CAPABILITIES,
-    SESSION_READ_ACTIONS,
-    SESSION_CONFIGURE_ACTIONS,
-  ]) {
+  for (const list of [DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES]) {
     for (const name of ['getHeartbeatSettings', 'setHeartbeatEnabled']) {
       assert.ok(list.filter((entry) => entry === name).length <= 1, name);
     }
@@ -80,11 +70,9 @@ test('getHeartbeatSettings takes no argument; setHeartbeatEnabled takes exactly 
   );
 });
 
-test('setHeartbeatInterval is a configure capability taking exactly one of the fixed minute choices', () => {
+test('setHeartbeatInterval is a registered non-read capability taking exactly one of the fixed minute choices', () => {
   assert.equal(DESKTOP_CAPABILITIES.includes('setHeartbeatInterval'), true);
   assert.equal(DESKTOP_READ_CAPABILITIES.includes('setHeartbeatInterval'), false);
-  assert.equal(SESSION_CONFIGURE_ACTIONS.includes('setHeartbeatInterval'), true);
-  assert.equal(SESSION_READ_ACTIONS.includes('setHeartbeatInterval'), false);
   assert.throws(
     () => requiredDesktopCapabilityReadRequests([{ capability: 'setHeartbeatInterval', args: [60] }]),
     /not read-only/

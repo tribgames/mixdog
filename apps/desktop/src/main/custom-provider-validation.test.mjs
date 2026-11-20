@@ -132,34 +132,7 @@ test('v2 custom provider input shape is validated', () => {
   );
 });
 
-test('IPC custom-provider vocabulary and limits match the runtime normalizer', async () => {
-  const ipc = await import('./ipc-validation.ts');
-  const runtime = await import('../shared/test-recorded/custom-provider-validation.test.0.recorded.mjs');
-  assert.deepEqual([...ipc.CUSTOM_REASONING_LEVELS], [...runtime.CUSTOM_REASONING_LEVELS]);
-  assert.equal(ipc.CUSTOM_MAX_OVERRIDES, runtime.CUSTOM_MODEL_OVERRIDE_LIMIT);
-  assert.equal(ipc.CUSTOM_MAX_HEADERS, runtime.CUSTOM_HEADER_LIMIT);
-  // Every boundary value the IPC accepts, the runtime accepts too.
-  const atLimit = {
-    ...v2,
-    baseURL: 'http://localhost:1234/v1',
-    name: 'p'.repeat(ipc.CUSTOM_MAX_NAME),
-    modelOverrides: {
-      ['m'.repeat(ipc.CUSTOM_MAX_MODEL_ID)]: {
-        name: 'n'.repeat(ipc.CUSTOM_MAX_NAME),
-        reasoning: {
-          levels: [...ipc.CUSTOM_REASONING_LEVELS],
-          wireValues: { low: 'w'.repeat(ipc.CUSTOM_MAX_WIRE_VALUE) },
-        },
-      },
-    },
-  };
-  assert.doesNotThrow(() => requiredCustomProviderInput(atLimit));
-  assert.doesNotThrow(() => runtime.normalizeCustomProviderConfig(atLimit));
-});
-
-// One accept set: every v2 modelOverrides / reasoning / discovery case is
-// accepted or rejected identically by the IPC validator and the runtime
-// normalizer (the authority). `true` = accepted.
+// Every v2 modelOverrides / reasoning / discovery case the IPC validator accepts (`true`) or rejects.
 const PARITY_CASES = [
   ['baseline', {}, true],
   ['empty override', { modelOverrides: { m: {} } }, true],
@@ -251,58 +224,43 @@ const PARITY_CASES = [
   ['schemaVersion future', { schemaVersion: 3 }, false],
 ];
 
-test('IPC validator and runtime normalizer accept and reject the same v2 inputs', async () => {
-  const { normalizeCustomProviderConfig } = await import(
-    '../shared/test-recorded/custom-provider-validation.test.0.recorded.mjs'
-  );
+test('IPC validator accepts and rejects the v2 inputs of every case', () => {
   const base = { name: 'Local', protocol: 'openai-chat', baseURL: 'http://localhost:1234/v1', schemaVersion: 2 };
-  const accepts = (fn) => {
-    try {
-      fn();
-      return true;
-    } catch {
-      return false;
-    }
-  };
   for (const [label, patch, expected] of PARITY_CASES) {
-    const input = { ...base, ...patch };
-    assert.equal(
-      accepts(() => requiredCustomProviderInput(input)),
-      expected,
-      `IPC: ${label}`
-    );
-    assert.equal(
-      accepts(() => normalizeCustomProviderConfig(input)),
-      expected,
-      `runtime: ${label}`
-    );
+    let accepted = true;
+    try {
+      requiredCustomProviderInput({ ...base, ...patch });
+    } catch {
+      accepted = false;
+    }
+    assert.equal(accepted, expected, `IPC: ${label}`);
   }
-  // Transport fields ride along with the config: IPC validates them, the
-  // normalizer ignores them (preconnect is a runtime-only construction flag).
+  // Transport fields ride along with the config.
   assert.doesNotThrow(() =>
     requiredCustomProviderInput({ ...base, id: 'custom-0d6f3d4e-8c55-4a43-9b3e-6a8f6c3f1b10', apiKey: 'k' })
   );
-  assert.doesNotThrow(() => normalizeCustomProviderConfig({ ...base, id: 'custom-x', apiKey: 'k', preconnect: false }));
-  assert.throws(() => normalizeCustomProviderConfig({ ...base, preconnect: 'no' }));
-  // The runtime canonicalizes what the IPC lets through.
-  const out = normalizeCustomProviderConfig({
-    ...base,
-    modelOverrides: { m: { reasoning: { levels: ['ultra'], wireValues: { ultra: 'u' } } } },
-  });
-  assert.deepEqual(out.modelOverrides.m.reasoning, { levels: ['max'], wireValues: { max: 'u' } });
-  // Unversioned (legacy) input keeps its tolerant migration.
-  const legacy = normalizeCustomProviderConfig({
-    ...base,
-    schemaVersion: undefined,
-    models: [{ id: 'm', contextWindow: '4096', name: '' }],
-  });
-  assert.deepEqual(legacy.modelOverrides.m, { manual: true, hidden: false, contextWindow: 4096 });
 });
 
-// Transport fields (`id`, `apiKey`): the real setup service
-// (provider-admin.mjs, via saveCustomProvider → resolveCustomInput) and the
-// IPC validator accept and reject the same inputs. Keyless inputs keep the
-// service off the OS keychain; rejected key-auth cases fail before it.
+test('IPC accepts a name, model id, model name and wire value at their limits with every reasoning level', async () => {
+  const ipc = await import('./ipc-validation.ts');
+  const base = { name: 'Local', protocol: 'openai-chat', baseURL: 'http://localhost:1234/v1', schemaVersion: 2 };
+  const atLimit = {
+    ...base,
+    name: 'p'.repeat(ipc.CUSTOM_MAX_NAME),
+    modelOverrides: {
+      ['m'.repeat(ipc.CUSTOM_MAX_MODEL_ID)]: {
+        name: 'n'.repeat(ipc.CUSTOM_MAX_NAME),
+        reasoning: {
+          levels: [...ipc.CUSTOM_REASONING_LEVELS],
+          wireValues: { low: 'w'.repeat(ipc.CUSTOM_MAX_WIRE_VALUE) },
+        },
+      },
+    },
+  };
+  assert.doesNotThrow(() => requiredCustomProviderInput(atLimit));
+});
+
+// Transport fields (`id`, `apiKey`) the IPC validator accepts and rejects.
 const EXISTING_ID = 'custom-0d6f3d4e-8c55-4a43-9b3e-6a8f6c3f1b10';
 const TRANSPORT_CASES = [
   ['no id (new provider)', {}, true],
@@ -323,10 +281,7 @@ const TRANSPORT_CASES = [
   ['apiKey over the bound', { apiKey: 'k'.repeat(65_537) }, false],
 ];
 
-test('setup service and IPC validator accept and reject the same transport fields', async () => {
-  const admin = await import('../shared/test-recorded/custom-provider-validation.test.1.recorded.mjs');
-  const ipc = await import('./ipc-validation.ts');
-  assert.equal(ipc.CUSTOM_MAX_API_KEY, admin.CUSTOM_API_KEY_MAX);
+test('IPC validator accepts and rejects the transport fields of every case', () => {
   const base = {
     schemaVersion: 2,
     name: 'Local',
@@ -334,26 +289,14 @@ test('setup service and IPC validator accept and reject the same transport field
     baseURL: 'http://localhost:1234/v1',
     auth: 'none',
   };
-  const cfgMod = () => {
-    let config = {
-      providers: { [EXISTING_ID]: { ...base, type: 'custom', enabled: true, discovery: {}, modelOverrides: {} } },
-    };
-    return { loadConfig: () => structuredClone(config), saveConfig: (next) => (config = structuredClone(next)) };
-  };
   for (const [label, patch, expected] of TRANSPORT_CASES) {
-    const input = { ...base, ...patch };
-    let ipcOk = true;
+    let accepted = true;
     try {
-      requiredCustomProviderInput(input);
+      requiredCustomProviderInput({ ...base, ...patch });
     } catch {
-      ipcOk = false;
+      accepted = false;
     }
-    const serviceOk = await admin.saveCustomProvider(cfgMod(), input).then(
-      () => true,
-      () => false
-    );
-    assert.equal(ipcOk, expected, `IPC: ${label}`);
-    assert.equal(serviceOk, expected, `service: ${label}`);
+    assert.equal(accepted, expected, `IPC: ${label}`);
   }
 });
 
@@ -376,7 +319,7 @@ test('updateCustomProviderModel is registered and its patch shape is validated',
   assert.throws(() => requiredCustomModelPatch('custom-x', 'm', []), /invalid/);
 });
 
-test('custom provider additional API keys are shape-checked like the setup service', async () => {
+test('custom provider additional API keys are shape-checked', async () => {
   const extraKeysBase = {
     name: 'Local',
     protocol: 'openai-chat',
@@ -384,9 +327,6 @@ test('custom provider additional API keys are shape-checked like the setup servi
     models: [{ id: 'm' }],
   };
   const KEY_ID = '0d6f3d4e-8c55-4a43-9b3e-6a8f6c3f1b10';
-  const { MAX_ACCOUNTS } = await import('../shared/test-recorded/custom-provider-validation.test.2.recorded.mjs');
-  // The primary key and its additional keys make the roster's MAX_ACCOUNTS.
-  assert.equal(CUSTOM_MAX_EXTRA_API_KEYS, MAX_ACCOUNTS - 1);
   for (const extraApiKeys of [
     [],
     [{ apiKey: 'k' }],

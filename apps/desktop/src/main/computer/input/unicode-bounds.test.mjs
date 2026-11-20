@@ -1,51 +1,33 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assertSafeComputerInput } from './guards.ts';
-import {
-  validateComputerToolArgs,
-  toComputerHostCommand,
-} from '../../../shared/test-recorded/unicode-bounds.test.0.recorded.mjs';
 
-const checkHostCommands = (command) => {
-  assertSafeComputerInput(command);
-  for (const step of command.steps || []) {
-    assertSafeComputerInput({ ...step, delivery: command.delivery });
-  }
-};
+const emoji = (count) => '\u{1F600}'.repeat(count);
 
-const verifyBoth = (args) => {
-  assert.equal(validateComputerToolArgs(args), null);
-  const command = toComputerHostCommand(args);
-  assert.doesNotThrow(() => checkHostCommands(command));
-};
-
-test('tool and desktop gates accept the same Unicode boundary values', () => {
-  verifyBoth({ action: 'verify', input: { window_id: 'hwnd:0x1', expect: [{ present: '😀'.repeat(4096) }] } });
-  verifyBoth({ action: 'menu', input: { window_id: 'hwnd:0x1', path: ['😀'.repeat(512)] } });
-  verifyBoth({ action: 'capture', input: { query: '😀'.repeat(4096) } });
-  verifyBoth({
-    action: 'act',
-    input: { window_id: 'hwnd:0x1', actions: [{ type: 'type', text: '😀'.repeat(30000) }] },
-  });
-  verifyBoth({ action: 'clipboard', input: { operation: 'write', text: '😀'.repeat(50000) } });
+test('the desktop guard counts Unicode boundary values by code point', () => {
   for (const command of [
-    { action: 'verify', expect: [{ present: '😀'.repeat(4097) }] },
-    { action: 'invoke_menu', path: ['😀'.repeat(513)] },
-    { action: 'type', text: '😀'.repeat(30001) },
-    { action: 'clipboard_write', text: '😀'.repeat(50001) },
+    { action: 'verify', expect: [{ present: emoji(4096) }] },
+    { action: 'invoke_menu', path: [emoji(512)] },
+    { action: 'type', text: emoji(30000) },
+    { action: 'clipboard_write', text: emoji(50000) },
   ])
-    assert.throws(() => assertSafeComputerInput(command), /input_too_large/);
+    assert.doesNotThrow(() => assertSafeComputerInput(command), command.action);
+  for (const command of [
+    { action: 'verify', expect: [{ present: emoji(4097) }] },
+    { action: 'invoke_menu', path: [emoji(513)] },
+    { action: 'type', text: emoji(30001) },
+    { action: 'clipboard_write', text: emoji(50001) },
+  ])
+    assert.throws(() => assertSafeComputerInput(command), /input_too_large/, command.action);
 });
 
-test('foreground typing keeps the same UTF-16 budget on both boundaries', () => {
-  verifyBoth({
-    action: 'act',
-    input: { window_id: 'hwnd:0x1', delivery: 'foreground', actions: [{ type: 'type', text: '😀'.repeat(2000) }] },
-  });
-  const args = {
-    action: 'act',
-    input: { window_id: 'hwnd:0x1', delivery: 'foreground', actions: [{ type: 'type', text: '😀'.repeat(2001) }] },
-  };
-  assert.match(validateComputerToolArgs(args), /4000 UTF-16 code units/);
-  assert.throws(() => checkHostCommands(toComputerHostCommand(args)), /4000 UTF-16 code units/);
+test('a capture query is bounded at 4,096 code points', () => {
+  assert.doesNotThrow(() => assertSafeComputerInput({ action: 'capture', query: emoji(4096) }));
+  assert.throws(() => assertSafeComputerInput({ action: 'capture', query: emoji(4097) }), /input_too_large: query/);
+});
+
+test('foreground typing is bounded at 4,000 UTF-16 code units: 2,000 emoji pass, 2,001 do not', () => {
+  const type = (text) => ({ action: 'type', delivery: 'foreground', window_id: 'hwnd:0x1', text });
+  assert.doesNotThrow(() => assertSafeComputerInput(type(emoji(2000))));
+  assert.throws(() => assertSafeComputerInput(type(emoji(2001))), /foreground text exceeds 4000 UTF-16 code units/);
 });

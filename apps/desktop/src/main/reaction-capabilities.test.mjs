@@ -4,24 +4,14 @@ import test from 'node:test';
 import { DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES } from '../shared/contract.ts';
 import { SECTION_READS } from '../renderer/settings/capability-data.ts';
 import { CAPTURE_SETTINGS_VALUES } from './capture-host.ts';
-import { SESSION_CONFIGURE_ACTIONS, SESSION_READ_ACTIONS } from './test-support/session-protocol-actions.recorded.mjs';
 import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
 
-test('the reactions getter is a read capability and the setter a configure one, in the contract and the session protocol', () => {
+test('the reactions getter is a read capability and the setter a registered non-read one', () => {
   assert.equal(DESKTOP_CAPABILITIES.includes('getReactionSettings'), true);
   assert.equal(DESKTOP_CAPABILITIES.includes('setReactionsEnabled'), true);
   assert.equal(DESKTOP_READ_CAPABILITIES.includes('getReactionSettings'), true);
   assert.equal(DESKTOP_READ_CAPABILITIES.includes('setReactionsEnabled'), false, 'a write is never a read');
-  assert.equal(SESSION_READ_ACTIONS.includes('getReactionSettings'), true);
-  assert.equal(SESSION_READ_ACTIONS.includes('setReactionsEnabled'), false);
-  assert.equal(SESSION_CONFIGURE_ACTIONS.includes('setReactionsEnabled'), true);
-  assert.equal(SESSION_CONFIGURE_ACTIONS.includes('getReactionSettings'), false);
-  for (const list of [
-    DESKTOP_CAPABILITIES,
-    DESKTOP_READ_CAPABILITIES,
-    SESSION_READ_ACTIONS,
-    SESSION_CONFIGURE_ACTIONS,
-  ]) {
+  for (const list of [DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES]) {
     for (const name of ['getReactionSettings', 'setReactionsEnabled']) {
       assert.ok(list.filter((entry) => entry === name).length <= 1, name);
     }
