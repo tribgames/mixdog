@@ -3,17 +3,17 @@
   "recordings": [
     {
       "file": "01.json",
-      "sha256": "21c9ce272c7e76e7a6f52892ddc1dc75c3d59f5903e9a93f6adbcc41efe03020"
+      "sha256": "ad886d5908b945f83554251d925b6801388705a35a81062bab0dfb13909fd30b"
     }
   ],
   "recorder": {
     "remote-protocol-chat-refusals.record.mjs": "cab7bfae3528e5bf62b9b7eb4efc8e852f3ea3e0c513587d92bc82cfaae82795",
-    "../../../../packages/protocol-client/src/client.ts": "5a23d380093dbb3314a9ae8219d093495901e564bc8b53f9b10f17da82b49472",
+    "../../../../packages/protocol-client/src/client.ts": "6e3ab9f0c19fab484d6c89a98da3e237e84d8b24aeeff916bb62cfd575814146",
     "../main/protocol/service-route.ts": "690a6ca7093920aba55215e7739abc3413870b250c2a1a91a5e1007e88facaf5",
     "../shared/core-lanes/service-route.ts": "9745e75744ca69112275604b9741edaf585ed34640593470bc5609a1a53d5e27",
     "remote-protocol-chat-abort-live.mjs": "ec034a7db6968adf45dc03d35db33ac674a22d20462b984d0721f83c456a169e",
     "remote-protocol-chat-record-core.mjs": "e20cdfa2f5c6125d05888c0c490a29d80d1cdfb69cfb24c5b9321477172c961e",
-    "remote-protocol-chat-fixtures.mjs": "3ff47c0dd991f08172adcc53dfe3a37ab4d2486ac6a85f1cea78b1cb84813620",
+    "remote-protocol-chat-fixtures.mjs": "63fe3fc1b44431e45fa6524ae16221352d7de826cbcda8bea8f369f187336ee0",
     "remote-protocol-chat-abort-procs.mjs": "578e53261a43ba05dbb5fd8f2ec1074994c6da7bae4b50f1cada803006fb694d"
   }
 }

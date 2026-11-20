@@ -42,7 +42,7 @@ import type {
 } from './api.ts';
 import type { FeedHeadsResponse, OpStatusEntry } from '@mixdog/protocol';
 import { DEFAULT_LADDER, WIRE } from './api.ts';
-import { isOfferedRequest, isScopedMethod, isSectionMethod, methodInfo } from './method-table.ts';
+import { isKnownNotification, isOfferedRequest, isScopedMethod, isSectionMethod, methodInfo } from './method-table.ts';
 import { createLinkLog } from './link-log.mjs';
 import { DEFAULT_REQUEST_TIMEOUT_MS } from './request-limits.ts';
 import { LinkHealth } from './health.ts';
@@ -772,7 +772,8 @@ class Engine implements ProtocolClient<Json> {
     const cur = this.recv.get(f.id);
     this.violation(1002, `feed gap on ${f.id}`, 'feed gap', {
       feedKind,
-      method: n.method,
+      // A method the table does not list is the peer's text: logged as `unknown`.
+      method: isKnownNotification(n.method) ? n.method : 'unknown',
       hadPosition: cur !== undefined,
       ...(cur ? { epochChanged: cur.epoch !== f.epoch, expectedSeq: cur.seq + 1 } : {}),
       receivedSeq: firstOf(f),

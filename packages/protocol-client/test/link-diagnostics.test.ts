@@ -111,6 +111,19 @@ test('a protocol violation is logged under a fixed category, never with the feed
   await client.close();
 });
 
+test('a gap on a notification the method table does not list logs the method as unknown, never the peer\'s text', async () => {
+  const { client, conn, line, of } = await rig();
+  const resumed = client.resumeThread('t1', { lastItems: 5 });
+  conn.serverSend({ id: JSON.parse(await conn.nextSent()).id, result: attached });
+  await resumed;
+  const violation = line('link-violation');
+  conn.serverSend({ method: 'x/secret-content', params: {}, feed: { id: 't1', epoch: 'e1', seq: 4 } });
+  await violation;
+  assert.equal(of('link-violation')[0]!.fields.method, 'unknown');
+  assert.equal(JSON.stringify(of('link-violation')).includes('secret-content'), false);
+  await client.close();
+});
+
 test('a diagnostics sink that throws changes nothing the link does', async () => {
   let armed = false;
   const { client, conn: first, handshake } = await rig(() => {
