@@ -39,7 +39,10 @@ fields; this file owns scope, order, and boundaries.
    tests may be read; editing them outside the scope needs approval.
 4. Pass the approved paths on every `scan`/`check`/`fix`; `paths:["."]` only
    for an explicitly requested whole project.
-5. Review large scopes in bounded partitions once, keeping completion state;
+5. A pre-release pass over the whole project is a normal use once the user
+   requests it; run it as partitions per the last section of
+   `references/agent-cleanup.md`.
+6. Review large scopes in bounded partitions once, keeping completion state;
    report blocked partitions without restarting finished work. Read per-rule
    and per-directory counts first, then page only relevant rows
    (`tidy action:'results'` filters). Truncation, timeouts, or scope leakage
@@ -65,19 +68,22 @@ fields; this file owns scope, order, and boundaries.
 5. Apply with `apply:true` once the plan is settled (skip it when the dry run
    proposes nothing), then review the actual changes. Rules without a fix are
    diagnostics for the agent layer. Keep the engine pass a distinct change set
-   from semantic edits. On engine or structural failure, truncation, or a
+   from semantic edits, with generated, recorded and hash-pinned files
+   excluded and every automated fix reviewed (see `agent-cleanup.md`). On engine or structural failure, truncation, or a
    rejected edit, stop affected writes; a partial result is not success.
 
 ## 4. Agent-level cleanup
 Read `references/agent-cleanup.md` first (it owns the ladder, lenses, slop,
-risk tiers, source-text guards and structural signals); also
+risk tiers, source-text guards, structural findings, language-specific checks,
+prose tells and mechanical-pass guards); also
 `references/test-suite-slop.md` when tests are in scope and
 `references/cleanup-report.md` for the report.
 
 1. **Pin behavior (read-only).** Find the source-text guards a planned move
    can affect. A unit whose touched behavior no test covers gets only SAFE
    changes; report it instead of adding tests.
-2. **Ladder, then lenses** on each selected source unit. Engine diagnostics
+2. **Ladder, then lenses, then structure** on each selected source unit;
+   structural findings need evidence and a reader benefit, and rank first. Engine diagnostics
    point at units, not coverage. Findings need path+symbol evidence. Use
    history only when code, contracts, and tests leave intent unclear;
    unresolved intent blocks deletion.

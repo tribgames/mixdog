@@ -4,6 +4,11 @@ Findings and tiers come from `agent-cleanup.md`. Keep the list in the
 conversation, not a file. Record only findings with a path+symbol, a cost, and
 an action; threshold hits are signals, not findings.
 
+Order entries by severity: structural findings first (responsibility mixing,
+ad-hoc conditionals, contract-level optionality or casts, oversized mixed
+modules), then slop and dead code, then cosmetic items. Each structural entry
+adds a one-line reader benefit.
+
 Each entry carries: path · symbol, action or blocker, risk tier, evidence
 (what changed, why kept, or what blocks it). Findings sharing a root cause
 group together. Unresolved intent stays unfinished; approval to apply does not
