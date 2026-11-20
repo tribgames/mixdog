@@ -71,16 +71,80 @@ focus excludes.
 | Type escapes | `any`, unexplained ignores and suppressions, redundant coercions | an escape whose comment names the upstream bug | narrow with a guard or precise type; fix the warning or record why silenced |
 | Hardcoded config | environment-specific URLs, ids, absolute paths, unnamed thresholds | fixtures, docs, contract-fixed literals | use the project's config accessor; name the literal. A credential in source is a defect: report it |
 | Placeholder naming | `data2`, `tmp`, `handleStuff` on new code | the project's own idioms | rename locals; an exported rename is RISKY |
-| Oversized modules | files past the review threshold mixing responsibilities | a cohesive module | split confirmed independent responsibilities; no `utils`/`common` dumps |
+| Oversized modules | files past the review threshold mixing responsibilities | a cohesive module | split confirmed independent responsibilities; no `utils`/`common` dumps (see Structural findings) |
 
-## Structural signals
+## Structural findings
 
-File > 1,000 lines, function > 50 lines or nesting > 3, duplicated small
-helpers, history comments and exported underscore names are leads, not
-candidates: act only on a named symptom. Do not improve names, control flow,
-or types beyond the ladder and lenses. A confirmed responsibility-based split
-that preserves behavior and entry points is CAREFUL; moving a whole body
-elsewhere or cutting it into numbered chunks resolves nothing.
+Structure is judged, not only slop. Size thresholds (file > 1,000 lines,
+function > 50 lines, nesting > 3), duplicated small helpers, history comments
+and exported underscore names are leads: act only on a named symptom. A
+structural finding needs path+symbol evidence of a concrete cost to a reader
+or maintainer. Report few, high-conviction findings; do not pad with weak
+ones. What counts:
+
+- **Responsibility mixing** — a unit doing several independent jobs, or a
+  file growing past 1,000 lines through such mixing. A change that pushes a
+  file over that size is a presumptive structural defect unless the file is
+  one cohesive responsibility.
+- **Ad-hoc conditional in an unrelated flow** — a special case for one caller,
+  feature or input threaded through a generic path. Name the owner that should
+  hold it.
+- **Unnecessary optionality** — optional parameters, fields or nullable
+  returns that no caller varies, and `unknown`/`any`-typed or cast-heavy
+  contracts where a precise type is available. Question each; a boundary that
+  truly receives untyped input stays.
+- **Wrong seam** — a split that moves a body elsewhere or cuts it into
+  numbered chunks resolves nothing.
+
+Structural findings rank above cosmetic ones in every report. Applying them
+stays under the tiers: a confirmed responsibility split that preserves
+behavior and entry points is CAREFUL; anything touching a contract is RISKY
+and waits for approval. Do not redesign on the skill's own authority.
+
+**Reader benefit.** Each structural change states, in one line, what it takes
+off the reader (a branch, a hop, a duplicate, a cast). If none can be stated,
+do not make it; if one was made, revert it with a targeted patch. A large
+reshape also needs an old-versus-new equivalence check (same inputs, same
+outputs and errors) before it counts as done.
+
+## Language-specific checks
+
+- **Exhaustive switches (TypeScript and similar)** — a `switch` or branch
+  chain over a union or enum should end in a default that assigns the value to
+  `never` (or the language's equivalent), so adding a member fails the
+  compile. Adding it is SAFE only where the member set is closed and the
+  default currently does nothing observable; replacing a real fallback is
+  CAREFUL.
+- **Import placement** — imports sit at module top. An inline or dynamic
+  import stays only with a comment naming the cycle or lazy-load reason that
+  forces it; otherwise move it, after checking module initialization order
+  (CAREFUL).
+
+## Prose tells
+
+Comments, docs and messages written on autopilot are slop even when accurate.
+Flag: filler openers and closers, announcements of what follows, bold inline
+labels in running prose, inflated words where a plain one fits, hedging
+stacks, and symmetric lists of three added for rhythm. Fix by deleting or
+rewriting plainly; keep facts, constraints and links.
+
+## Mechanical passes and whole-project runs
+
+- A formatter or safe-fix pass never touches generated files, recordings,
+  snapshots, vendored code, or any source another file pins by hash or
+  checksum. Before running one, search for hash pins and exclude those paths;
+  after it, search again and run the project's tests.
+- An automatic "safe" fix can change behavior: replacing a function with an
+  arrow breaks constructable or proxy targets; rewrapping an import can detach
+  a suppression directive from its line. Review the diff of every automated
+  fix, and revert the ones that change identity, binding or directive
+  placement.
+- A mechanical pass is its own commit, separate from judged edits, so it can
+  be reviewed and reverted alone (commit only when the user asks).
+- Pre-release, whole-project use is normal when the user names the whole
+  project: partition by directory, run the deterministic layers first, then
+  judge structure per partition, and report findings ordered structural first.
+  The release blocker list is the RISKY and defect sections, not the nits.
 
 ## Keep: never remove or rename
 
