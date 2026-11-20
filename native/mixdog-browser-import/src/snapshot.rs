@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use rusqlite::{Connection, ErrorCode, OpenFlags};
 use windows::Win32::Foundation::{ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION};
 
@@ -44,9 +44,7 @@ impl Drop for Snapshot {
 /// lock violation into a generic "cannot open".
 fn held_by_another_process(path: &Path) -> bool {
     match std::fs::File::open(path) {
-        Err(error) => [ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION]
-            .iter()
-            .any(|code| error.raw_os_error() == Some(code.0 as i32)),
+        Err(error) => [ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION].iter().any(|code| error.raw_os_error() == Some(code.0 as i32)),
         Ok(_) => false,
     }
 }
@@ -68,31 +66,22 @@ fn failure_for(src: &Path, error: &rusqlite::Error) -> Failure {
 fn snapshot_into(src: &Path, dest: PathBuf) -> Result<Snapshot> {
     // Built first so every failure below removes whatever `VACUUM INTO` left.
     let snapshot = Snapshot { path: dest };
-    let target = snapshot
-        .path
-        .to_str()
-        .ok_or_else(|| anyhow!("the temporary snapshot path is not valid UTF-8"))?;
-    let live = Connection::open_with_flags(src, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|error| failure_for(src, &error))?;
+    let target = snapshot.path.to_str().ok_or_else(|| anyhow!("the temporary snapshot path is not valid UTF-8"))?;
+    let live = Connection::open_with_flags(src, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|error| failure_for(src, &error))?;
     // rusqlite installs a 5 s busy handler on every connection it opens. A lock
     // here means Chrome has the database open for as long as it runs, so
     // waiting cannot help: remove the handler (a timeout <= 0 "turns off all
     // busy handlers", sqlite.org/c3ref/busy_timeout.html) so SQLITE_BUSY is
     // returned at once, which is SQLite's default, and reported as ChromeRunning.
-    live.busy_timeout(Duration::ZERO)
-        .map_err(|error| failure_for(src, &error))?;
-    live.execute("VACUUM INTO ?1", [target])
-        .map_err(|error| failure_for(src, &error))?;
+    live.busy_timeout(Duration::ZERO).map_err(|error| failure_for(src, &error))?;
+    live.execute("VACUUM INTO ?1", [target]).map_err(|error| failure_for(src, &error))?;
     Ok(snapshot)
 }
 
 /// Write a consistent snapshot of the database at `src` to a fresh temporary
 /// file. `kind` names the database in the temp file name.
 pub fn snapshot(src: &Path, kind: &str) -> Result<Snapshot> {
-    let dest = std::env::temp_dir().join(format!(
-        "mixdog-{kind}-{:016x}.db",
-        rand::random::<u64>()
-    ));
+    let dest = std::env::temp_dir().join(format!("mixdog-{kind}-{:016x}.db", rand::random::<u64>()));
     snapshot_into(src, dest)
 }
 
@@ -123,11 +112,7 @@ mod tests {
     fn values(path: &Path) -> Vec<String> {
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
         let mut statement = conn.prepare("SELECT v FROM t ORDER BY id").unwrap();
-        statement
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .collect::<rusqlite::Result<Vec<String>>>()
-            .unwrap()
+        statement.query_map([], |row| row.get(0)).unwrap().collect::<rusqlite::Result<Vec<String>>>().unwrap()
     }
 
     #[test]
@@ -166,9 +151,7 @@ mod tests {
 
     fn failure_of(result: Result<Snapshot>) -> Failure {
         let error = result.err().expect("the snapshot must fail");
-        *error
-            .downcast_ref::<Failure>()
-            .unwrap_or_else(|| panic!("unclassified snapshot error: {error:?}"))
+        *error.downcast_ref::<Failure>().unwrap_or_else(|| panic!("unclassified snapshot error: {error:?}"))
     }
 
     #[test]
@@ -201,16 +184,9 @@ mod tests {
 
         let dir = TestDir::new();
         let live = dir.join("Cookies");
-        Connection::open(&live)
-            .unwrap()
-            .execute_batch("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);")
-            .unwrap();
+        Connection::open(&live).unwrap().execute_batch("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);").unwrap();
         // How a running Chrome holds its database: open with no sharing.
-        let _held = std::fs::OpenOptions::new()
-            .read(true)
-            .share_mode(0)
-            .open(&live)
-            .unwrap();
+        let _held = std::fs::OpenOptions::new().read(true).share_mode(0).open(&live).unwrap();
 
         let dest = dir.join("copy.db");
         let failure = failure_of(snapshot_into(&live, dest.clone()));
@@ -226,16 +202,10 @@ mod tests {
         // Not a database at all.
         let garbage = dir.join("Garbage");
         std::fs::write(&garbage, vec![0x5a_u8; 4096]).unwrap();
-        assert_eq!(
-            failure_of(snapshot_into(&garbage, dest.clone())),
-            Failure::DataUnreadable
-        );
+        assert_eq!(failure_of(snapshot_into(&garbage, dest.clone())), Failure::DataUnreadable);
 
         // A path SQLite cannot open for a reason other than a sharing lock.
-        assert_eq!(
-            failure_of(snapshot_into(&dir.0, dest.clone())),
-            Failure::DataUnreadable
-        );
+        assert_eq!(failure_of(snapshot_into(&dir.0, dest.clone())), Failure::DataUnreadable);
         assert!(!dest.exists());
     }
 
@@ -263,16 +233,9 @@ mod tests {
             ffi::SQLITE_NOTADB,
             ffi::SQLITE_CANTOPEN,
         ] {
-            assert_eq!(
-                failure_for(&readable, &sqlite(unreadable)),
-                Failure::DataUnreadable,
-                "code {unreadable}"
-            );
+            assert_eq!(failure_for(&readable, &sqlite(unreadable)), Failure::DataUnreadable, "code {unreadable}");
         }
-        assert_eq!(
-            failure_for(&readable, &rusqlite::Error::InvalidQuery),
-            Failure::DataUnreadable
-        );
+        assert_eq!(failure_for(&readable, &rusqlite::Error::InvalidQuery), Failure::DataUnreadable);
     }
 
     #[test]
@@ -280,10 +243,7 @@ mod tests {
         let dir = TestDir::new();
         let live = dir.join("Missing");
         let dest = dir.join("copy.db");
-        assert_eq!(
-            failure_of(snapshot_into(&live, dest.clone())),
-            Failure::DataUnreadable
-        );
+        assert_eq!(failure_of(snapshot_into(&live, dest.clone())), Failure::DataUnreadable);
         assert!(!live.exists());
         assert!(!dest.exists());
     }

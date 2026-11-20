@@ -2173,6 +2173,10 @@ jobs:
           for lock in native/*/Cargo.lock; do
             cargo fmt --all --manifest-path "$(dirname "$lock")/Cargo.toml" -- --check
           done
+          # No Cargo.lock and path dependencies outside the repository: cargo cannot load it, rustfmt reads the sources alone.
+          rustfmt --check --edition 2021 native/mixdog-browser-import/src/main.rs
+          # Its own workspace under scripts/, below no rustfmt.toml: the default layout.
+          cargo fmt --all --manifest-path scripts/rust-core/tree-helper/Cargo.toml -- --check
       # Lints are not denied in the compile itself: a denied lint ends the build at the first crate that has
       # one, and the crates after it wait for the next run. Every crate is linted, then any finding fails.
       - name: Clippy

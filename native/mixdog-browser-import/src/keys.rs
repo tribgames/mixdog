@@ -10,7 +10,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use chromium_importer::chromium::crypt_unprotect_data;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -65,19 +65,13 @@ fn read_os_crypt(local_state_path: &Path) -> Result<OsCrypt> {
 /// rest (not a secret), so it may be read without elevation; the elevated key
 /// provider reads it the same way before unwrapping.
 pub fn read_app_bound_encrypted_key(local_state_path: &Path) -> Result<String> {
-    read_os_crypt(local_state_path)?
-        .app_bound_encrypted_key
-        .classify(Failure::DataUnreadable)
+    read_os_crypt(local_state_path)?.app_bound_encrypted_key.classify(Failure::DataUnreadable)
 }
 
 /// Resolve the DPAPI-wrapped v10 master key.
 pub fn v10_key(local_state_path: &Path) -> Result<Vec<u8>> {
-    let encoded = read_os_crypt(local_state_path)?
-        .encrypted_key
-        .classify(Failure::DataUnreadable)?;
-    let bytes = BASE64_STANDARD
-        .decode(&encoded)
-        .classify(Failure::DataUnreadable)?;
+    let encoded = read_os_crypt(local_state_path)?.encrypted_key.classify(Failure::DataUnreadable)?;
+    let bytes = BASE64_STANDARD.decode(&encoded).classify(Failure::DataUnreadable)?;
     if bytes.len() <= 5 || &bytes[..5] != b"DPAPI" {
         return Err(Failure::DataUnreadable.into());
     }
@@ -86,10 +80,7 @@ pub fn v10_key(local_state_path: &Path) -> Result<Vec<u8>> {
 
 /// Lowercase hex SHA-256 of the exact `app_bound_encrypted_key` text.
 fn blob_sha256(encoded: &str) -> String {
-    Sha256::digest(encoded.as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    Sha256::digest(encoded.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Resolve the App-Bound v20 master key: the saved key when one was supplied,
@@ -99,19 +90,13 @@ pub async fn bound_v20_key(local_state_path: &Path, route: &V20Route<'_>) -> Res
     let encoded = read_app_bound_encrypted_key(local_state_path)?;
     let blob_sha256 = blob_sha256(&encoded);
     if let Some(saved) = route.saved_key {
-        return Ok(BoundV20Key {
-            key: Zeroizing::new(saved.to_vec()),
-            blob_sha256,
-        });
+        return Ok(BoundV20Key { key: Zeroizing::new(saved.to_vec()), blob_sha256 });
     }
     if !route.allow_elevation {
         return Err(Failure::SavedKeyRequired.into());
     }
     let admin_exe = route.admin_exe.classify(Failure::ElevationFailed)?;
-    Ok(BoundV20Key {
-        key: Zeroizing::new(abe_client::unwrap_app_bound_key(admin_exe, &encoded).await?),
-        blob_sha256,
-    })
+    Ok(BoundV20Key { key: Zeroizing::new(abe_client::unwrap_app_bound_key(admin_exe, &encoded).await?), blob_sha256 })
 }
 
 /// [`bound_v20_key`] without the binding, for importers that do not keep it.
@@ -146,11 +131,7 @@ mod tests {
     }
 
     fn route(saved_key: Option<&[u8]>, allow_elevation: bool) -> V20Route<'_> {
-        V20Route {
-            admin_exe: None,
-            saved_key,
-            allow_elevation,
-        }
+        V20Route { admin_exe: None, saved_key, allow_elevation }
     }
 
     #[tokio::test]
@@ -159,14 +140,9 @@ mod tests {
         let saved = [0x5a_u8; 32];
         // No admin helper is configured: reaching for it would be an error.
         for allow_elevation in [true, false] {
-            let bound = bound_v20_key(&path, &route(Some(&saved), allow_elevation))
-                .await
-                .expect("saved key");
+            let bound = bound_v20_key(&path, &route(Some(&saved), allow_elevation)).await.expect("saved key");
             assert_eq!(bound.key.as_slice(), saved);
-            assert_eq!(
-                bound.blob_sha256,
-                "aa27776be59cf00b623e52bc05336bcb587648479fbe081721ee4b03132dbf04"
-            );
+            assert_eq!(bound.blob_sha256, "aa27776be59cf00b623e52bc05336bcb587648479fbe081721ee4b03132dbf04");
         }
         std::fs::remove_file(&path).ok();
     }
@@ -209,20 +185,14 @@ mod tests {
             r#"{ "os_crypt": { "encrypted_key": "SECRET***not-base64" } }"#,
         ] {
             let path = write_local_state(contents);
-            for error in [
-                read_app_bound_encrypted_key(&path).unwrap_err(),
-                v10_key(&path).unwrap_err(),
-            ] {
+            for error in [read_app_bound_encrypted_key(&path).unwrap_err(), v10_key(&path).unwrap_err()] {
                 assert_eq!(user_message(&error), "Chrome data could not be read.");
                 assert!(!format!("{error:?}").contains("SECRET"), "{error:?}");
             }
             std::fs::remove_file(&path).ok();
         }
         let missing = std::env::temp_dir().join("mx-ls-does-not-exist.json");
-        assert_eq!(
-            user_message(&read_app_bound_encrypted_key(&missing).unwrap_err()),
-            "Chrome data could not be read."
-        );
+        assert_eq!(user_message(&read_app_bound_encrypted_key(&missing).unwrap_err()), "Chrome data could not be read.");
     }
 
     #[test]

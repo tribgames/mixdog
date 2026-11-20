@@ -12,14 +12,14 @@
 
 use std::path::Path;
 
-use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
-use anyhow::{anyhow, Result};
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
+use anyhow::{Result, anyhow};
 use rusqlite::types::Value;
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::cookies::{chrome_user_data_dir, resolve_profile_dir, DecryptKeys};
+use crate::cookies::{DecryptKeys, chrome_user_data_dir, resolve_profile_dir};
 use crate::failure::{Classify, Failure};
 use crate::{keys, snapshot};
 
@@ -77,13 +77,8 @@ fn chrome_micros_to_unix_ms(micros: i64) -> Option<i64> {
 /// constants, never input.
 fn recency_columns(conn: &Connection) -> rusqlite::Result<Vec<&'static str>> {
     let mut statement = conn.prepare("SELECT name FROM pragma_table_info('logins')")?;
-    let present = statement
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(["date_last_used", "date_password_modified", "date_created"]
-        .into_iter()
-        .filter(|name| present.iter().any(|column| column == name))
-        .collect())
+    let present = statement.query_map([], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(["date_last_used", "date_password_modified", "date_created"].into_iter().filter(|name| present.iter().any(|column| column == name)).collect())
 }
 
 /// The first usable date among a row's candidate values (best column first).
@@ -96,16 +91,14 @@ fn first_valid_recency(values: impl IntoIterator<Item = Value>) -> Option<i64> {
 }
 
 fn table_exists(conn: &Connection, table: &str) -> rusqlite::Result<bool> {
-    conn.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1")?
-        .exists([table])
+    conn.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1")?.exists([table])
 }
 
 fn read_login_file(path: &Path, out: &mut Vec<RawLogin>) -> Result<()> {
     // A consistent private snapshot; fails if Chrome still holds the database.
     let temp = snapshot::snapshot(path, "login")?;
     // SQLite's own error text is dropped; only the class is ever reported.
-    let conn = Connection::open_with_flags(temp.path(), OpenFlags::SQLITE_OPEN_READ_WRITE)
-        .classify(Failure::DataUnreadable)?;
+    let conn = Connection::open_with_flags(temp.path(), OpenFlags::SQLITE_OPEN_READ_WRITE).classify(Failure::DataUnreadable)?;
     read_logins(&conn, out).classify(Failure::DataUnreadable)
 }
 
@@ -125,15 +118,9 @@ fn read_logins(conn: &Connection, out: &mut Vec<RawLogin>) -> Result<()> {
         Ok(RawLogin {
             url: row.get(0)?,
             username: row.get(1)?,
-            encrypted_password: Zeroizing::new(
-                row.get::<_, Option<Vec<u8>>>(2)?.unwrap_or_default(),
-            ),
+            encrypted_password: Zeroizing::new(row.get::<_, Option<Vec<u8>>>(2)?.unwrap_or_default()),
             encrypted_note: Zeroizing::new(row.get::<_, Option<Vec<u8>>>(3)?.unwrap_or_default()),
-            last_used_at: first_valid_recency(
-                (0..recency.len())
-                    .map(|offset| row.get::<_, Value>(4 + offset))
-                    .collect::<rusqlite::Result<Vec<_>>>()?,
-            ),
+            last_used_at: first_valid_recency((0..recency.len()).map(|offset| row.get::<_, Value>(4 + offset)).collect::<rusqlite::Result<Vec<_>>>()?),
         })
     })?;
     for row in rows {
@@ -184,11 +171,7 @@ fn decrypt_value(encrypted: &[u8], keys: &DecryptKeys) -> Result<String> {
     }
     let cipher = Aes256Gcm::new_from_slice(key)?;
     let nonce = Nonce::try_from(&rest[..IV_SIZE])?;
-    let plaintext = Zeroizing::new(
-        cipher
-            .decrypt(&nonce, &rest[IV_SIZE..])
-            .classify(Failure::DecryptionFailed)?,
-    );
+    let plaintext = Zeroizing::new(cipher.decrypt(&nonce, &rest[IV_SIZE..]).classify(Failure::DecryptionFailed)?);
     String::from_utf8(plaintext.to_vec()).map_err(|e| anyhow!("login value is not UTF-8: {}", e))
 }
 
@@ -200,13 +183,7 @@ fn decrypt_logins(raws: Vec<RawLogin>, keys: &DecryptKeys) -> (Vec<Credential>, 
             Ok(password) => {
                 // A note that fails to decrypt is dropped, not fatal (upstream).
                 let note = decrypt_value(&raw.encrypted_note, keys).unwrap_or_default();
-                credentials.push(Credential {
-                    url: raw.url,
-                    username: raw.username,
-                    password,
-                    note,
-                    last_used_at: raw.last_used_at,
-                });
+                credentials.push(Credential { url: raw.url, username: raw.username, password, note, last_used_at: raw.last_used_at });
             }
             Err(_) => failures += 1,
         }
@@ -216,10 +193,7 @@ fn decrypt_logins(raws: Vec<RawLogin>, keys: &DecryptKeys) -> (Vec<Credential>, 
 
 /// Decrypt every saved login for a Chrome profile, resolving the v20 key
 /// through `route` (the admin helper) only when a v20 value is present.
-pub async fn import_chrome_logins(
-    profile: &str,
-    route: &keys::V20Route<'_>,
-) -> Result<Vec<Credential>> {
+pub async fn import_chrome_logins(profile: &str, route: &keys::V20Route<'_>) -> Result<Vec<Credential>> {
     let user_data = chrome_user_data_dir()?;
     let local_state = user_data.join("Local State");
     let profile_dir = resolve_profile_dir(&user_data, profile)?;
@@ -268,10 +242,7 @@ mod tests {
     }
 
     fn keys_with(key: [u8; 32]) -> DecryptKeys {
-        DecryptKeys {
-            v10: Some(key.to_vec()),
-            v20: Some(key.to_vec()),
-        }
+        DecryptKeys { v10: Some(key.to_vec()), v20: Some(key.to_vec()) }
     }
 
     #[test]
@@ -319,10 +290,7 @@ mod tests {
 
         // A v20 value with no v20 key present is a failure, not a panic.
         let blob = seal_value(b"v20", &[0x42_u8; 32], b"secret");
-        let v10_only = DecryptKeys {
-            v10: Some([0x42_u8; 32].to_vec()),
-            v20: None,
-        };
+        let v10_only = DecryptKeys { v10: Some([0x42_u8; 32].to_vec()), v20: None };
         assert!(decrypt_value(&blob, &v10_only).is_err());
     }
 
@@ -377,10 +345,7 @@ mod tests {
     #[test]
     fn chrome_microseconds_since_1601_become_unix_milliseconds() {
         // 13_300_000_000_000_000 us after 1601-01-01 is 1_655_526_400_000 ms after 1970-01-01.
-        assert_eq!(
-            chrome_micros_to_unix_ms(13_300_000_000_000_000),
-            Some(1_655_526_400_000)
-        );
+        assert_eq!(chrome_micros_to_unix_ms(13_300_000_000_000_000), Some(1_655_526_400_000));
         assert_eq!(chrome_micros_to_unix_ms(0), None);
         assert_eq!(chrome_micros_to_unix_ms(-5), None);
     }
@@ -411,30 +376,15 @@ mod tests {
     fn recency_reads_any_subset_of_columns_and_skips_invalid_values() {
         // 13_300_000_000_000_000 us is 1_655_526_400_000 ms; 13_400_000_000_000_000 us is 1_755_526_400_000 ms.
         // A single recency column (no COALESCE of one argument).
-        assert_eq!(
-            recency_of(", date_created INTEGER", ", 13300000000000000"),
-            Some(1_655_526_400_000)
-        );
+        assert_eq!(recency_of(", date_created INTEGER", ", 13300000000000000"), Some(1_655_526_400_000));
         // No recency column at all.
         assert_eq!(recency_of("", ""), None);
         // A negative last-used and a text modified date are skipped for the valid created date.
         let all = ", date_last_used INTEGER, date_password_modified, date_created INTEGER";
-        assert_eq!(
-            recency_of(all, ", -5, 'garbage', 13300000000000000"),
-            Some(1_655_526_400_000)
-        );
+        assert_eq!(recency_of(all, ", -5, 'garbage', 13300000000000000"), Some(1_655_526_400_000));
         // The best valid column wins; a zero last-used falls back to the modified date.
-        assert_eq!(
-            recency_of(
-                all,
-                ", 13400000000000000, 13300000000000000, 13300000000000000"
-            ),
-            Some(1_755_526_400_000)
-        );
-        assert_eq!(
-            recency_of(all, ", 0, 13400000000000000, NULL"),
-            Some(1_755_526_400_000)
-        );
+        assert_eq!(recency_of(all, ", 13400000000000000, 13300000000000000, 13300000000000000"), Some(1_755_526_400_000));
+        assert_eq!(recency_of(all, ", 0, 13400000000000000, NULL"), Some(1_755_526_400_000));
     }
 
     #[test]

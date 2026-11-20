@@ -55,9 +55,7 @@ const UNCLASSIFIED: &str = "Chrome import failed.";
 /// The only text that may be shown for `error`: its class's fixed message, or
 /// a generic one. Never the error's own text.
 pub fn user_message(error: &anyhow::Error) -> &'static str {
-    error
-        .downcast_ref::<Failure>()
-        .map_or(UNCLASSIFIED, |failure| failure.message())
+    error.downcast_ref::<Failure>().map_or(UNCLASSIFIED, |failure| failure.message())
 }
 
 /// Replace a raw failure with a [`Failure`] class, discarding its detail.
@@ -83,9 +81,7 @@ mod tests {
 
     #[test]
     fn classified_errors_report_only_their_fixed_message() {
-        let raw: Result<(), _> = Err(std::io::Error::other(
-            "invalid type: string \"SECRET-LOCAL-STATE\", expected a map",
-        ));
+        let raw: Result<(), _> = Err(std::io::Error::other("invalid type: string \"SECRET-LOCAL-STATE\", expected a map"));
         let error = raw.classify(Failure::DataUnreadable).unwrap_err();
         assert_eq!(user_message(&error), "Chrome data could not be read.");
         assert!(!format!("{error:?}").contains("SECRET"));

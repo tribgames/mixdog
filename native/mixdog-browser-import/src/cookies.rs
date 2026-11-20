@@ -7,9 +7,9 @@
 
 use std::path::{Path, PathBuf};
 
-use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
-use anyhow::{anyhow, Result};
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
+use anyhow::{Result, anyhow};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use chromium_importer::chromium::crypt_unprotect_data;
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
@@ -77,9 +77,7 @@ struct RawCookie {
 
 impl RawCookie {
     fn expired(&self, now: f64) -> bool {
-        self.has_expires != 0
-            && self.is_persistent != 0
-            && self.expires_utc as f64 / 1_000_000.0 - CHROME_EPOCH_OFFSET_SECS as f64 <= now
+        self.has_expires != 0 && self.is_persistent != 0 && self.expires_utc as f64 / 1_000_000.0 - CHROME_EPOCH_OFFSET_SECS as f64 <= now
     }
 }
 
@@ -148,29 +146,14 @@ pub struct CookieDb {
 
 impl CookieDb {
     fn from_connection(conn: &Connection) -> Result<Self> {
-        let schema_version: i64 = conn.query_row(
-            "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'version'",
-            [],
-            |row| row.get(0),
-        )?;
+        let schema_version: i64 = conn.query_row("SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'version'", [], |row| row.get(0))?;
         if schema_version < 1 {
             return Err(anyhow!("cookie database schema version is invalid"));
         }
-        let columns = conn
-            .prepare("PRAGMA table_info(cookies)")?
-            .query_map([], |row| row.get::<_, String>(1))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let columns = conn.prepare("PRAGMA table_info(cookies)")?.query_map([], |row| row.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
         let has_partition = columns.iter().any(|name| name == "top_frame_site_key");
-        let partition_column = if has_partition {
-            "top_frame_site_key"
-        } else {
-            "''"
-        };
-        let ancestor_column = if columns.iter().any(|name| name == "has_cross_site_ancestor") {
-            "has_cross_site_ancestor"
-        } else {
-            "NULL"
-        };
+        let partition_column = if has_partition { "top_frame_site_key" } else { "''" };
+        let ancestor_column = if columns.iter().any(|name| name == "has_cross_site_ancestor") { "has_cross_site_ancestor" } else { "NULL" };
         let mut statement = conn.prepare(&format!(
             "SELECT host_key, name, path, encrypted_value, value, is_secure, is_httponly, \
              has_expires, is_persistent, expires_utc, samesite, {partition_column}, {ancestor_column} FROM cookies",
@@ -199,16 +182,12 @@ impl CookieDb {
             }
             raws.push(row?);
         }
-        Ok(Self {
-            schema_version,
-            raws,
-        })
+        Ok(Self { schema_version, raws })
     }
 
     pub fn load(db_path: &Path) -> Result<Self> {
         // SQLite's own error text is dropped; only the class is ever reported.
-        let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE)
-            .classify(Failure::DataUnreadable)?;
+        let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE).classify(Failure::DataUnreadable)?;
         Self::from_connection(&conn).classify(Failure::DataUnreadable)
     }
 
@@ -249,10 +228,7 @@ impl CookieDb {
                     failures.invalid_partition += 1;
                     continue;
                 };
-                Some(CookiePartitionKey {
-                    top_level_site: raw.top_frame_site_key.clone(),
-                    has_cross_site_ancestor: ancestor == 1,
-                })
+                Some(CookiePartitionKey { top_level_site: raw.top_frame_site_key.clone(), has_cross_site_ancestor: ancestor == 1 })
             };
             let value = match decode_value(&raw, self.schema_version, keys) {
                 Ok(value) => value,
@@ -291,14 +267,7 @@ impl CookieDb {
                 partition_key,
             });
         }
-        CookieImportReport {
-            version: 2,
-            source_count,
-            expired,
-            cookies,
-            failures,
-            app_bound_key: None,
-        }
+        CookieImportReport { version: 2, source_count, expired, cookies, failures, app_bound_key: None }
     }
 
     /// Whether `key` decrypts at least one live v20 value: the proof that it
@@ -307,32 +276,20 @@ impl CookieDb {
         self.raws
             .iter()
             .filter(|raw| !raw.expired(now) && raw.encrypted_value.starts_with(b"v20"))
-            .any(|raw| {
-                decrypt_gcm(key, &raw.encrypted_value[3..])
-                    .map(Zeroizing::new)
-                    .is_ok()
-            })
+            .any(|raw| decrypt_gcm(key, &raw.encrypted_value[3..]).map(Zeroizing::new).is_ok())
     }
 
     /// A saved v20 key that decrypts nothing is refused so the desktop discards
     /// it; a freshly unwrapped one is handed back for the desktop to keep only
     /// when `return_key` is set and it is proven to decrypt.
-    fn vet_v20(
-        &self,
-        bound: keys::BoundV20Key,
-        saved: bool,
-        return_key: bool,
-        now: f64,
-    ) -> Result<(Zeroizing<Vec<u8>>, Option<AppBoundKeyGrant>)> {
+    fn vet_v20(&self, bound: keys::BoundV20Key, saved: bool, return_key: bool, now: f64) -> Result<(Zeroizing<Vec<u8>>, Option<AppBoundKeyGrant>)> {
         let proven = self.decrypts_any_v20(&bound.key, now);
         if saved && !proven {
             // `bound` drops here and wipes its key.
             return Err(Failure::SavedKeyRejected.into());
         }
-        let grant = (!saved && return_key && proven).then(|| AppBoundKeyGrant {
-            key: BASE64_STANDARD.encode(bound.key.as_slice()),
-            blob_sha256: bound.blob_sha256,
-        });
+        let grant =
+            (!saved && return_key && proven).then(|| AppBoundKeyGrant { key: BASE64_STANDARD.encode(bound.key.as_slice()), blob_sha256: bound.blob_sha256 });
         Ok((bound.key, grant))
     }
 
@@ -365,33 +322,19 @@ fn decrypt_gcm(key: &[u8], blob: &[u8]) -> Result<Vec<u8>> {
     }
     let cipher = Aes256Gcm::new_from_slice(key)?;
     let nonce = Nonce::try_from(&blob[..IV_SIZE])?;
-    let plaintext = cipher
-        .decrypt(&nonce, &blob[IV_SIZE..])
-        .map_err(|e| anyhow!("cookie decryption failed: {}", e))?;
+    let plaintext = cipher.decrypt(&nonce, &blob[IV_SIZE..]).map_err(|e| anyhow!("cookie decryption failed: {}", e))?;
     Ok(plaintext)
 }
 
-fn decode_value(
-    raw: &RawCookie,
-    schema_version: i64,
-    keys: &DecryptKeys,
-) -> Result<String, DecodeError> {
+fn decode_value(raw: &RawCookie, schema_version: i64, keys: &DecryptKeys) -> Result<String, DecodeError> {
     let encrypted = &raw.encrypted_value;
     if encrypted.is_empty() {
-        return std::str::from_utf8(&raw.value)
-            .map(str::to_owned)
-            .map_err(|_| DecodeError::InvalidEncoding);
+        return std::str::from_utf8(&raw.value).map(str::to_owned).map_err(|_| DecodeError::InvalidEncoding);
     }
     let bytes = if encrypted.starts_with(b"v20") {
-        decrypt_gcm(
-            keys.v20.as_deref().ok_or(DecodeError::Decryption)?,
-            &encrypted[3..],
-        )
+        decrypt_gcm(keys.v20.as_deref().ok_or(DecodeError::Decryption)?, &encrypted[3..])
     } else if encrypted.starts_with(b"v10") {
-        decrypt_gcm(
-            keys.v10.as_deref().ok_or(DecodeError::Decryption)?,
-            &encrypted[3..],
-        )
+        decrypt_gcm(keys.v10.as_deref().ok_or(DecodeError::Decryption)?, &encrypted[3..])
     } else {
         crypt_unprotect_data(encrypted, 0).map_err(|e| anyhow!("legacy cookie DPAPI failed: {}", e))
     };
@@ -405,17 +348,12 @@ fn decode_value(
     } else {
         bytes.as_slice()
     };
-    std::str::from_utf8(value)
-        .map(str::to_owned)
-        .map_err(|_| DecodeError::InvalidEncoding)
+    std::str::from_utf8(value).map(str::to_owned).map_err(|_| DecodeError::InvalidEncoding)
 }
 
 pub(crate) fn chrome_user_data_dir() -> Result<PathBuf> {
     let local = std::env::var_os("LOCALAPPDATA").classify(Failure::ProfileNotFound)?;
-    Ok(PathBuf::from(local)
-        .join("Google")
-        .join("Chrome")
-        .join("User Data"))
+    Ok(PathBuf::from(local).join("Google").join("Chrome").join("User Data"))
 }
 
 /// The directory of `profile` inside the Chrome user-data directory, accepted
@@ -443,11 +381,7 @@ fn cookie_db_path(profile_dir: &Path) -> Option<PathBuf> {
 /// Decrypt every cookie for a Chrome profile, resolving the v20 (App-Bound)
 /// key through `route` only when a v20 cookie is present. With `return_key`, a
 /// freshly unwrapped key that proved correct is added to the report.
-pub async fn import_chrome_cookies(
-    profile: &str,
-    route: &keys::V20Route<'_>,
-    return_key: bool,
-) -> Result<CookieImportReport> {
+pub async fn import_chrome_cookies(profile: &str, route: &keys::V20Route<'_>, return_key: bool) -> Result<CookieImportReport> {
     let user_data = chrome_user_data_dir()?;
     let local_state = user_data.join("Local State");
     let profile_dir = resolve_profile_dir(&user_data, profile)?;
@@ -484,24 +418,15 @@ mod tests {
 
     fn fixture(schema: i64, partition_column: bool) -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);")
-            .unwrap();
-        conn.execute(
-            "INSERT INTO meta VALUES ('version', ?)",
-            [schema.to_string()],
-        )
-        .unwrap();
+        conn.execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);").unwrap();
+        conn.execute("INSERT INTO meta VALUES ('version', ?)", [schema.to_string()]).unwrap();
         conn.execute_batch(&format!(
             "CREATE TABLE cookies (
                 host_key TEXT, name TEXT, path TEXT, value TEXT, encrypted_value BLOB,
                 is_secure INTEGER, is_httponly INTEGER, has_expires INTEGER,
                 is_persistent INTEGER, expires_utc INTEGER, samesite INTEGER {}
             );",
-            if partition_column {
-                ", top_frame_site_key TEXT DEFAULT '', has_cross_site_ancestor INTEGER DEFAULT 1"
-            } else {
-                ""
-            }
+            if partition_column { ", top_frame_site_key TEXT DEFAULT '', has_cross_site_ancestor INTEGER DEFAULT 1" } else { "" }
         ))
         .unwrap();
         conn
@@ -520,28 +445,14 @@ mod tests {
     #[test]
     fn database_schema_controls_domain_binding_for_both_encryption_versions() {
         let key = [0x42_u8; 32];
-        let keys = DecryptKeys {
-            v10: Some(key.to_vec()),
-            v20: Some(key.to_vec()),
-        };
+        let keys = DecryptKeys { v10: Some(key.to_vec()), v20: Some(key.to_vec()) };
         for schema in [23, 24, 25] {
             for encryption in [b"v10", b"v20"] {
                 let conn = fixture(schema, schema >= 24);
-                let mut plaintext = if schema >= 24 {
-                    Sha256::digest(b".example.test").to_vec()
-                } else {
-                    Vec::new()
-                };
+                let mut plaintext = if schema >= 24 { Sha256::digest(b".example.test").to_vec() } else { Vec::new() };
                 plaintext.extend_from_slice(b"exact-session-token");
-                insert(
-                    &conn,
-                    ".example.test",
-                    "",
-                    &encrypt_v(encryption, &key, &plaintext),
-                );
-                let report = CookieDb::from_connection(&conn)
-                    .unwrap()
-                    .decrypt(&keys, 1_000_000.0);
+                insert(&conn, ".example.test", "", &encrypt_v(encryption, &key, &plaintext));
+                let report = CookieDb::from_connection(&conn).unwrap().decrypt(&keys, 1_000_000.0);
                 assert_eq!(report.source_count, 1);
                 assert_eq!(report.cookies.len(), 1);
                 assert_eq!(report.cookies[0].value, "exact-session-token");
@@ -556,20 +467,12 @@ mod tests {
         let conn = fixture(24, true);
         let mut plaintext = Sha256::digest(b".example.test").to_vec();
         plaintext.extend_from_slice(b"fixture-token");
-        insert(
-            &conn,
-            ".example.test",
-            "",
-            &encrypt_v(b"v20", key, &plaintext),
-        );
+        insert(&conn, ".example.test", "", &encrypt_v(b"v20", key, &plaintext));
         CookieDb::from_connection(&conn).unwrap()
     }
 
     fn bound(key: &[u8]) -> keys::BoundV20Key {
-        keys::BoundV20Key {
-            key: Zeroizing::new(key.to_vec()),
-            blob_sha256: "ab".repeat(32),
-        }
+        keys::BoundV20Key { key: Zeroizing::new(key.to_vec()), blob_sha256: "ab".repeat(32) }
     }
 
     #[test]
@@ -578,14 +481,8 @@ mod tests {
         let db = v20_db(&right);
         let (_, grant) = db.vet_v20(bound(&right), true, true, NOW).ok().expect("right key");
         assert!(grant.is_none(), "a saved key is never reported back");
-        let error = db
-            .vet_v20(bound(&[0x43_u8; 32]), true, false, NOW)
-            .err()
-            .expect("wrong key");
-        assert_eq!(
-            crate::failure::user_message(&error),
-            "The saved Chrome key was rejected."
-        );
+        let error = db.vet_v20(bound(&[0x43_u8; 32]), true, false, NOW).err().expect("wrong key");
+        assert_eq!(crate::failure::user_message(&error), "The saved Chrome key was rejected.");
     }
 
     #[test]
@@ -599,10 +496,7 @@ mod tests {
         let json = serde_json::to_value(grant.as_ref().expect("grant")).unwrap();
         assert_eq!(json["key"], BASE64_STANDARD.encode(right));
         assert_eq!(json["blobSha256"], "ab".repeat(32));
-        let (_, unproven) = db
-            .vet_v20(bound(&[0x43_u8; 32]), false, true, NOW)
-            .ok()
-            .expect("unproven fresh key");
+        let (_, unproven) = db.vet_v20(bound(&[0x43_u8; 32]), false, true, NOW).ok().expect("unproven fresh key");
         assert!(unproven.is_none(), "a key that decrypts nothing is never kept");
     }
 
@@ -610,40 +504,16 @@ mod tests {
     async fn resolving_keys_never_elevates_for_a_saved_key_or_a_forbidden_prompt() {
         let key = [0x42_u8; 32];
         let db = v20_db(&key);
-        let local_state =
-            std::env::temp_dir().join(format!("mx-cookie-ls-{:016x}.json", rand::random::<u64>()));
-        std::fs::write(
-            &local_state,
-            r#"{"os_crypt":{"app_bound_encrypted_key":"QVBQQgEAAADQjJ3fARXREYx6AMBPwpfr"}}"#,
-        )
-        .unwrap();
+        let local_state = std::env::temp_dir().join(format!("mx-cookie-ls-{:016x}.json", rand::random::<u64>()));
+        std::fs::write(&local_state, r#"{"os_crypt":{"app_bound_encrypted_key":"QVBQQgEAAADQjJ3fARXREYx6AMBPwpfr"}}"#).unwrap();
         // No admin helper is configured, so any attempt to elevate fails.
-        let saved = keys::V20Route {
-            admin_exe: None,
-            saved_key: Some(&key),
-            allow_elevation: false,
-        };
-        let (resolved, grant) = db
-            .resolve_keys(&local_state, &saved, true, NOW)
-            .await
-            .ok()
-            .expect("saved key");
+        let saved = keys::V20Route { admin_exe: None, saved_key: Some(&key), allow_elevation: false };
+        let (resolved, grant) = db.resolve_keys(&local_state, &saved, true, NOW).await.ok().expect("saved key");
         assert_eq!(resolved.v20.as_deref(), Some(&key[..]));
         assert!(grant.is_none());
-        let forbidden = keys::V20Route {
-            admin_exe: None,
-            saved_key: None,
-            allow_elevation: false,
-        };
-        let error = db
-            .resolve_keys(&local_state, &forbidden, true, NOW)
-            .await
-            .err()
-            .expect("no key without elevation");
-        assert_eq!(
-            crate::failure::user_message(&error),
-            "A saved Chrome key is required."
-        );
+        let forbidden = keys::V20Route { admin_exe: None, saved_key: None, allow_elevation: false };
+        let error = db.resolve_keys(&local_state, &forbidden, true, NOW).await.err().expect("no key without elevation");
+        assert_eq!(crate::failure::user_message(&error), "A saved Chrome key is required.");
         std::fs::remove_file(&local_state).ok();
     }
 
@@ -656,10 +526,7 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
 
         let canonical = std::fs::canonicalize(&user_data).unwrap();
-        assert_eq!(
-            resolve_profile_dir(&user_data, "Default").unwrap(),
-            canonical.join("Default")
-        );
+        assert_eq!(resolve_profile_dir(&user_data, "Default").unwrap(), canonical.join("Default"));
         // Case differences and trailing dots normalize to the same directory.
         assert!(resolve_profile_dir(&user_data, "default.").is_ok());
 
@@ -670,14 +537,7 @@ mod tests {
 
         // A junction inside User Data that points elsewhere is refused.
         let junction = user_data.join("Linked");
-        let made = std::process::Command::new("cmd")
-            .args(["/C", "mklink", "/J"])
-            .arg(&junction)
-            .arg(&outside)
-            .output()
-            .unwrap()
-            .status
-            .success();
+        let made = std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(&junction).arg(&outside).output().unwrap().status.success();
         assert!(made, "mklink /J failed");
         assert!(resolve_profile_dir(&user_data, "Linked").is_err());
         let _ = std::fs::remove_dir_all(&base);
@@ -702,12 +562,7 @@ mod tests {
         let conn = fixture(24, true);
         insert(&conn, "plain.example.test", "plain-token", b"");
         insert(&conn, "empty.example.test", "", b"");
-        insert(
-            &conn,
-            "expired.example.test",
-            "",
-            b"v20-invalid-expired-token",
-        );
+        insert(&conn, "expired.example.test", "", b"v20-invalid-expired-token");
         conn.execute(
             "UPDATE cookies SET has_expires=1, is_persistent=1, expires_utc=0
             WHERE host_key='expired.example.test'",
@@ -732,42 +587,20 @@ mod tests {
         let mut valid = Sha256::digest(b".example.test").to_vec();
         valid.extend_from_slice(b"good-token");
         insert(&conn, ".example.test", "", &encrypt_v(b"v10", &key, &valid));
-        insert(
-            &conn,
-            "other.example.test",
-            "",
-            &encrypt_v(b"v10", &key, &valid),
-        );
+        insert(&conn, "other.example.test", "", &encrypt_v(b"v10", &key, &valid));
         insert(&conn, ".example.test", "", &encrypt_v(b"v20", &key, &valid));
-        insert(
-            &conn,
-            ".example.test",
-            "",
-            &encrypt_v(b"v10", &key, b"short"),
-        );
+        insert(&conn, ".example.test", "", &encrypt_v(b"v10", &key, b"short"));
         let mut invalid = Sha256::digest(b".example.test").to_vec();
         invalid.push(0xff);
-        insert(
-            &conn,
-            ".example.test",
-            "",
-            &encrypt_v(b"v10", &key, &invalid),
-        );
-        insert(
-            &conn,
-            "partitioned.example.test",
-            "partition-only-token",
-            b"",
-        );
-        conn.execute("UPDATE cookies SET top_frame_site_key='https://top.example.test', has_cross_site_ancestor=2
-            WHERE host_key='partitioned.example.test'", []).unwrap();
-        let report = CookieDb::from_connection(&conn).unwrap().decrypt(
-            &DecryptKeys {
-                v10: Some(key.to_vec()),
-                v20: None,
-            },
-            1_000_000.0,
-        );
+        insert(&conn, ".example.test", "", &encrypt_v(b"v10", &key, &invalid));
+        insert(&conn, "partitioned.example.test", "partition-only-token", b"");
+        conn.execute(
+            "UPDATE cookies SET top_frame_site_key='https://top.example.test', has_cross_site_ancestor=2
+            WHERE host_key='partitioned.example.test'",
+            [],
+        )
+        .unwrap();
+        let report = CookieDb::from_connection(&conn).unwrap().decrypt(&DecryptKeys { v10: Some(key.to_vec()), v20: None }, 1_000_000.0);
         assert_eq!(report.source_count, 6);
         assert_eq!(report.cookies.len(), 1);
         assert_eq!(report.cookies[0].value, "good-token");
@@ -798,9 +631,7 @@ mod tests {
             [],
         )
         .unwrap();
-        let report = CookieDb::from_connection(&conn)
-            .unwrap()
-            .decrypt(&DecryptKeys::default(), 1_000_000.0);
+        let report = CookieDb::from_connection(&conn).unwrap().decrypt(&DecryptKeys::default(), 1_000_000.0);
         assert_eq!(report.cookies.len(), 2);
         let cross = report.cookies[0].partition_key.as_ref().unwrap();
         let same = report.cookies[1].partition_key.as_ref().unwrap();
