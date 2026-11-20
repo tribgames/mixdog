@@ -553,7 +553,7 @@ fn weakly_canonical(path: &Path) -> PathBuf {
             let probe = if prefix.as_os_str().is_empty() { PathBuf::from(".") } else { prefix };
             std::fs::canonicalize(&probe).ok().map(|resolved| (resolved, count))
         })
-        .map_or_else(|| (PathBuf::new(), 0), |(resolved, count)| (resolved, count));
+        .unwrap_or_else(|| (PathBuf::new(), 0));
     for part in &parts[rest..] {
         match part {
             Component::CurDir => {}
