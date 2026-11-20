@@ -53,6 +53,20 @@ jobs:
         continue-on-error: true
         run: node apps/desktop/node_modules/electron/install.js
 
+      # test:browser-login-popup:integration runs the real Browser Use URL policy,
+      # which lives in native/mixdog-main-native; the npm entry has no pretest, so
+      # build it here (the repository's pinned toolchain, as release-gate does).
+      - name: Read the repository Rust toolchain
+        id: rust-pin
+        run: echo "version=$(sed -n 's/^channel = "\([^" ]*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
+
+      - name: Build the main native module
+        run: node apps/desktop/scripts/build-test-native.mjs
+
       # The Electron integration entries run under xvfb-run (scripts/suite-health.mjs).
       - name: Install a virtual X server
         continue-on-error: true

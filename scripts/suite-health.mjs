@@ -51,6 +51,9 @@ export const WORKSPACES = [
 // sign-out logic, not the OS keychain. So on Linux the sweep sets
 // TEST_PLAINTEXT_SAFE_STORAGE_ENV and the test harness alone (never the app)
 // switches Electron's safeStorage to its in-memory-password fallback.
+// test:browser-login-popup:integration also needs mixdog_main_native.node (the
+// Browser Use URL policy): suite-health.yml builds it before the sweep, and
+// electron-harness.mjs points the bundle at it.
 export const DISPLAY_SUITES = ['test:browser-login-persistence:integration', 'test:browser-login-popup:integration'];
 export const TEST_PLAINTEXT_SAFE_STORAGE_ENV = 'MIXDOG_TEST_PLAINTEXT_SAFE_STORAGE';
 

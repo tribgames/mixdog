@@ -10,9 +10,13 @@ import { build } from 'esbuild';
 
 export function electronProcessEnv(extra = {}) {
   // A harness bundle runs from a temp directory, where native modules such as
-  // koffi do not resolve; this names the app they resolve from.
+  // koffi do not resolve; this names the app they resolve from. The bundle's own
+  // location also holds no checkout for native-module.ts to find the main native
+  // module (built by build-test-native.mjs) in, so its target dir is named here.
   const env = {
     ...process.env,
+    CARGO_TARGET_DIR:
+      process.env.CARGO_TARGET_DIR ?? fileURLToPath(new URL('../../../native/mixdog-main-native/target', import.meta.url)),
     MIXDOG_HARNESS_MODULES_FROM: fileURLToPath(new URL('../package.json', import.meta.url)),
     ...extra,
   };
