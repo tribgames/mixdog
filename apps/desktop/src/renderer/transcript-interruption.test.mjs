@@ -12,13 +12,17 @@ function project(text) {
   }).rows;
 }
 
-test('restart and implicit interruption markers become Cancelled status rows', () => {
-  for (const marker of ['[Request interrupted by process restart]', '[Request interrupted]']) {
+test('a restart marker reads Interrupted, the implicit stop marker reads Cancelled', () => {
+  for (const [marker, cause] of [
+    ['[Request interrupted by process restart]', 'restart'],
+    ['[Request interrupted]', undefined],
+  ]) {
     const rows = project(marker);
     assert.equal(rows.length, 1);
     assert.equal(rows[0]._tag, 'AssistantPart');
     assert.equal(rows[0].item.kind, 'turndone');
     assert.equal(rows[0].item.status, 'cancelled');
+    assert.equal(rows[0].item.cause, cause);
     assert.equal(rows[0].item.elapsedMs, 0);
   }
 });

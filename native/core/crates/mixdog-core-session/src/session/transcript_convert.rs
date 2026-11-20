@@ -564,6 +564,27 @@ mod tests {
         json!({ "role": "tool", "content": text, "toolCallId": id })
     }
 
+    /// A turn cut by a restart is still a typed cancelled turn end; only a `cause` beside it says why. The stored fact decides,
+    /// and the marker text only for a row stored without one.
+    #[test]
+    fn a_restart_cut_stays_a_typed_cancelled_end_with_its_cause() {
+        let end_of = |meta: Value, content: &str| {
+            let mut state = SessionState::new(16);
+            let shown = commit(&mut state, "u1", json!({ "role": "user", "content": content, "meta": meta }));
+            let ends: Vec<ThreadItem> = shown.into_iter().filter_map(|s| match s { Shown::Item(i @ ThreadItem::TurnEnd { .. }) => Some(i), _ => None }).collect();
+            assert_eq!(ends.len(), 1, "one typed turn end: {ends:?}");
+            let ThreadItem::TurnEnd { status, meta, .. } = &ends[0] else { unreachable!() };
+            (*status, meta.ext.get("cause").and_then(Value::as_str).map(str::to_owned))
+        };
+        let stored = json!({ "turnEnd": { "status": "cancelled", "elapsedMs": 0, "cause": "restart" } });
+        let legacy = json!({ "turnEnd": { "status": "cancelled", "elapsedMs": 0 } });
+        let by_user = json!({ "turnEnd": { "status": "cancelled", "elapsedMs": 0 } });
+        let marker = "[Request interrupted by process restart]";
+        assert_eq!(end_of(stored, "[attachment]"), (TurnEndStatus::Cancelled, Some("restart".into())));
+        assert_eq!(end_of(legacy, marker), (TurnEndStatus::Cancelled, Some("restart".into())));
+        assert_eq!(end_of(by_user, "[Request interrupted]"), (TurnEndStatus::Cancelled, None));
+    }
+
     /// The roster account that served an answer is stored on the row (`providerMetadata.accountRouting`) and rides only the
     /// model proxy's history; the items a phone or remote peer is sent from that row carry none of it (Node's transcript
     /// rows have no `providerMetadata`).

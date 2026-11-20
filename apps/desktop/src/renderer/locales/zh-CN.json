@@ -2629,6 +2629,7 @@
   "Internal session: a background run the app started itself. You cannot open it as a conversation.": "内部会话：由应用自行启动的后台运行，无法作为对话打开。",
   "Interrupt (Ctrl+C)": "中断（Ctrl+C）",
   "Interrupted": "已中断",
+  "Interrupted after {{elapsed}}": "{{elapsed}} 后中断",
   "Interrupted by app restart": "因应用重启而中断",
   "Invalid": "无效",
   "Invalid sign-in address. Paste the full address you were redirected to after signing in.": "登录地址无效。请粘贴登录后重定向到的完整地址。",

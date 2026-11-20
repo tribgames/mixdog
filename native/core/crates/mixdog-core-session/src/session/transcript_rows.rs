@@ -854,12 +854,20 @@ fn user_rows(record: &ItemRecord, message: &Value, ids: &mut Ids<'_>, out: &mut 
         out.push(Restored::Row { row, source: Some(source.to_owned()) });
         return;
     }
-    if meta.and_then(|m| m.get("turnEnd")).is_some_and(Value::is_object) {
+    if let Some(end) = meta.and_then(|m| m.get("turnEnd")).filter(|end| end.is_object()) {
         let mut row = Row::new();
         row.insert("kind".into(), json!("turndone"));
         row.insert("id".into(), json!(ids.next()));
         row.insert("status".into(), json!("cancelled"));
         row.insert("elapsedMs".into(), json!(0));
+        // The stored fact first; the marker text only for rows written before the cause was stored.
+        let cut_by_restart = match end.get("cause") {
+            Some(cause) => cause.as_str() == Some(mixdog_protocol::message_class::RESTART_CAUSE),
+            None => mixdog_protocol::text_class::is_process_restart_status_text(&tool_result_text(message.get("content").unwrap_or(&Value::Null))),
+        };
+        if cut_by_restart {
+            row.insert("cause".into(), json!(mixdog_protocol::message_class::RESTART_CAUSE));
+        }
         if let Some(message_id) = fields.get("messageId").filter(|v| truthy(v)) {
             row.insert("messageId".into(), message_id.clone());
         }

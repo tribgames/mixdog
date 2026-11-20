@@ -43,7 +43,7 @@ import { SteerStatus } from './transcript-steer-status';
 import { AppliedSkills, SkillMentionText, appliedSkillsOf } from './composer-skill-mentions';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText, isTranscriptHiddenToolItem } from '../../../../packages/protocol-client/src/shared/tool-execution-contract.mjs';
+import { isInternalTranscriptDisplayText, isProcessRestartStatusText, isTranscriptCancelledStatusText, isTranscriptHiddenToolItem } from '../../../../packages/protocol-client/src/shared/tool-execution-contract.mjs';
 import { stripInjectedDisplayText, stripSessionEnvelope } from '../shared/session-title.mjs';
 import { routineNoticeText } from './routine-notice';
 import { RoomAddressChip, RoomTranscriptRow } from './agent-room-transcript';
@@ -525,7 +525,8 @@ export const TranscriptRow = memo(
     const sourceLabel = transcriptSourceLabel(item);
     const text = user ? userTranscriptDisplayText(item) : String(item.text || '');
     if (user && isTranscriptCancelledStatusText(text)) {
-      return <CompletionStatus item={{ kind: 'turndone', status: 'cancelled', elapsedMs: 0 } as TranscriptItem} />;
+      const cause = isProcessRestartStatusText(text) ? 'restart' : undefined;
+      return <CompletionStatus item={{ kind: 'turndone', status: 'cancelled', cause, elapsedMs: 0 } as TranscriptItem} />;
     }
     if (!isVisibleTranscriptItem(item)) return null;
     const gitRequest = user ? parseIslandGitRequestText(text) : null;

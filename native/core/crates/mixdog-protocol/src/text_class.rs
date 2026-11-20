@@ -238,6 +238,12 @@ pub fn is_internal_transcript_display_text(text: &str) -> bool {
     is_internal_runtime_notification_text(js_trim(&body.join("\n")))
 }
 
+/// Whether the text is the marker a restart or crash recovery leaves where it cut a turn: shown as interrupted, not as a
+/// cancel the user asked for.
+pub fn is_process_restart_status_text(text: &str) -> bool {
+    js_trim(text).eq_ignore_ascii_case("[request interrupted by process restart]")
+}
+
 /// `isTranscriptCancelledStatusText(text)`.
 pub fn is_transcript_cancelled_status_text(text: &str) -> bool {
     CANCELLED_STATUS.is_match(js_trim(text))

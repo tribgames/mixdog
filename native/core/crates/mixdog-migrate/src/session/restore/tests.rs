@@ -50,6 +50,12 @@ fn rows_node_hides_restore_as_nothing() {
 
 #[test]
 fn the_cancel_line_is_an_interrupted_turn_end() {
+    for (text, cause) in [("[Request interrupted]", Value::Null), ("[request interrupted by process restart]", json!("restart"))] {
+        let mut message = json!({"role": "user", "content": text});
+        mixdog_protocol::message_class::row_facts(&mut message, &mut UserText::new(&MemoryBlobs::default()));
+        assert_eq!(message["meta"]["turnEnd"]["status"], "cancelled", "{text}");
+        assert_eq!(message["meta"]["turnEnd"]["cause"], cause, "{text}");
+    }
     for text in ["[Request interrupted]", "[request interrupted by process restart]"] {
         assert_eq!(shown(json!({"role": "user", "content": text})), Shown::TurnEnd, "{text}");
     }
