@@ -150,7 +150,8 @@ pub(crate) struct SessionState {
     /// Prompt history (`prompt_history`): session part, persisted part, published list.
     pub prompt_session: Vec<String>,
     pub prompt_persisted: Vec<String>,
-    pub prompt_history: Vec<String>,
+    /// Replaced whole when it changes, so a reader holds the list it took without a copy.
+    pub prompt_history: Arc<Vec<String>>,
     /// A thread created here, before its first status pass (a status signal tells no listener before it).
     pub status_pending: bool,
 }
@@ -453,7 +454,7 @@ impl SessionState {
                 self.remerge_prompts();
             }
             Change::PromptWithout(text) => {
-                self.prompt_history = prompt_history::without(&self.prompt_history, text);
+                self.prompt_history = Arc::new(prompt_history::without(&self.prompt_history, text));
             }
             Change::Barrier | Change::EarlyResult { .. } => {}
             Change::Archived(ordinals) => {
@@ -515,7 +516,7 @@ impl SessionState {
     }
 
     fn remerge_prompts(&mut self) {
-        self.prompt_history = prompt_history::merge(&self.prompt_session, &self.prompt_persisted);
+        self.prompt_history = Arc::new(prompt_history::merge(&self.prompt_session, &self.prompt_persisted));
     }
 
     fn apply_record(&mut self, record: &Record, display: &Display, ordinal: Option<u64>) {
@@ -980,7 +981,7 @@ impl SessionState {
         state.agents.get_or_insert_with(Default::default);
         state.approvals.get_or_insert_with(Default::default);
         state.queued = Some(self.queued_rows());
-        state.prompt_history_list = Some(self.prompt_history.clone());
+        state.prompt_history_list = Some(self.prompt_history.to_vec());
         if storage != StorageState::Ok {
             state
                 .runtime

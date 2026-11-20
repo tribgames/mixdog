@@ -3875,7 +3875,10 @@ impl SessionActor {
             }
         }
         self.derived_notes(&entry.change, &title, &queue_rows, notes);
-        if let Some(change) = prompt_history::change(&prompts, &self.acked.prompt_history) {
+        // The list is replaced whole when an entry moves it: the same list is no change, with nothing compared.
+        if !Arc::ptr_eq(&prompts, &self.acked.prompt_history)
+            && let Some(change) = prompt_history::change(&prompts, &self.acked.prompt_history)
+        {
             notes.push(Note::new(
                 "thread/promptHistory/updated",
                 &ThreadSectionParams {
