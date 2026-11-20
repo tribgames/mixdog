@@ -30,6 +30,7 @@ export function ProjectRecoverySurface({
   const refreshDiscovery = useRef<(() => void) | null>(null);
   const generation = useRef(0);
   const api = window.mixdogDesktop;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so the callback follows a replaced bridge
   const request = useCallback(
     (project: string, input: ProjectRecoveryRequest) => {
       if (!api?.projectRecovery) return Promise.reject(new Error('Recovery is not supported by this host.'));
@@ -53,6 +54,7 @@ export function ProjectRecoverySurface({
     },
     [api]
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so discovery follows a replaced bridge
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;

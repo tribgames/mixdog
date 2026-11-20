@@ -313,6 +313,7 @@ async function verifyStoredCredentialAccess(service: BrowserProfileImportService
   assert.match(credentialSuggestions[0].label, /^f.*r$/);
   assert.doesNotMatch(JSON.stringify(credentialSuggestions), /fixture-user|fixture-password/);
   assert.deepEqual(await service.credentialSuggestions('http://accounts.example.test/login'), []);
+  // biome-ignore lint/correctness/useHookAtTopLevel: useCredential is the import service's vault method, not a React hook
   const fillResult = await service.useCredential(
     'https://accounts.example.test/login',
     credentialSuggestions[0].id,
@@ -324,6 +325,7 @@ async function verifyStoredCredentialAccess(service: BrowserProfileImportService
   );
   assert.deepEqual(fillResult, { usernameFilled: true, passwordFilled: true });
   await assert.rejects(
+    // biome-ignore lint/correctness/useHookAtTopLevel: useCredential is the import service's vault method, not a React hook
     service.useCredential('https://other.example.test/login', credentialSuggestions[0].id, async () => undefined),
     /does not match the current page origin/
   );

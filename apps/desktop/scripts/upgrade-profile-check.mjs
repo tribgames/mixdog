@@ -125,6 +125,7 @@ try {
   const waitUi = (pollFn, ms) =>
     ev(
       async (src, limit) => {
+        // biome-ignore lint/security/noGlobalEval: runs inside the inspected page, where the poll function exists only as source text
         const poll = eval(src);
         const end = Date.now() + limit;
         while (Date.now() < end) {

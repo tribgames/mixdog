@@ -12,7 +12,7 @@ import { workspaceVersion } from './check-release-version.mjs';
 
 const DEFAULT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const STRICT = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
-const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** @returns {Promise<{from: string, lockEntries: number}>} */
 export async function setCoreVersion(version, root = DEFAULT_ROOT) {
@@ -28,7 +28,7 @@ export async function setCoreVersion(version, root = DEFAULT_ROOT) {
 
   // A workspace crate has no `source` line; a registry crate that happens to carry the same version has one.
   const entry = new RegExp(
-    `(\\[\\[package\\]\\]\\r?\\nname = "[^"]+"\\r?\\nversion = ")${escape(from)}("\\r?\\n)(?!source = )`,
+    `(\\[\\[package\\]\\]\\r?\\nname = "[^"]+"\\r?\\nversion = ")${escapeRegExp(from)}("\\r?\\n)(?!source = )`,
     'g'
   );
   let lockEntries = 0;

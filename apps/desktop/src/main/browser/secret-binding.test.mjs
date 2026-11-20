@@ -292,6 +292,7 @@ test('a saved login goes only to the elements bound at request time: moved focus
   ({ page, click } = await bindLogin(ONE_FORM));
   const doc = page.document();
   const form = doc.querySelector('#a');
+  // biome-ignore lint/correctness/noSelfAssign: re-assigning outerHTML replaces the element with a fresh copy, which is the case under test
   form.outerHTML = form.outerHTML;
   layOut(doc);
   doc.querySelector('#pw').focus();

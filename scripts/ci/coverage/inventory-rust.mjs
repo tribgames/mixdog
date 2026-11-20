@@ -426,8 +426,8 @@ export function readPackages(tracked, read) {
         targets.push({ kind: 'bin', name, root: rel('src/main.rs') });
       for (const file of tracked) {
         const hit =
-          new RegExp(`^${escape(rel('src/bin/'))}([^/]+)\\.rs$`).exec(file) ??
-          new RegExp(`^${escape(rel('src/bin/'))}([^/]+)/main\\.rs$`).exec(file);
+          new RegExp(`^${escapeRegExp(rel('src/bin/'))}([^/]+)\\.rs$`).exec(file) ??
+          new RegExp(`^${escapeRegExp(rel('src/bin/'))}([^/]+)/main\\.rs$`).exec(file);
         if (hit && !declared.has(file)) targets.push({ kind: 'bin', name: hit[1], root: file });
       }
     }
@@ -439,8 +439,8 @@ export function readPackages(tracked, read) {
     if (toml.package.autotests !== false) {
       for (const file of tracked) {
         const hit =
-          new RegExp(`^${escape(rel('tests/'))}([^/]+)\\.rs$`).exec(file) ??
-          new RegExp(`^${escape(rel('tests/'))}([^/]+)/main\\.rs$`).exec(file);
+          new RegExp(`^${escapeRegExp(rel('tests/'))}([^/]+)\\.rs$`).exec(file) ??
+          new RegExp(`^${escapeRegExp(rel('tests/'))}([^/]+)/main\\.rs$`).exec(file);
         if (hit && !declared.has(file)) targets.push({ kind: 'test', name: hit[1], root: file });
       }
     }
@@ -458,7 +458,7 @@ export function readPackages(tracked, read) {
   return { packages, errors };
 }
 
-const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Packages, the doctest blocks of their lib targets, and the problems of the walk (orphan sources, unresolvable modules). */
 export function scanRust(tracked, read) {

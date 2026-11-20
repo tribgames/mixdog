@@ -25,6 +25,7 @@ export const ABORT_CASES = [
   { name: 'running-no-output', prompt: 'HOLD-EMPTY write the file', stop: {} },
   { name: 'running-with-output', prompt: 'HOLD-TEXT write the file', output: PARTIAL, stop: {} },
   { name: 'running-keep-prompt', prompt: 'HOLD-EMPTY keep this prompt', stop: { restorePrompt: false } },
+  // biome-ignore lint/suspicious/noThenProperty: `then` is the recorded case schema (read as `c.then` by remote-protocol-chat-abort-live.mjs, whose hash binds the core recordings); the case is plain data, never awaited
   { name: 'running-steering-queued', prompt: 'HOLD-EMPTY first prompt', then: 'and also this', stop: {} },
   { name: 'running-pasted-text', prompt: 'HOLD-EMPTY with a paste', pasted: PASTED, stop: {} },
   { name: 'running-after-tool-call', prompt: 'HOLD-TOOL read the file', stop: {} },

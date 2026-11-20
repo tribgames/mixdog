@@ -112,6 +112,7 @@ function makeApi({ info = readyInfo('aaaaaaaa'), settings = {}, hosts = [], pair
       : {}),
   };
   setCachedConnectionInfo(api, info);
+  // biome-ignore lint/correctness/useHookAtTopLevel: useConnectionsCore is a test mock setter, not a React hook
   useConnectionsCore(api);
   return { api, calls, state };
 }

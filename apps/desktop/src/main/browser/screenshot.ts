@@ -103,6 +103,7 @@ export function createBrowserScreenshotService(
           await anchorPinnedLayout(cdp, guest, false);
         } catch (error) {
           failures.push(error);
+          // biome-ignore lint/correctness/noUnsafeFinally: a failed restore must surface, carrying the capture's own error in `failures`
           throw new BrowserScreenshotRestoreError('layout', failures);
         }
       }

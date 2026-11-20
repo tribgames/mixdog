@@ -45,7 +45,8 @@ test('missing, unreadable or malformed timing history counts as none; invalid es
     writeFileSync(file, body);
     assert.deepEqual(readTimingHistory(file), {}, body);
   }
-  writeFileSync(file, JSON.stringify({ ms: { a: 5, b: 0, c: -1, d: 'x', e: null, f: 2.5, g: 1e400 } }));
+  // `g` is raw JSON text: 1e400 overflows to Infinity only when parsed.
+  writeFileSync(file, '{"ms":{"a":5,"b":0,"c":-1,"d":"x","e":null,"f":2.5,"g":1e400}}');
   assert.deepEqual(readTimingHistory(file), { a: 5, f: 2.5 });
 });
 

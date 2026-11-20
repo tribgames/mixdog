@@ -92,6 +92,7 @@ export function bindScrollProgress(scroller: HTMLElement, hosts?: string): () =>
 /** Binds the scroller in `ref`. `remount` re-binds when the element behind
  *  the ref was replaced. */
 export function useScrollProgress(ref: RefObject<HTMLElement | null>, hosts?: string, remount?: unknown): void {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: remount re-binds when the element behind the ref was replaced
   useEffect(() => {
     const scroller = ref.current;
     if (!scroller) return;

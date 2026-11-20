@@ -11,6 +11,7 @@ const DOM = { rootId: 'root', expose: ['HTMLElement', 'Node', 'Event'] };
 const settle = () => act(async () => new Promise((done) => setTimeout(done, 0)));
 
 async function mount(t, core) {
+  // biome-ignore lint/correctness/useHookAtTopLevel: useConnectionsCore is a test mock setter, not a React hook
   useConnectionsCore(core);
   const dom = installTestDom(t, DOM);
   await act(async () => dom.root.render(React.createElement(ReopenServerWindowsToggle)));

@@ -46,6 +46,7 @@ export function createPhoneApi(
       }
     }
   };
+  // biome-ignore lint/correctness/useHookAtTopLevel: useLanes is the phone boot's lane setter, not a React hook
   const publishLanes = (): void => boot.useLanes(ctx.activeLanes);
   Object.assign(ctx, {
     phone: {

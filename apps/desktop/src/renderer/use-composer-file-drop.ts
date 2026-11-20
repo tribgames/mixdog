@@ -122,7 +122,6 @@ export function useComposerFileDrop({
     attachFiles,
     attachLocalPaths,
     attachProjectPaths,
-    insertAbsolutePaths,
     insertLocalFolderPaths,
     dropTargetRef,
     projectScope,

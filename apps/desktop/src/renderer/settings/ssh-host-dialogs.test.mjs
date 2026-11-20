@@ -54,6 +54,7 @@ async function mount(t, { host = HOST, logins = SERVER_LOGINS, ...extra } = {}) 
     },
     ...extra,
   };
+  // biome-ignore lint/correctness/useHookAtTopLevel: useConnectionsCore is a test mock setter, not a React hook
   useConnectionsCore(api);
   await act(async () =>
     dom.root.render(

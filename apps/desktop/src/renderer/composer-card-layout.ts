@@ -56,6 +56,7 @@ export function useOneLineOverflow(form: RefObject<HTMLElement | null>, active: 
   const [overflow, setOverflow] = useState(false);
   // `overflow` re-binds the observers: the line under the card comes and goes
   // with it, and its content changes are watched too.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: overflow re-binds the observers on purpose, see above
   useLayoutEffect(() => {
     const element = form.current;
     if (!active || !element) return undefined;

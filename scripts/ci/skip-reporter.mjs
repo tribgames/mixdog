@@ -29,6 +29,7 @@ export function recordOf(data, type, ancestors, root = ROOT) {
   return record;
 }
 
+// biome-ignore lint/correctness/useYield: this reporter consumes the test events and writes its receipt parts itself, so it yields no output
 export default async function* skipReporter(source) {
   const target = new URL(import.meta.url).searchParams.get('out');
   // The suites above the event being reported, per file: node reports a test's start before its children's and its result after, in

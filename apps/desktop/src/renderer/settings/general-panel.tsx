@@ -127,6 +127,7 @@ function MarkdownDefaultViewChoice({ pending }: Pick<PanelContext, 'pending'>) {
     DEFAULT_DESKTOP_EDITOR_SETTINGS.markdownDefaultView
   );
   const [error, setError] = useState('');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so the read follows a replaced bridge
   useEffect(() => {
     let revision = 0;
     const refresh = () => {

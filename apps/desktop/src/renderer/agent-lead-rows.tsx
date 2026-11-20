@@ -206,6 +206,7 @@ export function AgentLeadRows({
   const nextExpiry = Math.min(Number.POSITIVE_INFINITY, ...rows.map((row) => row.expiresAt));
   // Keyed on `rows` (rebuilt on every owner render): a timer that fired a hair
   // early re-arms for what is left instead of leaving the row stuck.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on rows on purpose, see above
   useEffect(() => {
     if (!onExpire || !Number.isFinite(nextExpiry)) return undefined;
     // setTimeout fires at once past 2^31-1 ms (a future-dated stamp): cap the

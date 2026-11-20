@@ -145,6 +145,7 @@ export function createBrowserProfileHostMethods(options: {
       const guest = options.liveGuest(browserSessionId(sessionId));
       if (!guest) throw new Error('Open a Browser Use page before filling a stored credential.');
       const url = guest.getURL();
+      // biome-ignore lint/correctness/useHookAtTopLevel: useCredential is a vault method in the main process, not a React hook
       return await profileImporter.useCredential(url, credentialId, (credential) =>
         options.fillCredentialInGuest(guest, credential, undefined, url)
       );

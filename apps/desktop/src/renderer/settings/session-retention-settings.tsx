@@ -37,6 +37,7 @@ export function SessionRetentionSettings({ pending }: Pick<PanelContext, 'pendin
     () => getCachedDesktopStatus(api, 'settings') ?? null
   );
   const [error, setError] = useState('');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so the read follows a replaced bridge
   useEffect(() => {
     let live = true;
     const read = () =>

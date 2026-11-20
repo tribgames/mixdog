@@ -8,6 +8,7 @@ import { useConnectionsCore } from './test-support/connections-core-mock.mjs';
 const { RemotePcBrandDot, RemotePcCard, RemotePcSwitcher } = await import('./RemotePcSwitcher.tsx');
 
 function installBridge(window, hosts, calls) {
+  // biome-ignore lint/correctness/useHookAtTopLevel: useConnectionsCore is a test mock setter, not a React hook
   useConnectionsCore({});
   window.mixdogRemoteWindow = { hostId: 'a', hostName: 'Home PC' };
   window.mixdogRemoteWindowSwitcher = {
@@ -223,6 +224,7 @@ function installMainWindow(
       return Promise.resolve(hosts);
     },
   };
+  // biome-ignore lint/correctness/useHookAtTopLevel: useConnectionsCore is a test mock setter, not a React hook
   useConnectionsCore(window.mixdogDesktop);
 }
 

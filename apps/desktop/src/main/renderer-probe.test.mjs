@@ -71,7 +71,10 @@ test('a frame line carries the reduced locations and refuses non-finite numbers'
   );
   assert.equal(rendererProbeLine(frame({ duration: '80' }), at), null);
   assert.equal(rendererProbeLine(frame({ scripts: [script({ duration: null })] }), at), null);
-  assert.equal(rendererProbeLine(frame({ blockingDuration: 1e400 }), at), null, 'Infinity from JSON overflow');
+  // JSON text can say what no finite number holds; serializing Infinity would only send `null`.
+  const overflowing = frame({ blockingDuration: 'OVERFLOW' }).replace('"OVERFLOW"', '1e400');
+  assert.equal(JSON.parse(overflowing).blockingDuration, Number.POSITIVE_INFINITY);
+  assert.equal(rendererProbeLine(overflowing, at), null, 'a non-finite duration');
 });
 
 test('a message over the size limit is refused without being parsed', () => {

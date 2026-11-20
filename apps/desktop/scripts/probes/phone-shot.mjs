@@ -2,7 +2,7 @@
 // the LOCAL relay (probes/phone-relay.mjs) and screenshot the phone UI.
 //
 // Usage (from apps/desktop):
-//   node scripts/probes/phone-shot.mjs --port=<cdpPort> --out=<dir> [--eval=<file.js> ...]
+//   node scripts/probes/phone-shot.mjs --port=<cdpPort> --out=<dir> [--eval=<file.eval> ...]
 //     [--width=412 --height=915 --scale=1] [--chrome=<exe>]
 // Writes <out>/phone-home.png after pairing, then for each --eval file runs it
 // in the phone page (an async function BODY, e.g. click a button; its `return`
@@ -28,7 +28,7 @@ const { values } = parseArgs({
   },
 });
 if (!values.port || !values.out)
-  throw new Error('usage: phone-shot.mjs --port=<cdpPort> --out=<dir> [--eval=<file.js>]');
+  throw new Error('usage: phone-shot.mjs --port=<cdpPort> --out=<dir> [--eval=<file.eval>]');
 const chrome =
   values.chrome ||
   process.env.CHROME ||

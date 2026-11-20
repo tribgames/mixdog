@@ -123,6 +123,7 @@ export function usePushNotificationNavigation({
 
   // The phone app's native shell reports taps (and Allow / Deny, resolved by
   // the bridge) the same way the worker does: by naming the session.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: subscribed once; openHere reads only refs, so the mount's copy acts like the latest
   useEffect(
     () =>
       subscribeNativeNotificationActions(({ sessionId }) => {

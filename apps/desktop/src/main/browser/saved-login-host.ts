@@ -162,6 +162,7 @@ export function createSavedLoginHost(deps: SavedLoginHostDeps) {
       const origin = secureOrigin(String(input.origin || ''));
       if (!origin)
         throw new Error('saved_login_unavailable: the page origin is not a secure origin; no input was sent');
+      // biome-ignore lint/correctness/useHookAtTopLevel: useCredentialByAccount is a vault method in the main process, not a React hook
       const login = await deps.credentials.useCredentialByAccount(origin, account, async (credential) => ({
         username: credential.username,
         password: field === 'password' ? credential.password : '',

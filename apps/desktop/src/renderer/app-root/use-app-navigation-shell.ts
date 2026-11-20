@@ -88,6 +88,7 @@ export function useAppNavigationShell(shell: AppWorkspaceShell) {
 
   const { invokeResult, invoke, errors } = useAppInvocation({ error, connected, setError });
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: focusedLeafIdRef is a ref, read for the pane focused when the callback runs
   const closeSidebarForNavigation = useCallback(
     (motion: 'animated' | 'instant' = 'animated') => {
       if (window.innerWidth <= 760) {

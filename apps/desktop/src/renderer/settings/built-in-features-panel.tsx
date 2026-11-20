@@ -431,6 +431,7 @@ export function BuiltInFeaturesPanel({
   const toolModulesSection = useSection<RecordValue>('toolModules');
   const requestedModules = sectionLoaded(data, 'toolModules') ? record(data.toolModules) : undefined;
   const [legacyModules, setLegacyModules] = useState<RecordValue>();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new requested read supersedes the legacy answer
   useEffect(() => setLegacyModules(undefined), [requestedModules]);
   const fallbackModules = legacyModules ?? requestedModules;
   const toolModules = useMemo(
@@ -448,6 +449,7 @@ export function BuiltInFeaturesPanel({
   const computerReadiness = useComputerReadiness(api, openId === 'computer');
   const media = useMediaGeneration(api, openId === 'media' && !serverWindow);
   const [voiceAnswer, setVoiceAnswer] = useState<RecordValue>();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new voice read supersedes the last action's answer
   useEffect(() => setVoiceAnswer(undefined), [data.voice]);
   const voice = voiceAnswer ?? record(data.voice);
   const progress = voiceProgress(snapshot);

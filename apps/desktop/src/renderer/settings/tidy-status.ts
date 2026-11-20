@@ -254,6 +254,7 @@ export function useTidyEngineStatus(
 
   // Re-read when the card opens, not only when the feature first turns active:
   // the first answer may predate what the daemon has learned since.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: opening the card re-reads, see above
   useEffect(() => {
     if (!active) return;
     void refresh();
@@ -265,6 +266,7 @@ export function useTidyEngineStatus(
   // A host-module probe still pending settles on its own: keep asking until
   // the daemon reports it answered.
   const probing = status?.probing === true;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each still-probing answer re-arms the recheck
   useEffect(() => {
     if (!active || !probing) return;
     const timer = setTimeout(() => void refresh(), TIDY_PROBING_RECHECK_MS);
