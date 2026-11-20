@@ -22,7 +22,7 @@ use crate::transcript::window::row_index::Items;
 use crate::transcript::window::visible_items::{overlay_hint_placement, visible_transcript_items};
 use crate::view::panel::{PaletteSlot, PanelSlots, PickerSlot, TextEntrySlot, ToolApprovalSlot, fit_picker, settings_entry_layout_rows};
 use crate::view::rows::{MountInput, mount_rows};
-use crate::view::{AppViewProps, render_app};
+use crate::view::{AppFrame, AppViewProps, render_app};
 
 fn text(value: &Value, key: &str) -> String {
     match value.get(key) {
@@ -247,6 +247,12 @@ impl AppState {
         };
         let mut grid = Grid::new(columns, rows);
         let frame = render_app(&props, &mut Painter::new(&mut grid));
+        self.publish_frame(&mut grid, &frame, rows_used, frame_columns);
+        (grid, frame.cursor)
+    }
+
+    /// What a painted frame tells the mouse, the prompt editor and the selection highlight.
+    fn publish_frame(&mut self, grid: &mut Grid, frame: &AppFrame, rows_used: usize, frame_columns: usize) {
         if let Some(mouse) = self.mouse.as_mut() {
             if let Some(viewport) = self.shell_refs.transcript_viewport {
                 mouse.set_transcript_viewport(viewport.top as f64, viewport.bottom as f64);
@@ -270,11 +276,10 @@ impl AppState {
         // The grid as the layout drew it serves the word and line bounds of a click; the highlight goes on a copy the writer takes.
         self.rendered_grid = Some(grid.clone());
         let soft_wrap = std::mem::take(&mut grid.soft_wrap);
-        self.render_selection.apply(&mut grid, &soft_wrap);
+        self.render_selection.apply(grid, &soft_wrap);
         grid.soft_wrap = soft_wrap;
         // Writes the surface made since the last frame are what this frame shows.
         let _ = self.surface.take_events();
-        (grid, frame.cursor)
     }
 }
 
