@@ -17,10 +17,10 @@ resolver = "2"
 # Add triples corresponding to platforms commonly used by developers here.
 # https://doc.rust-lang.org/rustc/platform-support.html
 platforms = [
-    "x86_64-unknown-linux-gnu",
-    "x86_64-apple-darwin",
-    "aarch64-apple-darwin",
-    "x86_64-pc-windows-msvc",
+  "x86_64-unknown-linux-gnu",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "x86_64-pc-windows-msvc",
 ]
 
 # Write out exact versions rather than a semver range. (Defaults to false.)
@@ -30,9 +30,7 @@ platforms = [
 # product builds. A traversal exclude, not a final one: `cargo hakari verify` fails for fancy-regex and its four
 # dependencies when the crate is only removed after unification.
 [traversal-excludes]
-third-party = [
-    { name = "fancy-regex", path = "vendor/fancy-regex" },
-]
+third-party = [{ name = "fancy-regex", path = "vendor/fancy-regex" }]
 
 # mixdog-askpass is the std-only SSH_ASKPASS helper binary (s2b-scaffold): it shares no dependency with the workspace,
 # so it does not take the workspace-hack (a -p build of it would otherwise compile the whole unified graph).

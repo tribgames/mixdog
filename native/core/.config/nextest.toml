@@ -119,7 +119,6 @@ default-filter = '''
 slow-timeout = { period = "60s", terminate-after = 5 }
 
 
-
 # office-throughput: RL G8 through the real pool, the Node worker and the shared render browser. It needs LibreOffice, Chromium and `node`
 # on this machine, and is run as `nextest run --profile office-throughput --features test-support --run-ignored only -p mixdog-exthost`
 # on a machine with nothing else heavy running. `G8_SCALE=smoke` (the default) proves every call kind; `full` also asserts the ratios.
