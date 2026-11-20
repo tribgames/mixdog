@@ -776,20 +776,6 @@
   .session-row-main:has(.session-row-fork-toggle) {
   padding-right: 52px;
 }
-.session-sidebar
-  .session-row:hover:has(.session-row-action):has(.session-row-unread-dot, .session-row-status:not(:empty))
-  .session-row-main:has(.session-row-fork-toggle),
-.session-sidebar
-  .session-row:has(:focus-visible):has(.session-row-action):has(
-    .session-row-unread-dot,
-    .session-row-status:not(:empty)
-  )
-  .session-row-main:has(.session-row-fork-toggle),
-.session-sidebar
-  .session-row.confirming-delete:has(.session-row-action):has(.session-row-unread-dot, .session-row-status:not(:empty))
-  .session-row-main:has(.session-row-fork-toggle) {
-  padding-right: 72px;
-}
 /* Unread activity dot: the session gained messages while it
    was not the viewed conversation. */
 .session-row-unread-dot {
@@ -811,16 +797,48 @@
 .session-row:has(.session-row-unread-dot) .session-row-copy {
   padding-right: 18px;
 }
-/* A row with a dot or status keeps it on hover: the action cluster steps
-   left of the trailing centerline instead of covering it. */
-.session-row:has(.session-row-unread-dot, .session-row-status:not(:empty)) .session-row-actions {
-  right: calc(var(--mx-rail-trailing-center, 20px) + 8px);
+/* The action cluster keeps one position on every row, so the archive button
+   is always where the pointer expects it; while revealed it covers the
+   trailing dot or status, which hides underneath. */
+.session-row:hover:has(.session-row-action) :is(.session-row-unread-dot, .session-row-status),
+.session-row:has(:focus-visible):has(.session-row-action) :is(.session-row-unread-dot, .session-row-status),
+.session-row.confirming-delete:has(.session-row-action) :is(.session-row-unread-dot, .session-row-status) {
+  opacity: 0;
 }
-.session-row:hover:has(.session-row-action):has(.session-row-unread-dot, .session-row-status:not(:empty))
+/* Desktop rail: the trailing centerline is 12px (30-dialogs.css), which would
+   close the 24px buttons flush on the row edge. The session row's last button
+   centers 20px in instead (an 8px inset), and the revealed title clearance
+   grows by the same 8px so the text keeps its gap to the buttons. */
+html:not([data-mixdog-mobile-tabs]) .session-sidebar .session-row-actions {
+  right: 8px;
+}
+/* A fork root's title hugs its text; its row-main carries the clearance. */
+html:not([data-mixdog-mobile-tabs])
+  .session-sidebar
+  .session-row:hover:has(.session-row-action)
+  .session-row-main:not(:has(.session-row-fork-toggle))
   .session-row-copy,
-.session-row:has(:focus-visible):has(.session-row-action):has(.session-row-unread-dot, .session-row-status:not(:empty))
+html:not([data-mixdog-mobile-tabs])
+  .session-sidebar
+  .session-row:has(:focus-visible):has(.session-row-action)
+  .session-row-main:not(:has(.session-row-fork-toggle))
   .session-row-copy,
-.session-row.confirming-delete:has(.session-row-action):has(.session-row-unread-dot, .session-row-status:not(:empty))
-  .session-row-copy {
-  padding-right: 72px;
+html:not([data-mixdog-mobile-tabs])
+  .session-sidebar
+  .session-row.confirming-delete:has(.session-row-action)
+  .session-row-main:not(:has(.session-row-fork-toggle))
+  .session-row-copy,
+html:not([data-mixdog-mobile-tabs])
+  .session-sidebar
+  .session-row:hover:has(.session-row-action)
+  .session-row-main:has(.session-row-fork-toggle),
+html:not([data-mixdog-mobile-tabs])
+  .session-sidebar
+  .session-row:has(:focus-visible):has(.session-row-action)
+  .session-row-main:has(.session-row-fork-toggle),
+html:not([data-mixdog-mobile-tabs])
+  .session-sidebar
+  .session-row.confirming-delete:has(.session-row-action)
+  .session-row-main:has(.session-row-fork-toggle) {
+  padding-right: 60px;
 }

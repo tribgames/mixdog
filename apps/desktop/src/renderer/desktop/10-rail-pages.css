@@ -1295,8 +1295,9 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   z-index: 3;
   top: 50%;
   transform: translateY(-50%);
-  /* The 24px button's center sits on the shared trailing centerline; a row
-     with a dot or status moves the cluster left of it (11-sidebar-usage.css). */
+  /* The last 24px button's center sits on the shared trailing centerline on
+     every row (the desktop rail insets it 8px further); a dot or status
+     hides under it (11-sidebar-usage.css). */
   right: calc(var(--mx-rail-trailing-center, 20px) - 12px);
   height: 24px;
   padding-left: 12px;
