@@ -228,6 +228,42 @@ fn tree_script() -> CommandSpec {
     }
 }
 
+/// What tells the explanations of a late exit apart, read once the exit has been announced (a holder of the output
+/// pipe is still there then): every process of the root's group (the root is its own group leader, `setsid`) with
+/// pid, group, state and command, and whether the root itself was reaped.
+///
+/// - The root has no row: it was reaped. A row in state `Z` is a root still waiting to be reaped.
+/// - No row in the group at all, yet the exit was late: the output reader had ended or the drain was not what held it.
+/// - A row besides the root (a foreground `sleep` that outlived the group signal, say) holds the output pipe, so the reader
+///   had not finished and the exit waited for the drain to run to its deadline (`ProcessConfig::output_drain`, 2 s).
+#[cfg(unix)]
+fn late_exit_report(root: u32) -> String {
+    let listing = std::process::Command::new("ps")
+        .args(["-ax", "-o", "pid=,pgid=,stat=,command="])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+        .unwrap_or_else(|error| format!("ps failed: {error}"));
+    let rows: Vec<&str> = listing
+        .lines()
+        .filter(|row| row.split_whitespace().nth(1).and_then(|pgid| pgid.parse::<u32>().ok()) == Some(root))
+        .collect();
+    let root_row = rows.iter().find(|row| row.split_whitespace().next().and_then(|pid| pid.parse::<u32>().ok()) == Some(root));
+    format!(
+        "root {root}: {}\nprocesses in group {root} (pid pgid stat command):\n{}",
+        match root_row {
+            None => "no row (reaped)".to_owned(),
+            Some(row) if row.split_whitespace().nth(2).is_some_and(|stat| stat.starts_with('Z')) => "zombie (not reaped)".to_owned(),
+            Some(_) => "alive".to_owned(),
+        },
+        if rows.is_empty() { "  (none)".to_owned() } else { rows.join("\n") }
+    )
+}
+
+#[cfg(windows)]
+fn late_exit_report(root: u32) -> String {
+    format!("root {root}: no group listing on Windows")
+}
+
 /// DS-PROC-6 and the tree-kill of DS-PROC-1: one kill takes the grandchild with the root, and
 /// both are gone within 100 ms.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -249,7 +285,11 @@ async fn kill_takes_the_whole_tree_within_100ms() {
     let exit_after = started.elapsed();
     eprintln!("kill issued in {killed_in:?}, grandchild gone after {gone_after:?}, exit event after {exit_after:?}");
     assert!(gone_after <= Duration::from_millis(100), "tree gone after {gone_after:?}");
-    assert!(exit_after <= Duration::from_millis(100), "exit announced after {exit_after:?}");
+    assert!(
+        exit_after <= Duration::from_millis(100),
+        "exit announced after {exit_after:?}\n{}",
+        late_exit_report(m.info(&h).unwrap().pid)
+    );
     assert_eq!(m.info(&h).unwrap().exit.unwrap().killed, Some(KillReason::Requested));
 }
 
