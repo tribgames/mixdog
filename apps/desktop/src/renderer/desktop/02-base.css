@@ -11,20 +11,18 @@
 *:focus-visible {
   outline-color: var(--mx-focus);
 }
-/* ONE scrollbar grammar shell-wide: the session rail's inset pill (user: pane
-   스크롤도 세션 리스트처럼). The 8px track stays, but the thumb is inset 2px
-   and fully rounded, so it reads as a floating pill instead of a flush block.
-   Three grammars used to run at once — this pill on the rail, a square block
-   everywhere else, and the OS `scrollbar-width: thin` bar on nine surfaces
-   that overrode the webkit sizing entirely. Only `scrollbar-width: none`
-   (deliberate hiding) survives as a per-surface override. */
+/* ONE scrollbar grammar shell-wide: the session rail's inset pill. The 8px
+   track stays, but the thumb is inset 2px and fully rounded, so it reads as
+   a floating pill instead of a flush block. Only `scrollbar-width: none`
+   (deliberate hiding) is a per-surface override. */
 :root {
   --mx-scrollbar-size: 8px;
   /* What the ENGINE reserves for that bar, measured before the first paint by
      scrollbar-metrics.ts. Overlay scrollbars reserve nothing, so any layout
      that PAYS for a gutter reads this instead of the painted size — otherwise
      the payment shifted scroller content while the chrome outside it stayed
-     put (user: 세션 리스트 + 버튼이랑 아래 닷이 가로로 틀어짐). */
+     put (the session list's + button and the dots under it came out
+     misaligned horizontally). */
   --mx-scrollbar-gutter: 8px;
 }
 * {
@@ -114,7 +112,7 @@ button {
   font-weight: var(--mx-weight-regular);
   letter-spacing: 0;
 }
-/* Icon strokes are PIXEL-SNAPPED (user: 아이콘들이 좀 흐릿한 느낌).
+/* Icon strokes are PIXEL-SNAPPED; unsnapped strokes look blurry.
    lucide draws on a 24-unit viewBox and `stroke-width` lives in that SAME
    unit space, so every glyph thins its own line to size/24 of the declared
    value. The old 1.75px global landed at 1.02 device px on the 14px glyphs
@@ -166,7 +164,7 @@ input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,
 a:focus-visible {
-  /* One quiet canonical ring (user: 전체적으로 호버나 선택 시 강조 최소화):
+  /* One quiet canonical ring, so hover and selection emphasis stays minimal:
      a hairline hugging the control, not a thick detached halo. */
   outline: 1px solid var(--mx-focus);
   outline-offset: 1px;
@@ -179,8 +177,7 @@ button:focus-visible {
    :focus-visible to whatever held focus when the window returns, so a control
    pressed with the mouse — the composer "+" coming back from a native file
    dialog, the model pill after a settings hop, any trigger a closing menu
-   re-focuses — kept the keyboard ring long after its action ended (user:
-   동작 끝났는데 선택 프레임이 남는다). focus-modality.ts marks the last
+   re-focuses — kept the keyboard ring long after its action ended. focus-modality.ts marks the last
    interaction on the root. Text fields are absent on purpose: a caret needs
    its field outlined either way, and a keyboard user's very next Tab restores
    every ring below. The frame is pure decoration, so it is forced off instead
@@ -201,10 +198,8 @@ html[data-mx-input="pointer"]
   ):focus-visible {
   outline: 0 !important;
 }
-/* Keyboard navigation is where the accent earns its place (user: 강조색도
-   써야 하는 곳은 쓰고): a control reached by Tab wears a blue ring. Text
-   fields keep the neutral one — a field clicked or typed in never turns blue
-   (user: 입력 포커스 파란 하이라이트 제외). */
+/* Keyboard navigation is where the accent earns its place: a control reached by Tab wears a blue ring. Text
+   fields keep the neutral one — a field clicked or typed in never turns blue. */
 html[data-mx-input="keyboard"]
   :is(
     button,

@@ -141,7 +141,7 @@
 .starter-guide-toast .starter-guide-meter {
   width: 40px;
 }
-/* The meter fills one step from the old width; the last step's full meter
+/* The meter fills one step from its previous width; the last step's full meter
    then turns success green. */
 .starter-guide-toast .starter-guide-meter > span {
   transition:

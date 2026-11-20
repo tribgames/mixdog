@@ -307,9 +307,8 @@
   color: var(--mx-text-muted);
   background: transparent;
   /* Same operational row as the running band, the settled turn status and the
-     tool cards: 14/20 sans with tabular figures. This bar used to sit on the
-     14/18 minor pair, so the one row that lands directly under a tool run
-     broke the rhythm the rest of the transcript keeps. */
+     tool cards: 14/20 sans with tabular figures, so the row that lands directly
+     under a tool run keeps the transcript's rhythm. */
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
   font-variant-numeric: tabular-nums;
@@ -408,7 +407,7 @@
      of the viewport instead of a 132px sliver, and stays the ONLY scroller
      (the inline diff below has no height cap of its own). The pane-height
      term (85cqh minus head/composer chrome) keeps ~10%+ of the pane visible
-     above the open panel in split layouts, where 60vh of the WINDOW used to
+     above the open panel in split layouts, where 60vh of the WINDOW would
      fill the whole pane. */
   max-height: min(60vh, 720px, max(160px, 85cqh - 160px));
   margin: 0;
@@ -622,8 +621,7 @@
 /* Session Diff is the pane-scoped, cumulative counterpart to the turn review
    bar. It reads in Source Control's Changes grammar — the same 29px header
    band and file rows (.dock-scm-file, 25-scm-dock.css), the same gutter and
-   scrollbar reserve — so the two panels line up when opened side by side
-. The row set is already
+   scrollbar reserve — so the two panels line up when opened side by side. The row set is already
    attributed by the runtime, so there is no checkbox column and no commit
    form; the inline diff opens beneath its row instead. */
 .session-diff-pane {

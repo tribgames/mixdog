@@ -15,7 +15,7 @@
 .extensions-dialog[data-dialog-width="editor"] {
   --mx-editor-width: 800px;
 }
-/* Height ladder (user: 팝업 상하 최대 크기): short detail cards 480, the
+/* Height ladder: short detail cards 480, the
    list-heavy details 600, Markdown editors 720; the body scrolls past it. */
 .extensions-dialog {
   --mx-dialog-max-height: 480px;
@@ -32,8 +32,7 @@
 }
 
 /* Identity glyph on the title line, bare: the boxed tile made these cards
-   read unlike the Settings and confirm dialogs, which title with text alone
-   (user: 사이드레일 쪽 팝업도 옵션 쪽이랑 스타일 맞추자). */
+   read unlike the Settings and confirm dialogs, which title with text alone. */
 .extensions-dialog > header > .extensions-dialog-icon {
   width: 20px;
   height: 30px;
@@ -106,7 +105,7 @@
 }
 
 /* ── Sections ─────────────────────────────────────────────────────────── */
-/* The Settings dialog's group head (user: 옵션쪽이랑 맞춰): 15px semibold
+/* The Settings dialog's group head: 15px semibold
    title, an optional muted note under it, a head-line control on the
    trailing edge, then the card 16px below. */
 .extensions-section {
@@ -184,7 +183,7 @@
 /* ── Item rows ────────────────────────────────────────────────────────── */
 /* The Settings dialog's resource card: one plate, rows divided by a
    hairline, title + status pill on the first line, meta under it, the
-   control on the trailing edge (user: 옵션쪽이랑 맞춰). */
+   control on the trailing edge. */
 .extensions-item-list {
   min-width: 0;
   display: grid;
@@ -366,8 +365,8 @@
   box-shadow: none;
 }
 /* Read-only state box on a row's trailing edge: a compact 22px rectangle on
-   the base plate with a hairline, tinted by tone (user: 태그가 아니라 박스 —
-   but not the action button's 28px, that read too tall). No hover, no
+   the base plate with a hairline, tinted by tone. It stays 22px: the action
+   button's 28px height looks too tall for a read-only indicator. No hover, no
    press — it is not a control. */
 .extensions-item-badge {
   height: 22px;
@@ -407,8 +406,7 @@
   display: grid;
   padding: 0 16px;
   /* The Settings group card exactly (17-settings.css .settings-group-body):
-     10px corner, plate, a 6% whisper of outline (user: 옵션 쪽이랑 스타일
-     맞추자). */
+     10px corner, plate, a 6% whisper of outline. */
   border-radius: var(--mx-radius-lg);
   background: var(--mx-bg-layer-1);
   box-shadow: var(--mx-card-outline);

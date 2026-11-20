@@ -183,8 +183,7 @@ html[data-mx-input="pointer"] .browser-pane-address:focus {
   flex: 1;
   overflow: hidden;
   /* App sheet, not white: the guest paints its own page background, and the
-     interval before its first frame used to flash white when the pane opened
-     (user: 브라우저 창 열 때 흰색으로 배경 깜빡임). */
+     interval before its first frame would flash white when the pane opens. */
   background: var(--mx-workspace-sheet);
 }
 

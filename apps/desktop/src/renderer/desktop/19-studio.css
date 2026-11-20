@@ -484,8 +484,7 @@ html[data-mixdog-mobile-tabs] .studio-panel .studio-board-count {
   display: none;
 }
 /* The sweep is a transform-only overlay: animating the tile's own background
-   repainted it every frame and the keyframe wrap popped the band back
-. It enters and leaves fully off the tile,
+   repainted it every frame and the keyframe wrap popped the band back. It enters and leaves fully off the tile,
    so the loop is seamless, and the band is faint enough to read as breathing. */
 .studio-tile--pending .studio-tile-open::after {
   content: "";
@@ -1492,8 +1491,8 @@ html[data-mixdog-skin] .desktop-boot-cover > .desktop-loading-surface {
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-minor);
 }
-/* Prompt shares the DETAILS block card: the old full-bleed band pushed its
-   head row (label + copy) against the strip edges. Six lines read at a
+/* Prompt shares the DETAILS block card, so its
+   head row (label + copy) stays off the strip edges. Six lines read at a
    glance; Show all opens the rest into the rail's own scroller. */
 .studio-detail-prompt {
   display: -webkit-box;

@@ -85,7 +85,7 @@ html[data-mixdog-mobile-tabs] .workspace-tab-home-dot.off {
   background: var(--mx-text-muted);
 }
 html[data-mixdog-mobile-tabs] .workspace-tab-home-mark {
-  /* Chrome-glyph optical size (계측: ~20dp); the frameless mark inks its
+  /* Chrome-glyph optical size (measured: ~20dp); the frameless mark inks its
      full box, so 24dp bounds land at the same visual weight. */
   width: 24px;
   height: 24px;
@@ -211,7 +211,7 @@ html[data-mixdog-mobile-tabs] .studio-composer textarea {
    the strokes stayed at their desktop pixel width, which reads thinner once
    the glyph itself grows. */
 /* Same padding as the send button: at 2px the recording disc painted 40 units
-   against the send disc's 36 and read as a mismatched circle (user-flagged). */
+   against the send disc's 36 and read as a mismatched circle. */
 html[data-mixdog-mobile-tabs] .composer-mic {
   /* Both buttons already reserve 4 of their own padding on the facing edge,
      so the margin only carries what is left of the desktop 8/28 gap. */
@@ -287,8 +287,7 @@ html[data-mixdog-mobile-tabs] .composer-dictation-cancel > svg {
   height: 20px;
 }
 /* ── Context gauge ── seated right after the model trigger exactly like the
-   desktop footer; the old floating status capsule
-   over the transcript is retired. The hit box takes the bar's 44 touch
+   desktop footer. The hit box takes the bar's 44 touch
    measure while the ring keeps the desktop 15px-over-28 proportion so it
    still lands on the model label's em box. */
 /* The attach + keeps the 44 touch height but a 36 width, so the model
@@ -357,10 +356,11 @@ html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator s
   height: calc(36px * 15 / 28);
 }
 /* The card opens upward from the footer on desktop too; on the phone it can
-   only be as wide as the screen minus the pane inset. The card used to anchor
-   to the gauge mid-footer, so its 220px rightward growth spilled past the
-   viewport's right edge — it now anchors to the footer itself, opening from
-   the footer's left edge where the full width always fits. */
+   only be as wide as the screen minus the pane inset. It anchors to the
+   footer itself, opening from the footer's left edge where the full width
+   always fits. The card grows 220px rightward (its fallback width), so
+   anchoring to the gauge mid-footer would spill past the viewport's right
+   edge. */
 html[data-mixdog-mobile-tabs] .composer-footer {
   position: relative;
 }
@@ -547,7 +547,7 @@ html[data-mixdog-mobile-tabs] .pane-cell > .workspace-tabs-shell {
 
 /* ── Phone dark surfaces: neutral greys ── the desktop's blue-offset dark ramp
    (#18181b band, #111113 sheet…) is hidden on Windows behind a Mica frame, but
-   the phone paints it solid and it reads bluish ("질감이 다르다"). Same
+   the phone paints it solid and it reads bluish (a different material from the desktop). Same
    contrast steps (band → sheet → card → composer), R=G=B. Desktop is untouched:
    this block only matches the phone marker. Light tokens are already neutral. */
 :root[data-mixdog-mobile-tabs]:not([data-mixdog-theme="light"]) {
@@ -862,7 +862,7 @@ html[data-mixdog-mobile-tabs] {
 }
 /* The pinned search/tab bar paints the panel's tone around itself; the drawer
    panel sits on the workspace sheet, not the lighter window band the desktop
-   rail uses, so the old tone showed as a wider block behind the field. */
+   rail uses, so the desktop tone would show as a wider block behind the field. */
 html[data-mixdog-mobile-tabs] .sidebar-drawer-frame .workbench-side-panel {
   --mx-side-panel-surface: var(--mx-workspace-sheet);
 }
@@ -1199,9 +1199,8 @@ html[data-mixdog-mobile-tabs] .command-surface[data-surface="context"] .context-
    PHONE CONTROL SPEC
    The shell was authored for a pointer, and every surface picked its own
    control size — 18/19/20/22/24/25/26/28/30/32 all shipped side by side.
-   The phone layer used to correct them ONE SELECTOR AT A TIME, so anything
-   not yet corrected simply kept its desktop measure; that is what read as
-   중구난방. From here the phone has THREE sizes and nothing else, and any new
+   Correcting them ONE SELECTOR AT A TIME leaves anything missed at its
+   desktop measure. The phone has THREE sizes and nothing else, and any new
    control declares which one it is:
 
      --mx-touch        44  owns its slot — bar/header/primary actions, list

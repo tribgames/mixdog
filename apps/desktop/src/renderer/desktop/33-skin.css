@@ -331,9 +331,9 @@ html[data-mixdog-skin] .markdown :not(pre) > code {
 html[data-mixdog-skin] .message.assistant:not(.mx-chat-row *) {
   /* The plate spans the row's full width, which the rule below widens to the
      composer box's edges (the text then sits on the column through the
-     plate's own 16px padding). It used to carry margin-inline -16px, but
-     .message is width:100%, so the margin only slid the plate 16px left of
-     every card in the thread instead of widening it. */
+     plate's own 16px padding). No negative margin-inline: .message is
+     width:100%, so it would only slide the plate 16px left of every card in
+     the thread instead of widening it. */
   margin-inline: 0;
   padding: 12px 16px;
   border-radius: var(--mx-radius-sheet);

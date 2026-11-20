@@ -389,14 +389,12 @@
 .workspace-tab-close:focus-visible {
   outline: 0;
 }
-/* Square cells share one inset; the old extra step on non-leading tabs only
-   tracked the leading plate's wider edge offset. */
+/* Square cells share one inset. */
 .workspace-tab-main {
   gap: 4px;
   padding: 0;
 }
-/* Glyph, spinner, X and + all sit on the cell centre line — no optical lift
-. */
+/* Glyph, spinner, X and + all sit on the cell centre line — no optical lift. */
 .workspace-tab-main > svg {
   width: 15px;
   height: 15px;

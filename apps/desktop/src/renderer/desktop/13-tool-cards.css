@@ -916,8 +916,6 @@ html[data-mixdog-mobile-tabs]
   overflow: visible;
   text-overflow: clip;
   color: var(--mx-text-muted);
-  font-family: var(--mx-font-sans);
-  font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   letter-spacing: var(--mx-tracking-tight);
 }
@@ -1098,7 +1096,7 @@ html[data-mixdog-mobile-tabs]
 /* Level 3: a call's detail opens inside its own row of the list card, at the
    row's text inset. Payloads sit on a panel; labels and arguments stay bare.
    The collapsing box itself carries NO padding: a grid row cannot shrink a
-   box below its own padding, so the body used to jump 14px in on open and
+   box below its own padding, so the body would jump 14px in on open and
    snap 14px shut at the end of the close. The inset lives one level down. */
 .tool-activity-item-body {
   min-width: 0;
@@ -1234,9 +1232,7 @@ html[data-mixdog-mobile-tabs]
 /* ONE surface for every expanded tool body:
    a file read, a written file, a terminal run, a search result and a JSON
    payload all sit on the same card — the fenced code card's plate with the
-   diff card's hairline — with one height cap and one copy control. Before
-   this a terminal was a tinted block, a diff a framed card and everything
-   else bare text at three different max-heights. */
+   diff card's hairline — with one height cap and one copy control. */
 .tool-panel {
   --tool-panel-max: 320px;
   position: relative;
@@ -1759,8 +1755,7 @@ html[data-mixdog-mobile-tabs]
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* Expanded tool bodies used to be one flat <pre>, so a fenced block, a table,
-   or a JSON payload arrived as an undifferentiated wall of text. Structured bodies now run through the
+/* Structured expanded tool bodies (fenced block, table, JSON payload) run through the
    same markdown pipeline as the transcript, scoped down to card proportions. */
 .tool-activity-markdown {
   color: var(--mx-text-muted);
@@ -1881,9 +1876,8 @@ html[data-mixdog-mobile-tabs]
 .tool-title b {
   font-weight: var(--mx-weight-medium);
 }
-/* The transcript tool NAME stays in the sans face its own rule above sets
-   (the mono pair just before outranked it by order, so Korean labels spread
-   out in the code face). */
+/* The transcript tool NAME stays in the sans face; this rule follows the mono
+   pair above so Korean labels do not spread out in the code face. */
 .tool-title.tool-activity-item-title b {
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-ui);
@@ -1982,7 +1976,7 @@ html[data-mixdog-mobile-tabs]
   gap: 7px;
   min-width: 0;
   align-items: baseline;
-  /* v0.9.66 reference presentation: a quiet plain summary line indented to
+  /* A quiet plain summary line indented to
      the title column — no tree glyph. */
   padding: 2px 8px 0 20px;
   font-family: var(--mx-font-mono);
@@ -2096,8 +2090,7 @@ button[data-copied="true"] > svg {
 }
 /* Empty states center on BOTH axes inside the dock body. Every dock pane is
    a flex column (see .utility-dock-pane), so this one rule centers the
-   message on every tab instead of leaving it stuck under the title on the
-   panes that used to be plain blocks. */
+   message on every tab instead of leaving it stuck under the title. */
 .utility-dock-body {
   display: flex;
   flex-direction: column;
@@ -2108,10 +2101,9 @@ button[data-copied="true"] > svg {
 .live-activity {
   height: auto;
   /* ONE band height (24px) shared by the slot below and the status row inside
-     it. The three used to disagree (20 / 24 / 24+4 padding), so the band
-     rendered 28px against the footer's 40px contract (16px row gap + 24px)
-     and settlement nudged the thread by 4px. At a flat 24px the
-     two states are byte-identical. */
+     it. At a flat 24px the band meets the footer's 40px contract (16px row
+     gap + 24px) and the two states are byte-identical, so settlement does
+     not nudge the thread. */
   min-height: 24px;
   /* Auto-scroll gap: the thread already contributes its 16px row gap
      above this band — an extra margin pushed the spinner too far from the

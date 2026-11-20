@@ -12,13 +12,13 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  /* Nothing paints outside the rail column: a short window used to let the
-     destination list spill past its squeezed box and draw over the usage
+  /* Nothing paints outside the rail column: in a short window the
+     destination list would spill past its squeezed box over the usage
      readout below it. */
   overflow: hidden;
   border-right: 1px solid var(--mx-border-structure);
-  /* Activity-bar ink measured against VS Code side by side: inactive = white at 50% — the old 40% of the off-white
-     text token read a step darker than VS Code's rail on its band.
+  /* Activity-bar ink measured against VS Code side by side: inactive = white at 50%; a lower alpha of the off-white
+     text token reads darker than VS Code's rail on its band.
      Hover/active = full foreground via the button rules below. */
   color: rgb(255 255 255 / 50%);
   background: var(--mx-window-band);
@@ -154,8 +154,7 @@
   color: var(--mx-text);
 }
 /* Selection grammar: a
-   rounded tile inset in the cell carries hover and selection; the old 2px
-   edge bar and full-cell wash are gone. */
+   rounded tile inset in the cell carries hover and selection. */
 .activity-rail > button::before,
 .workbench-side-icon-bar.is-vertical > button::before {
   content: "";
@@ -197,8 +196,7 @@
   cursor: grabbing;
 }
 /* The destination list is this icon bar; its own cell rule outranks the
-   generic rail button rule above, so it carries the same measured 44px cell
-. */
+   generic rail button rule above, so it carries the same measured 44px cell. */
 .activity-rail > .workbench-side-icon-bar.is-vertical,
 .activity-rail > nav.workbench-side-icon-bar.is-vertical {
   display: flex;

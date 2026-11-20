@@ -643,8 +643,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
 }
 /* Every table is wrapped in .markdown-table by markdownComponents, and that
    wrapper owns the box (width, margin, scroll) — only the collapse model is
-   the table's own. The width/margin/display/overflow that used to live here
-   were dead, overridden by `.markdown-table table` further down. */
+   the table's own; `.markdown-table table` further down sets the table's width. */
 .markdown table {
   /* Separate with no spacing reads the same as collapse (cells only draw a
      bottom hairline) and lets the header's outer cells take a corner radius. */
@@ -660,8 +659,8 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
 .markdown td {
   padding: 8px 12px;
   /* No width floor: a table must always fit the column and wrap, never scroll
-     sideways. A per-cell floor times many columns was the only thing that
-     could push it wider than the pane. */
+     sideways. A per-cell floor times many columns would push it wider than
+     the pane. */
   min-width: 0;
   border-bottom: var(--mx-hairline) solid var(--mx-border);
   text-align: left;
@@ -762,9 +761,9 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   overflow-wrap: anywhere;
 }
 /* Inline code and links share ONE blue ink. Code keeps the host weight while links
-   take medium plus a firm underline, so the two never read as one kind. Headings and strong stay neutral. The
-   chip — tint, padding, radius, ring — is gone: color and a box are two marks
-   for one meaning, and the box was the half that squashed against the glyphs. */
+   take medium plus a firm underline, so the two never read as one kind. Headings and strong stay neutral. Code
+   carries no chip (tint, padding, radius, ring): color and a box are two
+   marks for one meaning, and the box squashes against the glyphs. */
 .markdown :not(pre) > code {
   /* Subtle chip: body ink on a faint ink-tinted plate with a hairline, mono
      slightly under the prose size. Links stay the only coloured run. */
@@ -825,8 +824,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
    the underline and, for files, the type glyph carry the affordance, and a
    medium weight lifts it a step off the 400 prose.
    A healed explicit link still streaming shares that ink. Ink and underline
-   live in ONE rule; they used to sit ~6k lines apart, so a later edit could
-   retune half a link. */
+   live in ONE rule so an edit cannot retune half a link. */
 .markdown a,
 .markdown .markdown-link-pending {
   color: var(--mx-md-code);
@@ -898,7 +896,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   font: inherit;
   text-align: inherit;
   letter-spacing: inherit;
-  /* The row's own quiet ink: a blue link was the one coloured run in an
+  /* The row's own quiet ink: a blue link would be the one coloured run in an
      otherwise grey operational line. The
      underline carries the affordance, as in chat links. */
   color: inherit;
@@ -1214,7 +1212,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
    CSS animation: WebView re-evaluated the stepped animation at every vsync,
    between its steps too (~160ms of main thread a second). Each step
    decorative-motion-sync.ts writes the step index to --text-shimmer-step; the
-   position is the old keyframes' interpolation, from `calc(-1 * band)` (step
+   position is the keyframes' interpolation, from `calc(-1 * band)` (step
    0) toward `calc(100% + rest-run)` (step `frames`, which `end` never shows).
    The `animation` shorthand stays with the name `none`, so the script reads
    the cadence (duration, steps) and the pause rules' play state from here. */

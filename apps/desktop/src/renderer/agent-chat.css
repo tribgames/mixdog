@@ -366,6 +366,7 @@ html[data-mixdog-mobile-tabs] .mx-handoff-line > button {
   height: 18px;
 }
 .mx-bot-fold-pill > .mx-routine-more {
+  flex: none;
   margin-top: 0;
   min-height: 24px;
   padding: 0 6px;
@@ -423,10 +424,6 @@ html[data-mixdog-mobile-tabs] .mx-handoff-line > button {
   line-height: var(--mx-line-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.mx-bot-fold-pill > .mx-routine-more {
-  flex: none;
-  margin-top: 0;
 }
 .mx-chat-row[data-side="agent"] .mx-bot-fold .message.assistant.mx-bot-fold-body > .message-body {
   padding: 4px 12px;

@@ -26,8 +26,7 @@
   border-top: var(--mx-hairline) solid var(--mx-border-muted);
 }
 /* The caption between the two sections owned no rule, so it ran to the card
-   edge while the sections stayed on their 22px column (user: 설명문 패딩만
-   정리). It now rides that column and owns its own bottom band. */
+   edge while the sections stayed on their 22px column. It now rides that column and owns its own bottom band. */
 .context-card > p {
   margin: 0;
   padding: 0 22px 20px;
@@ -78,8 +77,7 @@
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-minor);
 }
-/* Section heading matches the settings group-heading tier (user: unify the
-   type scale — 12px/400 read as a third, weaker grammar). */
+/* Section heading matches the settings group-heading tier. */
 .context-surface-view h3 {
   color: var(--mx-text);
   font-size: var(--mx-font-body);
@@ -185,13 +183,12 @@
   }
 }
 
-/* Inspector = master/detail (user: 누르면 어디 나오는지 모르겠다). Categories
+/* Inspector = master/detail. Categories
    navigate on the left; the right pane always shows the outcome of the last
    choice, so a click has one obvious destination. Both panes scroll on their
    own inside the dialog's fixed frame. */
-/* No rule above the panes: the bar's own band separates them (user: 위쪽
-   테두리 이상해). Between the panes runs one hairline that stops 24px short
-   of both ends and fades out there (user: 가운데 테두리 위아래로 너무 김). It
+/* No rule above the panes: the bar's own band separates them. Between the panes runs one hairline that stops 24px short
+   of both ends and fades out there. It
    is a grid item over the nav's right edge, so its length follows the pane
    height as the dialog grows, and it never scrolls with the nav's rows. */
 .context-inspector {
@@ -221,7 +218,7 @@
 }
 /* The nav is a column whose card is the LAST, growing child: it runs to the
    pane's bottom edge instead of stopping short and leaving an unframed band
-   under the rows (user: 아이템 프레임 아래 여백). Rows stay anchored at the top. */
+   under the rows. Rows stay anchored at the top. */
 .context-inspector-nav {
   grid-column: 1;
   grid-row: 1;
@@ -277,7 +274,7 @@
 .context-inspector .context-block-map i {
   min-height: 12px;
 }
-/* Category list rides the popup action plate (user: 왼쪽 아이템 프레임) — one
+/* Category list rides the popup action plate — one
    framed card with hairline-separated rows, the same plate the Compact
    button uses, so it reads as a control group and not loose text. */
 .context-mix-list {
@@ -680,11 +677,10 @@
   display: flex;
   flex-direction: column;
   container-type: inline-size;
-  /* Flat layout (user): square dock, hairline-separated — no card chrome.
+  /* Flat layout: square dock, hairline-separated — no card chrome.
      Rail surface = window band, mirroring the left sidebar: both side
      panels share one tone and only the CENTER workspace sheet reads
-     lighter (rails/editor separation — user: the two side tabs
-     looked like different designs). */
+     lighter (rails/editor separation). */
   border-radius: 0;
   background: var(--mx-window-band);
   box-shadow: none;
@@ -705,8 +701,7 @@
   gap: 2px;
   min-width: 0;
   margin-top: 4px;
-  /* Dock walks the SAME 12px box line as the left rail (user: 오른쪽도
-     비슷하게): title text opens on it and every band container below
+  /* Dock walks the SAME 12px box line as the left rail: title text opens on it and every band container below
      shares the inset. */
   padding: 0 12px;
   background: var(--mx-window-band);
@@ -730,8 +725,7 @@
   flex: 0 0 32px;
   display: flex;
   align-items: center;
-  /* Boxes ride the dock's 12px box line (user: 오른쪽도 비슷하게 — same
-     line as the header title and every band container). */
+  /* Boxes ride the dock's 12px box line. */
   padding: 0 12px;
   border-bottom: 1px solid var(--mx-border-muted);
   background: var(--mx-window-band);
@@ -784,7 +778,7 @@
 .utility-dock-view-section[data-active="true"] > .utility-dock-view-section-body {
   display: contents;
 }
-/* ONE pane box for every tab (user: 탭별로 레이아웃이 튀지 않게): a flex
+/* ONE pane box for every tab: a flex
    column that owns the scroll, with the same 4px top inset everywhere. The
    horizontal gutter belongs to each pane's own content (tree, list, band),
    so rows keep their tuned insets while the frame stays identical. */
@@ -798,8 +792,7 @@
   flex-direction: column;
   /* clip, not hidden: hidden still allows PROGRAMMATIC sideways scrolling,
      and Outline's scrollIntoView() used that to shove the whole pane left
-     until every row lost its first characters (user: 아웃라인 레이아웃이
-     아예 깨져있다). */
+     until every row lost its first characters. */
   overflow-x: clip;
   overflow-y: auto;
   padding: 0 0 8px;
@@ -823,7 +816,7 @@
    visibility overrides unable to bleed through another Dock tab. */
 /* pointer-events must gate with opacity: an invisible pane stacked above the
    active tab otherwise swallows every click and keeps the commit box
-   untypeable (user: 입력이 안 써지네). */
+   untypeable. */
 .utility-dock-pane[data-surface-active="false"] {
   opacity: 0;
   pointer-events: none;

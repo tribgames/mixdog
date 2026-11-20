@@ -18,8 +18,7 @@
   }
 }
 /* justify-content matters: this inline-flex overrides .session-panel-action's
-   centering grid, and an uncentered glyph drifted ~8px left of the ⋯ column
-   (user: + 버튼 위치 정렬 잘못됨). */
+   centering grid, and an uncentered glyph drifted ~8px left of the ⋯ column. */
 .schedules-new {
   display: inline-flex;
   align-items: center;
@@ -27,7 +26,7 @@
   gap: 6px;
   white-space: nowrap;
 }
-/* Schedules interact states stay flat (user: no hover wash). */
+/* Schedules interact states stay flat. */
 .schedules-page .settings-action:hover:not(:disabled) {
   color: var(--mx-text);
   background: var(--mx-bg-base);
@@ -42,7 +41,7 @@
      --mx-editor-width so three fields never float in an 800px card. */
   width: min(var(--mx-editor-width, 800px), 100%);
 }
-/* Height ladder for the rail editors (user: 팝업 상하 최대 크기): forms stop
+/* Height ladder for the rail editors: forms stop
    at 640, Markdown editors at 720, short route/loading cards at 480; the
    form body scrolls past the cap. */
 .schedules-editor-dialog,
@@ -66,7 +65,7 @@
   align-content: start;
   /* One rhythm down the form: 16px between fields, and the body opens right
      under the header's own 12px so the title never floats away from field
-     one (user: 정렬이 마음에 들지 않는다). */
+     one. */
   gap: 16px;
   padding: 4px var(--mx-dialog-inset) var(--mx-dialog-inset);
 }
@@ -79,8 +78,7 @@
   font-weight: var(--mx-weight-regular);
 }
 /* A field title and its note are ONE block: they close to 4px, and only the
-   control opens the full 8px step — grown from 2/6 with the 15px label
-   (user: 제목·설명·텍스트상자 사이가 좁다). */
+   control opens the full 8px step — grown from 2/6 with the 15px label. */
 .schedules-field > span + small,
 .projects-edit-field > div > span + small {
   margin-top: -4px;
@@ -88,7 +86,7 @@
 .schedules-field > span,
 .projects-edit-field > div > span {
   /* Labels align with the control edge; values keep their internal inset.
-     The dialog walks the rail's type ramp (user: 사이드탭 폰트 규칙처럼):
+     The dialog walks the rail's type ramp:
      title 16 > field label 15 > item/control text 14 > note 13. */
   color: var(--mx-text);
   font-size: var(--mx-font-category);
@@ -135,7 +133,7 @@
   color: var(--mx-text);
   background: transparent;
   /* One step UNDER the dialog title so the ladder holds — title 15 > label
-     14 > note 13 (user: 폰트 위계가 망가졌다). Chat-composer parity had given
+     14 > note 13. Chat-composer parity had given
      this typing surface the title's own 15 and the card read upside-down. */
   font-family: var(--mx-font-prose);
   font-size: var(--mx-font-ui);
@@ -211,7 +209,7 @@
 }
 /* Webhook editor "Connection" field: a settings-style card under the field
    title — one row each for the endpoint URL, signing secret and test send,
-   split by hairlines (user: 시안 B). */
+   split by hairlines. */
 .webhook-connection {
   display: flex;
   flex-direction: column;
@@ -282,7 +280,7 @@
   white-space: nowrap;
   font-size: var(--mx-font-code);
   /* Match the 26px copy button so the value text and icon share one optical
-     centerline (user: copy icon read as floating above the text). */
+     centerline. */
   line-height: 26px;
   color: var(--mx-text);
 }
@@ -301,8 +299,7 @@
 }
 .schedules-dialog footer {
   /* Pinned to the card floor while the form scrolls beneath it. It wears the
-     CARD's own tone with no hairline (user: 확인/취소 구역이 분리돼 보이는 게
-     별로다) — opaque only so scrolled fields vanish seamlessly under it. Its
+     CARD's own tone with no hairline — opaque only so scrolled fields vanish seamlessly under it. Its
      inline inset stays the form's 20px, so Save closes on the fields' right
      edge. */
   position: sticky;
@@ -316,8 +313,7 @@
   flex-wrap: wrap;
   gap: 8px;
   /* The CARD's plate, not a raised layer: layer-1 painted a lighter band under
-     the form so the floor read as a separate, empty strip (user: 배경도 한 색이
-     아니라 아래가 비어 보인다). */
+     the form so the floor read as a separate, empty strip. */
   background: var(--mx-popup-bg);
 }
 /* The button ladder (quiet plate, contrast submit, ghost, danger) is the
@@ -409,8 +405,8 @@
   background: transparent;
   cursor: pointer;
 }
-/* Open-menu state carries NO wash (user: ⋯ 눌렀을 때 강조 없도록 — the
-   menu itself already marks the state); hover keeps the quiet ink lift. */
+/* Open-menu state carries NO wash, because the open menu already shows the
+   state; hover keeps the quiet ink lift. */
 .row-overflow-trigger:hover {
   color: var(--mx-text);
   background: var(--mx-hover);
@@ -427,7 +423,7 @@
   gap: 0;
   /* Content-sized on the same 160px floor as .mx-menu: per-caller fixed
      widths (132/180/188/232) left one-item menus hollow and clipped long
-     labels (user: ⋯ 팝업 너비가 제각각). The inline max-width from
+     labels. The inline max-width from
      positionRowMenu keeps the panel inside the viewport. */
   width: max-content;
   min-width: 160px;
@@ -459,9 +455,8 @@
   pointer-events: none;
 }
 /* Menu metrics (2em check gutter, 1em solid glyph):
-   the old 14px box with a 13px hairline check was HALF that scale and the
-   state disappeared (user: 선택·미선택이 잘 안 보인다). A 20px gutter with a
-   16px/1.75px check, plus ink + weight on the row, reads at a glance. */
+   a 14px box with a 13px hairline check is half that scale and the state
+   disappears. A 20px gutter with a 16px/1.75px check, plus ink + weight on the row, reads at a glance. */
 .row-overflow-check {
   width: 20px;
   height: 20px;
@@ -580,12 +575,11 @@
 .workflows-route-dialog {
   --mx-editor-width: 560px;
 }
-/* The Model control is a FIELD, not the composer's quiet pill (user: 텍스트
-   박스랑 배경 분리): it wears the dialog input skin from 30-dialogs.css —
-   32px plate on --mx-bg-base, hairline at rest, one-pixel ring on focus —
-   and its plate starts on the label edge like every other
-   field, so the old bare 8px indent is gone and the glyph sits 8px inside
-   the plate exactly as the inputs above it. Width stays content-sized: the
+/* The Model control is a FIELD, not the composer's quiet pill: it wears the
+   dialog input skin from 30-dialogs.css — 32px plate on --mx-bg-base,
+   hairline at rest, one-pixel ring on focus — and its plate starts on the
+   label edge like every other field, with the glyph 8px inside the plate
+   exactly as the inputs above it. Width stays content-sized: the
    open pill morphs to the sheet width (RouteEditor), and a full-width plate
    would visibly shrink on open. */
 .workflows-dialog-route {
@@ -648,7 +642,7 @@
 }
 /* The Projects dialogs ride the Extensions card (extension-dialog.css):
    compact width for Add, editor width for the per-project editor. */
-/* Field note grammar (user: 팝업 제목 아래 설명을 메모리 쪽과 맞춰): every
+/* Field note grammar: every
    dialog field title may carry one muted meta-sized line under it. */
 .schedules-field > small,
 .projects-edit-field > small,
@@ -698,7 +692,7 @@
 }
 /* Add row and saved rows share ONE vertical shape: text on top, then a
    head/foot line carrying the index or scope on the left and the actions
-   on the right, so nothing sits beside the textarea (user: 추가 UI 정리). */
+   on the right, so nothing sits beside the textarea. */
 .projects-memory-add-row,
 .projects-memory-editor .core-memory-edit {
   display: grid;
@@ -782,8 +776,7 @@
   flex: none;
 }
 /* The chosen path is a read-only FIELD, so it wears the field plate: same
-   32px box, same 8px text axis and same tone as the Name input above it
-   (it used to sit on a deeper plate, 10px in and two pixels shorter). */
+   32px box, same 8px text axis and same tone as the Name input above it. */
 .projects-folder-row code {
   box-sizing: border-box;
   min-width: 0;
@@ -1199,8 +1192,7 @@ html[data-mixdog-mobile-tabs] .settings-oauth-code button {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  /* No seam over the buttons: the card is one frameless plate (user: 아래
-     선 하나 굳이 넣어야 되냐 — 프레임리스로). */
+  /* No seam over the buttons: the card is one frameless plate. */
   padding: 4px 16px 16px;
   border-top: 0;
   background: var(--mx-bg-base);

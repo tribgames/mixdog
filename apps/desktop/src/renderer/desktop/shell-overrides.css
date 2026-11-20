@@ -1,11 +1,10 @@
 /* Desktop late layer — shell overrides that must load eagerly and last.
    The narrow-window layout (≤760px / ≤640px), the phone composer lane and the
-   reduced-motion safety net used to ride at the tail of layer 21, which only
-   loads with the lazy onboarding wizard: a session that never opened
-   onboarding kept the wide layout in a 400-760px window (inline sidebar, no
-   drawer, no outside-click catcher) and lost the reduced-motion net. Imported
-   after every base layer, they override exactly as they did whenever that
-   chunk landed last. */
+   reduced-motion safety net cannot live in layer 21, which only loads with
+   the lazy onboarding wizard: a session that never opened onboarding would
+   keep the wide layout in a 400-760px window (inline sidebar, no drawer, no
+   outside-click catcher) and lose the reduced-motion net. Imported after
+   every base layer, they override it. */
 @media (max-width: 760px) {
   .desktop-body {
     padding-inline: 0;
@@ -419,8 +418,8 @@ html[data-mixdog-mobile-tabs] .provider-account-row > .settings-resource-actions
 }
 /* Provider card header: the title reads whole; when title + count + the
    Auto-switch/+ cluster do not fit one line, the cluster takes the next line
-   at the right edge. The squeezed cluster used to wrap "자동 전환" one
-   character per line and cut the title to "Anthropic (…". */
+   at the right edge; squeezed in the title's line it would wrap "자동 전환"
+   one character per line and cut the title. */
 html[data-mixdog-mobile-tabs] .provider-accounts-heading {
   flex-wrap: wrap;
   row-gap: 4px;

@@ -8,7 +8,7 @@
   min-width: 0;
   gap: 0;
   overflow: hidden;
-  /* Flat layout (user request): panels sit flush — no floating gaps —
+  /* Flat layout: panels sit flush — no floating gaps —
      and hairlines carry the structure. The top line lives here (not on the
      topbar) so the Windows caption overlay cannot cover it. */
   padding: 0;
@@ -22,8 +22,8 @@
 .sidebar-drawer-frame {
   display: contents;
 }
-/* UI chrome is not selectable text (user: double-clicks left selection
-   marks on menus). Content surfaces — transcript, composer — stay
+/* UI chrome is not selectable text: double-clicking menus would leave
+   selection marks on them. Content surfaces — transcript, composer — stay
    selectable. */
 .sidebar.session-sidebar,
 .workspace-tabs-shell,
@@ -34,7 +34,7 @@
 }
 /* Pane selection fence (PaneWorkspace marks the pane a drag began in): the
    browser keeps ONE Selection for the whole document, so dragging out of a
-   pane used to paint every row it passed over on the way. While the pointer
+   pane would paint every row it passes over. While the pointer
    is down, the other panes stop accepting selection — the same boundary VS
    Code's editor groups keep. Cross-pane selection is the deliberate cost. */
 :root[data-pane-selecting] .pane-leaf:not([data-selecting]) {
@@ -43,9 +43,8 @@
 }
 /* Transcript drag fence. When the pointer leaves the transcript, Chromium
    sends the range's moving end to the nearest selectable position in DOM
-   order — with the composer frozen that was whatever text came after it
-   (user: 커서 위치를 잃네). With NOTHING else selectable for the gesture the
-   only candidates left are the transcript's own rows, so a drag below clamps
+   order — with the composer frozen that was whatever text came after it, so the cursor lost its place. With NOTHING
+   else selectable for the gesture the only candidates left are the transcript's own rows, so a drag below clamps
    to its last row and a drag above to its first; native autoscroll then
    reveals the rest. Typing in the composer is unaffected (button up). */
 :root[data-transcript-selecting] body {
@@ -57,7 +56,7 @@
   -webkit-user-select: text;
 }
 /* Desktop side-panel toggles commit their FINAL layout synchronously in one
-   frame — workbench grammar (user decision). No snapshots, no
+   frame — workbench grammar. No snapshots, no
    interpolation: crossfading old/new text left afterimages and font shimmer
    over the reflowing workspace. Mobile sheets keep their overlay slide via
    --mx-sheet-motion because they never reflow the workspace. */

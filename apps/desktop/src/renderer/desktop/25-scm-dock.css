@@ -54,8 +54,7 @@
 /* The tree is its own scroller, so it must also be a flex column: otherwise
    the "no match" message inside it cannot center like the pane-level ones. */
 /* No inset of its own: the tree shares the search field's box, so a row's
-   chevron lands on the SAME x as the search icon and both edges line up
-. */
+   chevron lands on the SAME x as the search icon and both edges line up. */
 .dock-files-tree {
   display: flex;
   flex-direction: column;
@@ -781,8 +780,8 @@
   cursor: wait;
 }
 /* The commit button is the form's ONE action and carries the ACCENT when it
-   can run (the reference's suggested commit button), never the heavy neutral
-   contrast block it used to paint in both states. */
+   can run (the reference's suggested commit button), never a heavy neutral
+   contrast block. */
 .dock-scm-commit button {
   min-height: 28px;
   display: inline-flex;
@@ -858,7 +857,7 @@
   display: grid;
   /* ONE column that can never be wider than the panel: an `auto` track is
      sized by its widest item's MAX-content, so a four-digit count
-     (`2000 changed files`) used to push the select-all row — and with it the
+     (`2000 changed files`) would push the select-all row — and with it the
      header — past the file rows' right edge. The count line ellipsizes
      instead (asserted by scripts/scm-geometry-probe's `:rows` case). */
   grid-template-columns: minmax(0, 1fr);
@@ -879,8 +878,7 @@
   cursor: default;
 }
 /* Bulk actions live in the select-all header (Stage All, Unstage All, Discard
-   All) with View & Sort beside them — the panel header's "…" overflow menu
-   that used to own them is gone. The row shows no count text: the Changes
+   All) with View & Sort beside them. The row shows no count text: the Changes
    tab's counter is the one place the number appears. */
 .dock-scm-check-all > .dock-scm-list-actions {
   flex: 0 0 auto;

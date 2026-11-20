@@ -51,8 +51,7 @@
   --mx-red-500: #f17471;
   --mx-red-1200: #461516;
   --mx-yellow-500: #f2cf76;
-  /* Warning plate: the old #4b4025 was the single brownest patch in the
-     shell and set the warm cast the neutral ramp got blamed for. Same amber hue, less chroma. */
+  /* Warning plate: amber hue at low chroma so it does not add a warm cast to the neutral ramp. */
   --mx-yellow-1200: #443f2e;
   --mx-amber-500: #f59e0b;
   --mx-amber-600: #d97706;
@@ -117,8 +116,7 @@
      should not collapse panel and category headings onto the same size.
      micro is RESERVED for counters/badges/pills — readable sentences,
      captions with names, and button labels start at meta. 12 is the Windows
-     11 type ramp's floor for regular text (Caption 12/16); 11 sat under it
-. Content scales (markdown headings,
+     11 type ramp's floor for regular text (Caption 12/16); 11 sat under it. Content scales (markdown headings,
      onboarding hero, editor titles) stay literal. */
   --mx-font-micro: calc(12px * var(--mx-content-scale, 1));
   --mx-font-meta: calc(13px * var(--mx-content-scale, 1));
@@ -133,9 +131,9 @@
   /* Rail panel titles (세션, 에이전트 …): the 16px panel tier — 18 read too
      large — in the title band (--mx-rail-panel-band).
      The band matches the PANE tab strip (43px row + 1px edge) so the side
-     panel's head and the workspace's tab row read as one line; the old 52px
-     band stood taller than the strip and the two looked detached. 39px read
-     cramped once the selection became a plate. */
+     panel's head and the workspace's tab row read as one line. A taller band
+     looks detached from the strip; a shorter one reads cramped under a
+     selection plate. */
   --mx-rail-panel-title: calc(16px * var(--mx-content-scale, 1));
   --mx-rail-panel-band: 44px;
   /* Air between that band and a panel's first box. The band's own lower
@@ -208,8 +206,7 @@
   /* TWO-step chrome weight ramp (a modern UI ramp:
      Body/Label = 400, Strong = 600 — no middle step). The old ramp kept a
      500 tier that 121 rules used as their DEFAULT, so a 600 heading only
-     ever cleared its rows by half a step and nothing read as emphasized
-. 500 is no longer the shell's DEFAULT — a
+     ever cleared its rows by half a step and nothing read as emphasized. 500 is no longer the shell's DEFAULT — a
      control that needs emphasis takes 600 and everything else rests at 400 —
      but the tier survives where 13px chrome must hold its own: the transcript
      status line and the workspace tab labels. Pretendard Hangul at 600 reads
@@ -252,20 +249,15 @@
   /* Message times: the muted ink tinted toward the accent, so a time never
      reads as the caption or preview text beside it (follows themes/skins). */
   --mx-text-time: color-mix(in srgb, var(--mx-text-muted) 70%, var(--mx-accent));
-  /* Faint IS muted. It was raised for legibility until it sat one shade under
-     muted (#9b9b9b against #a8a8a8, 5.8 against 6.9:1) — a step no eye could
-     read, which left three near-identical greys on screen and no real third
-     tier. AA leaves no room for a lighter one, so
-     the ladder is honest about having two greys: soft (85% of the ink) and
-     muted. The name stays so its 130-odd call sites keep saying "this is the
-     quietest text here". */
+  /* Faint IS muted: AA leaves no room for a lighter third grey, and a one-shade
+     step is unreadable. The ladder has two greys, soft (85% of the ink) and
+     muted; the name stays so call sites keep saying "this is the quietest
+     text here". */
   --mx-text-faint: var(--mx-text-muted);
-  /* Soft ink: one step under full text (was ad-hoc 80/82/85% color-mix
-     strays). Mix keeps it theme-adaptive like the strays it replaces. */
+  /* Soft ink: one step under full text. Mix keeps it theme-adaptive. */
   --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
   /* Resting ink of an idle pane tab's label and glyph, under the selected
-     tab's full ink. 78% still read as the same color as the selection
-. 67% is the bottom of an
+     tab's full ink. 78% still read as the same color as the selection. 67% is the bottom of an
      even 100 / 83 / 67 ladder with a background pane's selection. */
   --mx-tab-idle-ink: color-mix(in srgb, var(--mx-text) 67%, transparent);
   /* List-row ink roles, ONE rule for every rail list (sessions, agents,
@@ -295,15 +287,14 @@
      (GitHub #79b8ff on dark; on paper one rung under GitHub's #0969da) while
      the accent answers to the brand, so a future accent move must not drag
      inline code with it. The role stays its own token, but its value is the
-     accent: #79b8ff beside #8ab4f8 was a second blue nobody could tell apart
-. */
+     accent: a separate near-identical blue would be indistinguishable. */
   --mx-md-code: var(--mx-text-accent);
   /* Neutral glyphs share the same ink ramp as their companion labels so
      chrome icons never drift darker or pick up a separate color cast. */
   --mx-icon: var(--mx-text);
   --mx-icon-muted: var(--mx-text-muted);
-  /* Neutral hairlines, one step stronger than the old warm set so the
-     sidebar/dock/tab-strip seams read crisply (#2b2b2b-class). */
+  /* Neutral hairlines, strong enough that the sidebar/dock/tab-strip seams
+     read crisply (#2b2b2b-class). */
   --mx-border-muted: rgba(255, 255, 255, 0.09);
   --mx-border: rgba(255, 255, 255, 0.125);
   /* Workbench seams (titlebar, rail, sidebar, docks, pane splits) share the
@@ -313,12 +304,11 @@
 
   /* ── 4. Interaction ── */
   /* Neutral focus ring in BOTH themes. Only keyboard navigation onto a control swaps in
-     the accent (02-base.css). Defined here once: a later :root override in
-     19-studio.css used to neutralise dark only, and the light block's blue
-     outranked it. */
+     the accent (02-base.css). Defined here once so the light block cannot
+     outrank a later override. */
   --mx-focus: var(--mx-border-strong);
-  /* 8 / 12: at 6% the dark hover (1.15:1) was the quietest among the
-     reference dark themes (VS Code 1.19, Primer 1.20, Radix 1.32). */
+  /* 8 / 12: 6% hover (1.15:1) would be quieter than the reference dark
+     themes (VS Code 1.19, Primer 1.20, Radix 1.32). */
   --mx-hover: rgba(255, 255, 255, 0.08);
   --mx-pressed: rgba(255, 255, 255, 0.12);
   /* Opaque hover/pressed equivalents for rows that stack OPAQUE action
@@ -463,7 +453,7 @@
      quota series, provider trends, context categories), muted mid-tones on
      the dark plates, the same hues one step deeper on light. They never
      reuse focus/success/warning/danger semantics. The usage and context
-     charts used to keep two near-identical palettes of their own. */
+     charts share this one palette. */
   --mx-chart-purple: #b3a3da;
   --mx-chart-teal: #71bcb0;
   --mx-chart-gold: #d4ba78;
@@ -490,7 +480,7 @@
      token. Dialog cards take the one-notch-larger card radius; everything
      that hangs off a control keeps the compact radius. */
   /* The page's base plate: the border and the shadow lift a popup, never a
-     brighter fill (user: 팝업 바탕이 너무 튄다; design/mockups/popup-tone, 1). */
+     brighter fill. */
   --mx-popup-bg: var(--mx-bg-base);
   --mx-popup-border: var(--mx-hairline) solid var(--mx-border);
   /* The border owns the edge; elevation must not draw a second bright ring. */
@@ -542,12 +532,9 @@
   /* ── Base typography, metrics, motion ── */
   color: var(--mx-text);
   background: var(--mx-bg-deep);
-  /* ONE family for the whole shell, Pretendard-led. Chrome used to run
-     Geist-first, so every mixed label ("Git 브랜치", "세션 4개") rendered its
-     Latin in Geist and its Hangul in Pretendard — two ink densities inside
-     one 12px label (the exact defect .message-body fixed for prose, left
-     unfixed for chrome). Pretendard's Latin is Inter-metric-compatible, so
-     the rhythm the Geist stack set is preserved. Only Pretendard and
+  /* ONE family for the whole shell, Pretendard-led, so a mixed label
+     ("Git 브랜치", "세션 4개") renders Latin and Hangul at one ink density.
+     Pretendard's Latin is Inter-metric-compatible. Only Pretendard and
      JetBrains Mono ship in the bundle (bootstrap-styles.ts); the rest of each
      stack is the OS fallback. Mono is the TUI stack.
      Settings → Theme prepends the user's UI / code family to these
@@ -585,10 +572,8 @@
   --mx-motion-slow: 180ms;
   /* Standard carries ink and small chrome; emphasized carries travel; exit
      ACCELERATES away, because a surface that is leaving must not decelerate
-     into a place it no longer occupies. The shell used to run two nearly
-     identical spring curves — .2,.8,.2,1 on panels, .22,1,.36,1 on route
-     sheets and studio — so two surfaces entering side by side settled on
-     different frames. */
+     into a place it no longer occupies. One spring curve serves every
+     surface so two entering side by side settle on the same frame. */
   --mx-ease-standard: ease-out;
   --mx-ease-emphasized: cubic-bezier(0.2, 0.8, 0.2, 1);
   --mx-ease-exit: cubic-bezier(0.4, 0, 1, 1);
@@ -621,8 +606,7 @@
      own ratio. The 78% ratio reads right on a phone in portrait; the floor
      keeps a session row legible on a small screen; the ceiling is the desktop
      sidebar's own maximum (MAX_SIDEBAR_WIDTH, session-sidebar.tsx); and the
-     peek guarantees the surface BEHIND the sheet never disappears entirely
-. The phone layer
+     peek guarantees the surface BEHIND the sheet never disappears entirely. The phone layer
      re-declares the same expression in dp, with the projection factor
      divided out. */
   --mx-side-sheet-min: 260px;
