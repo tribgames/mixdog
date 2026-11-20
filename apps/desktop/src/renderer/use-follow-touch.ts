@@ -116,7 +116,7 @@ export function useFollowTouch({
   // written at once, as virtual-core writes them off iOS. Held there, a page
   // landed above the reader stayed outside the native scroll range until the
   // fling ended, and an upward fling stopped at the old first row, mid-history
-  // (Android: 위로 스크롤하면 중간에 멈춘다).
+  // (Android).
   const [iosWebKit] = useState(isIOSWebSurface);
   const touchEndedAt = useRef(0);
   const touchHoldsCorrections = useCallback(

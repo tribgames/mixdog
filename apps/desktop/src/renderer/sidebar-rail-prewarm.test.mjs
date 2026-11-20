@@ -1,5 +1,4 @@
-// Rail pages are prepared before the user opens them (user: 사이드 뷰가 늦게
-// 뜨고 튐): a page whose chunk and reference data are already held paints its
+// Rail pages are prepared before the user opens them: a page whose chunk and reference data are already held paints its
 // rows in the very commit that shows it, never through a loading surface.
 import assert from 'node:assert/strict';
 import test from 'node:test';

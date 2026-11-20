@@ -88,7 +88,8 @@ export function createSectionStore(source: SectionsSource): SectionStore {
   // reviewDiff never leaves an entry out of (a clear is published as a tell too), so an entry the whole store lacks is no tell.
   const tellRevisions = new Map<string, number>();
   let epoch: string | undefined;
-  const tellAt = (section: string, key: string | null): string => `${section}\u0000${keyOf(key)}`; // The chunks of a replace between its begin and its commit.
+  const tellAt = (section: string, key: string | null): string => `${section}\u0000${keyOf(key)}`;
+  // The chunks of a replace between its begin and its commit.
   let staged: DesktopSectionEntry[] | null = null;
 
   const notify = (touched: ReadonlySet<string>): void => {
@@ -264,10 +265,4 @@ export function useSectionEntries(section: string): readonly DesktopSectionEntry
   const store = windowSectionStore() ?? NO_STORE;
   const subscribe = useCallback((listener: () => void) => store.subscribe(section, listener), [store, section]);
   return useSyncExternalStore(subscribe, () => store.list(section));
-}
-
-export function useSectionsStatus(): DesktopProtocolStatus {
-  const store = windowSectionStore() ?? NO_STORE;
-  const subscribe = useCallback((listener: () => void) => store.subscribe('*', listener), [store]);
-  return useSyncExternalStore(subscribe, () => store.status());
 }

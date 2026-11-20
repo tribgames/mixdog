@@ -1,7 +1,6 @@
 // Composer notices (slash confirmations, mic errors, hints) ride the app's
-// toast lane instead of a banner stacked above the input (user: 되도록
-// 컴포저 위에 안 떴으면). A newer notice replaces this composer's previous
-// one; an empty message just clears it.
+// toast lane instead of a banner stacked above the input. A newer notice
+// replaces this composer's previous one; an empty message just clears it.
 import { useCallback, useEffect, useRef } from 'react';
 import { dismissDesktopToast, showDesktopToast } from './desktop-toasts';
 

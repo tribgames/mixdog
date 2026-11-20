@@ -298,7 +298,7 @@ html[data-mixdog-mobile-tabs] .visualize-pane:has(> .browser-zoom-pill) > .visua
   height: 100%;
   border: 0;
   /* Transparent, not white: until the page paints, the frame shows the pane's
-     own sheet instead of flashing white (user: 사이드패널 흰색 프레임 깜빡임).
+     own sheet instead of flashing white.
      A page without a background still renders light: under the shell's dark
      color-scheme Chromium backs a light-scheme frame with an opaque canvas. */
   background: transparent;

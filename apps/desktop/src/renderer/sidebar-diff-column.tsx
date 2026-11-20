@@ -31,8 +31,8 @@ export function sidebarDiffColumnAvailable(): boolean {
   }
 }
 
-/** Diff column paired to the RIGHT of the left sidebar (user: 왼쪽 소스컨트롤도
- *  오른쪽 세션 변경사항 독처럼 우측 확장 스타일) — the same column grammar as
+/** Diff column paired to the RIGHT of the left sidebar, as the right-hand
+ *  session changes dock extends right — the same column grammar as
  *  the pane dock's `.pane-dock-diff-column`: draggable width, hidden (not
  *  unmounted) on close, and an overlay over the workspace when the pair no
  *  longer leaves the conversation its floor. */

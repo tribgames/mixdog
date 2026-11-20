@@ -57,7 +57,7 @@ export function useTranscriptReveal({
    *  pending Markdown), in the frame the rows commit. Waiting for the dock
    *  chrome, fonts and stable geometry kept the latest messages hidden behind
    *  the skeleton (or blank, on a retained revisit) for several frames on a
-   *  phone's CPU (user: 세션 열면 스켈레톤만 보이고 내용이 바로 안 나온다). */
+   *  phone's CPU. */
   eager?: boolean;
   viewport: RefObject<HTMLDivElement | null>;
   content: RefObject<HTMLDivElement | null>;

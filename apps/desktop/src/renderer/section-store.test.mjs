@@ -41,8 +41,14 @@ function lateSnapshot() {
   let listener = () => {};
   let answer = () => {};
   return {
-    snapshot: () => new Promise((resolve) => (answer = resolve)),
-    subscribe: (l) => ((listener = l), () => {}),
+    snapshot: () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    subscribe: (l) => {
+      listener = l;
+      return () => {};
+    },
     push: (p) => listener(p),
     answer: (snapshot) => answer(snapshot),
   };
@@ -124,7 +130,10 @@ test('a client-library fold store feeds the same store (the phone)', async () =>
   const foldStore = {
     sections: (s) => sections.get(s) ?? [],
     section: (s) => sections.get(s)?.[0],
-    subscribe: (l) => ((fold = l), () => {}),
+    subscribe: (l) => {
+      fold = l;
+      return () => {};
+    },
   };
   const store = createSectionStore(sectionsSourceFromFoldStore(foldStore, ['usage'], () => 'ready'));
   await store.ready();

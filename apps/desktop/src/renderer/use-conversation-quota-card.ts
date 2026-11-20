@@ -61,7 +61,6 @@ export function useConversationQuotaCard({
       ((chatProvider && chatProvider !== stopped.quota.provider) ||
         (chatModel && stopped.quota.model && chatModel !== stopped.quota.model))
   );
-  const quotaFailure = stopped;
   // The pane's snapshot carries its session id only once the session lane has
   // loaded (a hidden or still-loading pane reads the empty snapshot).
   const loaded = Boolean(snapshot.sessionId);
@@ -78,7 +77,7 @@ export function useConversationQuotaCard({
   const quotaVisible =
     pendingPromptCount === 0 &&
     quotaPanelVisible({
-      failure: quotaFailure,
+      failure: stopped,
       sessionId,
       busy: Boolean(snapshot.busy),
       dismissedKey: dismissedQuotaTurn,
@@ -86,9 +85,7 @@ export function useConversationQuotaCard({
 
   // Whether the exhausted provider's roster offers switching accounts.
   const exhaustedProvider =
-    quotaVisible && !switchedAway && quotaFailure?.kind === 'quota_exhausted'
-      ? (quotaFailure?.quota.provider ?? '')
-      : '';
+    quotaVisible && !switchedAway && stopped?.kind === 'quota_exhausted' ? (stopped?.quota.provider ?? '') : '';
   const [otherAccount, setOtherAccount] = useState({ provider: '', offered: false });
   useEffect(() => {
     // Every banner reads the roster afresh: an earlier answer never outlives
@@ -113,8 +110,8 @@ export function useConversationQuotaCard({
   }, [exhaustedProvider]);
 
   let quotaCard: ComposerQuotaCardModel | null = null;
-  if (quotaFailure && quotaVisible) {
-    const resetAt = quotaFailure.quota.resetAt;
+  if (stopped && quotaVisible) {
+    const resetAt = stopped.quota.resetAt;
     // One toggle: reserve the resume at the reset, or drop the reservation
     // (the runtime may already have made one on its own). The banner stays.
     const toggleResume = () => {
@@ -127,11 +124,11 @@ export function useConversationQuotaCard({
       ).finally(() => setToggling(false));
     };
     // Only an exhausted quota resets; a plan or billing stop has nothing to resume at.
-    const resettable = quotaFailure.kind === 'quota_exhausted';
+    const resettable = stopped.kind === 'quota_exhausted';
     quotaCard = {
-      kind: quotaFailure.kind,
+      kind: stopped.kind,
       resetAt: resettable ? resetAt : null,
-      otherAccount: otherAccount.provider === quotaFailure.quota.provider && otherAccount.offered,
+      otherAccount: otherAccount.provider === stopped.quota.provider && otherAccount.offered,
       reserved: waiting,
       busy: toggling,
       onResume: switchedAway
@@ -142,7 +139,7 @@ export function useConversationQuotaCard({
               const result = await window.mixdogDesktop.invokeCapability({
                 capability: 'retryFailedTurn',
                 sessionId,
-                args: [sessionId, quotaFailure.turnKey],
+                args: [sessionId, stopped.turnKey],
               });
               if (result.value !== true) {
                 throw new Error(t('Unable to resume this turn. Check its status or send a new message.'));
@@ -158,7 +155,7 @@ export function useConversationQuotaCard({
   // The island's waiting pill only when the banner is not showing the stop.
   let quotaResume: ComposerIslandQuotaResume | null = null;
   if (waiting && waitingResume && !quotaCard) {
-    const resumeTurnKey = quotaFailure?.turnKey || waitingResume.turnKey;
+    const resumeTurnKey = stopped?.turnKey || waitingResume.turnKey;
     quotaResume = {
       model: modelDisplayName(waitingResume.model, waitingResume.provider),
       resetAt: waitingResume.resetAt,

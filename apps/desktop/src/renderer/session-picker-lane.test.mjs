@@ -58,7 +58,10 @@ function rig(id) {
   const lane = createSessionLane({
     protocol: {
       client: () => client,
-      onStoreChange: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+      onStoreChange: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
       onEvent: () => () => {},
       onReplaced: () => () => {},
       call: async () => ({ threads: [] }),

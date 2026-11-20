@@ -21,8 +21,8 @@ export function usageWindowLabel(window: { label?: unknown }): string {
   return label.toUpperCase();
 }
 
-// Lowercase duration units read as time, not as quota-window labels
-// (5H/W/M stay uppercase).
+// Reset durations stay lowercase (`5h` is elapsed time), distinct from the
+// uppercase quota-window labels (`5H`, W, M).
 export function usageResetSchedule(value: unknown): { state: 'due' | 'soon' | 'in' | ''; time: string } {
   const resetAt = usageTimestamp(value);
   if (resetAt === null) return { state: '', time: '' };

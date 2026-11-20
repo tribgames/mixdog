@@ -12,13 +12,12 @@ import { registerIdleReclaim } from './idle-reclaim';
 import { catalogStorageScope } from './catalog-storage-scope';
 import { estimateRetainedChars } from './renderer-value-weight';
 
-/** Shared renderer cache for the session review diff (user: 세션디프 불러오는
- *  게 너무 느림). The backend rebuilds ONE full patch per `getSessionReviewDiff`
- *  round-trip, and both the Session Diff list and every session file slice
- *  used to trigger their own: opening a file cost a second full computation.
- *  This module keeps one settled result per session with single-flight
- *  refresh, so the list and the file slices share a single round-trip and a
- *  revisited session paints its cached rows instantly while revalidating. */
+/** Shared renderer cache for the session review diff. The backend rebuilds ONE
+ *  full patch per `getSessionReviewDiff` round-trip, so the Session Diff list
+ *  and every session file slice must share it, not each ask. One settled
+ *  result per session with single-flight refresh: the list and the file slices
+ *  share a single round-trip and a revisited session paints its cached rows
+ *  instantly while revalidating. */
 const SESSION_DIFF_CACHE_LIMIT = 32;
 export const SESSION_DIFF_CACHE_MAX_CHARS = 8 * 1024 * 1024;
 type CachedDiff = {
@@ -144,7 +143,8 @@ export function fetchOmittedSessionDiffFilePatch(
   const pending = pendingFilePatches.get(key);
   if (pending) return pending;
   const held = sessionDiffCache.peek(id);
-  const files = held?.revision === revision ? (held.files ??= new Map()) : undefined;
+  if (held?.revision === revision) held.files ??= new Map();
+  const files = held?.revision === revision ? held.files : undefined;
   const cached = files?.get(file.id)?.deref();
   if (cached) return Promise.resolve(cached);
   const read = invokeSessionDiffFilePatch(id, file)

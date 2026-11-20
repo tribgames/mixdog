@@ -121,6 +121,15 @@ function warmTranscription(): void {
     });
 }
 
+function blobDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('Recorded audio could not be read.'));
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.readAsDataURL(blob);
+  });
+}
+
 function microphoneFailureText(reason: unknown): string {
   const name = reason instanceof DOMException ? reason.name : '';
   if (name === 'NotAllowedError') {
@@ -164,7 +173,7 @@ export function useComposerDictation({
   const surfaceActiveRef = useRef(surfaceActive);
   surfaceActiveRef.current = surfaceActive;
   // Elapsed time backs the composer's recording overlay: the disc alone
-  // never told the user how long the mic had been live (user-flagged).
+  // never told the user how long the mic had been live.
   const [recordingSince, setRecordingSince] = useState(0);
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   // Smoothed 0..1 input level, read by the overlay's own animation frame.
@@ -188,6 +197,16 @@ export function useComposerDictation({
     live: boolean;
   } | null>(null);
 
+  /** Discards a take whose microphone is still opening; true when one was. */
+  const cancelPendingAttempt = useCallback((): boolean => {
+    const pending = dictationAttempt.current;
+    if (!pending) return false;
+    pending.cancelled = true;
+    dictationAttempt.current = null;
+    setDictationState('idle');
+    return true;
+  }, []);
+
   useEffect(() => {
     let live = true;
     let latest = 0;
@@ -195,12 +214,7 @@ export function useComposerDictation({
       const available = status?.installed === true && status.enabled === true;
       if (!available && voiceAvailableRef.current) {
         voiceGeneration.current += 1;
-        const pending = dictationAttempt.current;
-        if (pending) {
-          pending.cancelled = true;
-          dictationAttempt.current = null;
-          setDictationState('idle');
-        }
+        cancelPendingAttempt();
         const active = dictationSession.current;
         if (active) {
           active.cancelled = true;
@@ -241,7 +255,7 @@ export function useComposerDictation({
       window.removeEventListener('mixdog:voice-runtime-changed', onRuntimeChanged);
       window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
     };
-  }, []);
+  }, [cancelPendingAttempt]);
 
   const toggleDictation = useCallback(async () => {
     if (dictationState === 'transcribing' || transitioningRef.current) return;
@@ -330,12 +344,7 @@ export function useComposerDictation({
             const blob = new Blob(session.chunks, {
               type: recorder.mimeType || 'audio/webm',
             });
-            const dataUrl = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onerror = () => reject(reader.error || new Error('Recorded audio could not be read.'));
-              reader.onload = () => resolve(String(reader.result || ''));
-              reader.readAsDataURL(blob);
-            });
+            const dataUrl = await blobDataUrl(blob);
             if (generation !== voiceGeneration.current) return;
             const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
             const result = await invokeResult(() =>
@@ -392,10 +401,10 @@ export function useComposerDictation({
     transitioningRef,
   ]);
 
-  // Speaking straight into the conversation (user: 입력 버튼 누르면 텍스트가
-  // 아니라 즉시 발송): the take ends, the transcript lands in the draft, and
-  // the composer submits it — one press instead of stop, read, send. The mic
-  // disc keeps the editing path for takes worth checking first.
+  // Speaking straight into the conversation: the take ends, the transcript
+  // lands in the draft, and the composer submits it — one press instead of
+  // stop, read, send. The mic disc keeps the editing path for takes worth
+  // checking first.
   const stopDictationAndSend = useCallback(() => {
     const active = dictationSession.current;
     if (!active || active.cancelled) return;
@@ -406,18 +415,12 @@ export function useComposerDictation({
   // Discarding is its own path: `toggleDictation` always transcribes what it
   // stopped, so a take started by mistake had no way back (overlay ×, Esc).
   const cancelDictation = useCallback(() => {
-    const pending = dictationAttempt.current;
-    if (pending) {
-      pending.cancelled = true;
-      dictationAttempt.current = null;
-      setDictationState('idle');
-      return;
-    }
+    if (cancelPendingAttempt()) return;
     const active = dictationSession.current;
     if (!active) return;
     active.cancelled = true;
     stopRecorder(active.recorder);
-  }, []);
+  }, [cancelPendingAttempt]);
 
   // Enter finishes the take, Esc discards it. Capture phase, because the
   // composer's own Escape policy would otherwise clear the draft and Enter
@@ -451,15 +454,10 @@ export function useComposerDictation({
   // return; a take still opening the mic is discarded.
   useEffect(() => {
     if (surfaceActive) return;
-    const pending = dictationAttempt.current;
-    if (pending) {
-      pending.cancelled = true;
-      dictationAttempt.current = null;
-      setDictationState('idle');
-    }
+    cancelPendingAttempt();
     const session = dictationSession.current;
     if (session) stopRecorder(session.recorder);
-  }, [surfaceActive]);
+  }, [surfaceActive, cancelPendingAttempt]);
 
   useEffect(() => {
     if (dictationState !== 'recording' || !recordingSince) {

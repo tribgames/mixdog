@@ -67,7 +67,9 @@ export function useSessionDiffCollapse(rows: readonly SessionDiffRow[]) {
   /** A new session starts with nothing chosen. */
   const resetCollapsed = () => reset('default');
   const index = rowListIndex(rows);
-  const baseCount = state.base === 'default' ? index.deleted : state.base === 'folded' ? rows.length : 0;
+  let baseCount = 0;
+  if (state.base === 'default') baseCount = index.deleted;
+  else if (state.base === 'folded') baseCount = rows.length;
   const folded = baseCount + state.delta;
   const collapseActions: DockAction[] = [
     {

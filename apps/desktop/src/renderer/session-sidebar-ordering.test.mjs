@@ -40,8 +40,7 @@ test('title-only timing (informational)', () => {
   };
   const full = time(() => project(changed));
   const kept = time(() => project(changed, first));
-  console.log(`title-only 2000 rows: full rebuild ${full.toFixed(3)}ms, kept ${kept.toFixed(3)}ms`);
-  assert.ok(kept < full);
+  assert.ok(kept < full, `title-only 2000 rows: full rebuild ${full.toFixed(3)}ms, kept ${kept.toFixed(3)}ms`);
 });
 
 test('ordering-relevant changes reorder', () => {

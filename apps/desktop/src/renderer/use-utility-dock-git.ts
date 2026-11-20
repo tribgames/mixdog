@@ -58,7 +58,7 @@ export function useUtilityDockGit({
     });
     return watchGitRefreshEvidence(dockProjectPath, scheduler);
   }, [contentReady, dockProjectPath, gitSurfaceSelected, open, refreshDockGitStatus]);
-  // Boot preload (user: 호버 말고 부트 프리로드는 백그라운드에서): the intent
+  // Boot preload: the intent
   // rule above still owns live polling, but ONE idle-time gitStatus per
   // project warms the shared snapshot for Search / Pull Requests. Source
   // Control still validates on entry. No interval runs while a Git surface

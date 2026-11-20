@@ -14,8 +14,7 @@ export const TRANSCRIPT_HISTORY_TOP_PX = 320;
 /** Viewport heights above the reader at which a scroll asks for older history.
  *  Asked for only 320px from the top, a fast fling crossed that band in a few
  *  frames and ended against the top edge before the page arrived: the
- *  momentum died, then the page landed (#104, Android: 위로 빠르게 넘기면
- *  버벅거림). Repeated flings are boosted past 15k px/s, so the lead has to
+ *  momentum died, then the page landed (#104, Android). Repeated flings are boosted past 15k px/s, so the lead has to
  *  cover a page's round trip at that speed. The landing's anchor restore keeps
  *  the reader in place wherever the page lands, so asking early costs nothing
  *  but the (bounded) pages themselves. */

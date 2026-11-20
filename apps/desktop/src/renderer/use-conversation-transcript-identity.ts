@@ -25,8 +25,7 @@ export function useConversationTranscriptIdentity({
   // virtual list AND its row keys are namespaced by this identity, which
   // survives the promotion; only the geometry cache follows the real session
   // key. Keying them by the session key remounted the list mid-turn, dropped
-  // every measured row, and repainted the first prompt from the flat estimate
-  // (user: 첫 프롬 입력 후 화면이 툭 튀고 말풍선이 엉뚱한 위치로 튄다).
+  // every measured row, and repainted the first prompt from the flat estimate.
   const transcriptIdentity = useRef('');
   const transcriptIdentitySource = useRef('');
   // Set on the promotion render, where the submit marker is still armed, and
@@ -59,8 +58,8 @@ export function useConversationTranscriptIdentity({
   const showTranscriptTimeline = !transcriptPending || timelineMounted.current;
   if (showTranscriptTimeline) timelineMounted.current = true;
   // Session ENTRY resets this visit's tool disclosures before the first row
-  // renders (user: tool cards must always start collapsed; remembered
-  // expansions from an earlier visit reopened them "randomly"). Idempotent
+  // renders: tool cards must always start collapsed; remembered
+  // expansions from an earlier visit reopened them "randomly". Idempotent
   // render-time module-map mutation; focus swaps keep the same key and do
   // not reset.
   const disclosureVisitKey = useRef('');

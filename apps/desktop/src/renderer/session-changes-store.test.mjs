@@ -795,7 +795,9 @@ test('staged and unstaged count lines afresh on evidence and refresh; nothing re
   const view = mount(t, {
     gitStatus: async (_cwd, request) => {
       options.push(request?.reuseLineStats);
-      const additions = request?.reuseLineStats ? (reused ||= lines) : (reused = lines);
+      if (request?.reuseLineStats) reused ||= lines;
+      else reused = lines;
+      const additions = reused;
       return {
         repository: true,
         root: 'C:/fresh',

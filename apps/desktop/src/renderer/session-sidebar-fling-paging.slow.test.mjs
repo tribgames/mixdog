@@ -10,7 +10,7 @@ import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-l
 // revealed only once the end came within 240px, so a fast fling crossed that
 // band in a few frames and ran into the end of the revealed rows before the
 // page committed: the momentum died there and the rows appeared under a list
-// at rest (Android: 빠르게 손가락으로 스크롤하고 놓으니 중간에 멈추고 덜덜). The
+// at rest (Android: the list stalled and juddered mid-fling). The
 // first flick after returning from background hit it every time: the wake's
 // resync holds the main thread while the fling runs. No lead outruns a fling
 // on a busy main thread (the compositor runs the fling, each page waits for a

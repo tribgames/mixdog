@@ -231,7 +231,9 @@ function followPushedSections(api: SidebarReferenceApi | undefined): void {
   const stops = Object.entries(SECTION_OF).map(([key, section]) =>
     store.subscribe(section as string, () => invalidateKeys([key as SidebarReferenceKey], false))
   );
-  followedSections = () => stops.forEach((stop) => stop());
+  followedSections = () => {
+    for (const stop of stops) stop();
+  };
 }
 
 interface CacheEntry {

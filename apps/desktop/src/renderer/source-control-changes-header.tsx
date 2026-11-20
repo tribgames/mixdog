@@ -16,8 +16,8 @@ import type { ScmSortKey } from './source-control-support';
 
 type RemoteEntry = ReturnType<typeof sourceControlRemoteActions>['pushEntry'];
 
-// Each count rides the action that CLEARS it: ahead on Push (user: 푸쉬
-// 우상단에 태그), behind on Fetch. Split that way every corner carries ONE
+// Each count rides the action that CLEARS it: ahead on Push (a tag at its top
+// right), behind on Fetch. Split that way every corner carries ONE
 // count, so a diverged branch (↑11 ↓32) never has to fit a pair into a
 // section that is a THIRD of a 252px/300px dock.
 export function RemoteActionButtons({

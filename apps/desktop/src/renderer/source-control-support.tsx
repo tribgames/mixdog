@@ -201,8 +201,8 @@ export function useRowWindow(
   /** The viewport NODE is tracked as state, not read once from the ref: the
    *  dock swaps its whole body (InitialSurface → list, tab switches, remounts)
    *  without `active` or `count` changing, and a listener bound to the old
-   *  node left the window frozen on stale metrics (user: 소스컨트롤 스크롤해도
-   *  항목이 비어있는). Comparing after every commit re-binds on the new node. */
+   *  node left the window frozen on stale metrics (rows blank while scrolling).
+   *  Comparing after every commit re-binds on the new node. */
   const [node, setNode] = useState<HTMLElement | null>(null);
   useLayoutEffect(() => {
     const next = active ? viewport.current : null;
@@ -258,7 +258,7 @@ export function useRowWindow(
       // Mounting EVERY row here and windowing on the next commit made a dock
       // with a few hundred changes pay a full list build — rows, path
       // measurement, layout — for one frame that the real window immediately
-      // threw away (user: 소스 제어 누르면 히칭).
+      // threw away (a visible hitch on opening Source Control).
       const viewportGuess = typeof window === 'undefined' ? 800 : window.innerHeight;
       const start = Math.max(0, rowsStartingBefore(top, true) - 1 - SCM_ROW_OVERSCAN);
       const end = Math.min(count, Math.max(start, rowsStartingBefore(top + viewportGuess, false) + SCM_ROW_OVERSCAN));

@@ -82,7 +82,7 @@ export type RenderForkRows = (
 
 /** Panel-header action slot. Rail destinations (Projects/Workflows/Schedules/
  *  Webhooks) hand their primary action to the panel title row instead of
- *  printing a second page header inside the list (user: 타이틀이 2번). */
+ *  printing a second page header inside the list. */
 export const SidebarPanelHeaderSlot = React.createContext<HTMLElement | null>(null);
 
 export function SidebarPanelAction({
@@ -412,7 +412,7 @@ export function favoritesSection({
 
 /** Recent section: the primary session catalog. Owns the invisible end
  *  sentinel that reveals the next page — pagination has NO control of its own
- *  (user decision: no "Show more"). */
+ *  (no "Show more"). */
 export function recentSection({
   sessionsReady,
   rowCount,
@@ -593,6 +593,38 @@ export function projectBranchKey(groupKey: string, branch: string) {
   return `${groupKey}\n${branch}`;
 }
 
+function ProjectFolderRename({
+  rename,
+  group,
+}: {
+  rename: NonNullable<ProjectsSectionProps['rename']>;
+  group: ProjectSessionGroup;
+}) {
+  return (
+    <input
+      className="session-title-input project-folder-rename"
+      value={rename.draft}
+      maxLength={160}
+      // biome-ignore lint/a11y/noAutofocus: rename starts from an explicit menu action
+      autoFocus
+      aria-label={t('Rename')}
+      onFocus={(event) => event.currentTarget.select()}
+      onInput={(event) => rename.onDraft(event.currentTarget.value)}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          rename.onCommit(group);
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          rename.onCancel();
+        }
+      }}
+      onBlur={() => rename.onCommit(group)}
+    />
+  );
+}
+
 /** One project folder: its drag/drop target, folder row (with inline rename and
  *  menu), and the opened sessions page. */
 function projectFolderGroup(
@@ -651,29 +683,7 @@ function projectFolderGroup(
             : undefined
         }
       >
-        {rename?.key === group.key && (
-          <input
-            className="session-title-input project-folder-rename"
-            value={rename.draft}
-            maxLength={160}
-            // biome-ignore lint/a11y/noAutofocus: rename starts from an explicit menu action
-            autoFocus
-            aria-label={t('Rename')}
-            onFocus={(event) => event.currentTarget.select()}
-            onInput={(event) => rename.onDraft(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              event.stopPropagation();
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                rename.onCommit(group);
-              } else if (event.key === 'Escape') {
-                event.preventDefault();
-                rename.onCancel();
-              }
-            }}
-            onBlur={() => rename.onCommit(group)}
-          />
-        )}
+        {rename?.key === group.key && <ProjectFolderRename rename={rename} group={group} />}
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle project-folder-toggle"

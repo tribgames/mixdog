@@ -62,8 +62,7 @@ export function useAppSubmitRouting({
   // One draft mints exactly one session. Until the first submit's
   // acknowledgement promotes the tab, the route still reads as a draft, so a
   // prompt sent in that window called submitNewTask() again and opened a
-  // duplicate session (user: 최초 프롬 넣는 중에 두 번째 프롬을 넣으면 세션이
-  // 하나 더 파짐). This registry — not composer-local submit state, which resets
+  // duplicate session. This registry — not composer-local submit state, which resets
   // whenever that composer remounts — is the authority on that single mint.
   const draftSubmissions = useRef(new Map<string, Promise<string>>());
   /** Claims the draft's creation slot before the first await, so a same-tick
@@ -203,7 +202,7 @@ export function useAppSubmitRouting({
       // The draft ends here: promoted to its session, or closed in flight.
       // `new:default` recurs (every emptied workspace reopens it), so a later
       // draft under the same key must mint its own session instead of joining
-      // this one (user: 탭 다 닫고 남은 새 작업에서 입력하면 이전 세션으로 감).
+      // this one.
       // The mapping stays while the draft tab is still on screen, so a retained
       // draft callback keeps routing to its session; it is retired once the tab
       // is gone (immediately if already closed, else by the effect above).
@@ -242,8 +241,7 @@ export function useAppSubmitRouting({
   // never by the globally active selection. Snapshot lanes are already
   // pane-local; routing every submit through the active route made a focused
   // pane's Enter land in — or promote onto — another pane's session, or stall
-  // silently when selection and focus disagreed (user: 다른 세션이 복사됨 /
-  // 간헐적으로 입력이 안 먹음).
+  // silently when selection and focus disagreed.
   const submitToPaneSession = useCallback(
     async (sessionId: string, content: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<unknown> => {
       const host = window.mixdogDesktop;

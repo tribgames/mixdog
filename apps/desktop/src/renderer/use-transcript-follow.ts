@@ -149,7 +149,7 @@ export function useTranscriptFollow({
   // A scrollTop write while Chromium animates a wheel scroll cancels the
   // animation: every row measured into view while scrolling up (its estimate
   // corrected) cut the wheel's ramp short, and the transcript caught on each
-  // one (휠 스크롤이 턱턱 걸림). Like a touch fling, the ramp holds those
+  // one. Like a touch fling, the ramp holds those
   // corrections as a row offset until its scroll events go quiet.
   const wheelScrolling = useCallback(() => {
     const wheel = wheelAt.current;

@@ -6,7 +6,7 @@ import puppeteer from 'puppeteer-core';
 
 // The sidebar row markup of session-sidebar-rows.tsx: a plain row, a working
 // row (spinner in the status slot) and an unread row (dot).
-const row = (id, trailing) => `
+const row = (id) => `
   <div class="session-row" id="${id}">
     <button type="button" class="session-row-main">
       <span class="session-row-slot"></span>

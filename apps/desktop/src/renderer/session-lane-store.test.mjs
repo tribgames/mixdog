@@ -578,9 +578,9 @@ test('a snapshot that replaces the fold mid-turn keeps every unchanged row and t
     ['u0', 'a0']
   );
   assert.deepEqual(grown.items.slice(2), before.items);
-  grown.items
-    .slice(2)
-    .forEach((row, index) => assert.equal(row, before.items[index], `row ${row.id} kept its identity`));
+  grown.items.slice(2).forEach((row, index) => {
+    assert.equal(row, before.items[index], `row ${row.id} kept its identity`);
+  });
   assert.equal(grown.streamingTail, before.streamingTail, 'the streamed reply is the same live row');
 
   apply('item/agentMessage/delta', { itemId: 'a3', delta: 'continues.\n' });

@@ -8,7 +8,7 @@ import {
   desktopUtilityDockTabEnabled,
 } from './desktop-feature-config';
 import { OPEN_DOCK_TAB_EVENT, SET_DOCK_OPEN_EVENT, type OpenDockTabDetail } from './open-dock-tab-event';
-import { paneActiveSelection } from './pane-layout';
+import { paneActiveSelection, type PaneLeaf } from './pane-layout';
 import type { UtilityDockTab } from './UtilityDock';
 import { DEFAULT_SIDEBAR_VIEW_ORDER, type SidebarViewGroup } from './sidebar-view-layout';
 import {
@@ -30,6 +30,10 @@ import { useStableEvent } from './use-stable-event';
 import { allowVisualizeReveal, suppressVisualizeReveal } from './visualize-store';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import type { useSessionPaneSurfaces } from './use-session-pane-surfaces';
+
+function sessionTabIds(tabs: PaneLeaf['tabs']): string[] {
+  return tabs.flatMap((tab) => (tab.kind === 'session' ? [tab.id] : []));
+}
 
 interface AppSideDockOptions {
   paneWorkspace: ReturnType<typeof usePaneWorkspace>;
@@ -120,12 +124,7 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     // is restored, so a placeholder pane list never releases it.
     paneSessions: paneWorkspace.restorePending
       ? undefined
-      : Object.fromEntries(
-          paneWorkspace.leaves.map((leaf) => [
-            leaf.id,
-            leaf.tabs.flatMap((tab) => (tab.kind === 'session' ? [tab.id] : [])),
-          ])
-        ),
+      : Object.fromEntries(paneWorkspace.leaves.map((leaf) => [leaf.id, sessionTabIds(leaf.tabs)])),
   });
   // A reload restores the terminal by session (use-session-pane-surfaces):
   // a pane's own entry never hands it to another session it shows. An

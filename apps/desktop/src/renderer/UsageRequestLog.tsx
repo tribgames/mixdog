@@ -114,6 +114,92 @@ function StatusTone({ status }: { status: string }) {
   return <i className="request-log-tone" data-status={status} aria-hidden="true" />;
 }
 
+function sessionCellTitle(title: string, internal: string, suffix: string): string {
+  if (internal) {
+    return `${title} — ${t('Internal session: a background run the app started itself. You cannot open it as a conversation.')}`;
+  }
+  return suffix ? `${title} · ${suffix}` : title;
+}
+
+function RequestRow({ row, today, providerNames }: { row: Row; today: string; providerNames: Record<string, string> }) {
+  const provider = String(row.provider || '');
+  const model = String(row.model || '');
+  const status = String(row.status || 'completed');
+  // A substituted request names what was asked for beside the fallback that answered.
+  const requested = status === 'substituted' ? String(row.requestedModel || '') : '';
+  // A fallback to another provider names that provider; a model the
+  // same provider swapped in has none of its own.
+  const requestedProvider = String(row.requestedProvider || provider);
+  // The same model name on another provider is still a substitution.
+  const fallbackFor =
+    requested && (requested !== model || requestedProvider !== provider)
+      ? modelDisplayName(requested, requestedProvider)
+      : '';
+  const providerLabel = usageProviderLabel(resolveProviderDisplayName(provider, providerNames));
+  const requestedProviderLabel = usageProviderLabel(resolveProviderDisplayName(requestedProvider, providerNames));
+  let modelTitle = model;
+  if (fallbackFor) {
+    modelTitle =
+      requestedProvider === provider
+        ? `${requested} → ${model}`
+        : `${requested} (${requestedProviderLabel}) → ${model} (${providerLabel})`;
+  }
+  const subscription = statsPlan(provider, String(row.kind || '')) === 'subscription';
+  const internal = String(row.internalKind || '');
+  const title = internal ? internalKindLabel(internal) : String(row.sessionTitle || '') || t('Untitled session');
+  const role = row.agent === true ? agentRoleLabel(row.agentRole) : '';
+  // A background run on a session the user can open: named like the role.
+  const background = row.backgroundKind ? internalKindLabel(String(row.backgroundKind)) : '';
+  const suffix = [role, background].filter(Boolean).join(' · ');
+  const time = requestTime(statsNumber(row.ts), today);
+  return (
+    <tr>
+      <td className="request-log-time" title={time}>
+        {time}
+      </td>
+      <td className="request-log-session" title={sessionCellTitle(title, internal, suffix)}>
+        {/* Before the name, so the ellipsis never cuts it off. */}
+        {internal && <em className="request-log-internal">{t('Internal')}</em>}
+        {title}
+        {suffix && <span> · {suffix}</span>}
+      </td>
+      <td className="request-log-model" title={modelTitle}>
+        {fallbackFor ? (
+          // Asked-for → answered, each model over its provider.
+          <span className="request-log-pair">
+            <b className="request-log-requested">{fallbackFor}</b>
+            <b aria-hidden="true">→</b>
+            <b>{modelDisplayName(model, provider)}</b>
+            <small className="request-log-requested">{requestedProviderLabel}</small>
+            <small aria-hidden="true">→</small>
+            <small>{providerLabel}</small>
+          </span>
+        ) : (
+          <>
+            <b>{modelDisplayName(model, provider)}</b>
+            <small>{providerLabel}</small>
+          </>
+        )}
+      </td>
+      <RequestTokens row={row} />
+      <td
+        className="request-log-num"
+        title={
+          subscription
+            ? `${t('Est. value')} — ${t('OAuth values use list prices. API costs may be estimates; neither is an invoice.')}`
+            : undefined
+        }
+      >
+        {requestCost(row)}
+      </td>
+      <td className="request-log-num">{requestDuration(statsNumber(row.durationMs))}</td>
+      <td className="request-log-status" data-status={status}>
+        {statusLabel(status)}
+      </td>
+    </tr>
+  );
+}
+
 export function UsageRequestLog({ api }: { api: QuotaApi }) {
   const { values: references } = useSidebarReferences(window.mixdogDesktop, REFERENCE_KEYS, true);
   const providerNames = useMemo(() => customProviderDisplayNames(references.providerSetup), [references.providerSetup]);
@@ -250,92 +336,9 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
             </tr>
           </thead>
           <tbody>
-            {requests.map((row) => {
-              const provider = String(row.provider || '');
-              const model = String(row.model || '');
-              const status = String(row.status || 'completed');
-              // A substituted request names what was asked for beside the fallback that answered.
-              const requested = status === 'substituted' ? String(row.requestedModel || '') : '';
-              // A fallback to another provider names that provider; a model the
-              // same provider swapped in has none of its own.
-              const requestedProvider = String(row.requestedProvider || provider);
-              // The same model name on another provider is still a substitution.
-              const fallbackFor =
-                requested && (requested !== model || requestedProvider !== provider)
-                  ? modelDisplayName(requested, requestedProvider)
-                  : '';
-              const providerLabel = usageProviderLabel(resolveProviderDisplayName(provider, providerNames));
-              const requestedProviderLabel = usageProviderLabel(
-                resolveProviderDisplayName(requestedProvider, providerNames)
-              );
-              const modelTitle = !fallbackFor
-                ? model
-                : requestedProvider === provider
-                  ? `${requested} → ${model}`
-                  : `${requested} (${requestedProviderLabel}) → ${model} (${providerLabel})`;
-              const subscription = statsPlan(provider, String(row.kind || '')) === 'subscription';
-              const internal = String(row.internalKind || '');
-              const title = internal
-                ? internalKindLabel(internal)
-                : String(row.sessionTitle || '') || t('Untitled session');
-              const role = row.agent === true ? agentRoleLabel(row.agentRole) : '';
-              // A background run on a session the user can open: named like the role.
-              const background = row.backgroundKind ? internalKindLabel(String(row.backgroundKind)) : '';
-              const suffix = [role, background].filter(Boolean).join(' · ');
-              const internalHint = t(
-                'Internal session: a background run the app started itself. You cannot open it as a conversation.'
-              );
-              const time = requestTime(statsNumber(row.ts), today);
-              return (
-                <tr key={String(row.id)}>
-                  <td className="request-log-time" title={time}>
-                    {time}
-                  </td>
-                  <td
-                    className="request-log-session"
-                    title={internal ? `${title} — ${internalHint}` : suffix ? `${title} · ${suffix}` : title}
-                  >
-                    {/* Before the name, so the ellipsis never cuts it off. */}
-                    {internal && <em className="request-log-internal">{t('Internal')}</em>}
-                    {title}
-                    {suffix && <span> · {suffix}</span>}
-                  </td>
-                  <td className="request-log-model" title={modelTitle}>
-                    {fallbackFor ? (
-                      // Asked-for → answered, each model over its provider.
-                      <span className="request-log-pair">
-                        <b className="request-log-requested">{fallbackFor}</b>
-                        <b aria-hidden="true">→</b>
-                        <b>{modelDisplayName(model, provider)}</b>
-                        <small className="request-log-requested">{requestedProviderLabel}</small>
-                        <small aria-hidden="true">→</small>
-                        <small>{providerLabel}</small>
-                      </span>
-                    ) : (
-                      <>
-                        <b>{modelDisplayName(model, provider)}</b>
-                        <small>{providerLabel}</small>
-                      </>
-                    )}
-                  </td>
-                  <RequestTokens row={row} />
-                  <td
-                    className="request-log-num"
-                    title={
-                      subscription
-                        ? `${t('Est. value')} — ${t('OAuth values use list prices. API costs may be estimates; neither is an invoice.')}`
-                        : undefined
-                    }
-                  >
-                    {requestCost(row)}
-                  </td>
-                  <td className="request-log-num">{requestDuration(statsNumber(row.durationMs))}</td>
-                  <td className="request-log-status" data-status={status}>
-                    {statusLabel(status)}
-                  </td>
-                </tr>
-              );
-            })}
+            {requests.map((row) => (
+              <RequestRow key={String(row.id)} row={row} today={today} providerNames={providerNames} />
+            ))}
             {!loading && !requests.length && (
               <tr>
                 <td className="usage-empty" colSpan={COLUMNS.length}>
