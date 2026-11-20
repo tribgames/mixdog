@@ -1263,7 +1263,11 @@ impl LogWriter {
 
     fn append(&mut self, batch: Vec<Encoded>, force_checkpoint: bool) -> Result<BatchAck, AppendError> {
         // Held to the end: a pending rollback run first, the write, and the rollback of a write that failed.
-        let _writing = crate::log_epoch::writing_dir(&self.dir);
+        let mut writing = crate::log_epoch::appending_dir(&self.dir);
+        // The frames a pending rollback cuts were never acked, and a reader may have folded them.
+        if matches!(self.state, WriterState::PendingRollback { .. }) {
+            writing.reshape();
+        }
         let end = self.ready()?;
         self.alone(end)?;
         let deps = self.deps.clone();
@@ -1273,6 +1277,9 @@ impl LogWriter {
         let effects = self
             .fold
             .prepare(batch.iter().map(|e| &e.record), &*deps.index, &mut lookup)?;
+        if effects.iter().any(crate::fold::Effect::reshapes) {
+            writing.reshape();
+        }
 
 
 

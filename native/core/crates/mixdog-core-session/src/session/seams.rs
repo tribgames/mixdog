@@ -561,6 +561,14 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// model context, answered without reading, decoding or returning a row.
     fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError>;
 
+    /// The length of the thread's model context as its log holds it now, when the store keeps it in memory (counted
+    /// once, then followed through the thread's own commits): no lane, no index, no log. A number to show: it may be
+    /// ahead of the rows the index has taken so far, so a caller that reads rows by it asks
+    /// [`context_len`](Self::context_len). `None`: nothing kept answers, and [`context_len`](Self::context_len) counts.
+    fn context_len_kept(&self, _id: &ThreadId) -> Option<usize> {
+        None
+    }
+
     /// [`context_io`](Self::context_io)'s first step for the rows from the `skip`th on only (as
     /// [`context_len`](Self::context_len) counts them): the read's later steps are the same, and its rows are the context's
     /// without its first `skip`, with no frame of those read.

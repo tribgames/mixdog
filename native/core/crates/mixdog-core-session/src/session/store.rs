@@ -441,8 +441,9 @@ fn writer_lost() -> BarrierError {
     BarrierError::Indeterminate { io_kind: "writerLost".into(), cause: "writerLost".into() }
 }
 
-/// A test build's hold at a named point of a sensitive rewrite, run on the rewrite's own lane thread: `planned` once the plan
-/// has read the log, `held` while the rewrite holds the reads. Compiled only into a build that asks for `crash-gates`.
+/// A test build's hold at a named point of a log's barrier, run on the barrier's own lane thread: of its sensitive rewrite,
+/// `planned` once the plan has read the log and `held` while the rewrite holds the reads; `appended` once the batch is in
+/// the log and before its projection is sent. Compiled only into a build that asks for `crash-gates`.
 #[cfg(feature = "crash-gates")]
 pub mod rewrite_holds {
     type Hold = std::sync::Arc<dyn Fn() + Send + Sync>;
@@ -470,17 +471,38 @@ mod rewrite_holds {
 pub(super) struct LogShape {
     /// The thread's own log, then each base's.
     logs: Vec<String>,
-    /// `log_epoch::settled` of each of `logs` when they were read.
+    /// `log_epoch::settled` of each of `logs` at which this shape was taken; none when one of them was being written.
     versions: Vec<u64>,
-    lineage: Vec<LineageLevel>,
+    /// `log_epoch::shape_settled` of each of `logs` when they were read.
+    shapes: Vec<u64>,
+    lineage: Arc<Vec<LineageLevel>>,
     base_cut: Option<u64>,
     history_rev: u64,
 }
 
 impl LogShape {
+    /// Nothing was written to the logs since the shape was taken.
     pub(super) fn is_current(&self) -> bool {
         self.logs.len() == self.versions.len()
             && self.logs.iter().zip(&self.versions).all(|(log, v)| mixdog_store::log_epoch::settled(log) == Some(*v))
+    }
+
+    /// Whatever was written to the logs since they were read left this shape as it is.
+    pub(super) fn stands(&self) -> bool {
+        self.logs.len() == self.shapes.len()
+            && self.logs.iter().zip(&self.shapes).all(|(log, v)| mixdog_store::log_epoch::shape_settled(log) == Some(*v))
+    }
+
+    /// Both shapes are of one read of the logs.
+    #[cfg(test)]
+    pub(super) fn of_one_read(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.lineage, &other.lineage)
+    }
+
+    /// A shape read from no log, which nothing written changes.
+    #[cfg(test)]
+    pub(super) fn of_no_log() -> Arc<Self> {
+        Arc::new(Self { logs: Vec::new(), versions: Vec::new(), shapes: Vec::new(), lineage: Arc::default(), base_cut: None, history_rev: 0 })
     }
 }
 
@@ -932,6 +954,9 @@ pub struct Projector {
     /// Per session, the number of its first projection the index failed to take: its frames are missing from the index until
     /// the next start re-projects the session from its log.
     lost: Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>>,
+    /// The sessions one of whose projections the index never took. A later projection restores the session's head and
+    /// not the rows of the one that failed: those stay out of the index until the next start re-projects the session.
+    rows_lost: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// The numbers of the projections queued or running that carry a favorite or archive mark write.
     marking: Arc<std::sync::Mutex<std::collections::HashSet<u64>>>,
     /// The sessions whose mark write the index failed to take and no later projection of the session has restored: the
@@ -985,6 +1010,8 @@ impl Projector {
         let lost: Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>> = Arc::default();
         let marking: Arc<std::sync::Mutex<std::collections::HashSet<u64>>> = Arc::default();
         let marks_lost: Arc<std::sync::Mutex<std::collections::HashSet<String>>> = Arc::default();
+        let rows_lost: Arc<std::sync::Mutex<std::collections::HashSet<String>>> = Arc::default();
+        let rows_lost_here = rows_lost.clone();
         let (done_count, mark, failed) = (pending.clone(), StopMark(stopped.clone()), lost.clone());
         let marks_epoch: Arc<std::sync::atomic::AtomicU64> = Arc::default();
         let (marking_here, marks_lost_here, epoch_here) = (marking.clone(), marks_lost.clone(), marks_epoch.clone());
@@ -1008,6 +1035,7 @@ impl Projector {
                                 lost_marks.insert(session.clone());
                                 drop(lost_marks);
                             }
+                            rows_lost_here.lock().unwrap_or_else(|e| e.into_inner()).insert(session.clone());
                             failed.lock().unwrap_or_else(|e| e.into_inner()).entry(session).or_insert(number);
                         }
                         // A later projection carries the session's whole head (its header), so the index holds the header
@@ -1058,7 +1086,7 @@ impl Projector {
                 }
             }
         });
-        Self { queue, pending, stopped, bound: super::thread_list::FENCE_BOUND, sent: Arc::default(), lost, marking, marks_lost, marks_epoch, refuse_next: Arc::default() }
+        Self { queue, pending, stopped, bound: super::thread_list::FENCE_BOUND, sent: Arc::default(), lost, rows_lost, marking, marks_lost, marks_epoch, refuse_next: Arc::default() }
     }
 
     /// Holds the index writes behind every projection sent so far: `reached` resolves once those are committed (an error
@@ -1087,10 +1115,19 @@ impl Projector {
         if marks {
             self.marking.lock().unwrap_or_else(|e| e.into_inner()).insert(number);
         }
-        if self.queue.send(Projecting::Frames(number, Box::new(projection))).is_err() {
+        if let Err(unsent) = self.queue.send(Projecting::Frames(number, Box::new(projection))) {
             self.pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
             self.marking.lock().unwrap_or_else(|e| e.into_inner()).remove(&number);
+            if let Projecting::Frames(_, projection) = unsent.0 {
+                self.rows_lost.lock().unwrap_or_else(|e| e.into_inner()).insert(projection.session.clone());
+            }
         }
+    }
+
+    /// Whether the index lacks rows of `session` that its log holds: one of its projections sent so far was never taken.
+    /// Asked after [`caught_up`](Self::caught_up), it answers for every batch acknowledged before that wait.
+    fn rows_lost(&self, session: &str) -> bool {
+        self.rows_lost.lock().unwrap_or_else(|e| e.into_inner()).contains(session)
     }
 
     /// Whether a mark write the index failed to take is still missing from it: the sessions, until a later projection of each
@@ -1162,6 +1199,10 @@ struct StoreLog {
     redaction: Option<Redaction>,
     /// The store's retention version: moved by every batch this log commits that sets or clears a sidebar retention mark.
     retention: Arc<std::sync::atomic::AtomicU64>,
+    /// The thread this log is of.
+    thread: String,
+    /// The store's kept context lengths: this log's batches run inside them.
+    context_lens: Arc<super::context_lens::ContextLens>,
 }
 impl Rewrites {
     fn start(self: &Arc<Self>) -> Rewriting {
@@ -1297,16 +1338,21 @@ impl SessionLog for StoreLog {
         lane: &InLane<DurabilityIo>,
         batch: &[CommitRecord],
     ) -> Result<Vec<u64>, BarrierError> {
+        // Entered before the log is touched: a rewind is in the log, and in what a read takes from it, before its
+        // projection is on its way to the index.
+        let entered = self.context_lens.batch(&self.thread);
         self.redact_written(lane);
         let encoded = self.stored_batch(batch)?;
         let writer = self.writer.as_mut().ok_or_else(writer_lost)?;
         let ack = writer.append_barrier(lane, encoded).map_err(barrier)?;
+        rewrite_holds::at("appended");
         let ordinals = ack.positions.iter().map(|p| p.ordinal).collect();
         // The projection is registered before the version moves: a reader that sees the new version then sees the projection
         // pending (or in the index), so a scan keyed by that version never holds index contents older than the write. After the
         // batch is durable, so a scan that read before it is never the one a later ask is served.
         let marks = batch.iter().any(|c| touches_retention(&c.record));
-        self.projector.send_marking(ack.projection, marks);
+        let growth = super::context_lens::Growth::of(&ack.projection);
+        entered.stored(growth, || self.projector.send_marking(ack.projection, marks));
         if marks {
             self.retention.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
             rewrite_holds::at("retention-moved");
@@ -1346,6 +1392,8 @@ pub struct StoreThreads {
     /// What the reads of a thread's rows take from its opened log, by thread, with the stamp of the log it was read from
     /// ([`StoreThreads::shape`]).
     shapes: std::sync::Mutex<std::collections::HashMap<String, Arc<LogShape>>>,
+    /// The length of each thread's model context, followed in memory through the thread's own commits.
+    context_lens: Arc<super::context_lens::ContextLens>,
     /// The header members read of a stored thread, by thread and by the list of members asked for, with the version of
     /// its log they were read at ([`ThreadStore::read_header_fields`]).
     picked: std::sync::Mutex<std::collections::HashMap<(String, usize, usize), PickedHeader>>,
@@ -1380,6 +1428,7 @@ impl StoreThreads {
             search_debt: tokio::sync::Notify::new(),
             retention: Arc::default(),
             shapes: std::sync::Mutex::default(),
+            context_lens: Arc::default(),
             picked: std::sync::Mutex::default(),
             #[cfg(any(test, feature = "test-support"))]
             after_snapshot: std::sync::Mutex::default(),
@@ -1438,7 +1487,7 @@ impl StoreThreads {
     }
 
     /// The next projection is refused by the index, as a full disk would.
-    #[cfg(all(test, node_twin))]
+    #[cfg(test)]
     pub(super) fn refuse_next_projection(&self) {
         self.projector.refuse_next.store(true, std::sync::atomic::Ordering::SeqCst);
     }
@@ -1710,7 +1759,14 @@ impl StoreThreads {
             journal: self.journal.get().cloned(),
             rewrites: self.rewrites.clone(),
         });
-        Box::new(StoreLog { writer: Some(writer), projector: self.projector.clone(), redaction, retention: self.retention.clone() })
+        Box::new(StoreLog {
+            writer: Some(writer),
+            projector: self.projector.clone(),
+            redaction,
+            retention: self.retention.clone(),
+            thread: id.as_str().to_owned(),
+            context_lens: self.context_lens.clone(),
+        })
     }
 
     /// Moves whenever any session's favorite or archive mark is written through this store's logs, the only writers of a
@@ -1822,26 +1878,44 @@ impl StoreThreads {
     /// What the row reads take from `id`'s opened log. A count or a tail of an idle thread is asked again and again (an
     /// agent row's message count on every status pass, the desktop's final-answer read while it waits), and each was a
     /// bounded open: the newest file's tail read and every record in it parsed. It is opened again only when one of the
-    /// logs it was folded from (the thread's own and each base's) was written since, which `log_epoch` counts by the
-    /// operations that write a log, not by what the files look like: a truncation grown back or a rewrite in place leaves
-    /// the files' listing, lengths and write times as they were. A deleted thread's delete mark is an append, so its
-    /// version moves and the open that follows refuses it.
+    /// logs it was folded from (the thread's own and each base's) was written since in a way that may change the shape,
+    /// which `log_epoch` counts by the operations that write a log, not by what the files look like: a truncation grown
+    /// back or a rewrite in place leaves the files' listing, lengths and write times as they were. An append of records
+    /// that rewind nothing and delete nothing leaves the shape as it is (a running thread appends on every step, and each
+    /// status pass asks its message count), so the kept one answers, at the logs' versions of now. A deleted thread's
+    /// delete mark moves the shape's version and the open that follows refuses it.
     ///
-    /// A shape is kept only when the versions of its logs, taken before the open, are the ones after it and nothing was
-    /// writing either time: the bytes read are then those of that version. The bases are known only once the log is read;
-    /// a read that finds other logs than the ones whose versions it took is made again over those.
+    /// A shape is kept only when the shape versions of its logs, taken before the open, are the ones after it and no
+    /// operation that may change the shape ran either time: what was read is then the shape of that version, whichever
+    /// appends ran beside the read. The bases are known only once the log is read; a read that finds other logs than the
+    /// ones whose versions it took is made again over those.
     fn shape(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Arc<LogShape>, CoreError> {
         let lock = || self.shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let versions = |logs: &[String]| logs.iter().map(|log| mixdog_store::log_epoch::settled(log)).collect::<Option<Vec<u64>>>();
+        let shapes = |logs: &[String]| logs.iter().map(|log| mixdog_store::log_epoch::shape_settled(log)).collect::<Option<Vec<u64>>>();
         let held = lock().get(id.as_str()).cloned();
-        if let Some(held) = &held
-            && held.is_current()
-        {
-            return Ok(held.clone());
+        if let Some(held) = &held {
+            if held.is_current() {
+                return Ok(held.clone());
+            }
+            // The versions first: an append that begins after them leaves this shape not current, whatever it holds.
+            let now = versions(&held.logs);
+            if held.stands() {
+                let shape = Arc::new(LogShape {
+                    logs: held.logs.clone(),
+                    versions: now.unwrap_or_default(),
+                    shapes: held.shapes.clone(),
+                    lineage: held.lineage.clone(),
+                    base_cut: held.base_cut,
+                    history_rev: held.history_rev,
+                });
+                lock().insert(id.as_str().to_owned(), shape.clone());
+                return Ok(shape);
+            }
         }
         let mut logs = held.map_or_else(|| vec![id.as_str().to_owned()], |held| held.logs.clone());
         loop {
-            let before = versions(&logs);
+            let (before, shaped) = (versions(&logs), shapes(&logs));
             let read = self.open(lane, id).and_then(|opened| Ok((self.lineage(lane, &opened.fold)?, opened.fold.base_cut, opened.fold.history_rev)));
             let (lineage, base_cut, history_rev) = match read {
                 Ok(read) => read,
@@ -1856,9 +1930,17 @@ impl StoreThreads {
                 logs = read_logs;
                 continue;
             }
-            let kept = before.filter(|before| versions(&logs).as_ref() == Some(before));
+            let current = before.filter(|before| versions(&logs).as_ref() == Some(before));
+            let kept = shaped.filter(|shaped| shapes(&logs).as_ref() == Some(shaped));
             let keep = kept.is_some();
-            let shape = Arc::new(LogShape { logs, versions: kept.unwrap_or_default(), lineage, base_cut, history_rev });
+            let shape = Arc::new(LogShape {
+                logs,
+                versions: current.unwrap_or_default(),
+                shapes: kept.unwrap_or_default(),
+                lineage: Arc::new(lineage),
+                base_cut,
+                history_rev,
+            });
             if keep {
                 lock().insert(id.as_str().to_owned(), shape.clone());
             } else {
@@ -1873,6 +1955,22 @@ impl StoreThreads {
     pub(super) fn shape_now(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Arc<LogShape> {
         let _gate = self.read_gate(id).expect("the thread owes no rewrite");
         self.shape(lane, id).expect("the thread's shape")
+    }
+
+    /// The length of `id`'s model context as a reader is shown it from memory, and as the index counts it now.
+    #[cfg(test)]
+    pub(super) fn context_len_kept_and_counted(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> (Option<usize>, usize) {
+        let kept = ThreadStore::context_len_kept(self, id);
+        let _gate = self.read_gate(id).expect("the thread owes no rewrite");
+        let shape = self.shape(lane, id).expect("the thread's shape");
+        (kept, self.index.context_len_on_lane(lane, &shape.lineage, shape.base_cut).expect("the index counts"))
+    }
+
+    /// Whether a row read of `id` is refused now as one of a thread that is not there.
+    #[cfg(test)]
+    pub(super) fn shape_refused(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> bool {
+        let _gate = self.read_gate(id).expect("the thread owes no rewrite");
+        matches!(self.shape(lane, id), Err(CoreError::ThreadNotFound { .. }))
     }
 
     /// What `shape` answers for `id` against an open made now: its history revision and inherited-history cut, each twice.
@@ -2185,7 +2283,7 @@ impl StoreThreads {
         skip: usize,
     ) -> Result<ContextState, CoreError> {
         let shape = self.shape(lane, id)?;
-        let lineage = shape.lineage.clone();
+        let lineage = shape.lineage.as_ref().clone();
         let cut = shape.base_cut;
         let page = if skip == 0 {
             self.index.context_page_on_lane(lane, &self.sessions, &lineage, cut, None, CONTEXT_PAGE_ROWS)
@@ -2809,12 +2907,31 @@ impl ThreadStore for StoreThreads {
         }
     }
 
+    fn context_len_kept(&self, id: &ThreadId) -> Option<usize> {
+        // A thread one of whose batches the index did not take is counted in the index by every reader
+        // ([`context_len`](Self::context_len)): it has one length, whenever the loss fell. The number is taken before the
+        // loss is asked, so one taken with no loss recorded was the thread's length then.
+        let kept = self.context_lens.kept(id.as_str())?;
+        (!self.projector.rows_lost(id.as_str())).then_some(kept)
+    }
+
     fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
+        let counting = self.context_lens.counting(id.as_str());
         // The read must see every row acked so far, as a context read does.
         self.wait(lane, self.projector.caught_up())?;
+        // The length is a position in the index's rows to its callers. What is kept is the log's count, which is the
+        // index's only while the index took every batch of the thread: otherwise the index is asked, and nothing kept.
+        let whole = !self.projector.rows_lost(id.as_str());
+        if whole && let Some(len) = counting.kept() {
+            return Ok(len);
+        }
         let _gate = self.read_gate(id)?;
         let shape = self.shape(lane, id)?;
-        self.index.context_len_on_lane(lane, &shape.lineage, shape.base_cut).map_err(|e| internal("context", &e))
+        let len = self.index.context_len_on_lane(lane, &shape.lineage, shape.base_cut).map_err(|e| internal("context", &e))?;
+        if whole {
+            self.context_lens.keep(id.as_str(), counting, &shape, len);
+        }
+        Ok(len)
     }
 
     fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError> {
@@ -2883,6 +3000,7 @@ impl ThreadStore for StoreThreads {
         );
         self.wait(lane, self.index.upsert(CatalogHead::of(&fold), DirtyMark::Set))
             .map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
+        let entered = self.context_lens.batch(id.as_str());
         let (writer, ack) = LogWriter::create(
             lane,
             &self.dir(id.as_str()),
@@ -2891,7 +3009,8 @@ impl ThreadStore for StoreThreads {
         )
         .map_err(barrier)?;
         let ordinal = ack.positions[0].ordinal;
-        self.projector.send(ack.projection);
+        let growth = super::context_lens::Growth::of(&ack.projection);
+        entered.stored(growth, || self.projector.send(ack.projection));
         Ok((self.store_log(id, writer), ordinal))
     }
 

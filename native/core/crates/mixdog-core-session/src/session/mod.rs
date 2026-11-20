@@ -186,6 +186,7 @@ pub mod gateway_usage;
 pub mod notices;
 mod seams;
 mod state;
+mod context_lens;
 pub mod store;
 mod mark_journal;
 mod surface;
