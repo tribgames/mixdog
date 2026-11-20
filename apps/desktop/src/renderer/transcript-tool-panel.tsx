@@ -1,4 +1,13 @@
-import { createContext, useContext, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { copyTextToClipboard } from './text-format';
@@ -6,6 +15,7 @@ import type { MarkdownAstRoot } from './markdown-ast';
 import { parseStreamingMarkdownAst, readCachedStreamingMarkdownAst } from './markdown-worker-client';
 import { LocalPathMention } from './MarkdownLink';
 import { CopyControl } from './transcript-primitives';
+import { createToolPanelView, TOOL_WINDOW_ROWS, ToolPanelViewContext, ToolWindow } from './tool-panel-window';
 import type { ToolFileEntry, ToolOutputRow, ToolOutputSection } from './transcript-tool-sections';
 
 const TOOL_CODE_HIGHLIGHT_MAX_CHARS = 60_000;
@@ -137,27 +147,27 @@ export function useHighlightedRows(rows: readonly ToolOutputRow[], language: str
 
 /** Code as numbered rows: the gutter is its own column, so a wrapped line
  *  keeps its number on the first visual row and selection copies code only.
- *  `digits` widens the gutter to match sibling sections. */
+ *  `digits` widens the gutter to match sibling sections. The rows mount by
+ *  windows (tool-panel-window); `before` rows of the panel stand above this
+ *  code. */
 export function ToolCode({
   rows,
   language = '',
   digits: sharedDigits = 0,
+  before = 0,
 }: {
   rows: readonly ToolOutputRow[];
   language?: string;
   digits?: number;
+  before?: number;
 }) {
   const own = rows.reduce((max, row) => (row.line == null ? max : Math.max(max, String(row.line).length)), 0);
   const digits = own > 0 ? Math.max(own, sharedDigits) : 0;
   const highlighted = useHighlightedRows(rows, language, digits > 0);
-  return (
-    <div
-      className="markdown-code tool-code"
-      data-numbered={digits > 0 ? 'true' : undefined}
-      style={digits > 0 ? ({ '--tool-code-digits': digits } as CSSProperties) : undefined}
-    >
-      {rows.map((row, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: code rows are positional and never reorder
+  const rowsFrom = (start: number, end: number) =>
+    rows.slice(start, end).map((row, offset) => {
+      const index = start + offset;
+      return (
         <div className="tool-code-row" data-note={digits > 0 && row.line == null ? 'true' : undefined} key={index}>
           {digits > 0 && (
             <span className="tool-code-no" aria-hidden="true">
@@ -166,7 +176,29 @@ export function ToolCode({
           )}
           <code className="tool-code-text">{highlighted[index] ?? row.text}</code>
         </div>
-      ))}
+      );
+    });
+  const starts = Array.from(
+    { length: Math.ceil(rows.length / TOOL_WINDOW_ROWS) },
+    (_, index) => index * TOOL_WINDOW_ROWS
+  );
+  return (
+    <div
+      className="markdown-code tool-code"
+      data-numbered={digits > 0 ? 'true' : undefined}
+      style={digits > 0 ? ({ '--tool-code-digits': digits } as CSSProperties) : undefined}
+    >
+      {starts.map((start) => {
+        const end = Math.min(rows.length, start + TOOL_WINDOW_ROWS);
+        return (
+          <ToolWindow
+            rows={end - start}
+            held={before + start < TOOL_WINDOW_ROWS}
+            render={() => rowsFrom(start, end)}
+            key={start}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -282,26 +314,31 @@ export function ToolSections({ sections }: { sections: readonly ToolOutputSectio
       section.rows.reduce((inner, row) => (row.line == null ? inner : Math.max(inner, String(row.line).length)), max),
     0
   );
+  let before = 0;
   return (
     <>
-      {sections.map((section, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: sections are positional and never reorder
-        <div className="tool-section" key={index}>
-          {(section.path || section.title) && (
-            <header className="tool-section-header">
-              <span className="tool-section-title" title={section.path || section.title}>
-                {section.path ? (
-                  <ToolFileName path={section.path} line={section.line} {...pathParts(section.path)} />
-                ) : (
-                  section.title
-                )}
-              </span>
-              {section.meta && <span className="tool-section-meta">{section.meta}</span>}
-            </header>
-          )}
-          <ToolCode rows={section.rows} language={section.language} digits={digits} />
-        </div>
-      ))}
+      {sections.map((section, index) => {
+        const above = before;
+        before += section.rows.length;
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: sections are positional and never reorder
+          <div className="tool-section" key={index}>
+            {(section.path || section.title) && (
+              <header className="tool-section-header">
+                <span className="tool-section-title" title={section.path || section.title}>
+                  {section.path ? (
+                    <ToolFileName path={section.path} line={section.line} {...pathParts(section.path)} />
+                  ) : (
+                    section.title
+                  )}
+                </span>
+                {section.meta && <span className="tool-section-meta">{section.meta}</span>}
+              </header>
+            )}
+            <ToolCode rows={section.rows} language={section.language} digits={digits} before={above} />
+          </div>
+        );
+      })}
     </>
   );
 }
@@ -393,6 +430,8 @@ export function ToolPanel({
   copyValue?: string;
   children: ReactNode;
 }) {
+  const body = useRef<HTMLDivElement>(null);
+  const [view] = useState(() => createToolPanelView(() => body.current));
   return (
     <section
       className={`tool-panel ${className}`.trim()}
@@ -405,9 +444,11 @@ export function ToolPanel({
           <span className="tool-panel-caption">{label}</span>
         </header>
       )}
-      <div className="tool-panel-body" data-scrollable>
-        {children}
-      </div>
+      <ToolPanelViewContext.Provider value={view}>
+        <div className="tool-panel-body" data-scrollable ref={body}>
+          {children}
+        </div>
+      </ToolPanelViewContext.Provider>
       {copyValue && <ToolCopy value={copyValue} />}
     </section>
   );
