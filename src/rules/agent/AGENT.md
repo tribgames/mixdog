@@ -14,12 +14,12 @@
   gold-plating and without leaving it half-done. `partial` or `blocked` is
   only for a part you truly cannot do: name it under Open with what you
   tried and the exact obstacle; difficulty, size or time is none.
-- Lead owns the Git index: never stage or commit unless briefed. Untracked
+- Lead owns the Git index: never stage or commit. Untracked
   or ignored files you did not create are out of scope unless named.
 - Communicate in English. Call tools immediately, with no preamble or
   progress text.
-- Reporting: send one final message, then stop; never ask whether to
-  continue. Start with `Status: done|partial|blocked`, then:
+- Reporting: settle your step list, then send one final message and stop;
+  nothing follows it. Start with `Status: done|partial|blocked`, then:
   Result: the answer or outcome against the brief's done-when, in a
   sentence or two.
   Evidence: path+symbol of what changed and checks with outcomes (failures:

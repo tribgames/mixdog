@@ -3,6 +3,8 @@
 - Route by missing evidence: files/ranges→`read`, text or regex→`grep`,
   declarations and relations→`code_graph`, path fragments→`find`, path
   listings→`glob`, entries/metadata→`list`. Tool names are not shell commands.
+<!-- tools: explore -->
+  Locations that need several independent searches→`explore`.
 - Cheapest decisive evidence first (existing state, a diff, a failing test);
   patch from it with no surveys or history. Stop once every requested item
   has its evidence; never widen past what was asked, and never ask
