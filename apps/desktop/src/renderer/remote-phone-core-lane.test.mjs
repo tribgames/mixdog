@@ -134,7 +134,11 @@ const pageOf = (first) => {
     ctx,
     client: () => client,
     declareLane() {},
-    onClient: (listener) => (clientListeners.add(listener), listener(client), () => clientListeners.delete(listener)),
+    onClient: (listener) => {
+      clientListeners.add(listener);
+      listener(client);
+      return () => clientListeners.delete(listener);
+    },
   };
   const seen = [];
   ctx.sessionInbox.subscribe((update) => seen.push(update));

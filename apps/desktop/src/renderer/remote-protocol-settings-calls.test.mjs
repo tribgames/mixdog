@@ -181,12 +181,18 @@ test("the core's settings and provider-model announcements reach the phone's lis
   let handler;
   const client = {
     store: { section: () => undefined, appFeed: () => undefined, subscribe: () => () => {} },
-    on: (fn) => ((handler = fn), () => {}),
+    on: (fn) => {
+      handler = fn;
+      return () => {};
+    },
   };
   const host = {
     ctx: { ...listeners, fanOut: (list, value) => seen.push([list, value]) },
     client: () => client,
-    onClient: (wire) => (wire(client), () => {}),
+    onClient: (wire) => {
+      wire(client);
+      return () => {};
+    },
   };
   adapter.install(host);
   handler({ type: 'notification', notification: { method: 'ui/providerModels/changed', params: { origin: 'w1' } } });
@@ -210,7 +216,10 @@ test('a connected phone follows only changes to the configured orchestration def
     store: {
       appFeed: () => ({ id: 'app', epoch: 'e1', seq: 1 }),
       section: (section, key) => (section === 'config' && key === 'agent' ? { value: agent } : undefined),
-      subscribe: (listener) => (subscribers.add(listener), () => subscribers.delete(listener)),
+      subscribe: (listener) => {
+        subscribers.add(listener);
+        return () => subscribers.delete(listener);
+      },
     },
     on: () => () => {},
   };
@@ -221,7 +230,10 @@ test('a connected phone follows only changes to the configured orchestration def
         for (const listener of set) listener(value);
       },
     },
-    onClient: (wire) => (wire(client), () => {}),
+    onClient: (wire) => {
+      wire(client);
+      return () => {};
+    },
   });
   const updateAgent = async (next) => {
     agent = next;
@@ -273,7 +285,10 @@ test('a live change of a stubbed agent or desktop subtree is paged, and a read a
     store: {
       appFeed: () => ({ id: 'app', epoch: 'e1', seq: 1 }),
       section: (section, key) => (section === 'config' ? { value: key === 'agent' ? agent : null } : undefined),
-      subscribe: (listener) => (subscribers.add(listener), () => subscribers.delete(listener)),
+      subscribe: (listener) => {
+        subscribers.add(listener);
+        return () => subscribers.delete(listener);
+      },
     },
     call: (_method, params) => new Promise((resolve) => answers.push({ params, resolve })),
     on: () => () => {},
@@ -287,20 +302,24 @@ test('a live change of a stubbed agent or desktop subtree is paged, and a read a
       activityRailPinsListeners: new Set([(v) => pinsSeen.push(v)]),
       fanOut: fan,
     },
-    onClient: (wire) => (wire(client), () => {}),
+    onClient: (wire) => {
+      wire(client);
+      return () => {};
+    },
   });
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   // Startup reads: pins (desktop stub) and the mode (agent stub).
-  answers.splice(0).forEach(({ params, resolve }) =>
+  for (const { params, resolve } of answers.splice(0))
     resolve({
       config:
         params.keys[0] === 'agent'
           ? { agent: { orchestrationMode: 'focused' } }
           : { desktop: { activityRailPins: { pins: ['sessions'], revision: 1 } } },
-    })
-  );
+    });
   await settle();
-  const change = (key) => subscribers.forEach((s) => s({ type: 'section', section: 'config', key }));
+  const change = (key) => {
+    for (const s of subscribers) s({ type: 'section', section: 'config', key });
+  };
   change('agent');
   change('agent');
   change('desktop');
@@ -322,7 +341,10 @@ test('a live mode change that supersedes the initial paged read of a stubbed age
     store: {
       appFeed: () => ({ id: 'app', epoch: 'e1', seq: 1 }),
       section: (section, key) => (section === 'config' && key === 'agent' ? { value: null } : undefined),
-      subscribe: (listener) => (subscribers.add(listener), () => subscribers.delete(listener)),
+      subscribe: (listener) => {
+        subscribers.add(listener);
+        return () => subscribers.delete(listener);
+      },
     },
     call: () => new Promise((resolve) => answers.push(resolve)),
     on: () => () => {},
@@ -334,9 +356,12 @@ test('a live mode change that supersedes the initial paged read of a stubbed age
         for (const l of set) l(value);
       },
     },
-    onClient: (wire) => (wire(client), () => {}),
+    onClient: (wire) => {
+      wire(client);
+      return () => {};
+    },
   });
-  subscribers.forEach((s) => s({ type: 'section', section: 'config', key: 'agent' }));
+  for (const s of subscribers) s({ type: 'section', section: 'config', key: 'agent' });
   const [initial, live] = answers;
   live({ config: { agent: { orchestrationMode: 'swarm' } } });
   initial({ config: { agent: { orchestrationMode: 'focused' } } });

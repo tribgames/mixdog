@@ -63,7 +63,7 @@ const SEARCH_READS = new Set(['searchProjectFiles']);
 
 /** Read-only capabilities that sweep providers' quota APIs or the usage
  *  ledger (seconds per call): they ride the slow-read lane. */
-export const SLOW_READ_CAPABILITIES: ReadonlySet<string> = new Set([
+const SLOW_READ_CAPABILITIES: ReadonlySet<string> = new Set([
   'getUsageDashboard',
   'getQuotaHistory',
   'getUsageStats',
@@ -74,10 +74,10 @@ export const SLOW_READ_CAPABILITIES: ReadonlySet<string> = new Set([
   'getSessionUsage',
 ]);
 /** Lane key of a capability call naming one of {@link SLOW_READ_CAPABILITIES}. */
-export const SLOW_CAPABILITY_READ_CALL = 'readCapabilities:slow';
+const SLOW_CAPABILITY_READ_CALL = 'readCapabilities:slow';
 
 // A review row's own patch, keyed by capability at the dispatch site.
-export const REVIEW_FILE_PATCH_CALLS: ReadonlySet<string> = new Set([
+const REVIEW_FILE_PATCH_CALLS: ReadonlySet<string> = new Set([
   'invokeCapability:getSessionReviewFilePatch',
   'invokeCapability:getTurnReviewFilePatch',
 ]);
@@ -126,7 +126,7 @@ const SLOW_READS = new Set([
 // for seconds; as a general-lane barrier it waited for every in-flight read
 // and then held every later call. Neither touches state another call reads,
 // so they share their own lane and only observe mutations queued before them.
-export const VOICE_CALLS: ReadonlySet<string> = new Set([
+const VOICE_CALLS: ReadonlySet<string> = new Set([
   'invokeCapability:transcribeAudio',
   'invokeCapability:prepareTranscription',
 ]);
@@ -134,10 +134,10 @@ export const VOICE_CALLS: ReadonlySet<string> = new Set([
 // A /btw side question waits on a whole model response and changes no state
 // another call reads. As a general-lane barrier it would hold every later
 // call — its own cancelSide included — so it runs in a lane of its own.
-export const SIDE_QUESTION_CALLS: ReadonlySet<string> = new Set(['invokeCapability:askSide']);
+const SIDE_QUESTION_CALLS: ReadonlySet<string> = new Set(['invokeCapability:askSide']);
 // Its cancel stays an ordinary general-lane call; queued under this key it
 // also withdraws that session's side questions still waiting for a slot.
-export const SIDE_QUESTION_CANCEL_CALL = 'invokeCapability:cancelSide';
+const SIDE_QUESTION_CANCEL_CALL = 'invokeCapability:cancelSide';
 
 /** The session a /btw call belongs to, and how a queued side question that a
  *  cancel or a newer side question of that session superseded before it
@@ -346,12 +346,12 @@ function createCallLane(concurrency: number) {
 }
 
 /** Node's answer to a search a newer query replaced before it started (remote-relay-client-calls.ts `SEARCH_SUPERSEDED`). */
-export const SEARCH_SUPERSEDED = 'Search superseded by a newer query.';
+const SEARCH_SUPERSEDED = 'Search superseded by a newer query.';
 
 const queues = new WeakMap<object, ReturnType<typeof createRemoteCallQueue>>();
 
 /** The queue of one phone connection (`host.ctx`): created with the first call, shared by every adapter. */
-export function callQueueFor(connection: object): ReturnType<typeof createRemoteCallQueue> {
+function callQueueFor(connection: object): ReturnType<typeof createRemoteCallQueue> {
   let queue = queues.get(connection);
   if (!queue) {
     queue = createRemoteCallQueue();
@@ -361,7 +361,7 @@ export function callQueueFor(connection: object): ReturnType<typeof createRemote
 }
 
 /** Node's answer to a /btw side question its session's cancel (or a newer side question) overtook (remote-relay-client-calls.ts). */
-export const SIDE_QUESTION_CANCELED = 'Side question canceled.';
+const SIDE_QUESTION_CANCELED = 'Side question canceled.';
 
 const KNOWN_CAPABILITIES: ReadonlySet<string> = new Set(DESKTOP_CAPABILITIES);
 const READ_CAPABILITIES: ReadonlySet<string> = new Set(DESKTOP_READ_CAPABILITIES);
@@ -378,7 +378,7 @@ function callCapabilities(method: string, params: unknown): string[] {
 }
 
 /** The per-minute call summary key: the method, plus its capability names (`remoteCallStatName`). */
-export function remoteCallStatName(method: string, params: unknown): string {
+function remoteCallStatName(method: string, params: unknown): string {
   const capabilities = callCapabilities(method, params);
   if (!capabilities.length) return method;
   const name = `${method}:${capabilities.join('+')}`;
@@ -392,7 +392,7 @@ export function remoteCallStatName(method: string, params: unknown): string {
 
 /** The lane key of a call: its method, or for a capability call the capability name when that capability rides a slow-read, voice or
  *  side-question lane (`remoteCallQueueKey`). */
-export function remoteCallQueueKey(method: string, statName: string): string {
+function remoteCallQueueKey(method: string, statName: string): string {
   if (statName.startsWith('invokeCapability:getTurnReviewDiff')) return 'invokeCapability:getTurnReviewDiff';
   if (
     statName === 'invokeCapability:getTurnChanges' ||

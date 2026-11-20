@@ -47,8 +47,8 @@ export function useRouteDismissal({
     const onViewport = () => layout();
     // A phone keyboard resizes and offsets the VISUAL viewport, which fires
     // no window resize on iOS: without these the panel kept its old box while
-    // the composer moved and the two drifted apart (user: 타이핑창 올라오면서
-    // 분리되어버린다).
+    // the composer moved and the two drifted apart (when the typing bar
+    // rises, the two separate).
     const visual = window.visualViewport;
     window.addEventListener('resize', onViewport);
     window.addEventListener('scroll', onViewport, true);
@@ -64,8 +64,8 @@ export function useRouteDismissal({
 }
 
 // Pretendard splits Hangul into lazy unicode-range subsets, so a first open
-// painted fallback glyphs and swapped mid-animation (user: 처음 열 때
-// 폰트가 튄다). Warming the exact sheet/flyout strings at mount lands the
+// painted fallback glyphs and swapped mid-animation (fonts jumped when
+// first opened). Warming the exact sheet/flyout strings at mount lands the
 // real faces long before the picker ever opens.
 export function useRouteFontWarmup() {
   useEffect(() => {

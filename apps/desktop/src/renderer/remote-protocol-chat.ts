@@ -3,9 +3,8 @@
 //
 // The desktop's own conversions are not copied: the request mapping (`routeService`, service-route.ts), the capability
 // lane (`createCapabilityLane`, capability-route.ts: rename, archive/favorite/project, delete, shell jobs, quota switch,
-// approvals, route/fast snapshots, capability reads) and the folded-state readers come in through `ChatShared`. Those
-// modules import Node (`node:path`, desktop-support, runtime-layout) or `.ts` specifiers that the web build refuses
-// (tsconfig.web.json), so the caller injects them until they are moved to `src/shared/`.
+// approvals, route/fast snapshots, capability reads) and the folded-state readers come in through `ChatShared`, which
+// `sharedFor` builds from those modules. `createChatApi` takes it as a parameter so tests can supply their own.
 import type {
   DesktopAbortOptions,
   DesktopCapabilityReadRequest,
@@ -354,7 +353,7 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
 
 export type ChatApi = ReturnType<typeof createChatApi>;
 
-// ── The phone's thread list (decisions.md, "Phone thread list after a core restart") ─────────────────────────────────────────────────
+// The phone's thread list (decisions.md, "Phone thread list after a core restart").
 // Node's view sync subscribed to the catalog, then listed it, and a roster pushed during that read outranked the listing
 // (view-synchronizer.ts readCatalog); the phone replaced its list with that baseline on every attach, a restarted desktop's included.
 // On reconnect the same client claims its last folded app position and missed edges replay. Only a snapshot (first attach or
@@ -376,8 +375,13 @@ const idOf = (row: ThreadRow): string => String(row.id ?? '');
 // Node's catalog order: byActivityThenId (catalog-db/schema.mjs:122 at b6f10295a), activity `lastUsedAt || updatedAt || 0`, ties by id in
 // code-unit order; the core's `activityAt` is that activity (thread_edges.rs place_of).
 const activityOf = (row: ThreadRow): number => Number(row.activityAt) || Number(row.updatedAt) || 0;
-const inCatalogOrder = (a: ThreadRow, b: ThreadRow): number =>
-  activityOf(b) - activityOf(a) || (idOf(a) < idOf(b) ? -1 : idOf(a) > idOf(b) ? 1 : 0);
+const inCatalogOrder = (a: ThreadRow, b: ThreadRow): number => {
+  const byActivity = activityOf(b) - activityOf(a);
+  if (byActivity) return byActivity;
+  const [idA, idB] = [idOf(a), idOf(b)];
+  if (idA < idB) return -1;
+  return idA > idB ? 1 : 0;
+};
 
 /** The catalog clock's timers (the real ones outside a replay). */
 export interface RosterTimers {
@@ -528,11 +532,15 @@ export function createRosterFeed<S>(options: {
 
   const onEdge = (method: string, params: Record<string, unknown>): void => {
     const thread = params.thread as ThreadRow | undefined;
-    const flag = method === 'thread/archived' ? true : method === 'thread/unarchived' ? false : undefined;
-    const id =
-      method === 'thread/deleted' || flag !== undefined ? String(params.threadId ?? '') : thread ? idOf(thread) : '';
+    let flag: boolean | undefined;
+    if (method === 'thread/archived') flag = true;
+    else if (method === 'thread/unarchived') flag = false;
+    const deleted = method === 'thread/deleted';
+    let id = '';
+    if (deleted || flag !== undefined) id = String(params.threadId ?? '');
+    else if (thread) id = idOf(thread);
     if (!id) return;
-    const row = method === 'thread/deleted' ? null : thread ? (thread as ThreadRow) : null;
+    const row = deleted ? null : (thread ?? null);
     if (reading || !known) {
       if (flag === undefined) edges.set(id, row);
       else if (edges.has(id)) edges.set(id, archiveOf(flag)(edges.get(id)) ?? null);
@@ -616,7 +624,6 @@ export function createRosterFeed<S>(options: {
   };
 }
 
-// ── The adapter the phone's switch point loads ───────────────────────────────────────────────────────────────────────────────────────
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
 
 /** How long a fresh recovery waits for a thread this client does not yet fold. */
@@ -848,10 +855,10 @@ export function createChatAdapter(options: {
   };
 }
 
-// ── The adapter the phone's switch point finds (remote-shim-adapters.ts) ─────────────────────────────────────────────────────────────
 const connectionStatus = (client: ProtocolClient<SessionFold>): DesktopSectionsSnapshot['status'] => {
-  const state = client.status.state;
-  return state === 'ready' ? 'ready' : state === 'closed' ? 'closed' : 'reconnecting';
+  const { state } = client.status;
+  if (state === 'ready' || state === 'closed') return state;
+  return 'reconnecting';
 };
 
 /** The desktop's capability lane (main/protocol/capability-route.ts) over this phone's client: the same conversions, the same

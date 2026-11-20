@@ -3,7 +3,7 @@ import { markCompactWire } from '../main/state-delta';
 /** The compact payload shape is announced by the envelope that carries it
  *  rather than repeated inside every frame; a full snapshot keeps its own
  *  marker and must not be re-read as a patch. */
-export const markCompactPayload = (wire: unknown): void => {
+const markCompactPayload = (wire: unknown): void => {
   if (wire && typeof wire === 'object' && !Object.hasOwn(wire, '__itemsRevision')) {
     markCompactWire(wire as Record<string, unknown>);
   }

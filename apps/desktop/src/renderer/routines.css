@@ -198,10 +198,10 @@ html[data-mixdog-mobile-tabs] .routines-row .row-overflow-trigger {
   width: var(--mx-touch-main);
   height: var(--mx-touch-main);
 }
-/* The agent panel (RoutinesPane.tsx AgentPanel): 프로필 · 루틴 tabs over
+/* The agent panel (RoutinesPane.tsx AgentPanel): Profile · Routines tabs over
    the profile form (AgentProfilePane.tsx) or the routines. */
 .agent-panel {
-  /* Anchors the profile's pinned 적용 bar. */
+  /* Anchors the profile's pinned Apply bar. */
   position: relative;
   --agent-profile-bar: 52px;
   min-height: 0;
@@ -259,7 +259,7 @@ html[data-mixdog-mobile-tabs] .routines-row .row-overflow-trigger {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  /* The bottom room is always reserved for the pinned 적용 bar, so it
+  /* The bottom room is always reserved for the pinned Apply bar, so it
      appears over empty space and nothing above it moves. */
   /* Fields on the row-fill edges: 8 left, 6 + the stable 8px scrollbar
      gutter = 14 right. */
@@ -287,7 +287,7 @@ html[data-mixdog-mobile-tabs] .routines-row .row-overflow-trigger {
   width: 80px;
   height: 80px;
 }
-/* 내 이미지: one row per motion state. */
+/* My image: one row per motion state. */
 .agent-avatar-states {
   display: flex;
   flex-direction: column;
@@ -468,7 +468,7 @@ html[data-mixdog-mobile-tabs] .routines-row .row-overflow-trigger {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 성격 PERSONA.md · 파일 불러오기: the action wraps under the label when the
+/* Personality PERSONA.md · Load file: the action wraps under the label when the
    column is too narrow for both. */
 .agent-profile .agent-instruction-head {
   flex-wrap: wrap;

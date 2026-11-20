@@ -107,7 +107,7 @@ const relayed = (params: unknown[]): unknown[] => JSON.parse(JSON.stringify(para
 /** Boot reads of state the view sync owns: they still wait for it, so their answer can never be older than the baseline the sync installs. */
 const SYNC_ORDERED_BOOT_READS = new Set(['getSnapshot', 'listProjects']);
 /** Whatever the app has not asked for when this window closes is dropped, so no later read is ever served from boot. */
-export const BOOT_READ_WINDOW_MS = 10_000;
+const BOOT_READ_WINDOW_MS = 10_000;
 
 /** A name claimed by two adapters is a defect: it throws here, at start, naming both. */
 export function createProtocolRouter(

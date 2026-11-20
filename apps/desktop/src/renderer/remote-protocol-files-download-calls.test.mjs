@@ -10,7 +10,12 @@ const PURPOSE = 'save';
 
 function scripted(replies = {}) {
   const sent = [];
-  const client = { call: async (method, params) => (sent.push({ method, params }), replies[method] ?? {}) };
+  const client = {
+    call: async (method, params) => {
+      sent.push({ method, params });
+      return replies[method] ?? {};
+    },
+  };
   const host = { ctx: {}, client: () => client, declareLane() {} };
   return { sent, host, call: async (name, args) => adapter.calls[name](args, host) };
 }

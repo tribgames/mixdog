@@ -1,10 +1,11 @@
+import { transcriptTurnKeys } from '../shared/core-src/runtime/shared/transcript-turn-keys.mjs';
+
+export { transcriptTurnKeys };
+
 function stableItemKey(item, index) {
   if (item?.id !== undefined && item?.id !== null) return String(item.id);
   return `${item?.kind || 'item'}:${item?.text || item?.label || item?.status || ''}:${index}`;
 }
-
-import { transcriptTurnKeys } from '../shared/core-src/runtime/shared/transcript-turn-keys.mjs';
-export { transcriptTurnKeys };
 
 export function turnReviewScope(items) {
   const transcript = Array.isArray(items) ? items : [];
@@ -470,7 +471,7 @@ export function capPatchLines(patch, max) {
 // (localStorage) outranks the host engine's current session: the engine-first
 // order made every renderer reload (crash recovery, dev HMR) yank a draft or
 // other view onto whatever session the engine happened to hold — perceived as
-// the window force-switching to a background session (user report). An absent
+// the window force-switching to a background session. An absent
 // stored id is MEANINGFUL: the user last viewed a non-session surface (New
 // task draft), so no session is restored. A stale or not-yet-confirmed stored
 // id also stays on New task: a partial startup catalog must never make the

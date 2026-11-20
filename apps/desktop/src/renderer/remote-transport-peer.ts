@@ -95,7 +95,7 @@ export interface RemoteTransportPeerTimers {
 }
 
 /** How often a carrier's buffer is looked at while a claim waits and nothing else prompts a look (the plain WebSocket has no event). */
-export const REMOTE_TRANSPORT_DEPARTURE_LOOK_MS = 50;
+const REMOTE_TRANSPORT_DEPARTURE_LOOK_MS = 50;
 
 /** What one carrier's FIFO buffer says about a frame: it has left once the carrier's buffered amount is no greater than the bytes
  *  handed to the carrier AFTER that frame. Traffic sent later therefore never postpones it, and a frame still behind earlier unsent

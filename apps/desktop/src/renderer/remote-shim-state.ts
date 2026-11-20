@@ -93,8 +93,8 @@ export interface RemoteShimState {
   // A view-synchronizing peer names the restored set in its FIRST sync,
   // whatever the panes registered meanwhile. A phone never restores its panes,
   // so its first React commit registers a fresh New-task pane — before the
-  // socket is even open — and that registration used to replace this set: the
-  // first sync named nothing and the transcript waited for a second one.
+  // socket is even open — and that registration must not replace this set, or
+  // the first sync names nothing and the transcript waits for a second one.
   restoredVisibleSessionIds: string[];
   // The sessions this page actually paints (use-visible-sessions'
   // useScreenSessions), apart from the delivery set above that also carries
@@ -255,8 +255,8 @@ export interface RemoteShimCollaborators {
   browserApprovalSessionIds: string[];
   // Push lanes this browser actually reads. Terminal output, diagnostics and
   // folder events are produced by DESKTOP activity — a build, a save — and
-  // used to reach every paired phone regardless of what it had open, so a
-  // phone left connected received entire build logs it never displayed.
+  // would reach every paired phone regardless of what it had open (a phone
+  // left connected would receive entire build logs it never displayed).
   // Registering the lanes stops them at the source. A reconnect replays this
   // exactly like the visible-session set.
   activeLanes: Set<string>;

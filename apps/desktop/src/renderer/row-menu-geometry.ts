@@ -30,7 +30,7 @@ const ROW_MENU_MIN_WIDTH = 160;
 /* Same ceiling as .mx-menu so every popup menu shares one width grammar. */
 const ROW_MENU_MAX_WIDTH = 368;
 
-// The panel sizes itself to its labels (user: ⋯ 팝업 너비가 제각각), so the
+// The panel sizes itself to its labels, so ⋯ popups differ in width and the
 // caller never knows the width. The ⋯ glyph sits at the trailing edge of its
 // row, so the menu opens like every trailing trigger (anchored-panel.ts:
 // below, right edge pinned to the trigger's right edge, flipping above only

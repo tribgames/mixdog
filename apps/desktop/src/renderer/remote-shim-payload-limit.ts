@@ -27,7 +27,7 @@ export interface PendingCall {
 }
 
 /** The one failure a call gets when the relay would not carry its frame. */
-export const relayPayloadTooLargeError = (rejection: RelayPayloadRejection): Error & { code: string } => {
+const relayPayloadTooLargeError = (rejection: RelayPayloadRejection): Error & { code: string } => {
   const failure = new Error(relayPayloadTooLargeMessage(rejection)) as Error & { code: string };
   failure.code = RELAY_PAYLOAD_TOO_LARGE_CODE;
   return failure;

@@ -117,7 +117,7 @@ async function grantedPlace(host: PhoneProtocolHost, target: Params): Promise<{ 
   return { root: path.slice(0, cut), rel: path.slice(cut + 1) };
 }
 
-// ── a paired phone's downloads (Node's `fileDownloadRemoteMethods`, main/file-downloads.ts:960-1070 at b6f10295a) ──
+// A paired phone's downloads (Node's `fileDownloadRemoteMethods`, main/file-downloads.ts:960-1070 at b6f10295a).
 // The arguments are checked here, in Node's order and with its sentences. The conversation a request names is the core's to resolve
 // (Node's `sessionRow` / `projectRoot`), and its deletion ends the grant.
 const DOWNLOAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -213,24 +213,30 @@ function downloadRequest(value: unknown): DownloadRequest {
   throw new TypeError('download source is invalid.');
 }
 
+function readSource(request: DownloadRequest): Params {
+  switch (request.kind) {
+    case 'project':
+      return { kind: 'file', rel: request.relPath };
+    case 'media':
+      return { kind: 'mediaAsset', assetId: request.assetId };
+    case 'link':
+      return { kind: 'link', itemId: request.itemId, href: request.href };
+    case 'attachment':
+      return { kind: 'attachment', attachmentId: request.attachmentId };
+    case 'folder':
+      return { kind: 'folder', path: request.path };
+    case 'export':
+      return { kind: 'export', input: request.input };
+    case 'session':
+      return { kind: 'sessionFile', path: request.path };
+  }
+}
+
 /** The conversation, its project and its folder are the core's to resolve from its own catalog (Node's `sessionRow` / `projectRoot`): a
  *  conversation it does not list is Node's `unavailable`, whoever asks, so the request names only the conversation and the file. */
 function authorizeDownload(host: PhoneProtocolHost, value: unknown): Promise<unknown> {
   const request = downloadRequest(value);
-  const source =
-    request.kind === 'project'
-      ? { kind: 'file', rel: request.relPath }
-      : request.kind === 'media'
-        ? { kind: 'mediaAsset', assetId: request.assetId }
-        : request.kind === 'link'
-          ? { kind: 'link', itemId: request.itemId, href: request.href }
-          : request.kind === 'attachment'
-            ? { kind: 'attachment', attachmentId: request.attachmentId }
-            : request.kind === 'folder'
-              ? { kind: 'folder', path: request.path }
-              : request.kind === 'export'
-                ? { kind: 'export', input: request.input }
-                : { kind: 'sessionFile', path: request.path };
+  const source = readSource(request);
   return rpc(host, 'transfer/authorizeRead', { sessionId: request.sessionId, source, purpose: request.purpose });
 }
 

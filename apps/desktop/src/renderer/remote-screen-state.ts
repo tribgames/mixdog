@@ -37,8 +37,9 @@ export type ScreenEntry =
   | { kind: 'pick'; displays: RemoteScreenDisplaySummary[] };
 
 export function chooseScreenEntry(displays: readonly RemoteScreenDisplaySummary[]): ScreenEntry {
-  if (displays.length === 0) return { kind: 'none' };
-  if (displays.length === 1) return { kind: 'view', display: displays[0]! };
+  const [only, second] = displays;
+  if (!only) return { kind: 'none' };
+  if (!second) return { kind: 'view', display: only };
   return { kind: 'pick', displays: [...displays] };
 }
 

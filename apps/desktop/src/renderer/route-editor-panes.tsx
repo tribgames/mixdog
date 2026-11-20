@@ -177,7 +177,6 @@ export function moveRouteFocus(
   return true;
 }
 
-// ── Pane bodies ──────────────────────────────────────────────────────────
 // What a route pane SHOWS, given the current route. Where that pane sits,
 // when it opens and which surface hosts it stays with the component.
 

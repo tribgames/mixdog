@@ -4,7 +4,7 @@
 import { armRemoteCallDeadline } from './remote-call-deadline';
 
 /** A call on the wire this long with nothing arriving from the relay probes the leg. */
-export const SILENT_CALL_PROBE_MS = 5_000;
+const SILENT_CALL_PROBE_MS = 5_000;
 
 export interface CallWatch {
   /** The frame has left this page: the deadline restarts and the silence is measured from now. */

@@ -35,7 +35,7 @@ export function writeRoutinesTileOpen(open: boolean): void {
 
 /** The contextual view an Agents row opens beside a chat; never in the stored
  *  layout, so every surface with a right side gets it here. */
-export const AGENT_SESSION_GROUP: WorkbenchSideViewGroup = ['agent-session'];
+const AGENT_SESSION_GROUP: WorkbenchSideViewGroup = ['agent-session'];
 
 /** The right-side groups a pane dock knows: the layout's, then the agent
  *  session view. */

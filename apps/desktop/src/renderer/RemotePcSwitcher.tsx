@@ -34,7 +34,9 @@ function switcherPcDetail(pc: SwitcherPc): string {
   }
   if (pc.current) return pc.thisPc ? t('This PC · In use') : t('In use');
   // An unknown state (the relay could not be asked) is not offline.
-  const state = pc.online === true ? t('Online') : pc.online === false ? t('Offline') : t('Unknown');
+  let state = t('Unknown');
+  if (pc.online === true) state = t('Online');
+  else if (pc.online === false) state = t('Offline');
   if (pc.windowOpen) return `${state} · ${t('Window open')}`;
   if (!pc.lastConnectedAt) return state;
   return `${state} · ${relativeWhen(pc.lastConnectedAt)}`;
