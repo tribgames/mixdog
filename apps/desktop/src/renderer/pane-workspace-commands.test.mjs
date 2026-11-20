@@ -58,6 +58,29 @@ test('a split opened with no source pane moves the session: one pane per session
   assert.equal(keys.filter((key) => key === 'session:a').length, 1);
 });
 
+test('a command is readable before its render: two closes in one batch each see the one before', async (t) => {
+  const { run, groups } = await mountWorkspace(t);
+  await run((w) => w.openInFocused(session('a')));
+  await run((w) => w.openInFocused(session('b')));
+  const active = (w) => {
+    const { leaves, focusedLeafId } = w.now();
+    return leaves.find((leaf) => leaf.id === focusedLeafId).activeKey;
+  };
+  // Two archives finishing in one batch: the second decides from the pane the first left.
+  await run((w) => {
+    assert.equal(active(w), 'session:b');
+    w.closeTabByKey('session:b');
+    assert.equal(active(w), 'session:a', 'the close is seen at once');
+    assert.equal(w.leaves[0].activeKey, 'session:b', 'though nothing rendered yet');
+    w.closeTabByKey('session:a');
+    assert.equal(w.now().leaves[0].tabs[0].kind, 'new');
+  });
+  assert.deepEqual(
+    groups().map((group) => group.tabs.length),
+    [1]
+  );
+});
+
 test('pane commands keep one live surface per view and hand focus to the right group', async (t) => {
   const { run, groups, workspace } = await mountWorkspace(t);
 

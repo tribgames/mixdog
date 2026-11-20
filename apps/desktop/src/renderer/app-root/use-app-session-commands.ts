@@ -47,7 +47,6 @@ export function useAppSessionCommands(
     navigationEpoch,
     sessions,
     setSessions,
-    selection,
     pendingSessionRenames,
     pendingSessionArchives,
     pendingSessionDeletes,
@@ -76,15 +75,14 @@ export function useAppSessionCommands(
   });
   const closeSessionTabs = useCallback(
     (sessionId: string) =>
-      closeSessionPaneTabs(sessionId, paneLeavesRef.current, focusedLeafIdRef.current, tabs, closePaneTab),
-    [paneLeavesRef, focusedLeafIdRef, tabs, closePaneTab]
+      closeSessionPaneTabs(sessionId, paneLeavesRef.current, focusedLeafIdRef.current, tabs, setTabs, closePaneTab),
+    [paneLeavesRef, focusedLeafIdRef, tabs, setTabs, closePaneTab]
   );
   const { renameSession, archiveSession, favoriteSession, moveSessionToProject, deleteSession } = useAppSessionActions({
     sessions,
     setSessions,
     tabs,
     setTabs,
-    selection,
     setError,
     refreshSessions,
     pendingRenames: pendingSessionRenames,

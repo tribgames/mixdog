@@ -83,9 +83,19 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
   // its own unavailable state if its content cannot be read.
   const restorePending = false;
   const restoredFromStorage = Boolean(restorePlan.stored);
-  const [state, setState] = useState<PaneWorkspaceState>(() =>
+  const [state, render] = useState<PaneWorkspaceState>(() =>
     initialPaneWorkspaceState(restorePlan.stored, initialSelection)
   );
+  // The workspace as it is now. A transition lands here first and is rendered
+  // from here, so a handler that runs before the next render reads what the
+  // handler before it did.
+  const current = useRef(state);
+  const setState = useCallback((transition: (prev: PaneWorkspaceState) => PaneWorkspaceState) => {
+    const next = transition(current.current);
+    if (next === current.current) return;
+    current.current = next;
+    render(next);
+  }, []);
 
   // Bootstrap validation, once. The restored session tabs stay unresolved (kept,
   // shown, persisted) until the catalog and the pool are both known; then the
@@ -207,5 +217,5 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
     return () => window.clearTimeout(timer);
   }, [persistState]);
 
-  return { state, setState, restorePending, restoredFromStorage };
+  return { state, current, setState, restorePending, restoredFromStorage };
 }

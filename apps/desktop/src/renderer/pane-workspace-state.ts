@@ -256,7 +256,15 @@ function moveTabState(
 }
 
 export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = null) {
-  const { setState, state, restorePending, restoredFromStorage } = usePaneWorkspaceState(initialSelection);
+  const { setState, state, current, restorePending, restoredFromStorage } = usePaneWorkspaceState(initialSelection);
+
+  /** The groups and the focused one as they are now, for a handler that may
+   *  run before the render of the command before it. */
+  const now = useCallback(() => {
+    const { layout, focusedLeafId } = current.current;
+    const leaves = paneLeaves(layout);
+    return { leaves, focusedLeafId: (findPaneLeaf(layout, focusedLeafId) ?? leaves[0])?.id ?? '' };
+  }, [current]);
 
   const focusLeaf = useCallback(
     (leafId: string) => {
@@ -565,6 +573,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
       leaves,
       focusedLeaf,
       focusedLeafId: focusedLeaf?.id ?? '',
+      now,
       focusLeaf,
       openInFocused,
       openInLeaf,
@@ -594,6 +603,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
       restorePending,
       leaves,
       focusedLeaf,
+      now,
       focusLeaf,
       openInFocused,
       openInLeaf,
