@@ -66,7 +66,7 @@ function readStoredKey(value: unknown): SecureDesktopControllerKey | null {
   if (!value || typeof value !== 'object') return null;
   const { publicKey, privateKey } = value as Partial<SecureDesktopControllerKey>;
   if (!isSecureDesktopControllerKey(publicKey)) return null;
-  if (privateKey?.type !== 'private' || privateKey.extractable) return null;
+  if (!privateKey || privateKey.type !== 'private' || privateKey.extractable) return null;
   if (privateKey.algorithm?.name !== 'ECDSA') return null;
   return { publicKey, privateKey };
 }

@@ -285,7 +285,7 @@ function problems(label, m, phone) {
   expect(m.summary.overflow <= 0 && m.summary.overlaps.length === 0, `footer overflow/overlap ${m.summary.overlaps}`);
   const a = m.footAction;
   expect(
-    a?.visible && a.inside && !a.overSummary && a.sameRow,
+    a && a.visible && a.inside && !a.overSummary && a.sameRow,
     `Clean up is not at the footer row's end beside the usage line: ${JSON.stringify(a)}`
   );
   if (phone) {
