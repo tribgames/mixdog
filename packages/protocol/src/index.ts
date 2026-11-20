@@ -626,6 +626,11 @@ export type BrowserRefusedRequest = { url: string, reason: string, };
  */
 export type BrowserScreenshotClip = BrowserClipRef | BrowserClipRect;
 
+/**
+ * The page's own size in image pixels and the scale its picture was delivered at.
+ */
+export type BrowserScreenshotScale = { width: number, height: number, scale: number, };
+
 export type BrowserSignInOp = "beforeAction" | "afterCommand";
 
 export type BrowserSnapshotElement = { ref: string, role: string, name: string, tag: string, href?: string, value?: string, sensitive?: boolean,
@@ -2473,7 +2478,11 @@ data?: string, blob?: BrowserBlobRef,
 /**
  * True when an element crop was cut by the viewport or the page (the old "partial" note); absent for a whole picture.
  */
-partial?: boolean, facts: PageFacts, };
+partial?: boolean,
+/**
+ * Set when a full page past the image limits was delivered scaled down; absent for a picture at the page's own size.
+ */
+scaledFrom?: BrowserScreenshotScale, facts: PageFacts, };
 
 /**
  * `host/browser/signIn`. `turn` is the session's running turn (what a sign-in remembers is per turn); `action` and `command` (its `ref`,

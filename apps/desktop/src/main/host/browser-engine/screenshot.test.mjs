@@ -13,7 +13,7 @@ function jpegOf(bytes) {
   return body;
 }
 
-function harness({ size = 1000, withheld = false, snapshotId = 'p1-s2', partialCrop = false } = {}) {
+function harness({ size = 1000, withheld = false, snapshotId = 'p1-s2', partialCrop = false, scaledFrom } = {}) {
   const handlers = new Map();
   const puts = [];
   const connection = {
@@ -38,7 +38,7 @@ function harness({ size = 1000, withheld = false, snapshotId = 'p1-s2', partialC
       capture: async (_guest, background, options) => {
         calls.push(['capture', background, options]);
         if (withheld) throw new Error('Visual output withheld to protect a registered credential.');
-        return shot({ fullPage: options.fullPage });
+        return shot({ fullPage: options.fullPage, ...(scaledFrom ? { scaledFrom } : {}) });
       },
       captureElement: async (_guest, background, options, rect, geometry) => {
         calls.push(['captureElement', background, options, rect, geometry]);
@@ -90,6 +90,13 @@ test('a full page and the background flag reach the capture', async () => {
   const foreground = harness();
   await foreground.call({ format: 'jpeg', quality: 60 });
   assert.deepEqual(foreground.calls, [['capture', false, { format: 'jpeg', quality: 60, fullPage: false }]]);
+});
+
+test('a full page delivered scaled down carries the page size and scale; a picture at its own size carries none', async () => {
+  const scaledFrom = { width: 1593, height: 72305, scale: 0.45318 };
+  const scaled = await harness({ scaledFrom }).call({ format: 'png', fullPage: true });
+  assert.deepEqual(scaled.scaledFrom, scaledFrom);
+  assert.equal('scaledFrom' in (await harness().call({ format: 'png', fullPage: true })), false);
 });
 
 test('a rectangle clip is cropped from the viewport capture with the page geometry', async () => {

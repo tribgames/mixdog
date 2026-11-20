@@ -1317,7 +1317,20 @@ pub struct HostBrowserScreenshotResult {
     /// True when an element crop was cut by the viewport or the page (the old "partial" note); absent for a whole picture.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub partial: Option<bool>,
+    /// Set when a full page past the image limits was delivered scaled down; absent for a picture at the page's own size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scaled_from: Option<BrowserScreenshotScale>,
     pub facts: PageFacts,
+}
+
+/// The page's own size in image pixels and the scale its picture was delivered at.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserScreenshotScale {
+    pub width: u32,
+    pub height: u32,
+    pub scale: f64,
 }
 
 /// `host/browser/cdp/send`: refused with -32015 for the methods in `BROWSER_ENGINE_CDP_REFUSED`.
