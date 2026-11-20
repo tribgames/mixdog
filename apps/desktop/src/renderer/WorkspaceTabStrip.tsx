@@ -582,7 +582,8 @@ export function WorkspaceTabStrip({
   const closeTabEvent = useStableEvent(onCloseTab);
   const pinTabEvent = useStableEvent((tab: WorkspaceTab) => onPinTab?.(tab));
   // The mobile root marker + device-scale factor install in main.tsx BEFORE
-  // the first render — nothing to do here.
+  // the first render — nothing to do here. Installing them any later would
+  // cause a visible layout shift on first entry.
   const selectTab = useCallback(
     (tab: WorkspaceTab) => {
       prefetchTabSurface(tab);

@@ -8,8 +8,8 @@
 // ::-webkit-scrollbar sizing) reserve NOTHING, so each of those compensations
 // shifted its scroller content by a full 8px while the chrome outside the
 // scroller stayed put. In the session rail that split the "+" button from the
-// unread dots and spinners directly under it (user: 세션 리스트 + 버튼이랑
-// 아래 닷이 가로로 틀어짐).
+// unread dots and spinners directly under it (the dots sat out of
+// line with the button horizontally).
 //
 // So the reserve is measured instead of assumed, once before the first paint
 // and again whenever zoom/rotation could change it (not on every resize).

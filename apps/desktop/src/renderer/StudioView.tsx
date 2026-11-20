@@ -162,7 +162,9 @@ export function StudioPane({
   useLayoutEffect(() => {
     if (!active) return;
     // Entering Studio lands the caret in the prompt so typing starts
-    // immediately, like the session composer.
+    // immediately, like the session composer. Entry must stay animation-free:
+    // revealing a previously hidden tab restarts its CSS animations and would
+    // replay the unfold effect.
     promptRef.current?.focus();
   }, [active]);
   useEffect(() => {

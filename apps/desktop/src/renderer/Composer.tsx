@@ -217,7 +217,8 @@ function switchComposerIdentity({
   );
   // Scope settles ASYNC after a session switch/promotion; when the user is
   // ALREADY typing in the composer, the in-flight text carries over instead
-  // of being wiped.
+  // of being wiped. Wiping it on an asynchronous scope change would also make
+  // the scroll position jump mid-sentence, not just erase the draft.
   const typingElement = textarea.current;
   const typingLive = document.activeElement === typingElement;
   // A fresh New Task pane is the exception: it ALWAYS opens clean.

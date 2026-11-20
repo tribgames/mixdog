@@ -3647,7 +3647,9 @@ function resolvedImports(url) {
 // A new session's island is
 // drawn at its full-label width until its fit lands in the same frame; the
 // pinned pet's publisher measured it in that window and sent the pre-fit span
-// (the whole card wide, over the bot), then the fitted one.
+// (the whole card wide, over the bot), then the fitted one. Publishing the width
+// before the fit finished made the pinned bot jump up and down once on a
+// session switch.
 for (const width of [1100, 560, 480]) {
   test(`a session switch publishes the pinned pet only the island's fitted span (${width}px)`, async (t) => {
     const page = await petSwitchPage(t);

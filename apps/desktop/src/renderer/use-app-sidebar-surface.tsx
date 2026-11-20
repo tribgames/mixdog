@@ -327,7 +327,8 @@ export function useAppSidebarSurface({
   // rows, and every rail panel are memoised, but fresh inline closures and a
   // fresh children fragment on every App render defeated those boundaries —
   // a mere tab switch re-rendered the whole sidebar tree (profiled:
-  // SessionRow/panel subtrees dominated fast-switch commits).
+  // SessionRow/panel subtrees dominated fast-switch commits). Re-rendering the sidebar during rapid tab switches
+  // also left the previous view visibly lingering.
   const sidebarNewTask = useStableEvent(() => {
     closeSidebarForNavigation();
     startTask();

@@ -91,7 +91,7 @@ function fittingLengthBySearch(text: string, available: number, width: (value: s
  *  real measurement (stepping down a character if kerning made the sum
  *  optimistic). The binary search this replaces measured ~8 fresh strings per
  *  row — a Source Control list of a few hundred changes spent 100ms+ in
- *  measureText on its first paint (user: 소스 제어 누르면 히칭). */
+ *  measureText on its first paint (opening Source Control would hitch). */
 function fittingLength(text: string, available: number, width: (value: string) => number): number {
   if (width(text) <= available) return text.length;
   const lastSeparator = text.lastIndexOf('/');
