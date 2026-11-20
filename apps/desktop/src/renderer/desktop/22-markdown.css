@@ -38,6 +38,17 @@
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-meta);
 }
+/* A long block keeps its header (and the copy button) at the top of its
+   visible part. 44px is the thread's top inset: below the status island and
+   the 32px top scroll fade (12-transcript.css). The plate tint (a skin's
+   --mx-skin-fill too) is nearly clear, so it is laid over the opaque ground
+   and code never shows through. Tool panels scroll on their own. */
+.transcript .markdown-code:not(.tool-panel *) > header {
+  position: sticky;
+  top: 44px;
+  z-index: 1;
+  background: linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)), var(--mx-bg-base);
+}
 /* Parser fallback already uses the final code-block geometry and mono face.
    Only the copy action arrives with the rich AST, inside the fixed header. */
 .markdown-code-fallback > header {

@@ -288,7 +288,10 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) :is(.transcript-shell
      inner sizer creates independent layers that can present different scroll
      phases when a fast wheel ramp collides with the bottom boundary. */
   contain: layout style;
-  overflow: hidden;
+  /* clip, not hidden: a hidden box is a scroll container, and a sticky code
+     header (22-markdown.css) would stick to this never-scrolled box instead
+     of the transcript. */
+  overflow: clip;
 }
 .transcript-live-part {
   min-width: 0;
