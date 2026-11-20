@@ -1,12 +1,22 @@
 import { createContext } from 'react';
 
-// A settled reply keeps in the DOM only the top-level blocks near its
-// scroller's viewport. A block further away is parked: one empty box of the
-// block's measured height and of the gaps it kept to its neighbours stands in
-// its place, so the reply's geometry is unchanged while the block's elements
-// are gone. The virtual list unmounts whole rows only; one long reply is a
-// single row (a 150 KB reply held ~24k elements, ~150 MB, while any of it was
-// in range, and behind every retained tab).
+// A reply keeps in the DOM only the top-level blocks near its scroller's
+// viewport. A block further away is parked: one empty box of the block's
+// measured height and of the gaps it kept to its neighbours stands in its
+// place, so the reply's geometry is unchanged while the block's elements are
+// gone. The virtual list unmounts whole rows only; one long reply is a single
+// row (a 150 KB reply held ~24k elements, ~150 MB, while any of it was in
+// range, and behind every retained tab).
+//
+// A reply still arriving parks too, or the whole of it stays mounted until it
+// ends (a 100k-character reply peaked 130 MB above its settled size, and the
+// renderer keeps what a peak committed). Only its last body and the block
+// before it stay: that body is parsed again as text arrives, and each parse
+// would return what had parked of them.
+//
+// A box holds the gaps to its two neighbours as they were, so it stands only
+// while those are the blocks next to it and unchanged: it is dropped when one
+// of them changes (release) and when another element stands next to it (sync).
 //
 // A block is parked from its own layout, so nothing is estimated: a block that
 // was never laid out stays mounted. A parked box stands for its block at the
@@ -31,6 +41,8 @@ export interface ParkedBlock {
    *  collapse with its margin to the same gap. */
   before: number;
   after: number;
+  /** The blocks those gaps were measured to. */
+  beside: readonly [string, string];
   /** Width and type of the reply when measured. */
   basis: string;
 }
@@ -38,12 +50,15 @@ export interface ParkedBlock {
 export interface BlockParking {
   subscribe(id: string, listener: () => void): () => void;
   parked(id: string): ParkedBlock | null;
-  /** The reply's `.markdown` element, and whether its blocks may park now. */
-  attach(container: HTMLElement | null, enabled: boolean): void;
-  /** The reply's blocks changed in the DOM. */
+  /** The reply's `.markdown` element, and whether its blocks may park now.
+   *  `growing`: the reply is still arriving or fading in, so the blocks of
+   *  its last body stay mounted. */
+  attach(container: HTMLElement | null, enabled: boolean, growing?: boolean): void;
+  /** The reply's elements changed in the DOM. */
   sync(): void;
   /** A body's blocks are other blocks now: the boxes measured for the former
-   *  ones (ids `${body}:…`) are dropped. */
+   *  ones (ids `${body}:…`) are dropped, and those measured next to one of
+   *  them. */
   release(body: string): void;
 }
 
@@ -79,9 +94,12 @@ function scrollerOf(element: HTMLElement): HTMLElement | null {
   return null;
 }
 
-function laidOutSibling(element: Element, side: 'previousElementSibling' | 'nextElementSibling'): Element | null {
+/** A child of the reply that takes no box: a body whose parse is still to land. */
+const unshown = (element: Element) => (element as HTMLElement).hidden;
+
+function shownSibling(element: Element, side: 'previousElementSibling' | 'nextElementSibling'): Element | null {
   for (let node = element[side]; node; node = node[side]) {
-    if (node.getClientRects().length > 0) return node;
+    if (!unshown(node)) return node;
   }
   return null;
 }
@@ -94,6 +112,33 @@ function basisOf(container: HTMLElement): string {
   return `${container.getBoundingClientRect().width}|${style.fontSize}|${style.lineHeight}|${style.fontFamily}`;
 }
 
+/** A block id is its body's id and the block's place in it (MarkdownAstBody). */
+const bodyOf = (id: string) => id.slice(0, id.lastIndexOf(':'));
+
+/** The id of the block `element` is, mounted or parked. */
+const blockId = (element: Element) => element.getAttribute(UNIT_ATTRIBUTE) ?? element.getAttribute(PARKED_ATTRIBUTE);
+
+/** The body the reply's last block belongs to. */
+function lastBodyOf(container: HTMLElement): string | null {
+  for (let node = container.lastElementChild; node; node = node.previousElementSibling) {
+    const id = blockId(node);
+    if (id !== null) return bodyOf(id);
+  }
+  return null;
+}
+
+/** Whether the block `element` is of `body`, or the one right before it. */
+function atBody(element: Element, body: string | null): boolean {
+  if (body === null) return false;
+  for (let node: Element | null = element; node; node = node.nextElementSibling) {
+    const id = blockId(node);
+    if (id === null) continue;
+    if (bodyOf(id) === body) return true;
+    if (node !== element) return false;
+  }
+  return false;
+}
+
 function measureBlock(element: HTMLElement, rect: DOMRect, basis: string): ParkedBlock | null {
   const style = getComputedStyle(element);
   if (!BLOCK_DISPLAYS.has(style.display)) return null;
@@ -101,13 +146,23 @@ function measureBlock(element: HTMLElement, rect: DOMRect, basis: string): Parke
   // The reply's first and last block stay: a margin of theirs, or of a child
   // of theirs, may leave through the reply's own edge, where no gap shows it.
   // Between two siblings every margin that met is the gap between the boxes.
-  const previous = laidOutSibling(element, 'previousElementSibling');
-  const next = laidOutSibling(element, 'nextElementSibling');
+  const previous = shownSibling(element, 'previousElementSibling');
+  const next = shownSibling(element, 'nextElementSibling');
   if (!previous || !next) return null;
-  const before = rect.top - previous.getBoundingClientRect().bottom;
-  const after = next.getBoundingClientRect().top - rect.bottom;
+  // A neighbour that is no block changes unseen: a gap to it cannot be held.
+  const above = blockId(previous);
+  const below = blockId(next);
+  if (above === null || below === null) return null;
+  // Nor to a block without height (an empty heading, which has no box at all
+  // while the reply streams): the margins around it meet through it, so the
+  // gap is not one between this block and it.
+  const aboveRect = previous.getBoundingClientRect();
+  const belowRect = next.getBoundingClientRect();
+  if (aboveRect.height <= 0 || belowRect.height <= 0) return null;
+  const before = rect.top - aboveRect.bottom;
+  const after = belowRect.top - rect.bottom;
   if (before < 0 || after < 0 || rect.height <= 0) return null;
-  return { height: rect.height, before, after, basis };
+  return { height: rect.height, before, after, beside: [above, below], basis };
 }
 
 export function createBlockParking(): BlockParking {
@@ -117,6 +172,9 @@ export function createBlockParking(): BlockParking {
   let container: HTMLElement | null = null;
   let scroller: HTMLElement | null = null;
   let observer: IntersectionObserver | null = null;
+  let growing = false;
+  /** Blocks out of reach that stayed for being in the last body of a growing reply. */
+  const held = new Set<Element>();
   let syncQueued = false;
   /** Blocks returning above the reader from a box of another basis: the box's height. */
   const returnedAbove = new Map<string, number>();
@@ -138,6 +196,7 @@ export function createBlockParking(): BlockParking {
     const selection = document.getSelection();
     const selecting = selection !== null && !selection.isCollapsed;
     const basis = basisOf(container);
+    const unsettled = growing ? lastBodyOf(container) : null;
     const returning: string[] = [];
     const parking: Array<[string, ParkedBlock]> = [];
     // The observer reports a box only when it crosses the reach. One it counts
@@ -169,6 +228,10 @@ export function createBlockParking(): BlockParking {
       }
       const id = element.getAttribute(UNIT_ATTRIBUTE);
       if (!id || !measured || entry.isIntersecting || near(rect)) continue;
+      if (atBody(element, unsettled)) {
+        held.add(element);
+        continue;
+      }
       if (selecting && selection.containsNode(element, true)) continue;
       if (element.contains(document.activeElement) || element.querySelector(HELD_CONTENT)) continue;
       const box = measureBlock(element, rect, basis);
@@ -182,6 +245,7 @@ export function createBlockParking(): BlockParking {
     observer?.disconnect();
     observer = null;
     observed.clear();
+    held.clear();
   };
 
   const parking: BlockParking = {
@@ -194,12 +258,24 @@ export function createBlockParking(): BlockParking {
       };
     },
     parked: (id) => boxes.get(id) ?? null,
-    attach(element, enabled) {
+    attach(element, enabled, grows = false) {
       // IntersectionObserver is missing only in test DOMs.
       const parks = enabled && typeof IntersectionObserver !== 'undefined';
       const row = parks && element ? element.closest('.transcript-virtual-row') : null;
       const nextScroller = row && element ? scrollerOf(element) : null;
-      if (element === container && nextScroller === scroller && Boolean(observer) === Boolean(nextScroller)) return;
+      const settled = growing && !grows;
+      growing = grows;
+      // The observer reports a block only when it crosses the reach. Once the
+      // reply is final, a new observer reports every block again: the ones
+      // that stayed for what was still to change may park.
+      if (
+        element === container &&
+        nextScroller === scroller &&
+        Boolean(observer) === Boolean(nextScroller) &&
+        !settled
+      ) {
+        return;
+      }
       stop();
       container = element;
       scroller = nextScroller;
@@ -224,21 +300,40 @@ export function createBlockParking(): BlockParking {
           observer.unobserve(element);
           observed.delete(element);
         }
-        const blocks = container.querySelectorAll(`:scope > [${UNIT_ATTRIBUTE}], :scope > [${PARKED_ATTRIBUTE}]`);
+        const shown = [...container.children].filter((element) => !unshown(element));
+        const ids = shown.map(blockId);
+        const displaced: string[] = [];
         let grown = 0;
-        for (const element of blocks) {
+        shown.forEach((element, index) => {
+          const id = ids[index];
+          if (id === null) return;
+          const box = boxes.get(id);
+          if (box && (box.beside[0] !== ids[index - 1] || box.beside[1] !== ids[index + 1])) displaced.push(id);
           const before = returnedAbove.get(element.getAttribute(UNIT_ATTRIBUTE) ?? '');
           if (before !== undefined) grown += element.getBoundingClientRect().height - before;
-          if (observed.has(element)) continue;
+          if (observed.has(element)) return;
           observed.add(element);
-          observer.observe(element);
-        }
+          observer?.observe(element);
+        });
         returnedAbove.clear();
         noteGrownAbove(container.closest('.transcript-virtual-row'), grown);
+        for (const id of displaced) set(id, null);
+        // The observer reports a block only when it crosses the reach: a held
+        // block no longer at the last body is observed anew, which reports it
+        // again.
+        const unsettled = held.size > 0 && growing ? lastBodyOf(container) : null;
+        for (const element of held) {
+          if (element.isConnected && atBody(element, unsettled)) continue;
+          held.delete(element);
+          if (!observed.has(element)) continue;
+          observer.unobserve(element);
+          observer.observe(element);
+        }
       });
     },
     release(body) {
-      for (const id of [...boxes.keys()]) if (id.startsWith(`${body}:`)) set(id, null);
+      const own = (id: string) => id.startsWith(`${body}:`);
+      for (const [id, box] of [...boxes]) if (own(id) || box.beside.some(own)) set(id, null);
     },
   };
   return parking;

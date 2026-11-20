@@ -9,9 +9,11 @@ import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-l
 // (markdown-block-parking). In a real Chrome against the app's stylesheets and
 // markdown components, the same reply is rendered twice, once whole: wherever
 // the reader scrolls, every block of the parked one sits where the whole one
-// has it, to the layout unit, and the reply is as tall.
+// has it, to the layout unit, and the reply is as tall. A reply still arriving
+// does the same for every body but its last.
 
 const SECTIONS = 40;
+const ARRIVING_SECTIONS = 12;
 
 // The link component reaches the code editor, which only Vite can bundle; no
 // reply block here opens it.
@@ -59,6 +61,18 @@ const HAST = `
     type: 'root',
     children: [edge(), text('\\n'), ...Array.from({ length: count }, (_, n) => section(n)).flat(), edge()],
   });
+  // A body between others: it opens on \`lead\` and closes on a heading, whose
+  // gap to the next body is the larger of its margin and that body's lead's.
+  const leads = {
+    rule: () => el('hr', []),
+    list: () => el('ul', [el('li', [text('item')])]),
+    // A heading whose title is still to arrive takes no box while the reply streams.
+    untitled: () => el('h2', []),
+  };
+  window.ledRoot = (count, lead) => ({
+    type: 'root',
+    children: [leads[lead](), text('\\n'), ...Array.from({ length: count }, (_, n) => section(n)).flat(), el('h2', [text('Close')])],
+  });
 `;
 
 const PAGE = (width) => `
@@ -87,7 +101,14 @@ const PROBE = `
       .filter((node) => node.getClientRects().length > 0)
       .map((node) => {
         const rect = node.getBoundingClientRect();
-        return { top: rect.top - top, height: rect.height, parked: node.hasAttribute('data-md-parked'), text: node.textContent };
+        const unit = node.getAttribute('data-md-unit') ?? node.getAttribute('data-md-parked');
+        return {
+          top: rect.top - top,
+          height: rect.height,
+          parked: node.hasAttribute('data-md-parked'),
+          text: node.textContent,
+          body: unit === null ? null : unit.slice(0, unit.lastIndexOf(':')),
+        };
       });
     return { height: reply.getBoundingClientRect().height, rows, elements: reply.querySelectorAll('*').length };
   };
@@ -108,9 +129,23 @@ function sameGeometry(whole, parked, label) {
   });
 }
 
-test('parked blocks leave the DOM and the reply keeps its exact geometry', async (t) => {
+/** By body, in reply order: how many of its blocks are parked and mounted. */
+function blocksByBody(rows) {
+  const bodies = new Map();
+  for (const row of rows) {
+    if (row.body === null) continue;
+    const counts = bodies.get(row.body) ?? { parked: 0, mounted: 0 };
+    counts[row.parked ? 'parked' : 'mounted'] += 1;
+    bodies.set(row.body, counts);
+  }
+  return [...bodies.values()];
+}
+
+let assets;
+
+function replyAssets() {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
-  const [bundle, styles] = await Promise.all([
+  assets ??= Promise.all([
     build({
       stdin: {
         resolveDir,
@@ -121,14 +156,23 @@ test('parked blocks leave the DOM and the reply keeps its exact geometry', async
           import MarkdownAstBody from './MarkdownAstBody';
           import { createBlockParking, MarkdownBlockParkingContext } from './markdown-block-parking';
           const Copy = () => null;
-          function Reply({ root, parks }) {
+          function Reply({ bodies, parks, growing }) {
             const ref = useRef(null);
             const [parking] = useState(createBlockParking);
-            useLayoutEffect(() => { if (parks) parking.attach(ref.current, true); }, [parking, parks]);
+            useLayoutEffect(() => { if (parks) parking.attach(ref.current, true, growing); }, [parking, parks, growing]);
             return createElement(MarkdownBlockParkingContext.Provider, { value: parks ? parking : null },
-              createElement('div', { ref, className: 'markdown' }, createElement(MarkdownAstBody, { root, copyControl: Copy })));
+              createElement('div', { ref, className: growing ? 'markdown streaming' : 'markdown' },
+                // A body without a tree is one whose parse is still to land.
+                bodies.map((root, index) => root
+                  ? createElement(MarkdownAstBody, { key: index, root, copyControl: Copy })
+                  : createElement('span', { key: index, hidden: true }))));
           }
-          window.mountReply = (host, root, parks) => createRoot(host).render(createElement(Reply, { root, parks }));`,
+          const replies = new Map();
+          // The reply in pane \`id\`, as these bodies; \`growing\`: still arriving.
+          window.renderReply = (id, bodies, parks, growing = false) => {
+            if (!replies.has(id)) replies.set(id, createRoot(document.getElementById(id + '-host')));
+            replies.get(id).render(createElement(Reply, { bodies, parks, growing }));
+          };`,
       },
       bundle: true,
       write: false,
@@ -155,6 +199,12 @@ test('parked blocks leave the DOM and the reply keeps its exact geometry', async
       external: ['*.woff2', '*.woff', '*.ttf', '*.otf', '*.svg', '*.png', '*.jpg', '*.webp', '*.gif'],
     }),
   ]);
+  return assets;
+}
+
+/** A page with the two panes and the reply harness loaded. */
+async function openReplies(t) {
+  const [bundle, styles] = await replyAssets();
   const browser = await launchPuppeteerBrowser(puppeteer, {
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
     headless: true,
@@ -167,17 +217,23 @@ test('parked blocks leave the DOM and the reply keeps its exact geometry', async
   await page.setContent(`<!doctype html><html><head></head><body style="margin:0">${PAGE(560)}</body></html>`);
   await page.addStyleTag({ content: styles.outputFiles.find((file) => file.path.endsWith('.css')).text });
   await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
-  await page.evaluate(`${HAST}${PROBE}
-    const root = window.replyRoot(${SECTIONS});
-    window.mountReply(document.getElementById('whole-host'), root, false);
-    window.mountReply(document.getElementById('parked-host'), root, true);`);
-  await page.evaluate('window.frames()');
-  assert.deepEqual(errors, [], 'both replies rendered');
-
+  await page.evaluate(`${HAST}${PROBE}`);
   const read = async () => ({
     whole: await page.evaluate('window.blocksOf("whole")'),
     parked: await page.evaluate('window.blocksOf("parked")'),
   });
+  return { page, errors, read };
+}
+
+test('parked blocks leave the DOM and the reply keeps its exact geometry', async (t) => {
+  const { page, errors, read } = await openReplies(t);
+  await page.evaluate(`
+    const root = window.replyRoot(${SECTIONS});
+    window.renderReply('whole', [root], false);
+    window.renderReply('parked', [root], true);
+    window.frames()`);
+  assert.deepEqual(errors, [], 'both replies rendered');
+
   const max = await page.evaluate(
     '(() => { const pane = document.getElementById("whole"); return pane.scrollHeight - pane.clientHeight; })()'
   );
@@ -221,6 +277,100 @@ test('parked blocks leave the DOM and the reply keeps its exact geometry', async
   const narrow = await read();
   sameGeometry(narrow.whole, narrow.parked, 'after the width changed');
   assert.ok(narrow.parked.rows.some((row) => row.parked));
+
+  assert.deepEqual(errors, []);
+});
+
+test('a reply still arriving parks every body but its last', async (t) => {
+  const { page, errors, read } = await openReplies(t);
+  // The reader stays at the top, so each body that arrives is out of reach.
+  await page.evaluate(`
+    const bodies = [0, 1, 2].map(() => window.replyRoot(${ARRIVING_SECTIONS}));
+    window.arrive = async (count, growing) => {
+      window.renderReply('whole', bodies.slice(0, count), false, growing);
+      window.renderReply('parked', bodies.slice(0, count), true, growing);
+      await window.frames();
+    };`);
+
+  await page.evaluate('window.arrive(2, true)');
+  const two = await read();
+  const [first, last] = blocksByBody(two.parked.rows);
+  assert.ok(first.parked > 0, 'blocks of the body before the last are parked');
+  assert.deepEqual(last, { parked: 0, mounted: last.mounted }, 'the last body is whole');
+  sameGeometry(two.whole, two.parked, 'two bodies arrived');
+
+  await page.evaluate('window.arrive(3, true)');
+  const three = await read();
+  const bodies = blocksByBody(three.parked.rows);
+  assert.equal(bodies.length, 3);
+  assert.ok(bodies[1].parked > 0, 'a body parks once another follows it');
+  assert.equal(bodies[2].parked, 0, 'the new last body is whole');
+  sameGeometry(three.whole, three.parked, 'three bodies arrived');
+
+  await page.evaluate('window.arrive(3, false)');
+  const settled = await read();
+  assert.ok(blocksByBody(settled.parked.rows)[2].parked > 0, 'the last body parks once the reply has ended');
+  sameGeometry(settled.whole, settled.parked, 'the reply ended');
+
+  assert.deepEqual(errors, []);
+});
+
+test('a parked block keeps no gap to a neighbour that changed', async (t) => {
+  const { page, errors, read } = await openReplies(t);
+  // The reader stays at the top; the second body opens on a rule or on a
+  // list, which stand at different gaps under the heading before them.
+  await page.evaluate(`
+    const outer = [0, 1].map(() => window.ledRoot(${ARRIVING_SECTIONS}, 'rule'));
+    const middles = {};
+    window.lead = async (lead, bodies, growing) => {
+      if (lead) middles[lead] ??= window.ledRoot(${ARRIVING_SECTIONS}, lead);
+      const reply = [outer[0], lead && middles[lead], outer[1]].slice(0, bodies);
+      window.renderReply('whole', reply, false, growing);
+      window.renderReply('parked', reply, true, growing);
+      await window.frames();
+    };`);
+
+  await page.evaluate('window.lead("rule", 3, false)');
+  const ruled = await read();
+  const firstBody = ruled.parked.rows.filter((row) => row.body === ruled.parked.rows.find((other) => other.body)?.body);
+  assert.equal(firstBody.at(-1).parked, true, 'the heading before the second body is parked');
+  sameGeometry(ruled.whole, ruled.parked, 'a rule under the heading');
+
+  await page.evaluate('window.lead("list", 3, false)');
+  const listed = await read();
+  assert.notEqual(listed.whole.height, ruled.whole.height, 'the gap under the heading changed');
+  sameGeometry(listed.whole, listed.parked, 'a list under the heading');
+
+  // The second body leaves, as one whose parse is still to land, and lands.
+  await page.evaluate('window.lead(null, 3, false)');
+  const pending = await read();
+  assert.equal(pending.parked.rows.filter((row) => row.body).length, firstBody.length * 2, 'two bodies are shown');
+  sameGeometry(pending.whole, pending.parked, 'the third body under the heading');
+  await page.evaluate('window.lead("list", 3, false)');
+  const landed = await read();
+  sameGeometry(landed.whole, landed.parked, 'a body landed under the heading');
+
+  // The last body of a reply still arriving changes with every parse.
+  await page.evaluate('window.lead("rule", 2, true)');
+  const tail = await read();
+  sameGeometry(tail.whole, tail.parked, 'the third body left');
+  await page.evaluate('window.lead("list", 2, true)');
+  const grown = await read();
+  sameGeometry(grown.whole, grown.parked, 'the last body changed');
+
+  // A heading whose title is still to arrive takes no box while the reply
+  // streams: the gap of the blocks around it runs past it.
+  await page.evaluate('window.lead("untitled", 3, true)');
+  const untitled = await read();
+  assert.ok(blocksByBody(untitled.parked.rows)[1].parked > 0, 'the body under the untitled heading parks');
+  sameGeometry(untitled.whole, untitled.parked, 'an untitled heading');
+
+  // The same reply ends: the heading has a box of no height, which the
+  // margins around it meet through, and the last body may park.
+  await page.evaluate('window.lead("untitled", 3, false)');
+  const ended = await read();
+  assert.ok(blocksByBody(ended.parked.rows)[2].parked > 0, 'the last body parks once the reply has ended');
+  sameGeometry(ended.whole, ended.parked, 'an untitled heading in a reply that ended');
 
   assert.deepEqual(errors, []);
 });
