@@ -4,9 +4,8 @@
 // Pretendard's dynamic subset declares 92 Hangul range slices that otherwise
 // load lazily the first time a menu label, tab title, session row — or a
 // TYPED character — reaches a new codepoint range. Each first use re-rendered
-// that text a frame later (user: 메뉴 이동 시 새로 생기는 폰트가 튐) and, while
-// the slice was still in flight, left the character unpainted (user: 타이핑하는
-// 글자가 자꾸 투명해진다).
+// that text a frame later and, while
+// the slice was still in flight, left the character unpainted.
 //
 // Warming every slice once removes that class of stall at the source. Faces
 // warm in small idle-time batches everywhere; a browser/phone additionally

@@ -151,10 +151,15 @@ export function getSkinMainTransparency(): number {
   return readTransparency(SKIN_MAIN_TRANSPARENCY_KEY, DEFAULT_MAIN_TRANSPARENCY);
 }
 
-function storeTransparency(entries: Array<[string, number]>): void {
-  for (const [key, value] of entries) storage()?.setItem(key, String(clampTransparency(value)));
+/** Paints the stored skin and tells subscribers it changed. */
+function applyAndAnnounce(): void {
   applyCurrent();
   window.dispatchEvent(new window.Event(CHANGE_EVENT));
+}
+
+function storeTransparency(entries: Array<[string, number]>): void {
+  for (const [key, value] of entries) storage()?.setItem(key, String(clampTransparency(value)));
+  applyAndAnnounce();
 }
 
 export function setSkinOuterTransparency(transparency: number): void {
@@ -195,14 +200,12 @@ export function getSkinAccent(): string | null {
 export function setSkinAccent(accent: string | null): void {
   if (accent) storage()?.setItem(SKIN_ACCENT_KEY, accent.toLowerCase());
   else storage()?.removeItem(SKIN_ACCENT_KEY);
-  applyCurrent();
-  window.dispatchEvent(new window.Event(CHANGE_EVENT));
+  applyAndAnnounce();
 }
 
 export function setSkinPlate(plate: SkinPlate): void {
   storage()?.setItem(SKIN_PLATE_KEY, plate);
-  applyCurrent();
-  window.dispatchEvent(new window.Event(CHANGE_EVENT));
+  applyAndAnnounce();
 }
 
 export function getSkinPhoto(): boolean {
@@ -212,8 +215,7 @@ export function getSkinPhoto(): boolean {
 /** Off keeps the palette (plates, accent) and hides only the picture. */
 export function setSkinPhoto(on: boolean): void {
   storage()?.setItem(SKIN_PHOTO_KEY, on ? 'on' : 'off');
-  applyCurrent();
-  window.dispatchEvent(new window.Event(CHANGE_EVENT));
+  applyAndAnnounce();
 }
 
 /** Back to defaults: no skin, normal strength, light glass and picture's own
@@ -498,17 +500,16 @@ function extractColors(image: HTMLImageElement): {
     bin.h += h * weight;
     bin.s += s * weight;
   }
+  const binColor = (bin: (typeof bins)[number]) =>
+    hslToHex(bin.h / bin.weight, Math.max(0.55, Math.min(0.85, bin.s / bin.weight)), 0.55);
   const best = bins.reduce((top, bin) => (bin.weight > top.weight ? bin : top));
-  const accent =
-    best.weight === 0
-      ? FALLBACK_ACCENT
-      : hslToHex(best.h / best.weight, Math.max(0.55, Math.min(0.85, best.s / best.weight)), 0.55);
+  const accent = best.weight === 0 ? FALLBACK_ACCENT : binColor(best);
   // Up to four distinct hues, strongest first; the first is the accent.
   const swatches = bins
     .filter((bin) => bin.weight > 0)
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 4)
-    .map((bin) => hslToHex(bin.h / bin.weight, Math.max(0.55, Math.min(0.85, bin.s / bin.weight)), 0.55));
+    .map(binColor);
   const count = pixels.length / 4;
   const picture = `#${sum
     .map((v) =>
@@ -541,8 +542,7 @@ function migrateLegacyCustomMeta(): void {
 function save(next: StoredSkin): void {
   migrateLegacyCustomMeta();
   storage()?.setItem(SKIN_KEY, JSON.stringify(next));
-  applyCurrent();
-  window.dispatchEvent(new window.Event(CHANGE_EVENT));
+  applyAndAnnounce();
 }
 
 /** Choose a skin. It brings its own plate (a plate chosen for the previous

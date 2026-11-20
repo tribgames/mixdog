@@ -206,7 +206,7 @@ export async function applyLspWorkspaceEdit(
       // version our didOpen/didChange sync reported (= monaco versionId).
       // Applying them onto a document that moved on (fast typing, an agent
       // rewriting the file) interleaves lines and splits words — observed as
-      // scrambled "restored" backups (user report).
+      // scrambled "restored" backups.
       if (group.version !== null && model.getVersionId() !== group.version) {
         throw new Error(t('The document changed while the language server prepared this edit. Try again.'));
       }

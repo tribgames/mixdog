@@ -365,7 +365,10 @@ test('disk watching treats a held edit as unsaved and does not reload over it', 
     {
       sections: {
         call: async (method, params) => void watches.push([method, params]),
-        subscribeFsChanged: (listener) => (listeners.add(listener), () => void listeners.delete(listener)),
+        subscribeFsChanged: (listener) => {
+          listeners.add(listener);
+          return () => void listeners.delete(listener);
+        },
       },
       readProjectFile: async () => {
         reads++;
@@ -512,7 +515,10 @@ test('a Rich-held edit keeps the file dirty and refuses every save until it is r
   let session;
   window.mixdogDesktop = {
     readProjectFile: async () => ({ content: 'saved', mtimeMs: 1, binary: false, tooLarge: false }),
-    writeProjectFile: async (...args) => (writes.push(args), { mtimeMs: 2 }),
+    writeProjectFile: async (...args) => {
+      writes.push(args);
+      return { mtimeMs: 2 };
+    },
     writeEditorBackup: async () => {},
     deleteEditorBackup: async () => {},
   };

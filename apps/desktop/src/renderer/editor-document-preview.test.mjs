@@ -277,7 +277,10 @@ test('an edited document refreshes after the change is seen twice, keeping the v
   const api = {
     sections: {
       call: async (method, params) => void watches.push([method, params]),
-      subscribeFsChanged: (listener) => (listeners.add(listener), () => void listeners.delete(listener)),
+      subscribeFsChanged: (listener) => {
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
+      },
     },
     statProjectFile: async () => ({ ...disk }),
     previewDocumentPages: async (_p, _r, _a, options) => {

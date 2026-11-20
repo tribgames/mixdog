@@ -60,7 +60,7 @@ const SOURCE_ORDERED = /^ {0,3}\d+[.)]\s+(.*)$/;
 // The fallback stands in for the parsed block until the worker answers. Headings
 // and list items adopt their final element grammar here too, so a streaming
 // answer no longer shows "## " and "- " markers for the first frames and then
-// snaps into shape (user: 마크다운이 늦게 나온다).
+// snaps into shape.
 function sourceBlockNodes(block: string, key: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let prose: string[] = [];

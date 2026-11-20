@@ -252,6 +252,8 @@ export function EditorPanePreviewSurface({
   const name = relPath.split('/').at(-1) || relPath;
   // PDFs never reach this surface: they use the page viewer (no iframe).
   const zoomable = preview.kind === 'image';
+  // The user's own file carries no caption track to offer.
+  const Media = preview.kind === 'video' ? 'video' : 'audio';
   const { natural, onNatural } = useImageSize(preview.url);
   const body = (zoom: { scale: number } | null) => (
     <>
@@ -272,25 +274,11 @@ export function EditorPanePreviewSurface({
           onError={onFail}
         />
       )}
-      {preview.kind === 'audio' && (
-        // biome-ignore lint/a11y/useMediaCaption: this plays the user's own file, which carries no caption track to offer.
-        <audio
+      {(preview.kind === 'audio' || preview.kind === 'video') && (
+        // A background tab holds no media source, so it neither buffers nor plays.
+        <Media
           key={mediaForeground ? 'foreground' : 'suspended'}
-          ref={(node) => {
-            mediaRef.current = node;
-          }}
-          src={mediaForeground ? preview.url : undefined}
-          controls={mediaForeground}
-          preload={mediaForeground ? 'metadata' : 'none'}
-          onLoadedMetadata={onComplete}
-          onError={onFail}
-        />
-      )}
-      {preview.kind === 'video' && (
-        // biome-ignore lint/a11y/useMediaCaption: this plays the user's own file, which carries no caption track to offer.
-        <video
-          key={mediaForeground ? 'foreground' : 'suspended'}
-          ref={(node) => {
+          ref={(node: HTMLMediaElement | null) => {
             mediaRef.current = node;
           }}
           src={mediaForeground ? preview.url : undefined}

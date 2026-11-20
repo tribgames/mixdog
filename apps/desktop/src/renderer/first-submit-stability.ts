@@ -15,8 +15,7 @@ export function conversationCoverIdentity(
 /** Only a draft that submitted its first prompt is promoted into the session
  *  it created. Opening an existing session from New Task is a plain session
  *  entry: treated as a promotion, it skipped the cover and left the New Task
- *  watermark on screen until the cold lane landed, then popped the rows in
- *  (user: 세션 로딩할 때 투툭 튀고 이전 게 잔상으로 남는다). */
+ *  watermark on screen until the cold lane landed, then popped the rows in. */
 export function conversationDraftPromotion(
   draftSubmitted: boolean,
   originSessionId: string,

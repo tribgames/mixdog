@@ -24,7 +24,7 @@ export async function readMediaStill(read: ReadMediaAsset, assetId: string, kind
 /** The same still as an object URL over its bytes ('' when none; the caller
  *  revokes it): a card keeps a short blob: URL in state instead of the whole
  *  base64 data URL. */
-export async function readMediaStillObjectUrl(
+async function readMediaStillObjectUrl(
   read: ReadMediaAsset,
   assetId: string,
   kind: 'image' | 'video'

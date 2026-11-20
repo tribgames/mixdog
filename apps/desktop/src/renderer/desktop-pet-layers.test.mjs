@@ -34,6 +34,40 @@ function manualFrames() {
   };
 }
 
+/** Mounts the publisher in a fresh DOM with manual frames and a quiet desktop bridge; `publish` overrides the bridge's publish callbacks. */
+async function mountPublisher(t, publish) {
+  const frames = manualFrames();
+  const { window, document, root } = installTestDom(t, {
+    rootId: 'root',
+    expose: ['MouseEvent', 'Event', 'HTMLElement', 'MutationObserver'],
+    globals: {
+      ResizeObserver: QuietResizeObserver,
+      requestAnimationFrame: frames.request,
+      cancelAnimationFrame: frames.cancel,
+    },
+  });
+  window.mixdogDesktop = {
+    getDesktopPetConfig: async () => ({ enabled: true, pinned: true, keepAbove: false, collapsed: false, scale: 100 }),
+    subscribeDesktopPetConfig: () => () => {},
+    publishDesktopPet: () => {},
+    publishDesktopPetComposer: () => {},
+    publishDesktopPetTheme: () => {},
+    publishDesktopPetLayers: () => {},
+    ...publish,
+  };
+  const publisher = await import('./desktop-pet-publisher');
+  publisher.resetDesktopPetConfigForTests();
+  t.after(() => publisher.resetDesktopPetConfigForTests());
+  await act(async () => root.render(React.createElement(publisher.DesktopPetPublisher)));
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      while (frames.size) frames.run();
+    });
+  await settle();
+  return { frames, window, document, root, settle };
+}
+
 test('the published composer follows the card when its box moves without a window resize (side dock, sidebar, dock drag)', async (t) => {
   const frames = manualFrames();
   const observers = [];
@@ -101,7 +135,11 @@ test('the published composer follows the card when its box moves without a windo
 
   // A column resize (no window resize): the card's left moves, its size is the same.
   box = { left: 140, top: 600, width: 700, height: 120 };
-  await act(async () => observers.forEach((observer) => observer.callback([])));
+  await act(async () =>
+    observers.forEach((observer) => {
+      observer.callback([]);
+    })
+  );
   assert.equal(composers.at(-1).x, 140, 'follows the column');
 
   // A side dock opens without resizing anything the observers watch: its
@@ -125,35 +163,10 @@ test('the published composer follows the card when its box moves without a windo
 });
 
 test('scroll and animationend move a layer: one publish, coalesced into one frame however many events arrive', async (t) => {
-  const frames = manualFrames();
-  const { window, document, root } = installTestDom(t, {
-    rootId: 'root',
-    expose: ['MouseEvent', 'Event', 'HTMLElement', 'MutationObserver'],
-    globals: {
-      ResizeObserver: QuietResizeObserver,
-      requestAnimationFrame: frames.request,
-      cancelAnimationFrame: frames.cancel,
-    },
-  });
   const layers = [];
-  window.mixdogDesktop = {
-    getDesktopPetConfig: async () => ({ enabled: true, pinned: true, keepAbove: false, collapsed: false, scale: 100 }),
-    subscribeDesktopPetConfig: () => () => {},
-    publishDesktopPet: () => {},
-    publishDesktopPetComposer: () => {},
-    publishDesktopPetTheme: () => {},
+  const { frames, window, document, root, settle } = await mountPublisher(t, {
     publishDesktopPetLayers: (value) => layers.push(value.rects),
-  };
-  const publisher = await import('./desktop-pet-publisher');
-  publisher.resetDesktopPetConfigForTests();
-  t.after(() => publisher.resetDesktopPetConfigForTests());
-  await act(async () => root.render(React.createElement(publisher.DesktopPetPublisher)));
-  const settle = () =>
-    act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      while (frames.size) frames.run();
-    });
-  await settle();
+  });
   assert.deepEqual(layers.at(-1), [], 'mounted, nothing open');
 
   const scroller = document.createElement('div');
@@ -201,35 +214,10 @@ test('scroll and animationend move a layer: one publish, coalesced into one fram
 });
 
 test('an expanded browser/terminal surface and its widened dock header are cut out of the pet like the dock, a parked one is not', async (t) => {
-  const frames = manualFrames();
-  const { window, document, root } = installTestDom(t, {
-    rootId: 'root',
-    expose: ['MouseEvent', 'Event', 'HTMLElement', 'MutationObserver'],
-    globals: {
-      ResizeObserver: QuietResizeObserver,
-      requestAnimationFrame: frames.request,
-      cancelAnimationFrame: frames.cancel,
-    },
-  });
   const layers = [];
-  window.mixdogDesktop = {
-    getDesktopPetConfig: async () => ({ enabled: true, pinned: true, keepAbove: false, collapsed: false, scale: 100 }),
-    subscribeDesktopPetConfig: () => () => {},
-    publishDesktopPet: () => {},
-    publishDesktopPetComposer: () => {},
-    publishDesktopPetTheme: () => {},
+  const { document, settle } = await mountPublisher(t, {
     publishDesktopPetLayers: (value) => layers.push(value.rects),
-  };
-  const publisher = await import('./desktop-pet-publisher');
-  publisher.resetDesktopPetConfigForTests();
-  t.after(() => publisher.resetDesktopPetConfigForTests());
-  await act(async () => root.render(React.createElement(publisher.DesktopPetPublisher)));
-  const settle = () =>
-    act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      while (frames.size) frames.run();
-    });
-  await settle();
+  });
 
   // The dock keeps its narrow column; the expanded surface (a fixed container
   // outside the dock) and the dock's header cover the whole main panel.
@@ -276,35 +264,10 @@ test('an expanded browser/terminal surface and its widened dock header are cut o
 });
 
 test('a visualize page (HTML, PDF, image, video) shows inside the dock panel, so the dock reports it docked, overlaid at 1160px and expanded', async (t) => {
-  const frames = manualFrames();
-  const { window, document, root } = installTestDom(t, {
-    rootId: 'root',
-    expose: ['MouseEvent', 'Event', 'HTMLElement', 'MutationObserver'],
-    globals: {
-      ResizeObserver: QuietResizeObserver,
-      requestAnimationFrame: frames.request,
-      cancelAnimationFrame: frames.cancel,
-    },
-  });
   const layers = [];
-  window.mixdogDesktop = {
-    getDesktopPetConfig: async () => ({ enabled: true, pinned: true, keepAbove: false, collapsed: false, scale: 100 }),
-    subscribeDesktopPetConfig: () => () => {},
-    publishDesktopPet: () => {},
-    publishDesktopPetComposer: () => {},
-    publishDesktopPetTheme: () => {},
+  const { window, document, settle } = await mountPublisher(t, {
     publishDesktopPetLayers: (value) => layers.push(value.rects),
-  };
-  const publisher = await import('./desktop-pet-publisher');
-  publisher.resetDesktopPetConfigForTests();
-  t.after(() => publisher.resetDesktopPetConfigForTests());
-  await act(async () => root.render(React.createElement(publisher.DesktopPetPublisher)));
-  const settle = () =>
-    act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      while (frames.size) frames.run();
-    });
-  await settle();
+  });
 
   // The dock host, its embedded panel, and a visualize page inside (an iframe
   // for HTML/PDF/Office pages, an img or video otherwise: all in-flow).
@@ -364,35 +327,10 @@ test('a visualize page (HTML, PDF, image, video) shows inside the dock panel, so
 });
 
 test('while no card shows (boot, a session loading), DOM and theme changes read the look once a frame, not per batch', async (t) => {
-  const frames = manualFrames();
-  const { window, document, root } = installTestDom(t, {
-    rootId: 'root',
-    expose: ['MouseEvent', 'Event', 'HTMLElement', 'MutationObserver'],
-    globals: {
-      ResizeObserver: QuietResizeObserver,
-      requestAnimationFrame: frames.request,
-      cancelAnimationFrame: frames.cancel,
-    },
-  });
   const themes = [];
-  window.mixdogDesktop = {
-    getDesktopPetConfig: async () => ({ enabled: true, pinned: true, keepAbove: false, collapsed: false, scale: 100 }),
-    subscribeDesktopPetConfig: () => () => {},
-    publishDesktopPet: () => {},
-    publishDesktopPetComposer: () => {},
+  const { frames, window, document, settle } = await mountPublisher(t, {
     publishDesktopPetTheme: (theme) => themes.push(theme),
-    publishDesktopPetLayers: () => {},
-  };
-  const publisher = await import('./desktop-pet-publisher');
-  publisher.resetDesktopPetConfigForTests();
-  t.after(() => publisher.resetDesktopPetConfigForTests());
-  await act(async () => root.render(React.createElement(publisher.DesktopPetPublisher)));
-  const settle = () =>
-    act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      while (frames.size) frames.run();
-    });
-  await settle();
+  });
   // Each look read resolves the whole page's style (a forced style update).
   const getComputedStyle = window.getComputedStyle.bind(window);
   let looks = 0;

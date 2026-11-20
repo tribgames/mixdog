@@ -6,8 +6,7 @@ import { touchPrimaryPointer } from './surface-input-focus';
 
 /** A detail card hangs a few px off the control that owns it, so a pointer on
  *  its way there leaves the control BEFORE it arrives. Closing on that first
- *  frame killed the card mid-trip (user: 위로 마우스 올라가기 전에 계속 창이
- *  닫혀버리네) — the transparent hover bridge only covers the trip that runs
+ *  frame killed the card mid-trip — the transparent hover bridge only covers the trip that runs
  *  straight through the gap, and anything painted over the bridge, a diagonal
  *  path, or a card that flips sides all leave it. The close waits out this
  *  grace window instead, and a pointer that is back inside the slot when it

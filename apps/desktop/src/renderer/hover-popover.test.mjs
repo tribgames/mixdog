@@ -1,8 +1,7 @@
 // Hover-intent contract for the status-slot cards (context gauge, work card).
 // The card hangs a few px off its control, so the pointer ALWAYS leaves the
 // control before it reaches the card: a close on that first frame is the bug
-// this contract exists to prevent (user: 위로 마우스 올라가기 전에 계속 창이
-// 닫혀버리네).
+// this contract exists to prevent.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 

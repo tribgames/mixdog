@@ -18,6 +18,13 @@ import './desktop/browser-isolated-view.css';
 const NATIVE_METADATA_INTERVAL_MS = 100;
 /** Overlap re-check for shell UI that moves without a DOM change. */
 const NATIVE_OVERLAP_FALLBACK_MS = 250;
+/** Visibility and timers for the presentation loops. */
+const WINDOW_CLOCK = {
+  visible: () => document.visibilityState !== 'hidden',
+  now: () => performance.now(),
+  schedule: (callback: () => void, delay: number) => window.setTimeout(callback, delay),
+  cancel: (handle: unknown) => window.clearTimeout(handle as number),
+};
 /** Each activation's id in the panel reports to the host (panel-fold). */
 let nextPaneActivation = 0;
 
@@ -111,10 +118,7 @@ export const IsolatedBrowserView = forwardRef<
     const health = createBrowserDisplayHealth();
     let stopped = false;
     const loop = createBrowserPresentationLoop({
-      visible: () => document.visibilityState !== 'hidden',
-      now: () => performance.now(),
-      schedule: (callback, delay) => window.setTimeout(callback, delay),
-      cancel: (handle) => window.clearTimeout(handle as number),
+      ...WINDOW_CLOCK,
       interval: () => NATIVE_METADATA_INTERVAL_MS,
       async read() {
         await client.pollMetadata();
@@ -142,10 +146,7 @@ export const IsolatedBrowserView = forwardRef<
     let stopped = false;
     const health = createBrowserDisplayHealth();
     const loop = createBrowserPresentationLoop({
-      visible: () => document.visibilityState !== 'hidden',
-      now: () => performance.now(),
-      schedule: (callback, delay) => window.setTimeout(callback, delay),
-      cancel: (handle) => window.clearTimeout(handle as number),
+      ...WINDOW_CLOCK,
       interval: () => (nativeShownRef.current ? NATIVE_METADATA_INTERVAL_MS : 1000 / 60),
       async read() {
         await client.poll();

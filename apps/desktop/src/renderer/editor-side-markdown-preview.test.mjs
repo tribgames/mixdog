@@ -60,8 +60,14 @@ function fakeModel(uri, value) {
     getValue() {
       return this.value;
     },
-    onDidChangeContent: (listener) => (content.add(listener), { dispose: () => content.delete(listener) }),
-    onWillDispose: (listener) => (disposal.add(listener), { dispose: () => disposal.delete(listener) }),
+    onDidChangeContent: (listener) => {
+      content.add(listener);
+      return { dispose: () => content.delete(listener) };
+    },
+    onWillDispose: (listener) => {
+      disposal.add(listener);
+      return { dispose: () => disposal.delete(listener) };
+    },
     edit(next) {
       this.value = next;
       for (const listener of [...content]) listener();
