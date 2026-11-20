@@ -769,3 +769,39 @@ async fn the_recorded_root_cases_cross_the_row_boundary() {
         assert_eq!(select_root_id(&members), case["root"].as_i64(), "{case}");
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+async fn a_window_below_the_minimum_leaves_the_backlog_without_a_model_call() {
+    use crate::memory::cycles::quality::Row;
+    use crate::memory::cycles::rows::{PlanOptions, cycle1_unchunked_sql, resolve_cycle1_plan};
+    use crate::memory::cycles::window::{WindowEnv, process_cycle1_window};
+    mixdog_rt::testing::tokens();
+    let pg = TestPg::start().await;
+    let db = memory_db(&pg).await;
+    for i in 0..2 {
+        db.execute(
+            "INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, time_source) VALUES ($1, 'user', 'ok', $2, 'tiny', $3, 'recorded')",
+            &[&(now_ms() - THREE_HOURS + i), &format!("transcript:tiny#{i}"), &(i as i32 + 1)],
+        )
+        .await
+        .expect("seed");
+    }
+    let ids: Vec<i64> = db.query("SELECT id FROM entries ORDER BY id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    let rows: Vec<Row> = ids
+        .iter()
+        .map(|&id| Row { id, ts: id, role: Some("user".into()), content: "ok".into(), session_id: Some("tiny".into()), project_id: None, element: None })
+        .collect();
+    let (_runner, llm) = runner(&db, &[], None, Arc::new(Embeddings::default()));
+    let env = WindowEnv { db: db.clone(), llm: llm.clone(), embeddings: Arc::new(Embeddings::default()), now: Arc::new(now_ms) };
+    let plan = resolve_cycle1_plan(&json!({}), &PlanOptions::default(), Some(json!({"provider": "test", "model": "m"})));
+    let result = process_cycle1_window(&env, &rows, 0, &plan, &CancellationToken::new()).await.unwrap();
+    assert_eq!(*llm.calls.lock().unwrap(), 0);
+    assert_eq!(result.prefiltered_row_ids.len(), 2);
+    let stored = db.query("SELECT chunk_root = id, is_root, status::text, COALESCE(error_count, 0) FROM entries ORDER BY id", &[]).await.unwrap();
+    for row in &stored {
+        assert_eq!((row.get::<_, bool>(0), row.get::<_, i16>(1), row.get::<_, String>(2), row.get::<_, i32>(3)), (true, 0, "archived".into(), 0));
+    }
+    let pending = db.query(&format!("SELECT id FROM entries WHERE {}", cycle1_unchunked_sql("")), &[]).await.unwrap();
+    assert!(pending.is_empty());
+}

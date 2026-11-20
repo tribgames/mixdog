@@ -8,7 +8,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::log;
-use super::quality::{Generation, Generated, InvalidChunk, Row, assess_chunk_quality, generate_cycle1_chunks};
+use super::quality::{Generation, Generated, InvalidChunk, Row, assess_chunk_quality, generate_cycle1_chunks, is_below_min_source};
 use super::requests::spawn_in;
 use super::rows::{Plan, is_structurally_unchunkable, mark_omitted_rows, mark_terminal_rows, select_root_id};
 use super::{Cycle1Llm, Cycle1Request, CycleEmbeddings};
@@ -182,6 +182,20 @@ pub async fn process_cycle1_window(env: &WindowEnv, original: &[Row], window_idx
             prefiltered_row_ids: prefiltered_ids,
             prefilter_marked,
             prefilter_mark_failed,
+            ..WindowResult::default()
+        });
+    }
+    if is_below_min_source(&rows) {
+        // Never sent to the model, so it is not a miss: same terminal marking as the prefilter.
+        let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+        let (_, marked, failed) = mark_terminal_rows(&env.db, &ids, "min-source", (env.now)()).await;
+        let terminal: Vec<i64> = prefiltered_ids.iter().copied().chain(ids).collect();
+        return Ok(WindowResult {
+            rows_considered: original.len(),
+            omitted_row_ids: terminal.clone(),
+            prefiltered_row_ids: terminal,
+            prefilter_marked: prefilter_marked + marked,
+            prefilter_mark_failed: prefilter_mark_failed + failed,
             ..WindowResult::default()
         });
     }
