@@ -116,6 +116,7 @@ export function RouteTrigger({
   visible,
   sheetId,
   triggerModel,
+  triggerProvider = '',
   effort,
   fast,
   ultra,
@@ -131,6 +132,8 @@ export function RouteTrigger({
   visible: boolean;
   sheetId: string;
   triggerModel: string;
+  /** ModelRouteLabel `provider`; set by route chain rows only. */
+  triggerProvider?: string;
   effort: string;
   fast: boolean;
   ultra: boolean;
@@ -148,7 +151,9 @@ export function RouteTrigger({
       disabled={disabled}
       style={width !== null ? { width } : undefined}
       data-morph={width !== null ? '' : undefined}
-      aria-label={tooltip}
+      // The aria-label hides the visible text; with a sign-in label the name
+      // must carry it, or two rows of one model sound the same.
+      aria-label={triggerProvider ? `${tooltip}, ${triggerModel}, ${triggerProvider}` : tooltip}
       aria-haspopup="menu"
       aria-expanded={visible}
       aria-controls={visible ? `route-sheet-${sheetId}` : undefined}
@@ -174,6 +179,7 @@ export function RouteTrigger({
       <span className="route-trigger-copy">
         <ModelRouteLabel
           model={triggerModel}
+          provider={triggerProvider}
           effort={effort}
           fast={fast}
           ultra={ultra}

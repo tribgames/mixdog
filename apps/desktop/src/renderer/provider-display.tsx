@@ -339,8 +339,11 @@ export function ModelRouteLabel({
   autoEffortCapable = false,
   autoEffort,
   ultra = false,
+  provider = '',
 }: {
   model: string | null | undefined;
+  /** How the route signs in ("OpenAI API", "OpenAI OAuth"), shown beside the model; route chain rows only. */
+  provider?: string;
   effort?: string | null | undefined;
   fast?: boolean;
   /** The fast route runs the Ultrafast service tier: shown as an orange "Ultrafast". */
@@ -366,15 +369,21 @@ export function ModelRouteLabel({
           <span className="model-route-label-blue">Blue</span>
         </>
       )}
-      {parts.effort && (
+      {provider && (
         <>
           {(parts.model || blue) && ' '}
+          <small className="model-route-label-provider">{provider}</small>
+        </>
+      )}
+      {parts.effort && (
+        <>
+          {(parts.model || blue || provider) && ' '}
           <span className="model-route-label-effort">{parts.effort}</span>
         </>
       )}
       {parts.fast && (
         <>
-          {(parts.model || blue || parts.effort) && ' '}
+          {(parts.model || blue || provider || parts.effort) && ' '}
           {ultra ? (
             <span className="model-route-label-ultra">Ultrafast</span>
           ) : (

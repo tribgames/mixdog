@@ -138,6 +138,8 @@ export function RouteChainEditor({
               disabled={disabled}
               composerParity={composerParity}
               providerNames={providerNames}
+              // One model may sit on two rows (API key and subscription).
+              providerLabel
               // A chain row sits in a narrow panel or dialog column: the picker
               // drops down under its chip instead of flying out beside it.
               dropdown
