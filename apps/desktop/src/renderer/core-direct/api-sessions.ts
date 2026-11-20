@@ -297,7 +297,7 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
         emit({ sessionId, snapshot: null } as unknown as DesktopSessionStateUpdate)
       );
       if (released.length > 0) {
-        console.error(
+        console.info(
           `[mixdog-lane] baseline released count=${released.length} visible=${ids.length} ids=${released
             .slice(0, 6)
             .map((sessionId) => sessionId.slice(-8))

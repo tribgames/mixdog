@@ -9,7 +9,7 @@ import { attachWindowIdleReclaim, createIdleReclaim, purgeRendererMemory } from 
 const elapse = (t, ms = 1) => t.mock.timers.tick(ms);
 
 function harness(t, overrides = {}) {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const calls = [];
   const state = { focused: false };
   const reclaim = createIdleReclaim({
@@ -49,16 +49,49 @@ test('an unreadable window counts as focused', async (t) => {
   assert.equal(calls.length, 0);
 });
 
-test('never releases in the middle of a turn', async (t) => {
-  const { calls, reclaim } = harness(t);
-  reclaim.onSnapshot({ busy: true });
-  reclaim.onBlur();
-  elapse(t);
-  assert.equal(calls.length, 0);
-  // The turn ending re-arms the timer on the still-unfocused window.
-  reclaim.onSnapshot({ busy: false });
-  elapse(t);
+test('a focused window the user walked away from is released by system idle time', async (t) => {
+  const idle = { ms: 0 };
+  const { calls, state, reclaim } = harness(t, { delayMs: 100, pollMs: 10, systemIdleMs: () => idle.ms });
+  // The machine's idle time grows with the clock until the user touches it.
+  const away = (ms) => {
+    for (let passed = 0; passed < ms; passed += 10) {
+      idle.ms += 10;
+      elapse(t, 10);
+    }
+  };
+  state.focused = true;
+  for (let i = 0; i < 5; i += 1) {
+    idle.ms = 0;
+    elapse(t, 10);
+  }
+  assert.equal(calls.length, 0, 'a present user is untouched');
+  away(100);
   assert.equal(calls.length, 1);
+  away(200);
+  assert.equal(calls.length, 1, 'one release per quiet stretch');
+  idle.ms = 0;
+  away(100);
+  assert.equal(calls.length, 2);
+  reclaim.dispose();
+});
+
+test('a release by the blur timer is not repeated by the idle poll in the same quiet stretch', async (t) => {
+  const idle = { ms: 0 };
+  const { calls, reclaim } = harness(t, { delayMs: 100, pollMs: 30, systemIdleMs: () => idle.ms });
+  const pass = (ms) => {
+    for (let passed = 0; passed < ms; passed += 10) {
+      idle.ms += 10;
+      elapse(t, 10);
+    }
+  };
+  reclaim.onBlur();
+  pass(90);
+  idle.ms = 0; // the user's last input elsewhere, just before the release
+  pass(10);
+  assert.equal(calls.length, 1, 'the blur timer released');
+  pass(200);
+  assert.equal(calls.length, 1);
+  reclaim.dispose();
 });
 
 test('releases once per quiet stretch', async (t) => {
@@ -71,17 +104,6 @@ test('releases once per quiet stretch', async (t) => {
   // Focus refills what was dropped, so the next background stretch earns one.
   reclaim.onFocus();
   reclaim.onBlur();
-  elapse(t);
-  assert.equal(calls.length, 2);
-});
-
-test('a fresh turn earns another release after it settles', async (t) => {
-  const { calls, reclaim } = harness(t);
-  reclaim.onBlur();
-  elapse(t);
-  assert.equal(calls.length, 1);
-  reclaim.onSnapshot({ commandBusy: true });
-  reclaim.onSnapshot({ commandBusy: false });
   elapse(t);
   assert.equal(calls.length, 2);
 });
@@ -109,10 +131,9 @@ test('closing the window retires its reclaim controller without affecting a repl
   elapse(t, 20);
   assert.deepEqual(calls, ['second']);
 
-  first.controller.onSnapshot({ busy: true });
-  first.controller.onSnapshot({ busy: false });
+  first.controller.onBlur();
   elapse(t, 20);
-  assert.deepEqual(calls, ['second'], 'a late session update cannot rearm the closed window');
+  assert.deepEqual(calls, ['second'], 'a late event cannot rearm the closed window');
 });
 
 test('purge drops renderer caches', async () => {

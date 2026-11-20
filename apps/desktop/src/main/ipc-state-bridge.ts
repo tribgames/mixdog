@@ -256,7 +256,7 @@ class LegacyDesktopStateBridge {
       }
     );
     if (released.length > 0) {
-      console.error(
+      console.info(
         '[mixdog-lane] baseline released' +
           ` count=${released.length} visible=${normalized.length}` +
           ` ids=${released
