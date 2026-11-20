@@ -32,9 +32,9 @@ const facts = (sessionId, count, extra = {}) =>
   }));
 
 // Would fail if a finished turn's idle pages were reclaimed sooner or later than 5 minutes after the turn ended,
-// or if a live turn's idle pages were reclaimed sooner or later than 30 minutes. The deadlines are literals on
+// or if a live turn's idle pages were reclaimed sooner or later than 10 minutes. The deadlines are literals on
 // purpose: importing the policy constants would move with the product and prove nothing.
-test('idle pages close five minutes after their turn finished, or after thirty minutes while it is live', async () => {
+test('idle pages close five minutes after their turn finished, or after ten minutes while it is live', async () => {
   const flush = () => new Promise((resolve) => setImmediate(resolve));
   const sessions = new BrowserSessionRegistry();
   const closed = [];
@@ -61,32 +61,36 @@ test('idle pages close five minutes after their turn finished, or after thirty m
     });
   const minutes = (count) => count * 60_000;
 
-  // The page was last used at minute 1 and the turn finished at minute 10: the finished-turn deadline must count
-  // from the turn's finish (minute 15), not from the page's last use (minute 6).
+  // The page was last used at minute 8 and the turn finished at minute 10: the finished-turn deadline must count
+  // from the turn's finish (minute 15), not from the page's last use (minute 13).
   const finishedAt = minutes(10);
-  addPage('finished', 'page', minutes(1));
+  addPage('finished', 'page', minutes(8));
   sessions.beginTurn('finished', 1);
   sessions.finishTurn('finished', 1, finishedAt);
   addPage('live', 'page', minutes(1));
   sessions.beginTurn('live', 1);
   await flush();
 
+  clock.now = minutes(1) + minutes(10) - 1;
+  reclaimer.sweep();
+  await flush();
+  assert.deepEqual(closed, [], 'a live turn page outlasts five minutes, and the finished turn is not due yet');
+  clock.now = minutes(1) + minutes(10);
+  reclaimer.sweep();
+  await flush();
+  assert.deepEqual(closed, ['live/page'], 'ten minutes after its last use the live page closes');
+  clock.now = minutes(8) + minutes(5);
+  reclaimer.sweep();
+  await flush();
+  assert.deepEqual(closed, ['live/page'], 'five minutes after its last use the finished page stays');
   clock.now = finishedAt + minutes(5) - 1;
   reclaimer.sweep();
   await flush();
-  assert.deepEqual(closed, [], 'just before five minutes after the turn finished nothing closes');
+  assert.deepEqual(closed, ['live/page'], 'just before five minutes after the turn finished its page stays');
   clock.now = finishedAt + minutes(5);
   reclaimer.sweep();
   await flush();
-  assert.deepEqual(closed, ['finished/page'], 'five minutes after the turn finished only its page closes');
-  clock.now = minutes(1) + minutes(30) - 1;
-  reclaimer.sweep();
-  await flush();
-  assert.deepEqual(closed, ['finished/page'], 'a live turn page outlasts five minutes');
-  clock.now = minutes(1) + minutes(30);
-  reclaimer.sweep();
-  await flush();
-  assert.deepEqual(closed, ['finished/page', 'live/page'], 'thirty minutes after its last use the live page closes');
+  assert.deepEqual(closed, ['live/page', 'finished/page'], 'five minutes after the turn finished its page closes');
 });
 
 test('a session at its own cap is told its count and to close its own tabs', () => {

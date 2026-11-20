@@ -10,7 +10,7 @@ const MAX_BACKGROUND_TABS_PER_SESSION = 6;
 const MAX_BACKGROUND_TABS_GLOBAL = 24;
 /** Every page of a session with a live turn (primary, user, popup, agent) is
  *  unloaded after this long unused; a session whose turn ended uses IDLE_RELEASE_MS. */
-export const BACKGROUND_PAGE_IDLE_MS = 30 * 60_000;
+export const BACKGROUND_PAGE_IDLE_MS = 10 * 60_000;
 /** How long anything that can be brought back is kept once its use has ended. */
 export const IDLE_RELEASE_MS = 5 * 60_000;
 /** A session's agent pages are reclaimed this long after its turn finishes. */
