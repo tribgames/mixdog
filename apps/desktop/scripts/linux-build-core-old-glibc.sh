@@ -20,9 +20,9 @@ export PATH=$HOME/.cargo/bin:$PATH
 export RUSTFLAGS="-C link-arg=-Wl,--build-id=sha1"
 export CARGO_TARGET_DIR=/tmp/target
 if [ -x /usr/local/bin/sccache ] && /usr/local/bin/sccache --version; then
-  export RUSTC_WRAPPER=/usr/local/bin/sccache
+	export RUSTC_WRAPPER=/usr/local/bin/sccache
 else
-  echo "::warning::sccache is not available in the container: the build runs uncached"
+	echo "::warning::sccache is not available in the container: the build runs uncached"
 fi
 # CI leaves both unset. scripts/deploy-remote.ps1 -LocalRelayBuild sets MIXDOG_OUT_DIR (so the repo mounts read-only)
 # and MIXDOG_RELAY_ONLY=1 (it ships nothing but the relay, so the core and the terminal program are not compiled).
@@ -30,14 +30,14 @@ out=${MIXDOG_OUT_DIR:-/w/out}
 mkdir -p "$out"
 manifest=/w/native/core/Cargo.toml
 if [ "${MIXDOG_RELAY_ONLY:-}" != "1" ]; then
-  cargo build --locked --release --manifest-path "$manifest" -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass
-  cargo build --locked --release --manifest-path "$manifest" -p mixdog-entry --bin mixdog
-  cp /tmp/target/release/mixdogd /tmp/target/release/mixdog-askpass /tmp/target/release/mixdog "$out/"
+	cargo build --locked --release --manifest-path "$manifest" -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass
+	cargo build --locked --release --manifest-path "$manifest" -p mixdog-entry --bin mixdog
+	cp /tmp/target/release/mixdogd /tmp/target/release/mixdog-askpass /tmp/target/release/mixdog "$out/"
 fi
 if [ "${MIXDOG_BUILD_RELAY:-}" = "1" ]; then
-  env -u MIXDOG_GOOGLE_OAUTH_CLIENT_ID -u MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET \
-    cargo build --locked --release --manifest-path "$manifest" -p mixdog-relay --bin mixdog-relay
-  cp /tmp/target/release/mixdog-relay "$out/"
+	env -u MIXDOG_GOOGLE_OAUTH_CLIENT_ID -u MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET \
+		cargo build --locked --release --manifest-path "$manifest" -p mixdog-relay --bin mixdog-relay
+	cp /tmp/target/release/mixdog-relay "$out/"
 fi
 if [ -n "${RUSTC_WRAPPER:-}" ]; then "$RUSTC_WRAPPER" --show-stats || true; fi
 # The cache directories belong to root here; the runner user saves them.

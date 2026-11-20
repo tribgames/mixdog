@@ -53,47 +53,81 @@ RENEW = "renew it with `python3 apps/mobile/scripts/ios-ci-signing.py issue` (ap
 
 def certificate():
     p12 = pathlib.Path(os.environ["RUNNER_TEMP"], "dist.p12").read_bytes()
-    return pkcs12.load_key_and_certificates(p12, os.environ[SECRET_PASSWORD].encode())[1]
+    return pkcs12.load_key_and_certificates(p12, os.environ[SECRET_PASSWORD].encode())[
+        1
+    ]
 
 
 def check(now=None):
     expires = certificate().not_valid_after_utc
     left = expires - (now or datetime.datetime.now(datetime.timezone.utc))
     if left <= datetime.timedelta(0):
-        print(f"::error title=iOS distribution certificate expired::It expired on {expires:%Y-%m-%d}; {RENEW}.")
+        print(
+            f"::error title=iOS distribution certificate expired::It expired on {expires:%Y-%m-%d}; {RENEW}."
+        )
         sys.exit(1)
     if left < WARN_BEFORE:
-        print(f"::warning title=iOS distribution certificate expires soon::"
-              f"It expires on {expires:%Y-%m-%d} ({left.days} days left); {RENEW}.")
+        print(
+            f"::warning title=iOS distribution certificate expires soon::"
+            f"It expires on {expires:%Y-%m-%d} ({left.days} days left); {RENEW}."
+        )
     else:
         print(f"Distribution certificate valid until {expires:%Y-%m-%d}.")
 
 
 def certificate_id(cert):
-    found = call("GET", "/certificates?" + urllib.parse.urlencode(
-        {"filter[certificateType]": "DISTRIBUTION", "limit": 200}))
+    found = call(
+        "GET",
+        "/certificates?"
+        + urllib.parse.urlencode(
+            {"filter[certificateType]": "DISTRIBUTION", "limit": 200}
+        ),
+    )
     for item in found["data"]:
         if int(item["attributes"]["serialNumber"], 16) == cert.serial_number:
             return item["id"]
-    print(f"::error title=iOS distribution certificate not in App Store Connect::"
-          f"Serial {cert.serial_number:X} from {SECRET_P12} is not an active Apple Distribution "
-          f"certificate (revoked?); {RENEW}.")
+    print(
+        f"::error title=iOS distribution certificate not in App Store Connect::"
+        f"Serial {cert.serial_number:X} from {SECRET_P12} is not an active Apple Distribution "
+        f"certificate (revoked?); {RENEW}."
+    )
     sys.exit(1)
 
 
 def bundle_id(identifier):
-    found = call("GET", "/bundleIds?" + urllib.parse.urlencode({"filter[identifier]": identifier, "limit": 200}))
+    found = call(
+        "GET",
+        "/bundleIds?"
+        + urllib.parse.urlencode({"filter[identifier]": identifier, "limit": 200}),
+    )
     for item in found["data"]:
         if item["attributes"]["identifier"] == identifier:
             return item["id"]
-    created = call("POST", "/bundleIds", {"data": {"type": "bundleIds", "attributes": {
-        "identifier": identifier, "name": identifier.replace(".", " "), "platform": "IOS"}}})
+    created = call(
+        "POST",
+        "/bundleIds",
+        {
+            "data": {
+                "type": "bundleIds",
+                "attributes": {
+                    "identifier": identifier,
+                    "name": identifier.replace(".", " "),
+                    "platform": "IOS",
+                },
+            }
+        },
+    )
     return created["data"]["id"]
 
 
 def profile(identifier, name, cert_id):
-    found = call("GET", "/profiles?" + urllib.parse.urlencode(
-        {"filter[name]": name, "include": "certificates", "limit": 200}))
+    found = call(
+        "GET",
+        "/profiles?"
+        + urllib.parse.urlencode(
+            {"filter[name]": name, "include": "certificates", "limit": 200}
+        ),
+    )
     named = [item for item in found["data"] if item["attributes"]["name"] == name]
     for item in named:
         bound = {cert["id"] for cert in item["relationships"]["certificates"]["data"]}
@@ -101,21 +135,34 @@ def profile(identifier, name, cert_id):
             return item
     for item in named:
         call("DELETE", f"/profiles/{item['id']}")
-    return call("POST", "/profiles", {"data": {
-        "type": "profiles",
-        "attributes": {"name": name, "profileType": "IOS_APP_STORE"},
-        "relationships": {
-            "bundleId": {"data": {"type": "bundleIds", "id": bundle_id(identifier)}},
-            "certificates": {"data": [{"type": "certificates", "id": cert_id}]},
-        }}})["data"]
+    return call(
+        "POST",
+        "/profiles",
+        {
+            "data": {
+                "type": "profiles",
+                "attributes": {"name": name, "profileType": "IOS_APP_STORE"},
+                "relationships": {
+                    "bundleId": {
+                        "data": {"type": "bundleIds", "id": bundle_id(identifier)}
+                    },
+                    "certificates": {"data": [{"type": "certificates", "id": cert_id}]},
+                },
+            }
+        },
+    )["data"]
 
 
 def setup():
     cert = certificate()
     cert_id = certificate_id(cert)
-    print(f"Distribution certificate {cert_id}, valid until {cert.not_valid_after_utc:%Y-%m-%d}.")
-    dirs = [pathlib.Path.home() / "Library/MobileDevice/Provisioning Profiles",
-            pathlib.Path.home() / "Library/Developer/Xcode/UserData/Provisioning Profiles"]
+    print(
+        f"Distribution certificate {cert_id}, valid until {cert.not_valid_after_utc:%Y-%m-%d}."
+    )
+    dirs = [
+        pathlib.Path.home() / "Library/MobileDevice/Provisioning Profiles",
+        pathlib.Path.home() / "Library/Developer/Xcode/UserData/Provisioning Profiles",
+    ]
     for d in dirs:
         d.mkdir(parents=True, exist_ok=True)
     for identifier, name in PROFILES.items():
@@ -127,27 +174,51 @@ def setup():
 
 def issue():
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    csr = (x509.CertificateSigningRequestBuilder()
-           .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Mixdog CI")]))
-           .sign(key, hashes.SHA256()))
-    cert = call("POST", "/certificates", {"data": {"type": "certificates", "attributes": {
-        "certificateType": "DISTRIBUTION",
-        "csrContent": csr.public_bytes(serialization.Encoding.PEM).decode()}}})["data"]
-    print(f"Created Apple Distribution certificate {cert['id']}, "
-          f"valid until {cert['attributes']['expirationDate']}.")
+    csr = (
+        x509.CertificateSigningRequestBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Mixdog CI")]))
+        .sign(key, hashes.SHA256())
+    )
+    cert = call(
+        "POST",
+        "/certificates",
+        {
+            "data": {
+                "type": "certificates",
+                "attributes": {
+                    "certificateType": "DISTRIBUTION",
+                    "csrContent": csr.public_bytes(serialization.Encoding.PEM).decode(),
+                },
+            }
+        },
+    )["data"]
+    print(
+        f"Created Apple Distribution certificate {cert['id']}, "
+        f"valid until {cert['attributes']['expirationDate']}."
+    )
 
     password = secrets.token_urlsafe(32)
     der = base64.b64decode(cert["attributes"]["certificateContent"])
     # The legacy PKCS#12 algorithms: macOS `security import` rejects the modern ones.
-    encryption = (serialization.PrivateFormat.PKCS12.encryption_builder()
-                  .kdf_rounds(50000)
-                  .key_cert_algorithm(pkcs12.PBES.PBESv1SHA1And3KeyTripleDESCBC)
-                  .hmac_hash(hashes.SHA1())
-                  .build(password.encode()))
+    encryption = (
+        serialization.PrivateFormat.PKCS12.encryption_builder()
+        .kdf_rounds(50000)
+        .key_cert_algorithm(pkcs12.PBES.PBESv1SHA1And3KeyTripleDESCBC)
+        .hmac_hash(hashes.SHA1())
+        .build(password.encode())
+    )
     p12 = pkcs12.serialize_key_and_certificates(
-        b"Mixdog CI", key, x509.load_der_x509_certificate(der), None, encryption)
-    for name, value in ((SECRET_P12, base64.b64encode(p12).decode()), (SECRET_PASSWORD, password)):
-        subprocess.run(["gh", "secret", "set", name, "--repo", REPO], input=value.encode(), check=True)
+        b"Mixdog CI", key, x509.load_der_x509_certificate(der), None, encryption
+    )
+    for name, value in (
+        (SECRET_P12, base64.b64encode(p12).decode()),
+        (SECRET_PASSWORD, password),
+    ):
+        subprocess.run(
+            ["gh", "secret", "set", name, "--repo", REPO],
+            input=value.encode(),
+            check=True,
+        )
 
 
 if __name__ == "__main__":

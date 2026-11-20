@@ -8,6 +8,7 @@ A skip carries its reason as data (a JSON string, whatever quotes it holds); a s
 that skips) is a suite observation that the reconciler expands to the declared tests under it; unexpected successes, expected
 failures, failures and errors are never passes.
 """
+
 import argparse
 import json
 import os
@@ -58,7 +59,15 @@ class EvidenceResult(unittest.TextTestResult):
     def _set(self, test, status, reason=""):
         if isinstance(test, unittest.suite._ErrorHolder):
             identity = self._suite_id(test)
-            self._emit({"kind": "suite", "id": identity or ["python-suite", "unresolved", test.description], "status": status, "reasonCode": "uncoded", "reasonText": reason})
+            self._emit(
+                {
+                    "kind": "suite",
+                    "id": identity or ["python-suite", "unresolved", test.description],
+                    "status": status,
+                    "reasonCode": "uncoded",
+                    "reasonText": reason,
+                }
+            )
             return
         # a failure outranks everything the case recorded before
         previous = self._outcome.get(test)
@@ -109,7 +118,15 @@ class EvidenceResult(unittest.TextTestResult):
         if identity is None:
             identity = ["python", "unresolved", test.id()]
         if outcome is None:
-            self._emit({"kind": "case", "id": identity, "status": "fail", "reasonCode": "no-outcome", "reasonText": "the runner recorded no outcome"})
+            self._emit(
+                {
+                    "kind": "case",
+                    "id": identity,
+                    "status": "fail",
+                    "reasonCode": "no-outcome",
+                    "reasonText": "the runner recorded no outcome",
+                }
+            )
             return
         status, reason = outcome
         record = {"kind": "case", "id": identity, "status": status}
@@ -129,9 +146,13 @@ def main():
     target = os.environ["MIXDOG_PY_EVIDENCE"]
     start = os.path.abspath(args.start_dir)
     sys.path.insert(0, start)
-    suite = unittest.defaultTestLoader.discover(start, pattern=args.pattern, top_level_dir=start)
+    suite = unittest.defaultTestLoader.discover(
+        start, pattern=args.pattern, top_level_dir=start
+    )
     with open(target, "a", encoding="utf-8") as out:
-        runner = unittest.TextTestRunner(verbosity=2, resultclass=lambda *a, **k: EvidenceResult(*a, out=out, **k))
+        runner = unittest.TextTestRunner(
+            verbosity=2, resultclass=lambda *a, **k: EvidenceResult(*a, out=out, **k)
+        )
         result = runner.run(suite)
     sys.exit(0 if result.wasSuccessful() else 1)
 

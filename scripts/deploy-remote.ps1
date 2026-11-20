@@ -72,7 +72,7 @@ function Get-RelayBinaryDir([string]$cacheDir) {
         $runs = @()
         foreach ($workflow in 'mixdogd-build.yml', 'deploy.yml', 'linux-desktop-verify.yml') {
             $runs += @(& gh run list --workflow $workflow --status success --limit 15 `
-                --json databaseId,headSha,createdAt,workflowName 2>$null | ConvertFrom-Json)
+                    --json databaseId, headSha, createdAt, workflowName 2>$null | ConvertFrom-Json)
         }
         foreach ($run in ($runs | Sort-Object { [datetime]$_.createdAt } -Descending)) {
             $target = Join-Path $cacheDir "relay-binary-$($run.databaseId)"

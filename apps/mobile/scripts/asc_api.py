@@ -19,7 +19,12 @@ def token():
     key = pathlib.Path(os.environ["ASC_KEY_PATH"]).read_text()
     now = int(time.time())
     return jwt.encode(
-        {"iss": os.environ["APPLE_API_ISSUER"], "iat": now, "exp": now + 900, "aud": "appstoreconnect-v1"},
+        {
+            "iss": os.environ["APPLE_API_ISSUER"],
+            "iat": now,
+            "exp": now + 900,
+            "aud": "appstoreconnect-v1",
+        },
         key,
         algorithm="ES256",
         headers={"kid": os.environ["APPLE_API_KEY_ID"], "typ": "JWT"},
@@ -51,7 +56,9 @@ def call(method, path, body=None, tolerate=()):
     except urllib.error.HTTPError as err:
         if err.code in tolerate:
             return {}
-        raise AscError(method, path, err.code, err.read().decode(errors="replace")) from None
+        raise AscError(
+            method, path, err.code, err.read().decode(errors="replace")
+        ) from None
     except (urllib.error.URLError, OSError) as err:
         raise AscError(method, path, None, f"{type(err).__name__}: {err}") from None
     return json.loads(raw) if raw else {}
