@@ -132,8 +132,13 @@ rewriting plainly; keep facts, constraints and links.
 
 Pre-release, whole-project use is normal when the user names the whole
 project: partition by directory, run the deterministic layers first, then
-judge structure per partition, and report findings ordered structural first.
-The release blocker list is the RISKY and defect sections, not the nits.
+judge structure per partition, then make one pass across partitions for what
+no single partition shows: two implementations of one responsibility, copies
+of a helper that drifted apart, one pattern written several ways, names and
+idioms that disagree between modules. Report findings ordered structural
+first. An upcoming release is no reason to defer SAFE or CAREFUL items; only
+RISKY waits for approval. The release blocker list is the RISKY and defect
+sections, not the nits.
 
 ## Keep: never remove or rename
 
@@ -148,6 +153,10 @@ The release blocker list is the RISKY and defect sections, not the nits.
 - Tool directives, public API docs, and security or compatibility
   explanations; comments that may separate tokens or carry significant line
   breaks go to manual review.
+- The reason a comment carries (a measured number, an incident, a platform
+  quirk, why an alternative was rejected): a trimmed or rewritten comment
+  still states it, or it moves to a name or the nearest remaining comment.
+  Compare each removed comment with what remains.
 - The project's own idioms (`AGENTS.md`/`CLAUDE.md`/lint config) over generic
   ones; clarity over fewer lines.
 

@@ -19,9 +19,12 @@ fields; this file owns scope, order, and boundaries.
 
 ## 1. Job and mode
 - New behavior and public-API refactors are out of scope. A correctness defect
-  found while cleaning is reported, never fixed in a cleanup edit.
-- Never invent a formatter config; a project's own formatter stays unless the
-  user asks to add or rewrite one.
+  found while cleaning is reported, never fixed in a cleanup edit; a linter
+  finding that points at one (a wrong result, a swallowed failure, a test that
+  checks nothing) is such a defect, however small its fix.
+- Never add or change formatter or linter configuration (rules, ignores,
+  overrides, schema versions) unless the user asks; propose it in the
+  decision list. A configuration the engine cannot read is a blocker.
 - Mode is `apply` unless the user asks to check, review, or "just report";
   report-only stays read-only on every layer and lists what would change.
 - An explicit focus restricts every layer. If the tool cannot isolate it, use
@@ -35,7 +38,9 @@ fields; this file owns scope, order, and boundaries.
 2. Recommend (do not require) committing existing work before an apply run;
    a dirty tree means preserve those edits.
 3. Drop deleted, binary, generated, vendored files and lockfiles unless
-   explicitly included; include new non-ignored files. Consumers and covering
+   explicitly included, and treat a file whose exact bytes something pins (a
+   manifest hash, a provenance record) as generated: changing it means
+   regenerating the pin, which is RISKY. Include new non-ignored files. Consumers and covering
    tests may be read; editing them outside the scope needs approval.
 4. Pass the approved paths on every `scan`/`check`/`fix`; `paths:["."]` only
    for an explicitly requested whole project.
@@ -131,5 +136,9 @@ security docs, and the project's own idioms. The full list is in
 
 ## 7. Reporting
 Report once, after the last partition, using `references/cleanup-report.md`,
-with everything needing the user's decision in one list. Pause only for a
-blocker or a required approval. No report file unless requested.
+with everything needing the user's decision in one list. The run is not done
+until that report is delivered: never call the cleanup finished before it,
+and answer a progress question with the steps still open. Deliver it as soon
+as the last partition is verified; later work (CI failures, a release) does
+not postpone it. Pause only for a blocker or a required approval. No report
+file unless requested.
