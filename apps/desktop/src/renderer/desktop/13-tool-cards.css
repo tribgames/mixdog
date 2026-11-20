@@ -1557,10 +1557,16 @@ html[data-mixdog-mobile-tabs]
   grid-template-columns: minmax(0, 1fr);
   padding: 0 10px;
 }
-.tool-code[data-numbered="true"] > .tool-code-row {
+.tool-code[data-numbered="true"] .tool-code-row {
   grid-template-columns: calc(var(--tool-code-digits, 1) * 1ch + 12px) minmax(0, 1fr);
   column-gap: 12px;
   padding-left: 0;
+}
+/* A window of rows away from the panel's viewport is one empty box
+   (tool-panel-window). Until it has been shown it stands at its rows at one
+   line each. */
+.tool-code-window[data-away] {
+  height: calc(var(--tool-away-rows) * var(--mx-line-ui));
 }
 .tool-code-no {
   color: var(--mx-text-faint);
