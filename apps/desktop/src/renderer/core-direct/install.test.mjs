@@ -12,6 +12,7 @@ const connection = () => ({
   call: async () => undefined,
   notify() {},
   attach: () => () => undefined,
+  onReopening: () => () => undefined,
   watchFiles: async () => undefined,
   unwatchFiles: async () => undefined,
   snapshot: () => ({ status: 'ready', entries: [], epoch: 0 }),

@@ -71,6 +71,8 @@ export interface ConnectionsCoreDeps {
   /** The window's first PC core open while it is in flight (the window renders before it): a call or a listener that finds no
    *  client waits for it. Null once it settled, or with none. */
   opening?(): Promise<unknown> | null;
+  /** Called when the connection closed or replaced its client: the api re-reads `client()`. */
+  onClientChange?(listener: () => void): () => void;
   /** The connection this window drives (the preload's `connection`). */
   connection(): DesktopConnectionIdentity | undefined;
   /** This PC's default browser. */
@@ -147,7 +149,9 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
   const syncFeed = (): void => {
     feedChain = feedChain
       .then(async () => {
-        const client = deps.client() as unknown as LooseClient | null;
+        // The feed is the attached client's: its id and the completion of its request belong to that client alone.
+        const owner = attachedTo;
+        const client = owner as unknown as LooseClient | null;
         if (!client) return;
         if (sectionListeners.size > 0 && feedSubscription === null) {
           const identity = deps.connection();
@@ -155,7 +159,7 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
             'connections/subscribe',
             identity?.kind === 'ssh' ? { connectionId: identity.id } : {}
           )) as { id: string };
-          feedSubscription = reply.id;
+          if (attachedTo === owner) feedSubscription = reply.id;
         } else if (sectionListeners.size === 0 && feedSubscription !== null) {
           const subscriptionId = feedSubscription;
           feedSubscription = null;
@@ -186,11 +190,17 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
     }
     for (const listener of [...(notificationListeners.get(note.method) ?? [])]) listener(note.params);
   };
-  /** Listens to the client that is open now (and to a replacement of it). False, said once, while there is none. */
-  const attach = (): boolean => {
+  /** The open client. One that closed is none: the registry names it until its replacement is accepted. */
+  const liveClient = (): ProtocolClient<SessionFold> | null => {
     const client = deps.client();
+    return client && (client as { status?: { state?: string } }).status?.state !== 'closed' ? client : null;
+  };
+  /** Listens to the client that is open now (and to a replacement of it), and asks a new one for the feed its listeners
+   *  need. False while there is none, said once when the window has no client at all. */
+  const attach = (): boolean => {
+    const client = liveClient();
     if (!client) {
-      if (!reportedNoCore) {
+      if (!deps.client() && !reportedNoCore) {
         reportedNoCore = true;
         console.error(NO_CORE);
       }
@@ -202,6 +212,7 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
       feedSubscription = null;
       wasReady = true;
       detach = client.on((event) => onEvent(event as never));
+      if (sectionListeners.size > 0) syncFeed();
     }
     return true;
   };
@@ -215,8 +226,24 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
     void opening.then(later, later);
     return true;
   };
+  // The api lives as long as the page, so it must not keep a client that closed or was replaced: it lets go of it (listener,
+  // feed state) by identity, and follows the open one if anyone is subscribed (also one who subscribed during the gap).
+  const reconcile = (): void => {
+    const live = liveClient();
+    if (attachedTo !== null && attachedTo === live) return;
+    if (attachedTo !== null) {
+      detach?.();
+      detach = null;
+      attachedTo = null;
+      feedSubscription = null;
+      wasReady = true;
+    }
+    const subscribed = sectionListeners.size > 0 || [...notificationListeners.values()].some((set) => set.size > 0);
+    if (live && subscribed) attach();
+  };
+  deps.onClientChange?.(reconcile);
   const onNotification = (method: string, listener: (params: unknown) => void): (() => void) => {
-    if (!attachOrDefer(() => undefined)) return () => undefined;
+    attachOrDefer(() => undefined);
     const set = notificationListeners.get(method) ?? new Set();
     notificationListeners.set(method, set);
     set.add(listener);
@@ -225,7 +252,7 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
     };
   };
   const onSection = (listener: (change: SectionChange) => void): (() => void) => {
-    if (!attachOrDefer(syncFeed)) return () => undefined;
+    attachOrDefer(syncFeed);
     sectionListeners.add(listener);
     syncFeed();
     return () => {
@@ -385,8 +412,18 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
   return api;
 }
 
+const clientChangeListeners = new Set<() => void>();
+/** The window's connection closed or replaced its client: the window's connections api re-reads which client is open. */
+export const releaseConnectionsClient = (): void => {
+  for (const listener of [...clientChangeListeners]) listener();
+};
+
 const defaults = createConnectionsCoreApi({
   client: pcCoreClient,
+  onClientChange: (listener) => {
+    clientChangeListeners.add(listener);
+    return () => void clientChangeListeners.delete(listener);
+  },
   opening: firstPcCoreOpen,
   connection: () => window.mixdogDesktop?.connection,
   openExternal: (url) => window.mixdogDesktop.openExternal(url),
