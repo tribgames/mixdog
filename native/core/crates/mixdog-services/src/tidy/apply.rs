@@ -11,7 +11,7 @@ use mixdog_rt::DurabilityIo;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use crate::lane::io_on_lane;
+use crate::lane::{io_on_lane, on_lane};
 
 /// A write the turn review should show: exact bytes before and after.
 #[derive(Debug, Clone, PartialEq)]
@@ -55,6 +55,45 @@ pub fn full_path_for(cwd: &Path, file_path: &str) -> PathBuf {
     if p.is_absolute() { p.to_owned() } else { cwd.join(p) }
 }
 
+/// The project root as the file system resolves it. Blocking: a lane job's body.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn real_root(root: &Path) -> Result<PathBuf, String> {
+    std::fs::canonicalize(root).map_err(|e| format!("the project root cannot be resolved ({e}), so no write target can be checked"))
+}
+
+/// Why `path` is not a write target: its real path (symbolic links and junctions followed) leaves
+/// the project. Blocking: a lane job's body.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn outside_project(real_root: &Path, path: &Path) -> Option<String> {
+    match std::fs::canonicalize(path) {
+        Ok(real) if real.starts_with(real_root) => None,
+        Ok(real) => Some(format!("its real path {} is outside the project, so it is not a write target", real.display())),
+        Err(e) => Some(format!("its real path cannot be resolved ({e}), so it is not a write target")),
+    }
+}
+
+/// `(file, reason)` for each of `files` whose real path leaves the project: a symbolic link
+/// among `links`, or a file whose directory resolves elsewhere. Engines rewrite in place, so such a
+/// file is never handed to an engine's apply pass.
+pub async fn escaping_write_targets(lane: DurabilityIo, cwd: &Path, files: &[String], links: &[String]) -> Result<Vec<(String, String)>, String> {
+    let (root, files, links) = (cwd.to_owned(), files.to_vec(), links.iter().cloned().collect::<std::collections::HashSet<_>>());
+    on_lane(lane, move || {
+        let real = real_root(&root)?;
+        let mut dirs: std::collections::HashMap<String, Option<String>> = std::collections::HashMap::new();
+        Ok(files
+            .into_iter()
+            .filter_map(|f| {
+                let parent = f.rsplit_once('/').map_or("", |(d, _)| d).to_owned();
+                let dir = dirs.entry(parent.clone()).or_insert_with(|| if parent.is_empty() { None } else { outside_project(&real, &root.join(&parent)).map(|why| format!("its directory {parent}: {why}")) }).clone();
+                let why = dir.or_else(|| if links.contains(&f) { outside_project(&real, &full_path_for(&root, &f)) } else { None });
+                why.map(|why| (f, why))
+            })
+            .collect())
+    })
+    .await
+    .map_err(|_| "the write targets could not be checked: their lane did not run the check".to_owned())?
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Replacement {
     pub start: usize,
@@ -69,19 +108,46 @@ pub struct Plan {
     pub replacements: Vec<Replacement>,
     pub overlaps: Vec<(Replacement, Replacement)>,
     pub invalid: usize,
+    /// Why a fix cannot be checked against the file the scanner read.
+    pub unverifiable: Vec<String>,
+    /// SHA-256 of the file the scanner read, the same on every fix of the file.
+    pub scanned: Option<String>,
+}
+
+/// SHA-256 of `bytes`, lower-case hex.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Orders byte-range replacements for application. Overlapping ranges are never applied: the
 /// file is rejected whole, because a partial apply of conflicting fixes produces text no rule
-/// asked for.
+/// asked for. A fix carries the digest of the file the scanner read (`scanned`) or why it has
+/// none (`stale`).
 pub fn plan_replacements(fixes: &[Value]) -> Plan {
     let mut usable = Vec::new();
-    let mut invalid = 0;
+    let (mut invalid, mut unverifiable, mut scanned) = (0, Vec::new(), None::<String>);
     for fix in fixes {
+        if let Some(stale) = fix.get("stale").and_then(Value::as_str) {
+            unverifiable.push(stale.to_owned());
+            continue;
+        }
         let range = fix.get("byteOffset").and_then(Value::as_array);
         let bound = |i: usize| range.and_then(|r| r.get(i)).and_then(Value::as_u64).map(|n| n as usize);
         match (bound(0), bound(1), fix.get("text").and_then(Value::as_str)) {
             (Some(start), Some(end), Some(text)) if end >= start => {
+                let why = match (fix.get("scanned").and_then(Value::as_str), scanned.as_deref()) {
+                    (None, _) => Some("the fix carries no digest of the file the scanner read"),
+                    (Some(d), Some(seen)) if d != seen => Some("the fixes were scanned from different contents of the file"),
+                    (Some(d), _) => {
+                        scanned = Some(d.to_owned());
+                        None
+                    }
+                };
+                if let Some(why) = why {
+                    unverifiable.push(why.to_owned());
+                    continue;
+                }
                 usable.push(Replacement { start, end, text: text.to_owned(), rule_id: fix.get("ruleId").and_then(Value::as_str).unwrap_or("").to_owned() });
             }
             _ => invalid += 1,
@@ -90,15 +156,24 @@ pub fn plan_replacements(fixes: &[Value]) -> Plan {
     usable.sort_by_key(|r| (r.start, r.end));
     let overlaps = usable.windows(2).filter(|w| w[1].start < w[0].end).map(|w| (w[0].clone(), w[1].clone())).collect();
     usable.reverse();
-    Plan { replacements: usable, overlaps, invalid }
+    Plan { replacements: usable, overlaps, invalid, unverifiable, scanned }
 }
 
-/// Applies pre-ordered (descending) replacements to a buffer.
+/// Whether `at` starts a UTF-8 sequence (or ends the buffer): a splice there cannot cut a character.
+pub fn on_char_boundary(bytes: &[u8], at: usize) -> bool {
+    at == bytes.len() || bytes.get(at).is_some_and(|b| b & 0xC0 != 0x80)
+}
+
+/// Applies pre-ordered (descending) replacements to a buffer. A range must not split a
+/// character; otherwise nothing is applied.
 pub fn apply_replacements(buffer: &[u8], replacements: &[Replacement]) -> Result<Vec<u8>, String> {
     let mut out = buffer.to_vec();
     for r in replacements {
-        if r.start > out.len() || r.end > out.len() {
+        if r.start > buffer.len() || r.end > buffer.len() {
             return Err(format!("replacement range [{},{}] is outside the file", r.start, r.end));
+        }
+        if !on_char_boundary(buffer, r.start) || !on_char_boundary(buffer, r.end) {
+            return Err(format!("replacement range [{},{}] splits a multi-byte character", r.start, r.end));
         }
         out.splice(r.start..r.end, r.text.bytes());
     }
@@ -110,8 +185,13 @@ pub struct StructuralResult {
     pub rejected: Vec<Value>,
 }
 
+/// The current bytes of a write target whose real path stays inside the project.
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
-fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
+fn read_write_target(root: &Path, path: &Path) -> std::io::Result<Vec<u8>> {
+    let real = real_root(root).map_err(std::io::Error::other)?;
+    if let Some(why) = outside_project(&real, path) {
+        return Err(std::io::Error::other(why));
+    }
     std::fs::read(path)
 }
 
@@ -150,13 +230,21 @@ pub async fn apply_structural_fixes(lane: DurabilityIo, host: &dyn WriteHost, cw
             rejected.push(json!({"file": file, "reason": format!("{} fix(es) carried an unusable byte range", plan.invalid)}));
             continue;
         }
+        if let Some(why) = plan.unverifiable.first() {
+            rejected.push(json!({"file": file, "reason": format!("{} fix(es) cannot be checked against the file the scanner read: {why}", plan.unverifiable.len())}));
+            continue;
+        }
         let outcome = async {
             let current = io_on_lane(lane, {
-                let full = full.clone();
-                move || read_file(&full)
+                let (root, full) = (cwd.to_owned(), full.clone());
+                move || read_write_target(&root, &full)
             })
             .await
             .map_err(|e| e.to_string())?;
+            // The offsets are the scanner's: they hold only in the bytes it matched.
+            if plan.scanned.as_deref() != Some(sha256_hex(&current).as_str()) {
+                return Err("the file changed since the scan: it no longer holds the bytes the rules matched".to_owned());
+            }
             let next = apply_replacements(&current, &plan.replacements)?;
             host.atomic_write(&full, &next, session_id, cancel).await?;
             host.note_written(std::slice::from_ref(&full), session_id).await;
@@ -208,24 +296,79 @@ pub(crate) mod tests {
         }
     }
 
-    fn fix(start: u64, end: u64, text: &str, rule: &str) -> Value {
-        json!({"byteOffset": [start, end], "text": text, "ruleId": rule})
+    /// A fix over `[start, end)` of `source` as scanned: it carries the digest of that source.
+    fn fix_in(source: &str, start: usize, end: usize, text: &str, rule: &str) -> Value {
+        json!({"byteOffset": [start, end], "text": text, "ruleId": rule, "scanned": sha256_hex(source.as_bytes())})
     }
 
     #[test]
     fn replacements_apply_back_to_front_so_offsets_hold() {
-        let plan = plan_replacements(&[fix(0, 1, "X", "a"), fix(4, 5, "YY", "b")]);
+        let plan = plan_replacements(&[fix_in("abcdef", 0, 1, "X", "a"), fix_in("abcdef", 4, 5, "YY", "b")]);
         assert_eq!(plan.replacements[0].start, 4);
         assert_eq!(apply_replacements(b"abcdef", &plan.replacements).unwrap(), b"XbcdYYf");
         assert!(apply_replacements(b"ab", &[Replacement { start: 5, end: 6, text: String::new(), rule_id: String::new() }]).is_err());
+        assert!(plan_replacements(&[fix_in("abcdef", 0, 1, "X", "a"), fix_in("other", 4, 5, "Y", "b")]).unverifiable[0].contains("different contents"));
     }
 
     #[test]
     fn overlaps_and_unusable_ranges_are_detected() {
-        let plan = plan_replacements(&[fix(0, 4, "x", "a"), fix(3, 6, "y", "b"), json!({"byteOffset": [5, 2], "text": "z"}), json!({"text": "no range"})]);
+        let s = "0123456789";
+        let plan = plan_replacements(&[fix_in(s, 0, 4, "x", "a"), fix_in(s, 3, 6, "y", "b"), json!({"byteOffset": [5, 2], "text": "z"}), json!({"text": "no range"})]);
         assert_eq!((plan.overlaps.len(), plan.invalid), (1, 2));
         // Touching ranges are not overlaps.
-        assert!(plan_replacements(&[fix(0, 2, "x", ""), fix(2, 4, "y", "")]).overlaps.is_empty());
+        assert!(plan_replacements(&[fix_in(s, 0, 2, "x", ""), fix_in(s, 2, 4, "y", "")]).overlaps.is_empty());
+        let unverified = plan_replacements(&[json!({"byteOffset": [0, 1], "text": "x"}), json!({"byteOffset": [0, 1], "text": "x", "stale": "the file changed while it was scanned"})]);
+        assert_eq!(unverified.unverifiable.len(), 2);
+        assert!(unverified.replacements.is_empty());
+    }
+
+    /// A fix applies only to the bytes the scanner read, and never splits a character: a
+    /// same-length edit after the scan or a stray offset rejects the file instead of corrupting it.
+    #[tokio::test]
+    async fn a_fix_over_text_that_is_no_longer_there_rejects_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let scanned = "var a = 1;";
+        std::fs::write(dir.path().join("edited.ts"), "VAR a = 1;").unwrap();
+        let wide = "x = \"é\";";
+        std::fs::write(dir.path().join("wide.ts"), wide).unwrap();
+        let host = Recording::default();
+        let matches = vec![
+            ("edited.ts".to_owned(), vec![json!({"ruleId": "var", "fix": fix_in(scanned, 0, 3, "let", "")})]),
+            // Byte 6 sits inside the two-byte é.
+            ("wide.ts".to_owned(), vec![json!({"ruleId": "r", "fix": fix_in(wide, 6, 7, "e", "")})]),
+        ];
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let out = apply_structural_fixes(lane, &host, dir.path(), &matches, None, None).await;
+        assert!(out.applied.is_empty(), "{:?}", out.applied);
+        assert!(out.rejected[0]["reason"].as_str().unwrap().contains("no longer holds the bytes the rules matched"), "{:?}", out.rejected);
+        assert!(out.rejected[1]["reason"].as_str().unwrap().contains("splits a multi-byte character"), "{:?}", out.rejected);
+        assert_eq!(std::fs::read_to_string(dir.path().join("edited.ts")).unwrap(), "VAR a = 1;");
+        assert_eq!(std::fs::read_to_string(dir.path().join("wide.ts")).unwrap(), "x = \"é\";");
+        assert!(host.writes.lock().unwrap().is_empty());
+    }
+
+    /// A tracked symbolic link whose target is outside the project is not a write target.
+    #[tokio::test]
+    async fn a_link_out_of_the_project_is_not_written() {
+        let (project, outside) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let target = outside.path().join("t.ts");
+        std::fs::write(&target, "var a = 1;").unwrap();
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_file(&target, project.path().join("link.ts"));
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&target, project.path().join("link.ts"));
+        if let Err(e) = linked {
+            return eprintln!("skipped: cannot create a symbolic link here: {e}");
+        }
+        std::fs::write(project.path().join("own.ts"), "x").unwrap();
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let matches = vec![("link.ts".to_owned(), vec![json!({"ruleId": "var", "fix": fix_in("var a = 1;", 0, 3, "let", "")})])];
+        let out = apply_structural_fixes(lane, &Recording::default(), project.path(), &matches, None, None).await;
+        assert!(out.applied.is_empty());
+        assert!(out.rejected[0]["reason"].as_str().unwrap().contains("is outside the project, so it is not a write target"), "{:?}", out.rejected);
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "var a = 1;");
+        let escapes = escaping_write_targets(lane, project.path(), &["link.ts".into(), "own.ts".into()], &["link.ts".into()]).await.unwrap();
+        assert_eq!(escapes.iter().map(|(f, _)| f.as_str()).collect::<Vec<_>>(), ["link.ts"]);
     }
 
     #[test]
@@ -250,9 +393,9 @@ pub(crate) mod tests {
         std::fs::write(dir.path().join("clash.ts"), "0123456789").unwrap();
         let host = Recording::default();
         let matches = vec![
-            ("ok.ts".to_owned(), vec![json!({"ruleId": "var", "fix": fix(0, 3, "let", "")}), json!({"ruleId": "info"})]),
-            ("clash.ts".to_owned(), vec![json!({"ruleId": "r1", "fix": fix(0, 5, "x", "")}), json!({"ruleId": "r2", "fix": fix(3, 8, "y", "")})]),
-            ("missing.ts".to_owned(), vec![json!({"ruleId": "r", "fix": fix(0, 1, "z", "")})]),
+            ("ok.ts".to_owned(), vec![json!({"ruleId": "var", "fix": fix_in("var a = 1;", 0, 3, "let", "")}), json!({"ruleId": "info"})]),
+            ("clash.ts".to_owned(), vec![json!({"ruleId": "r1", "fix": fix_in("0123456789", 0, 5, "x", "")}), json!({"ruleId": "r2", "fix": fix_in("0123456789", 3, 8, "y", "")})]),
+            ("missing.ts".to_owned(), vec![json!({"ruleId": "r", "fix": fix_in("z", 0, 1, "z", "")})]),
             ("none.ts".to_owned(), vec![json!({"ruleId": "r"})]),
         ];
         let lane = mixdog_rt::testing::tokens().durability_io;
@@ -277,7 +420,7 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("ok.ts"), "var a = 1;").unwrap();
         let host = Recording::default();
-        let matches = vec![("ok.ts".to_owned(), vec![json!({"ruleId": "var", "fix": fix(0, 3, "let", "")})])];
+        let matches = vec![("ok.ts".to_owned(), vec![json!({"ruleId": "var", "fix": fix_in("var a = 1;", 0, 3, "let", "")})])];
         let cancel = CancellationToken::new();
         cancel.cancel();
         let lane = mixdog_rt::testing::tokens().durability_io;

@@ -5,10 +5,12 @@
 //! never parses.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Component, Path};
 
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
+
+use crate::lane::on_lane;
 
 #[cfg(test)]
 use super::process::which;
@@ -151,9 +153,12 @@ pub struct Detected {
     /// `(language, files)` sorted by count then id.
     pub languages: Vec<(String, usize)>,
     pub files: Vec<String>,
+    /// Listed files that are symbolic links.
+    pub links: Vec<String>,
+    /// `(path, reason)` for each requested path that yields no file of a known language.
+    pub empty_paths: Vec<(String, String)>,
     pub source: &'static str,
     pub extensions: Option<HashMap<String, String>>,
-    pub note: Option<String>,
 }
 
 /// Files of the requested languages, in scope order, classified with the same table detection used.
@@ -214,40 +219,272 @@ mod tests {
         for f in ["a.rs", "b.rs", "c.py", "notes.txt"] {
             std::fs::write(dir.path().join(f), "x").unwrap();
         }
-        let all = detect_languages(&Processes::for_tests(), dir.path(), &[], &[], None, None).await;
+        let all = detect_languages(&Processes::for_tests(), dir.path(), &[], &[], None, None).await.unwrap();
         assert_eq!(all.languages, [("rust".to_owned(), 2), ("python".to_owned(), 1)]);
         assert_eq!((all.source, all.files.len()), ("git", 4));
-        let only = detect_languages(&Processes::for_tests(), dir.path(), &[], &["python".into()], None, None).await;
+        let only = detect_languages(&Processes::for_tests(), dir.path(), &[], &["python".into()], None, None).await.unwrap();
         assert_eq!(only.files, ["c.py"]);
-        let scoped = detect_languages(&Processes::for_tests(), dir.path(), &["a.rs".into()], &[], None, None).await;
+        let scoped = detect_languages(&Processes::for_tests(), dir.path(), &["a.rs".into()], &[], None, None).await.unwrap();
         assert_eq!(scoped.files, ["a.rs"]);
+    }
+
+    /// The listing is the only source of files: a directory git cannot list fails, by name.
+    #[tokio::test]
+    async fn a_directory_that_is_not_a_repository_fails_the_listing() {
+        if which("git", None, None).is_none() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "x").unwrap();
+        // GIT_CEILING_DIRECTORIES is not set here, so the temp dir must not sit inside a repository.
+        let probe = std::process::Command::new("git").args(["rev-parse", "--git-dir"]).current_dir(dir.path()).output().unwrap();
+        if probe.status.success() {
+            return eprintln!("skipped: the temp directory is inside a git repository");
+        }
+        let why = list_scoped_files(&Processes::for_tests(), dir.path(), &[".".into()], None).await.unwrap_err();
+        assert!(why.contains("is not a git repository"), "{why}");
+        assert!(detect_languages(&Processes::for_tests(), dir.path(), &[".".into()], &[], None, None).await.is_err());
+    }
+
+    /// An index entry whose file was deleted is not a file, and a nested repository is one
+    /// directory entry; a requested path that yields nothing says which of these it is.
+    #[tokio::test]
+    async fn deleted_entries_and_nested_repositories_are_not_files() {
+        if which("git", None, None).is_none() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let git = |args: &[&str], at: &Path| std::process::Command::new("git").args(args).current_dir(at).output().unwrap();
+        git(&["init", "-q"], dir.path());
+        for f in ["a.rs", "gone.rs", "docs/notes.txt", "nested/b.rs"] {
+            std::fs::create_dir_all(dir.path().join(f).parent().unwrap()).unwrap();
+            std::fs::write(dir.path().join(f), "x").unwrap();
+        }
+        git(&["init", "-q"], &dir.path().join("nested"));
+        git(&["add", "a.rs", "gone.rs"], dir.path());
+        std::fs::remove_file(dir.path().join("gone.rs")).unwrap();
+        let listing = list_scoped_files(&Processes::for_tests(), dir.path(), &[], None).await.unwrap();
+        assert_eq!((listing.files.clone(), listing.directories.clone()), (vec!["a.rs".to_owned(), "docs/notes.txt".to_owned()], vec!["nested".to_owned()]), "{listing:?}");
+        let paths: Vec<String> = ["a.rs", "docs", "nested", "nested/b.rs"].iter().map(|s| (*s).to_owned()).collect();
+        let d = detect_languages(&Processes::for_tests(), dir.path(), &paths, &[], None, None).await.unwrap();
+        assert_eq!(d.files, ["a.rs", "docs/notes.txt"]);
+        let reason = |p: &str| d.empty_paths.iter().find(|(path, _)| path == p).map(|(_, why)| why.clone()).unwrap_or_default();
+        assert_eq!(d.empty_paths.len(), 3, "{:?}", d.empty_paths);
+        assert!(reason("docs").contains("none of its 1 listed file(s) is of a language tidy handles"));
+        assert!(reason("nested").contains("nested is a nested repository or submodule"));
+        assert!(reason("nested/b.rs").contains("nested is a nested repository or submodule"));
+    }
+
+    /// Only absence drops a listed entry; a file that cannot be looked at fails the listing by name.
+    #[test]
+    fn a_listed_entry_that_cannot_be_checked_fails_the_listing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "x").unwrap();
+        std::fs::write(dir.path().join("plain"), "x").unwrap();
+        let listing = classify_entries(dir.path(), vec!["a.rs".into(), "gone.rs".into(), "plain/under.rs".into()]).unwrap();
+        assert_eq!(listing.files, ["a.rs"], "a deleted file and one under what is now a file are absent");
+        let why = classify_entries(dir.path(), vec!["a.rs".into(), "bad\u{0}name.rs".into()]).unwrap_err();
+        assert!(why.contains("bad\u{0}name.rs could not be checked on disk"), "{why}");
+    }
+
+    /// On Windows a requested path in another letter case lists its files under the disk's case.
+    #[tokio::test]
+    async fn a_requested_path_in_another_case_yields_its_files() {
+        if !cfg!(windows) || which("git", None, None).is_none() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        std::process::Command::new("git").args(["init", "-q"]).current_dir(dir.path()).output().unwrap();
+        std::fs::create_dir_all(dir.path().join("Src")).unwrap();
+        std::fs::write(dir.path().join("Src/a.py"), "x = 1\n").unwrap();
+        let paths = requested_paths_on_disk(&Processes::for_tests(), dir.path(), &["src".into(), "SRC/A.PY".into(), ".".into()]).await.unwrap();
+        assert_eq!(paths, ["Src", "Src/a.py", "."]);
+        let d = detect_languages(&Processes::for_tests(), dir.path(), &paths[..1], &[], None, None).await.unwrap();
+        assert_eq!((d.files.clone(), d.empty_paths.len()), (vec!["Src/a.py".to_owned()], 0));
+    }
+
+    #[test]
+    fn project_paths_compare_by_component_and_by_case_on_windows() {
+        let root = Path::new(if cfg!(windows) { "C:\\Proj" } else { "/proj" });
+        let inside = if cfg!(windows) { "c:\\proj\\src\\a.ts" } else { "/proj/src/a.ts" };
+        assert_eq!(project_relative(root, Path::new(inside)).as_deref(), Some("src/a.ts"));
+        let dots = if cfg!(windows) { "C:\\Proj\\..cache\\x" } else { "/proj/..cache/x" };
+        assert_eq!(project_relative(root, Path::new(dots)).as_deref(), Some("..cache/x"));
+        let up = if cfg!(windows) { "C:\\Proj\\..\\x" } else { "/proj/../x" };
+        assert!(project_relative(root, Path::new(up)).is_none());
+        let other = if cfg!(windows) { "C:\\Projects\\x" } else { "/projects/x" };
+        assert!(project_relative(root, Path::new(other)).is_none());
+        assert_eq!(project_relative(root, root).as_deref(), Some(""));
     }
 }
 
 
-/// git-tracked (and untracked, non-ignored) files under `cwd`, filtered to the scope paths.
-pub async fn list_scoped_files(processes: &Processes, cwd: &Path, paths: &[String], cancel: Option<&CancellationToken>) -> (Vec<String>, String) {
-    let Some(git) = processes.which("git", None).await else { return (Vec::new(), "git is not installed".into()) };
+/// What `git ls-files` listed under the requested paths, checked against the working tree.
+#[derive(Debug, Default, PartialEq)]
+pub struct Listing {
+    /// Entries that are files on disk (a symbolic link to a file included).
+    pub files: Vec<String>,
+    /// The entries of `files` that are symbolic links.
+    pub links: Vec<String>,
+    /// Entries that are directories: git lists a nested repository or a submodule as one entry.
+    pub directories: Vec<String>,
+}
+
+fn listing_failure(cwd: &Path, result: &super::process::ProcessResult) -> String {
+    let stderr = mixdog_js::js_trim(&result.stderr);
+    if stderr.contains("not a git repository") {
+        return format!("{} is not a git repository: tidy takes its files from git ls-files", cwd.display());
+    }
+    let why = if !result.error.is_empty() { result.error.clone() } else if !stderr.is_empty() { mixdog_js::slice_utf16(stderr, 400) } else { format!("it exited {}", result.code) };
+    format!("git ls-files failed, so there is no file list: {why}")
+}
+
+/// Whether a metadata error means nothing is there.
+fn absent(e: &std::io::Error) -> bool {
+    matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory)
+}
+
+/// Sorts listed entries by what the working tree holds. An index entry whose file was deleted (or
+/// a link to nothing) is not a file and is dropped; any other failure to look fails the listing.
+/// Blocking: a lane job's body.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn classify_entries(cwd: &Path, entries: Vec<String>) -> Result<Listing, String> {
+    let mut listing = Listing::default();
+    let failed = |entry: &str, e: std::io::Error| format!("the listed file {entry} could not be checked on disk: {e}");
+    for entry in entries {
+        // `--others` names an untracked nested repository with a trailing slash.
+        if let Some(dir) = entry.strip_suffix('/') {
+            listing.directories.push(dir.to_owned());
+            continue;
+        }
+        let full = cwd.join(&entry);
+        let meta = match std::fs::symlink_metadata(&full) {
+            Ok(meta) => meta,
+            Err(e) if absent(&e) => continue,
+            Err(e) => return Err(failed(&entry, e)),
+        };
+        if meta.is_dir() {
+            listing.directories.push(entry);
+        } else if meta.file_type().is_symlink() {
+            match std::fs::metadata(&full) {
+                Ok(target) if target.is_file() => {
+                    listing.links.push(entry.clone());
+                    listing.files.push(entry);
+                }
+                Ok(_) => {}
+                Err(e) if absent(&e) => {}
+                Err(e) => return Err(failed(&entry, e)),
+            }
+        } else {
+            listing.files.push(entry);
+        }
+    }
+    Ok(listing)
+}
+
+/// The requested paths in the letter case the disk uses (Windows matches names in any case,
+/// git does not), so a path typed in another case lists its files. Each name is taken from the
+/// listing of the directory it is in, so a link is spelled as the link is, not as what it points
+/// to; a name no listing has stays as given. Blocking: a lane job's body.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn disk_case(cwd: &Path, paths: Vec<String>) -> Vec<String> {
+    let spelled = |dir: &Path, name: &str| {
+        let names: Vec<String> = std::fs::read_dir(dir).map(|entries| entries.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+        if names.iter().any(|n| n == name) {
+            return name.to_owned();
+        }
+        names.into_iter().find(|n| n.to_lowercase() == name.to_lowercase()).unwrap_or_else(|| name.to_owned())
+    };
+    let on_disk = |path: String| {
+        let mut parts: Vec<String> = Vec::new();
+        for name in normalize_rel(&path).split('/').filter(|name| !name.is_empty()) {
+            let dir = parts.iter().fold(cwd.to_owned(), |dir, part| dir.join(part));
+            parts.push(if name == "." || name == ".." { name.to_owned() } else { spelled(&dir, name) });
+        }
+        if parts.is_empty() { path } else { parts.join("/") }
+    };
+    paths.into_iter().map(on_disk).collect()
+}
+
+/// [`disk_case`] on Windows; elsewhere paths are already exact.
+pub async fn requested_paths_on_disk(processes: &Processes, cwd: &Path, paths: &[String]) -> Result<Vec<String>, String> {
+    if !cfg!(windows) {
+        return Ok(paths.to_vec());
+    }
+    let (root, owned) = (cwd.to_owned(), paths.to_vec());
+    on_lane(processes.durability(), move || disk_case(&root, owned)).await.map_err(|_| "the requested paths could not be checked on disk: their lane did not run the check".to_owned())
+}
+
+/// git-tracked (and untracked, non-ignored) files under `cwd`, filtered to the scope paths. The
+/// listing is the only source of files, so a git that cannot answer is an error, never an empty set.
+pub async fn list_scoped_files(processes: &Processes, cwd: &Path, paths: &[String], cancel: Option<&CancellationToken>) -> Result<Listing, String> {
+    let Some(git) = processes.which("git", None).await else { return Err("git is not installed: tidy takes its files from git ls-files".into()) };
     let mut args: Vec<String> = ["-c", "core.quotepath=false", "--literal-pathspecs", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--"].iter().map(|s| (*s).to_owned()).collect();
     args.extend(paths.iter().cloned());
     let mut options = RunOptions::new(cwd);
     options.cancel = cancel;
     options.timeout = std::time::Duration::from_secs(20);
+    // A large repository lists more than the engine capture limit; the listing is never cut.
+    options.max_capture = usize::MAX;
     let result = processes.run(&git.to_string_lossy(), &args, options).await;
-    if result.code != 0 {
-        let err = mixdog_js::slice_utf16(mixdog_js::js_trim(&result.stderr), 200);
-        return (Vec::new(), if err.is_empty() { if result.error.is_empty() { format!("git ls-files exited {}", result.code) } else { result.error } } else { err });
+    if result.code != 0 || !result.error.is_empty() {
+        return Err(listing_failure(cwd, &result));
     }
-    let files = result.stdout.split('\0').map(normalize_rel).filter(|f| !f.is_empty() && within_scope(f, paths)).collect();
-    (files, String::new())
+    let mut entries: Vec<String> = result.stdout.split('\0').map(normalize_rel).filter(|f| !f.is_empty() && within_scope(f, paths)).collect();
+    // Untracked entries come first and a conflicted file once per stage.
+    entries.sort();
+    entries.dedup();
+    let root = cwd.to_owned();
+    on_lane(processes.durability(), move || classify_entries(&root, entries)).await.map_err(|_| "the listed files could not be checked on disk: their lane did not run the check".to_owned())?
 }
+
+/// `path` relative to `root` with forward slashes; components compare case-insensitively on
+/// Windows, where `c:\proj\src` sits under `C:\Proj`. `None` when `path` is not under `root`.
+pub fn project_relative(root: &Path, path: &Path) -> Option<String> {
+    let key = |c: &Component| {
+        let s = c.as_os_str().to_string_lossy();
+        if cfg!(windows) { s.to_lowercase() } else { s.into_owned() }
+    };
+    let mut rest = path.components().filter(|c| *c != Component::CurDir);
+    for r in root.components().filter(|c| *c != Component::CurDir) {
+        if key(&rest.next()?) != key(&r) {
+            return None;
+        }
+    }
+    let parts: Vec<Component> = rest.collect();
+    if parts.iter().any(|c| *c == Component::ParentDir) {
+        return None;
+    }
+    Some(parts.iter().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/"))
+}
+
+/// Why a requested path yields no file, as far as the tree can tell. Blocking: a lane job's body.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn empty_path_reason(cwd: &Path, path: &str, listing: &Listing, listed: usize, filtered: bool) -> String {
+    let scope = [path.to_owned()];
+    if let Some(dir) = listing.directories.iter().find(|d| within_scope(d, &scope)) {
+        return format!("{dir} is a nested repository or submodule: git lists it as one entry, not the files inside it");
+    }
+    let rel = normalize_rel(path);
+    let parts: Vec<&str> = rel.trim_end_matches('/').split('/').filter(|p| !p.is_empty() && *p != ".").collect();
+    if let Some(n) = (1..=parts.len()).find(|n| cwd.join(parts[..*n].join("/")).join(".git").exists()) {
+        return format!("{} is a nested repository or submodule: git lists none of the files inside it", parts[..n].join("/"));
+    }
+    match (listed, filtered) {
+        (0, _) => "nothing is listed there: git has no tracked or non-ignored untracked file under it".to_owned(),
+        (n, true) => format!("none of its {n} listed file(s) is of the requested languages"),
+        (n, false) => format!("none of its {n} listed file(s) is of a language tidy handles"),
+    }
+}
+
 /// Detects the languages present in `cwd`. Files come from git (they scope every engine run) and
 /// map to languages by extension: the graph binary's table wins when available, with the static
 /// registry covering formatter-only extensions the binary does not parse.
-pub async fn detect_languages(processes: &Processes, cwd: &Path, paths: &[String], language_filter: &[String], graph_langs: Option<&GraphLangs>, cancel: Option<&CancellationToken>) -> Detected {
-    let (files, error) = list_scoped_files(processes, cwd, paths, cancel).await;
+pub async fn detect_languages(processes: &Processes, cwd: &Path, paths: &[String], language_filter: &[String], graph_langs: Option<&GraphLangs>, cancel: Option<&CancellationToken>) -> Result<Detected, String> {
+    let listing = list_scoped_files(processes, cwd, paths, cancel).await?;
     let extensions = graph_langs.map(|g| &g.extensions);
     let language_of = |rel: &str| language_with(rel, extensions);
+    let files = listing.files.clone();
     let filtered: Vec<String> = if language_filter.is_empty() { files } else { files.into_iter().filter(|f| language_filter.contains(&language_of(f))).collect() };
     let mut counts: Vec<(String, usize)> = Vec::new();
     for rel in &filtered {
@@ -261,11 +498,19 @@ pub async fn detect_languages(processes: &Processes, cwd: &Path, paths: &[String
         }
     }
     counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| mixdog_js::locale_compare(&a.0, &b.0)));
-    Detected {
-        languages: counts,
-        files: filtered,
-        source: if extensions.is_some() { "graph-binary" } else { "git" },
-        extensions: extensions.cloned(),
-        note: (!error.is_empty()).then(|| format!("language detection fell back to an empty file set: {error}")),
-    }
+    // A requested path yields a file when it holds a file of a known (and requested) language.
+    let empty: Vec<(String, usize)> = paths
+        .iter()
+        .filter(|p| !filtered.iter().any(|f| !language_of(f).is_empty() && within_scope(f, std::slice::from_ref(*p))))
+        .map(|p| (p.clone(), listing.files.iter().filter(|f| within_scope(f, std::slice::from_ref(p))).count()))
+        .collect();
+    let links = listing.links.clone();
+    let empty_paths = if empty.is_empty() {
+        Vec::new()
+    } else {
+        let (root, filter) = (cwd.to_owned(), !language_filter.is_empty());
+        let reasons = on_lane(processes.durability(), move || empty.into_iter().map(|(p, n)| { let why = empty_path_reason(&root, &p, &listing, n, filter); (p, why) }).collect());
+        reasons.await.map_err(|_| "the requested paths that yield no file could not be examined: their lane did not run the check".to_owned())?
+    };
+    Ok(Detected { languages: counts, files: filtered, links, empty_paths, source: if extensions.is_some() { "graph-binary" } else { "git" }, extensions: extensions.cloned() })
 }

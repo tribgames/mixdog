@@ -45,40 +45,40 @@
         "darwin-arm64": {
           "archive": "none",
           "binPath": "biome-darwin-arm64",
-          "sha256": "3d0cff7e4cd35a1709c1f4f9568380e08b3551ecf6e7356b3a49a40e3611894b",
-          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.5.13/biome-darwin-arm64"
+          "sha256": "16c2a522889a679768bafe463523aded030c51f17004cf5c579750422443fcc4",
+          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.6.8/biome-darwin-arm64"
         },
         "darwin-x64": {
           "archive": "none",
           "binPath": "biome-darwin-x64",
-          "sha256": "16f162b37f5bfca9d203dd8a05b20a3aaa6fee806f6ae0e1f8792331a6072238",
-          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.5.13/biome-darwin-x64"
+          "sha256": "81fe7e521e010117fe6ef85f96ec4609e316059e630850084ac49a2e5a7b665a",
+          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.6.8/biome-darwin-x64"
         },
         "linux-arm64": {
           "archive": "none",
           "binPath": "biome-linux-arm64",
-          "sha256": "c5f0cf249b1ef1d730376ef61390341e4fdcdb2f79a7fe94a2dacd6af6241958",
-          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.5.13/biome-linux-arm64"
+          "sha256": "3e5b3bf3ff21c4beecfef424fd429d6937c5e04fe5d332ad69d45806349ce20c",
+          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.6.8/biome-linux-arm64"
         },
         "linux-x64": {
           "archive": "none",
           "binPath": "biome-linux-x64",
-          "sha256": "2037af3d666febdb6e1a2f549938d6f0fe961bad0ac1a34c5fee3dec2db0b43e",
-          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.5.13/biome-linux-x64"
+          "sha256": "fc1cb7c6664d6fa315144f58bd03096ee5d035e641538840a80262d59203d5dd",
+          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.6.8/biome-linux-x64"
         },
         "win32-x64": {
           "archive": "none",
           "binPath": "biome-win32-x64.exe",
-          "sha256": "3d7ce7840c4b47db771f258bd2258eecdae820a4bad376b9740af5bb9bb4d75d",
-          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.5.13/biome-win32-x64.exe"
+          "sha256": "4328e7468693a259474b8d6810899fafa4af3ef7ceec446d1b98553c8f7b3ace",
+          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.6.8/biome-win32-x64.exe"
         }
       },
       "homepage": "https://biomejs.dev",
       "kind": ["format", "lint"],
-      "languages": ["javascript", "typescript"],
+      "languages": ["javascript", "typescript", "json", "css", "yaml"],
       "license": "MIT",
       "source": "upstream",
-      "version": "2.5.13"
+      "version": "2.6.8"
     },
     "clang-format": {
       "assets": {
@@ -199,6 +199,68 @@
       "license": "BSD-3-Clause",
       "source": "upstream",
       "version": "0.12.0"
+    },
+    "google-java-format": {
+      "assets": {
+        "darwin-arm64": {
+          "archive": "none",
+          "binPath": "google-java-format_darwin-arm64",
+          "sha256": "04b13ad486bcc29ef64f7168c2d3eb330e73ae458610ba5bcf44f6018b655dc4",
+          "url": "https://github.com/google/google-java-format/releases/download/v2.0.0/google-java-format_darwin-arm64"
+        },
+        "linux-arm64": {
+          "archive": "none",
+          "binPath": "google-java-format_linux-arm64",
+          "sha256": "3193ae2e3a32634a45effc9f575005e7adf202699ab4d9d6488ff1a715588d10",
+          "url": "https://github.com/google/google-java-format/releases/download/v2.0.0/google-java-format_linux-arm64"
+        },
+        "linux-x64": {
+          "archive": "none",
+          "binPath": "google-java-format_linux-x86-64",
+          "sha256": "c351f587e6dd1f11836be7296894ea2ab3bd91847dbd14101f4f04d390380fe9",
+          "url": "https://github.com/google/google-java-format/releases/download/v2.0.0/google-java-format_linux-x86-64"
+        },
+        "win32-x64": {
+          "archive": "none",
+          "binPath": "google-java-format_windows-x86-64.exe",
+          "sha256": "6e757021d3b5a8133ca3b5b1915c4cf38dc46ad0886bc9059fcc2ccb7b6036e5",
+          "url": "https://github.com/google/google-java-format/releases/download/v2.0.0/google-java-format_windows-x86-64.exe"
+        }
+      },
+      "homepage": "https://github.com/google/google-java-format",
+      "kind": ["format"],
+      "languages": ["java"],
+      "license": "Apache-2.0",
+      "source": "upstream",
+      "version": "2.0.0"
+    },
+    "ktfmt": {
+      "assets": {
+        "darwin-arm64": {
+          "archive": "tar.gz",
+          "binPath": "ktfmt-macos-aarch64-0.65/ktfmt",
+          "sha256": "d10ec46dadc4ae19e5b8ddc72d10ce45e5be35d632ce9e73c9b8a59d2147fb85",
+          "url": "https://github.com/Kotlin/ktfmt/releases/download/v0.65/ktfmt-macos-aarch64-0.65.tar.gz"
+        },
+        "linux-x64": {
+          "archive": "tar.gz",
+          "binPath": "ktfmt-linux-x86_64-0.65/ktfmt",
+          "sha256": "3684327b092db9b76fffcb9525decf73f8331ed17e00ce3232769c11cd36d352",
+          "url": "https://github.com/Kotlin/ktfmt/releases/download/v0.65/ktfmt-linux-x86_64-0.65.tar.gz"
+        },
+        "win32-x64": {
+          "archive": "zip",
+          "binPath": "ktfmt-windows-x86_64-0.65/ktfmt.exe",
+          "sha256": "3286d659fa8df6a480e3b53ca4a30d9321c372286c46b8d74556b434189bee5f",
+          "url": "https://github.com/Kotlin/ktfmt/releases/download/v0.65/ktfmt-windows-x86_64-0.65.zip"
+        }
+      },
+      "homepage": "https://github.com/Kotlin/ktfmt",
+      "kind": ["format"],
+      "languages": ["kotlin"],
+      "license": "Apache-2.0",
+      "source": "upstream",
+      "version": "0.65.0"
     },
     "mago": {
       "assets": {
@@ -416,8 +478,48 @@
       "license": "MPL-2.0",
       "source": "upstream",
       "version": "2.5.2"
+    },
+    "taplo": {
+      "assets": {
+        "darwin-arm64": {
+          "archive": "gz",
+          "binPath": "taplo",
+          "sha256": "713734314c3e71894b9e77513c5349835eefbd52908445a0d73b0c7dc469347d",
+          "url": "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-aarch64.gz"
+        },
+        "darwin-x64": {
+          "archive": "gz",
+          "binPath": "taplo",
+          "sha256": "898122cde3a0b1cd1cbc2d52d3624f23338218c91b5ddb71518236a4c2c10ef2",
+          "url": "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-x86_64.gz"
+        },
+        "linux-arm64": {
+          "archive": "gz",
+          "binPath": "taplo",
+          "sha256": "033681d01eec8376c3fd38fa3703c79316f5e14bb013d859943b60a07bccdcc3",
+          "url": "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-aarch64.gz"
+        },
+        "linux-x64": {
+          "archive": "gz",
+          "binPath": "taplo",
+          "sha256": "8fe196b894ccf9072f98d4e1013a180306e17d244830b03986ee5e8eabeb6156",
+          "url": "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz"
+        },
+        "win32-x64": {
+          "archive": "zip",
+          "binPath": "taplo.exe",
+          "sha256": "1615eed140039bd58e7089109883b1c434de5d6de8f64a993e6e8c80ca57bdf9",
+          "url": "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-windows-x86_64.zip"
+        }
+      },
+      "homepage": "https://taplo.tamasfe.dev",
+      "kind": ["format"],
+      "languages": ["toml"],
+      "license": "MIT",
+      "source": "upstream",
+      "version": "0.10.0"
     }
   },
-  "generatedAt": "2026-09-16T02:42:15.563Z",
+  "generatedAt": "2026-11-20T14:30:00.000Z",
   "version": 1
 }

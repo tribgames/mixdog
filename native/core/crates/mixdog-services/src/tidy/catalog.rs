@@ -65,14 +65,17 @@ mod tests {
 
     #[test]
     fn the_catalog_has_every_engine_and_language_routing() {
-        assert_eq!(engines().len(), 20);
+        assert_eq!(engines().len(), 23);
         assert_eq!(engine_entry("biome").unwrap().suppressed_by, ["prettier", "eslint"]);
+        assert_eq!(engine_entry("taplo").unwrap().suppressed_by, ["dprint"]);
         assert!(engine_entry("prettier").unwrap().project_local_only);
         assert_eq!(engine_entry("dotnet-format").unwrap().command.as_deref().unwrap(), ["dotnet", "format"]);
         assert!(engine_entry("psscriptanalyzer").unwrap().version_args.is_some());
         assert!(engine_entry("dprint").unwrap().requires_config);
         let python: Vec<&str> = engines_for_languages(&["python".into()]).iter().map(|e| e.id.as_str()).collect();
         assert_eq!(python, ["ruff"]);
-        assert_eq!(engines_for_languages(&[]).len(), 20);
+        let by_language = |language: &str| engines_for_languages(&[language.to_owned()]).iter().map(|e| e.id.as_str()).collect::<Vec<_>>();
+        assert_eq!((by_language("java"), by_language("kotlin"), by_language("toml"), by_language("yaml")), (vec!["google-java-format"], vec!["ktfmt"], vec!["dprint", "taplo"], vec!["biome", "prettier"]));
+        assert_eq!(engines_for_languages(&[]).len(), 23);
     }
 }

@@ -17,9 +17,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::lane::on_lane;
 
+use super::apply::sha256_hex;
 use super::history_comment::refine_history_comment_matches;
 use super::languages::{files_for_languages, parse_graph_langs};
-use super::process::{Processes, RunOptions};
+use super::process::{MAX_CAPTURE_BYTES, ProcessResult, Processes, RunOptions};
 use super::rule_files::RULE_FILES;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
@@ -40,8 +41,10 @@ pub struct RuleGroup {
     pub rules_text: String,
 }
 
+/// Values of a top-level `key:` in each rule document. Indented keys belong to nested mappings
+/// (a rewriter's `id:`), not to the rule.
 fn scan_ids(text: &str, key: &str) -> Vec<String> {
-    let pattern = format!(r#"^\s*{key}:\s*["']?([\w.+#-]+)["']?\s*$"#);
+    let pattern = format!(r#"^{key}:[ \t]*["']?([\w.+#-]+)["']?[ \t]*\r?$"#);
     mixdog_js::JsRegex::new_static(&pattern, "m").captures_iter(text).filter_map(|c| c.get(1).map(str::to_owned)).collect()
 }
 
@@ -128,15 +131,27 @@ fn byte_range(source: &Value) -> Option<(i64, i64)> {
     Some((pair.0 as i64, pair.1 as i64))
 }
 
+/// Why a fix without the scanner's digest is never written.
+const NO_SCAN_DIGEST: &str = "the scanner did not send the SHA-256 of the file it parsed (a mixdog-graph build from before fix digests), so the fix cannot be checked against the bytes it was computed for";
+
+/// The fix payload, with `scanned`: the scanner's SHA-256 of the exact bytes it parsed, which apply
+/// requires the file to still hash to. A fix without it is `stale`.
 fn normalize_fix(raw: &Value, range: Option<(i64, i64)>) -> Value {
+    let stamped = |mut fix: Value, digest: Option<&str>| {
+        match digest.filter(|d| !d.is_empty()) {
+            Some(d) => fix["scanned"] = json!(d),
+            None => fix["stale"] = json!(NO_SCAN_DIGEST),
+        }
+        fix
+    };
     match raw {
         Value::Null => Value::Null,
-        Value::String(s) => range.map_or(Value::Null, |r| json!({"byteOffset": [r.0, r.1], "text": s})),
+        Value::String(s) => range.map_or(Value::Null, |r| stamped(json!({"byteOffset": [r.0, r.1], "text": s}), None)),
         _ => {
             let offset = raw.get("byteOffset").or_else(|| raw.get("range")).or_else(|| raw.get("span")).and_then(byte_range).or(range);
             let text = ["text", "replacement"].iter().find_map(|k| raw.get(*k).and_then(Value::as_str));
             match (offset, text) {
-                (Some(o), Some(t)) => json!({"byteOffset": [o.0, o.1], "text": t}),
+                (Some(o), Some(t)) => stamped(json!({"byteOffset": [o.0, o.1], "text": t}), raw.get("sha256").and_then(Value::as_str)),
                 _ => Value::Null,
             }
         }
@@ -301,6 +316,47 @@ fn scan_source_reader(cwd: PathBuf) -> impl Fn(&str) -> Option<Vec<u8>> {
     }
 }
 
+/// What a scan run says about itself before its output is read: it could not start, ran out of
+/// time, or its output was cut. Each leaves the matches incomplete.
+fn run_failure(result: &ProcessResult) -> Option<Value> {
+    if result.timed_out {
+        return Some(json!({"exitCode": result.code, "kind": "timeout", "message": format!("structural scan {}; its matches are incomplete", result.error)}));
+    }
+    if !result.error.is_empty() && result.code == -1 {
+        return Some(json!({"exitCode": -1, "kind": "spawn", "message": result.error}));
+    }
+    if result.truncated {
+        return Some(json!({"exitCode": result.code, "kind": "truncated", "message": format!("structural scan output passed {MAX_CAPTURE_BYTES} bytes and was cut; split the scope")}));
+    }
+    None
+}
+
+/// The scanner's digest of each file it sent a fix for.
+fn scan_digests(matches: &[Value]) -> HashMap<String, String> {
+    matches.iter().filter_map(|m| Some((m["file"].as_str()?.to_owned(), m["fix"]["scanned"].as_str()?.to_owned()))).collect()
+}
+
+/// Refines the history-comment matches from the bytes the scanner parsed: a file that no longer
+/// hashes to the scanner's digest gives no source, so its comment fixes are withheld. A fix the
+/// refinement rebuilt (a merged comment range) was computed from those bytes and takes the file's
+/// digest; with no digest it is stale. Without `fix` nothing is written, so nothing is stamped.
+fn refine_scanned(matches: Vec<Value>, fix: bool, read: &dyn Fn(&str) -> Option<Vec<u8>>) -> Vec<Value> {
+    let digests = scan_digests(&matches);
+    let mut refined = refine_history_comment_matches(matches, &|f: &str| read(f).filter(|bytes| digests.get(f).is_none_or(|d| *d == sha256_hex(bytes))));
+    if !fix {
+        return refined;
+    }
+    for m in &mut refined {
+        let digest = m["file"].as_str().and_then(|f| digests.get(f)).cloned();
+        let Some(fix) = m.get_mut("fix").filter(|f| f.is_object() && f.get("scanned").is_none() && f.get("stale").is_none()) else { continue };
+        match digest {
+            Some(d) => fix["scanned"] = json!(d),
+            None => fix["stale"] = json!(NO_SCAN_DIGEST),
+        }
+    }
+    refined
+}
+
 pub struct GraphStructuralAdapter {
     pub bin: PathBuf,
     pub processes: Processes,
@@ -309,7 +365,8 @@ pub struct GraphStructuralAdapter {
 impl GraphStructuralAdapter {
     pub const ID: &'static str = "graph-binary";
 
-    /// Scans; with `fix` the binary emits fix payloads (byte range + text) and writes nothing.
+    /// Scans; with `fix` the binary emits fix payloads (byte range + text, and the SHA-256 of the
+    /// bytes it parsed, kept as `scanned`) and writes nothing.
     pub async fn scan(&self, cwd: &Path, rules_text: &str, files: &[String], fix: bool, cancel: Option<&CancellationToken>) -> Result<Value, StructuralEngineUnavailable> {
         let mut args = vec![cwd.to_string_lossy().into_owned(), "--scan".into(), "--rules".into(), "-".into()];
         if !files.is_empty() {
@@ -324,8 +381,8 @@ impl GraphStructuralAdapter {
         options.timeout = STRUCTURAL_TIMEOUT;
         options.cancel = cancel;
         let result = self.processes.run(&self.bin.to_string_lossy(), &args, options).await;
-        if !result.error.is_empty() && result.code == -1 {
-            return Ok(json!({"matches": [], "summary": {"matches": 0, "files": 0}, "error": {"exitCode": -1, "kind": "spawn", "message": result.error}}));
+        if let Some(error) = run_failure(&result) {
+            return Ok(json!({"matches": [], "summary": {"matches": 0, "files": 0}, "error": error}));
         }
         let mut parsed = parse_structural_jsonl(&result.stdout, result.code, &result.stderr);
         if parsed["error"]["kind"] == "protocol" {
@@ -334,7 +391,7 @@ impl GraphStructuralAdapter {
         if parsed.get("error").is_none() {
             let matches = parsed["matches"].as_array().cloned().unwrap_or_default();
             let (owned_cwd, owned_matches) = (cwd.to_owned(), matches.clone());
-            let refined = on_lane(self.processes.durability(), move || refine_history_comment_matches(owned_matches, &scan_source_reader(owned_cwd))).await.unwrap_or(matches);
+            let refined = on_lane(self.processes.durability(), move || refine_scanned(owned_matches, fix, &scan_source_reader(owned_cwd))).await.unwrap_or(matches);
             let files = refined.iter().filter_map(|m| m["file"].as_str()).collect::<std::collections::HashSet<_>>().len();
             parsed["summary"]["matches"] = json!(refined.len());
             parsed["summary"]["files"] = json!(files);
@@ -396,10 +453,10 @@ mod tests {
         assert_eq!((m["file"].clone(), m["severity"].clone(), m["message"].clone()), (json!("src/a.ts"), json!("error"), json!("Use let")));
         assert_eq!(m["range"]["start"], json!({"line": 1, "column": 5}));
         assert_eq!(m["range"]["byteOffset"], json!([10, 13]));
-        assert_eq!(m["fix"], json!({"byteOffset": [10, 13], "text": "let"}));
+        assert_eq!(m["fix"], json!({"byteOffset": [10, 13], "text": "let", "stale": NO_SCAN_DIGEST}));
         assert!(normalize_structural_match(&json!({"ruleId": "x"}), true).is_none());
-        let object_fix = normalize_structural_match(&json!({"file": "a", "range": {"byteOffset": [1, 2]}, "fix": {"replacement": "z"}}), false).unwrap();
-        assert_eq!(object_fix["fix"], json!({"byteOffset": [1, 2], "text": "z"}));
+        let object_fix = normalize_structural_match(&json!({"file": "a", "range": {"byteOffset": [1, 2]}, "fix": {"replacement": "z", "sha256": "ab"}}), false).unwrap();
+        assert_eq!(object_fix["fix"], json!({"byteOffset": [1, 2], "text": "z", "scanned": "ab"}));
     }
 
     #[test]
@@ -415,6 +472,59 @@ mod tests {
         let internal = parse_structural_jsonl("{\"file\":\"a\",\"ruleId\":\"r\",\"range\":{\"byteOffset\":[0,1]},\"fix\":\"x\"}\n", 1, "");
         assert_eq!(internal["error"]["kind"], "internal");
         assert_eq!((internal["matches"][0]["fix"].clone(), internal["matches"][0]["manual"].clone()), (Value::Null, json!(true)));
+    }
+
+    /// A rule's ids are its top-level `id:` keys; a rewriter's nested `id:` is not a rule.
+    #[test]
+    fn rule_ids_are_top_level_keys_only() {
+        let yaml = "id: outer\nlanguage: rust\nrule:\n  pattern: $A\nrewriters:\n  - id: inner\n    language: python\n    rule:\n      pattern: x\n---\nid: second\r\nlanguage: rust\r\n";
+        let (packs, _) = load_rule_packs_from(&[("rust/x.yml", yaml)]);
+        assert_eq!((packs[0].rules.clone(), packs[0].languages.clone()), (vec!["outer".to_owned(), "second".to_owned()], vec!["rust".to_owned()]));
+    }
+
+    /// A scan that ran out of time, or whose output was cut, says so instead of passing for a
+    /// complete scan with fewer matches.
+    #[test]
+    fn a_timed_out_or_cut_scan_is_an_error_of_its_kind() {
+        let timed_out = ProcessResult { code: -1, timed_out: true, error: "timed out after 120000ms".into(), ..Default::default() };
+        assert_eq!(run_failure(&timed_out).unwrap()["kind"], "timeout");
+        assert!(run_failure(&timed_out).unwrap()["message"].as_str().unwrap().contains("timed out after 120000ms"));
+        let cut = ProcessResult { truncated: true, stdout: "{\"file\":\"a\"}\n".into(), ..Default::default() };
+        assert_eq!(run_failure(&cut).unwrap()["kind"], "truncated");
+        assert_eq!(run_failure(&ProcessResult { code: -1, error: "x: program not found".into(), ..Default::default() }).unwrap()["kind"], "spawn");
+        assert!(run_failure(&ProcessResult::default()).is_none());
+    }
+
+    /// A fix's `scanned` is the scanner's own digest of the bytes it parsed; a fix without one is
+    /// stale. A history-comment fix the refinement rebuilds takes its file's scanner digest, and is
+    /// withheld when the file no longer holds those bytes.
+    #[test]
+    fn fixes_carry_the_scanners_digest_or_are_stale() {
+        let source = "// moved from b.ts\nlet a;\n";
+        let digest = sha256_hex(source.as_bytes());
+        let row = |file: &str, fix: Value| normalize_structural_match(&json!({"file": file, "ruleId": "r", "range": {"byteOffset": [0, 3]}, "fix": fix}), true).unwrap();
+        assert_eq!(row("a.ts", json!({"byteOffset": [0, 3], "text": "x", "sha256": digest}))["fix"]["scanned"], json!(digest));
+        let old = row("a.ts", json!({"byteOffset": [0, 3], "text": "x"}));
+        assert_eq!((old["fix"]["stale"].clone(), old["fix"].get("scanned")), (json!(NO_SCAN_DIGEST), None));
+
+        let history = |file: &str| {
+            let mut m = row(file, json!({"byteOffset": [0, 18], "text": "", "sha256": digest}));
+            m["ruleId"] = json!("no-history-comment");
+            m["range"]["byteOffset"] = json!([0, 18]);
+            m
+        };
+        let disk = |text: &'static str| move |_: &str| Some(text.as_bytes().to_vec());
+        let fresh = refine_scanned(vec![history("a.ts")], true, &disk(source));
+        assert_eq!(fresh.len(), 1);
+        assert_eq!((fresh[0]["fix"]["scanned"].clone(), fresh[0]["manual"].clone()), (json!(digest), json!(false)));
+        // A same-length edit after the scanner parsed the file: no fix is rebuilt from it.
+        let edited = refine_scanned(vec![history("a.ts")], true, &disk("// moved from c.ts\nlet a;\n"));
+        assert!(edited.iter().all(|m| m["fix"].is_null()), "{edited:?}");
+        // No digest from the scanner: the rebuilt fix is stale.
+        let mut unsigned = history("a.ts");
+        unsigned["fix"] = json!({"byteOffset": [0, 18], "text": "", "stale": NO_SCAN_DIGEST});
+        let rebuilt = refine_scanned(vec![unsigned], true, &disk(source));
+        assert_eq!(rebuilt[0]["fix"]["stale"], json!(NO_SCAN_DIGEST));
     }
 
     #[tokio::test]

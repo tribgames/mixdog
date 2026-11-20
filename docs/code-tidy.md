@@ -158,20 +158,69 @@ language list wins and the report says `languageSource:"graph-binary"`.
 
 Order, first hit wins — reported per engine as `source`:
 
-1. `project-config` — `.mixdog/tidy.json` → `{engines:{<id>:{command,args,cwd?}}, policy:{downloads}}`
+1. `project-config` — `.mixdog/tidy.json` → `{engines:{<id>:{command?,args?,cwd?}}, policy:{downloads}}`;
+   an entry without `command` configures the engine the next steps find
 2. `project-local` — `node_modules/.bin`, `.venv/{bin,Scripts}`, `venv/{bin,Scripts}`
 3. `path` — PATH lookup
 4. `managed` — `<pluginData>/tools/<engine>/<version>/<binPath>`
 5. `missing` — with `installHint`, plus `installable:true` when the manifest
    has an asset for this platform
 
-A project whose `node_modules/.bin` provides Prettier or ESLint keeps them:
-Biome resolves but is reported `skipped: "project uses prettier"`. tidy never
-writes or rewrites a project's formatter config.
+A project whose `node_modules/.bin` provides Prettier or ESLint keeps them, for
+the languages they handle: Biome stands down for those and keeps the rest
+(with ESLint alone it still formats JSON, CSS and YAML), and is reported
+`skipped: "project uses prettier"` only when no language is left to it. A
+project with a dprint configuration keeps dprint for TOML the same way, and
+taplo stands down. An engine that will not run (skipped, or not installed)
+takes over from nothing; one that this run is about to download only keeps the
+engine it replaces from being downloaded beside it. An engine's configuration
+is looked for from the directory it runs in (`cwd` in `.mixdog/tidy.json`) up
+to the project. tidy never writes or rewrites a project's formatter config.
+
+Formatters run through stdin (rustfmt, google-java-format, ktfmt, zig, mago's
+formatter) get one file's text at a time and tidy writes what comes back: the
+file keeps its byte order mark, and a file that is not UTF-8 is left alone and
+reported as unprocessed. They run in the project directory like every other
+engine, so configured arguments mean the same for every file; what the engine
+would have found from the file's own place is passed to it (ktfmt the file's
+path, rustfmt the package edition and the directory of a nested
+`rustfmt.toml`, unless the project's arguments already give them).
+
+tidy does not report or rewrite a file for its line endings alone: an LF file
+stays LF and a CR LF file stays CR LF, whatever the engine's configuration
+says. Text that comes back from stdin is given the file's line endings, and
+Biome, StyLua and taplo are run over the LF files and the CR LF files
+separately, each told which. The exceptions follow their own rules: shfmt,
+gofmt and gofumpt always write LF, and dprint and Prettier follow the
+project's configuration. So does a `lineEnding` that a project's `biome.json`
+sets for one language or in an `overrides` entry: `--line-ending` replaces
+Biome's general setting, not those.
+
+A check that fails on a group of files is run again on halves of the group to
+find the file. A command that writes is never run twice over a file: when it
+fails, every file of the group it was given is reported as unprocessed.
+
+google-java-format and ktfmt have no configuration file for their style, so
+tidy passes one: `--aosp` (four-space) for Java, and `--kotlinlang-style
+--enable-editorconfig` for Kotlin. A project that wants another style names it
+in `.mixdog/tidy.json` (`{"engines":{"google-java-format":{"args":
+["--style=google"]}}}`; without `command`, the engine tidy would have run gets
+the arguments); when the project gives arguments, tidy adds no style flag of
+its own.
+
+Not covered: Ruby (RuboCop rewrites LF files with CRLF on Windows and needs
+the project's Bundler context), Scala (scalafmt needs a JVM and downloads the
+version its configuration names at run time), Swift (swift-format is detected
+and reported, never run), and Elixir (`mix format` is detected and reported,
+never run: it evaluates the project's `.formatter.exs`, whose output shares
+stdout with the formatted text, and given a path it formats files the
+project's `inputs` leave out). Markdown and HTML are formatted only by a
+project's own Prettier or dprint: the formatters tidy could ship for them
+change how real documents render or parse.
 
 | Engine | Languages | Managed | Runner |
 |---|---|---|---|
-| biome | javascript, typescript, json, css | yes | `check --reporter=json` / `check --write` |
+| biome | javascript, typescript, json, css, yaml | yes | `check --reporter=json` / `check --write` |
 | ruff | python | yes | `check --output-format json` + `format --check` / `--fix`, `format` |
 | clang-format | c, cpp, objc | yes | `--dry-run -Werror` / `-i` |
 | shfmt | bash | yes | `-l` / `-w` |
@@ -180,14 +229,20 @@ writes or rewrites a project's formatter config.
 | gofumpt | go | yes | `-l` / `-w` |
 | dprint | json, markdown, toml, javascript, typescript | yes | `check` / `fmt` (needs `dprint.json`) |
 | air | r | yes | `format --check` ("Would reformat: …") / `format` |
-| mago | php | yes | `format --dry-run` ("diff of '…':") + `lint --reporting-format json` / `format`, `lint --fix` |
-| rustfmt | rust | toolchain | `--check` / write |
+| mago | php | yes | stdin: `format --stdin-input --stdin-filepath <file>` + `lint --reporting-format json` / `lint --fix` |
+| google-java-format | java | yes (no darwin-x64) | stdin: `--aosp -` |
+| ktfmt | kotlin | yes (no darwin-x64, linux-arm64) | stdin: `--kotlinlang-style --enable-editorconfig --stdin-name=<file> -` |
+| taplo | toml | yes | `fmt --check` / `fmt` (`-o crlf=<file's>`; honours `.taplo.toml` excludes) |
+| rustfmt | rust | toolchain | stdin: `--edition <package edition> [--config-path <nested config dir>] --emit stdout` |
 | gofmt | go | toolchain | `-l` / `-w` |
 | psscriptanalyzer | powershell | yes (module) | `Invoke-ScriptAnalyzer` + `Invoke-Formatter` (host: pwsh/powershell) |
 | dotnet-format | csharp | toolchain | `format whitespace <folder> --folder --include` + `--report` json / write |
 | prettier | js/ts, json, css, markdown, yaml, html | project-local only | `--list-different` / `--write` |
 | eslint | javascript, typescript | project-local only | `-f json` / `--fix` |
-| zig, dart, swift-format, mix | zig, dart, swift, elixir | toolchain | detection + `installHint` only |
+| zig | zig | toolchain | stdin: `zig fmt --stdin` |
+| dart | dart | toolchain | `dart format --output=none` ("Changed …") / `dart format` |
+| mix | elixir | toolchain | detection + `installHint` only |
+| swift-format | swift | toolchain | detection + `installHint` only |
 
 Engines see only the files of their own languages inside the requested scope,
 spawn with argument arrays (never a shell) and `windowsHide`, run under a
@@ -214,7 +269,11 @@ implementation — there is no fallback engine:
 - `graph-binary` — `mixdog-graph <cwd> --scan --rules - [--files ...] [--fix]`,
   rules YAML on stdin, JSONL on stdout with a final `{"summary":...}` line; exit
   0 ok, 1 internal, 2 usage/rule-parse (reported as `structural.error`). `--fix`
-  only asks for fix payloads — the binary writes nothing. Support is probed with
+  only asks for fix payloads — the binary writes nothing. Each payload carries
+  `sha256`, the SHA-256 of the exact bytes of the file the binary parsed; tidy
+  keeps it as the fix's `scanned` and writes the fix only to a file that still
+  hashes to it. A fix without the digest (a binary from before it) is `stale`,
+  reported with that reason and never written. Support is probed with
   `mixdog-graph <cwd> --langs`, and the probe requires the language registry in
   the output: a binary from before the scan mode accepts the flag, exits 0 and
   prints nothing, which would otherwise read as "no findings".
