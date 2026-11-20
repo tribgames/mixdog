@@ -387,7 +387,7 @@ shiguredo_libvpx = "=2026.2.0-canary.3" # not in Codex
 jpeg-decoder = { version = "0.3", default-features = false } # not in Codex
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "tiff", "webp"] } # s3-04: JPEG encoder (image::codecs::jpeg::JpegEncoder) for the set-of-marks burn-in; jpeg-encoder 0.6 is not cached
 dunce = "1.0.5"
-moxcms = "0.7.11"
+moxcms = "0.8.0"
 zune-core = { version = "0.5.1", default-features = false }
 zune-jpeg = "0.5.12"
 tree-sitter = "0.27"

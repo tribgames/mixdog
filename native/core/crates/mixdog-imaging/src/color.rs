@@ -4,6 +4,8 @@
 //! A profile that cannot be read, or that does not describe the colour space of the pixels, leaves the pixels as they
 //! are: libvips catches the failed transform and goes on with the untouched image.
 
+use std::sync::Arc;
+
 use moxcms::ColorProfile;
 use moxcms::DataColorSpace;
 use moxcms::Layout;
@@ -29,7 +31,7 @@ pub fn rgb_to_srgb(data: &mut [u8], has_alpha: bool, icc: &[u8]) {
 }
 
 /// The transform from an RGB-space `icc` to sRGB; `None` when the profile cannot be read, is not RGB, or yields no transform.
-fn to_srgb(has_alpha: bool, icc: &[u8]) -> Option<Box<Transform8BitExecutor>> {
+fn to_srgb(has_alpha: bool, icc: &[u8]) -> Option<Arc<Transform8BitExecutor>> {
     let profile = ColorProfile::new_from_slice(icc).ok()?;
     if profile.color_space != DataColorSpace::Rgb {
         return None;
@@ -58,7 +60,7 @@ pub struct ProfileUnusable;
 
 /// The CMYK-to-sRGB transform of a CMYK profile.
 pub(crate) struct CmykConverter {
-    transform: Box<Transform8BitExecutor>,
+    transform: Arc<Transform8BitExecutor>,
     /// What black point compensation does to one sRGB channel value (see [`black_point_curve`]).
     compensation: [u8; 256],
 }
