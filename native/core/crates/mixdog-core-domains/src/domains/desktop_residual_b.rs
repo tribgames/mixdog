@@ -1418,6 +1418,7 @@ fn login_shell_candidates() -> Vec<String> {
 }
 
 #[cfg(unix)]
+#[allow(clippy::disallowed_types, reason = "the login shell starts in a session of its own (pre_exec) and its read ends on a mark; the wait is bounded by `timeout`")]
 fn read_shell(shell: &str, timeout: Duration) -> Result<BTreeMap<String, String>, String> {
     use std::io::Read;
     use std::os::unix::process::CommandExt;
