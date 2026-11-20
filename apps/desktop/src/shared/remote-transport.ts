@@ -26,6 +26,8 @@ import {
 } from './remote-webrtc';
 import { RELAY_DEFAULT_MAX_FRAME_BYTES } from './remote-payload-limit';
 import {
+  base64UrlEncode,
+  binaryBytes,
   RELAY_E2EE_TRANSPORT_MAX_BOX_BYTES,
   RELAY_E2EE_TRANSPORT_MAX_PLAINTEXT_BYTES,
   type RelayE2EEControlOpen,
@@ -558,12 +560,11 @@ export function readRemoteTransportControl(
     message = { v: REMOTE_TRANSPORT_VERSION, t: 'repair', sequences: [...(sequences as number[])] };
   } else if (input.t === 'ping' || input.t === 'pong') {
     if (input.v !== REMOTE_TRANSPORT_VERSION) fail('version');
-    const sent =
-      input.t === 'ping' && input.sent !== undefined
-        ? typeof input.sent === 'number' && Number.isSafeInteger(input.sent) && input.sent >= 0
-          ? input.sent
-          : fail('ping sent')
-        : undefined;
+    let sent: number | undefined;
+    if (input.t === 'ping' && input.sent !== undefined) {
+      if (typeof input.sent !== 'number' || !Number.isSafeInteger(input.sent) || input.sent < 0) fail('ping sent');
+      sent = input.sent;
+    }
     message = {
       v: REMOTE_TRANSPORT_VERSION,
       t: input.t,
@@ -683,14 +684,6 @@ export interface RemoteTransportFragment {
   index: number;
   count: number;
   data: string;
-}
-
-function base64UrlEncode(bytes: Uint8Array): string {
-  let binary = '';
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-  }
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
 }
 
 function base64UrlDecode(value: string, what: string): Uint8Array {
@@ -942,16 +935,10 @@ export function encodeRemoteTransportControl(box: Uint8Array): Uint8Array {
   return out;
 }
 
-function bytesOf(value: unknown): Uint8Array | null {
-  if (value instanceof ArrayBuffer) return new Uint8Array(value);
-  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  return null;
-}
-
 /** Strict decoder for one carrier message; throws on anything a conforming
  *  peer cannot produce. Copies, so a carrier may reuse its buffer. */
 export function decodeRemoteTransportMessage(raw: unknown): RemoteTransportMessage {
-  const bytes = bytesOf(raw);
+  const bytes = binaryBytes(raw);
   if (
     !bytes ||
     bytes.byteLength > REMOTE_TRANSPORT_MAX_MESSAGE_BYTES ||
@@ -1494,19 +1481,20 @@ export class RemoteTransportReceiver {
     let slot = this.slots.get(sequence);
     if (message.kind === 'chunk') {
       const same = slot?.candidates.find((candidate) => candidate.filled && candidate.total === message.total);
-      if (same) {
-        if (complete(same) || same.filled![message.index]) {
+      const filled = same?.filled;
+      if (slot && same && filled) {
+        if (complete(same) || filled[message.index]) {
           this.duplicates += 1;
           return 'duplicate';
         }
         same.buffer.set(message.data, message.index * REMOTE_TRANSPORT_CHUNK_BYTES);
-        same.filled![message.index] = 1;
+        filled[message.index] = 1;
         same.received += 1;
         same.progressAt = now;
         // Belt and braces for the header check above: a complete assembly is
         // exposed only when its box names this slot.
         if (complete(same) && !headerNames(same.buffer, sequence)) {
-          this.removeCandidate(sequence, slot!, same);
+          this.removeCandidate(sequence, slot, same);
           this.discarded += 1;
           return 'mismatch';
         }

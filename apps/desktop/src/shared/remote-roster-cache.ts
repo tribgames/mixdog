@@ -21,34 +21,6 @@ const MAX_ROSTER_ROWS = 10_000;
 const MAX_ROSTER_CHARS = 8 * 1024 * 1024;
 const SAVE_DELAY_MS = 2_000;
 const EPOCH_PATTERN = /^[A-Za-z0-9_-]{8,64}$/u;
-const DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
-
-export interface RosterClaim {
-  epoch: string;
-  version: number;
-  count: number;
-  ids: string;
-}
-
-/** Null for a phone that sent no roster parameter; `claim` null when it can
- *  hold a roster but offers none (or offered one this build cannot read). */
-export function readRosterClaim(value: unknown): { claim: RosterClaim | null } | null {
-  if (!value || typeof value !== 'object' || (value as { v?: unknown }).v !== ROSTER_CLAIM_VERSION) return null;
-  const { e, r, n, ids } = value as Record<string, unknown>;
-  if (
-    typeof e !== 'string' ||
-    !EPOCH_PATTERN.test(e) ||
-    !Number.isSafeInteger(r) ||
-    (r as number) < 0 ||
-    !Number.isSafeInteger(n) ||
-    (n as number) < 0 ||
-    typeof ids !== 'string' ||
-    !DIGEST_PATTERN.test(ids)
-  ) {
-    return { claim: null };
-  }
-  return { claim: { epoch: e, version: r as number, count: n as number, ids } };
-}
 
 /** The stamp a sessions frame carries: the roster version it brought the
  *  phone to. */

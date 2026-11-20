@@ -98,7 +98,10 @@ function pageStorage(held = {}, full = []) {
   };
 }
 const taking = (answer, sent = []) => ({
-  sendSync: (channel) => (sent.push(channel), answer),
+  sendSync: (channel) => {
+    sent.push(channel);
+    return answer;
+  },
   send: (channel) => sent.push(channel),
 });
 const RESCUED = [

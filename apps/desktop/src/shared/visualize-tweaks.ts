@@ -157,15 +157,8 @@ function parseOne(raw: unknown, index: number): { tweak: VisualizeTweak } | { er
     }
     tweak.options = parsed;
   }
-  const fallback =
-    type === 'range'
-      ? tweak.min
-      : type === 'select'
-        ? tweak.options?.[0]?.value
-        : type === 'toggle'
-          ? false
-          : undefined;
-  const given = item.default === undefined ? fallback : item.default;
+  const fallbacks = { range: tweak.min, select: tweak.options?.[0]?.value, toggle: false, color: undefined };
+  const given = item.default === undefined ? fallbacks[type] : item.default;
   const value = sanitizeTweakValue(tweak, given);
   if (value === null) return { error: `${name} has no valid default for type ${type}` };
   tweak.default = value;
@@ -199,7 +192,7 @@ export function parseVisualizeTweaks(raw: string): { tweaks: VisualizeTweak[] } 
 /** The CSS value / attribute text a normalized value stands for on the page. */
 export function tweakAppliedValue(tweak: VisualizeTweak, value: string): string {
   if (tweak.type === 'range') return `${value}${tweak.unit ?? ''}`;
-  if (tweak.type === 'toggle') return tweak.var ? (value === 'true' ? '1' : '0') : value;
+  if (tweak.type === 'toggle' && tweak.var) return value === 'true' ? '1' : '0';
   return value;
 }
 

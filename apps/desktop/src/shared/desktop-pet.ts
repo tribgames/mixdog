@@ -6,7 +6,6 @@
 
 import type { ToolApprovalDecision } from './contract';
 
-/** The app window's view of the pet setting. */
 /** The overlay's settings, shown alike in Settings → General and in the
  *  pet's own menu. */
 export interface DesktopPetConfig {

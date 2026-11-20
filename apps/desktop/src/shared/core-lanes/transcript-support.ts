@@ -6,9 +6,6 @@ export {
   normalizedProviderModels,
 } from '../desktop-transcript-limits';
 
-/** Items a runtime restores on resume, and the page an old (non-paging)
- *  remote client keeps receiving. */
-export const DESKTOP_TRANSCRIPT_ITEM_LIMIT = 512;
 /** First-open tail for a session only remote (relay) views show: a phone's
  *  ~700px transcript paints about 12 rows plus overscan, so 20 items cover its
  *  first screen and older rows page in as it scrolls up. Fewer bytes cross the

@@ -174,11 +174,6 @@ export function hasMeaningfulSessionTitleText(value) {
   return /[\p{L}\p{N}]/u.test(normalizeSessionTitle(value, ''));
 }
 
-/**
- * Produces the stable, user-facing label used by the desktop shell. The core
- * preview remains untouched because the TUI uses it as a recent-message
- * preview; desktop titles deliberately strip runtime envelopes and payloads.
- */
 // Bounded exact-input memo for the (pure) cleaning stage: the catalog build
 // titles the same preview several times per row, and titles every row again
 // on each build. At 256 entries a store of a few thousand sessions pushed
@@ -205,6 +200,11 @@ function cleanSessionTitleText(source) {
   return text;
 }
 
+/**
+ * Produces the stable, user-facing label used by the desktop shell. The core
+ * preview remains untouched because the TUI uses it as a recent-message
+ * preview; desktop titles deliberately strip runtime envelopes and payloads.
+ */
 export function normalizeSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, maxLength = 100) {
   const text = cleanSessionTitleText(String(value ?? ''));
 

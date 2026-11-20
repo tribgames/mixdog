@@ -147,7 +147,7 @@ export type VisualizeFeedbackParentMessage =
   | { type: 'scroll'; dx: number; dy: number }
   /** Put the document at an absolute scroll position (a reloaded page, before it is shown). */
   | { type: 'scroll-to'; x: number; y: number }
-  /** Set (or, alue: null, remove) the tweak overrides on the page root. */
+  /** Set (or, value: null, remove) the tweak overrides on the page root. */
   | { type: 'tweaks'; ops: VisualizeTweakOp[] }
   /** The page's mx-tweaks block is malformed: the page logs it as a console error. */
   | { type: 'tweaks-problem'; reason: string }

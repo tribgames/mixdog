@@ -94,7 +94,7 @@ export async function generateSecureDesktopControllerKey(): Promise<SecureDeskto
  *  uncompressed P-256 point). */
 export function isSecureDesktopControllerKey(value: unknown): value is string {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{87}$/u.test(value)) return false;
-  const bytes = decodeBase64(value.replaceAll('-', '+').replaceAll('_', '/') + '=');
+  const bytes = decodeBase64(`${value.replaceAll('-', '+').replaceAll('_', '/')}=`);
   return bytes.byteLength === PUBLIC_KEY_BYTES && bytes[0] === 4;
 }
 

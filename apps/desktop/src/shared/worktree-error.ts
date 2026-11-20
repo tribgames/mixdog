@@ -107,17 +107,6 @@ function optionalBoolean(input: Record<string, unknown>, key: string, name: stri
   }
 }
 
-/** Session-less capabilities whose `projectPath` must name a registered Project. */
-export function isProjectScopedCapability(capability: string): boolean {
-  return (
-    capability === 'getProjectBranchMenu' ||
-    capability === 'selectProjectBranch' ||
-    capability === 'mergeProjectBranch' ||
-    capability === 'inspectProjectBranch' ||
-    capability === 'manageProjectBranch'
-  );
-}
-
 export function isWorktreeCapability(capability: DesktopCapability): capability is DesktopWorktreeCapability {
   return WORKTREE_CAPABILITY_SET.has(capability);
 }
@@ -311,5 +300,7 @@ export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapabi
     case 'getWorktreeSettings':
     case 'listWorktrees':
       return;
+    default:
+      capability satisfies never;
   }
 }
