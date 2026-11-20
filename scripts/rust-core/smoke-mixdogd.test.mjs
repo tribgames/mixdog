@@ -1,11 +1,25 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { NODE_ROW, judgeToolFailureRows, toolFailureCheck } from './smoke-mixdogd.mjs';
+import { judgeToolFailureRows, toolFailureCheck } from './smoke-mixdogd.mjs';
 
 const RUN = { sessionId: 'thread-1', cwd: 'C:\\work', startedAt: 1000, endedAt: 2000 };
-// The core's row for the provoked call: Node's recorded row with this run's own values.
+// The core's row for the provoked call, with this run's own values.
+const ROW = {
+  iteration: 1,
+  tool_name: 'read',
+  tool_kind: 'builtin',
+  result_kind: 'error',
+  category: 'runtime/failure',
+  agent: 'lead',
+  model: 'smoke',
+  tool_args: null,
+  error_first_line: 'Error: read requires "path" (or alias file_path).',
+  error_preview: 'Error: read requires "path" (or alias file_path).',
+  result_bytes_est: 49,
+  result_lines_est: 1,
+};
 const mine = (over = {}) =>
-  JSON.stringify({ ...NODE_ROW, session_id: RUN.sessionId, cwd: RUN.cwd, ts: 1500, tool_ms: 4, ...over });
+  JSON.stringify({ ...ROW, session_id: RUN.sessionId, cwd: RUN.cwd, ts: 1500, tool_ms: 4, ...over });
 
 test('a missing or empty spool is a failure that names the missing writer and its owner, never a pass', () => {
   for (const rows of [null, []])
@@ -27,7 +41,7 @@ test("another set of rows, or another call's row, fails", () => {
   // A row of another session.
   assert.throws(
     () => judgeToolFailureRows([mine({ session_id: 'thread-2' })], RUN),
-    /differs from Node's row in: session_id "thread-2"/
+    /differs from the expected row in: session_id "thread-2"/
   );
   // The same tool and error text, but a path was given.
   assert.throws(
@@ -38,9 +52,9 @@ test("another set of rows, or another call's row, fails", () => {
       ),
     /tool_args \{"path":"x"\}.*error_first_line/
   );
-  // A Lead's own call is the Lead's (`agent: "lead"`, the session's agent, finalize.mjs:236), not null.
-  assert.throws(() => judgeToolFailureRows([mine({ agent: null })], RUN), /agent null \(Node: "lead"\)/);
-  // Other workspace, a time outside the run, a field missing from Node's schema, a field added.
+  // A Lead's own call is the Lead's, not null.
+  assert.throws(() => judgeToolFailureRows([mine({ agent: null })], RUN), /agent null \(expected: "lead"\)/);
+  // Other workspace, a time outside the run, a field missing from the schema, a field added.
   assert.throws(() => judgeToolFailureRows([mine({ cwd: 'C:\\other' })], RUN), /cwd/);
   assert.throws(() => judgeToolFailureRows([mine({ ts: 5 })], RUN), /ts 5/);
   const { category, ...missing } = JSON.parse(mine());

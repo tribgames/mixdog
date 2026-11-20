@@ -9,10 +9,5 @@
     "keeps": "libtest's list output as printed",
     "purpose": "reference capture of libtest list output, not an input to the public lanes test"
   },
-  "node_tool_failure_row.json": {
-    "capture": "Recorded with the private record-node-tool-failure-row.mjs harness against Node's tool-failure writer at b6f10295a",
-    "keeps": "the row Node writes for a failed read call",
-    "used by": "smoke-mixdogd.mjs (NODE_ROW)"
-  },
   "provenance": "The original recorder and slow drift test are local-only; a public checkout can inspect these captures but does not include those tools."
 }
