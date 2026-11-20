@@ -12,7 +12,6 @@ process.env.MIXDOG_DATA_DIR = dataDir;
 const { attachmentsForIntake, materializePromptSubmission } = await import('./store.mjs');
 const { attachmentFileName } = await import('./attachment-file-name.mjs');
 
-
 const JPEG = Buffer.from('\xff\xd8\xff\xe0 photo of a lease', 'latin1');
 
 test('file names keep the original name, get the extension their type calls for, and stay path-safe', () => {
@@ -57,7 +56,6 @@ function resizedSend(originalRef) {
   );
   return { intake, attachments: attachmentsForIntake(intake.prompt, intake.options) };
 }
-
 
 function namedBlob(ref) {
   return join(dataDir, 'prompt-attachments', 'sha256', ref.slice(0, 2), ref);

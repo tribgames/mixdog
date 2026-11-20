@@ -4,7 +4,15 @@ import { fileChangeKey, summarizeSessionDiffRows, summarizeSessionTranscriptRevi
 
 test('the change key moves on a finished call that may write files, a visualize export included, and on nothing else', () => {
   const base = [{ kind: 'user', id: 'u1', text: 'go' }];
-  const done = (id, name, args = {}) => ({ kind: 'tool', id, name, args, result: 'ok', status: 'done', completedAt: 1 });
+  const done = (id, name, args = {}) => ({
+    kind: 'tool',
+    id,
+    name,
+    args,
+    result: 'ok',
+    status: 'done',
+    completedAt: 1,
+  });
   const key = fileChangeKey(base);
   assert.equal(
     fileChangeKey([...base, { kind: 'assistant', id: 'a1', text: 'hi' }, done('t1', 'read', { path: 'a.txt' })]),

@@ -50,7 +50,15 @@ export function runIgnoredMode(args) {
 export function invocationRecords(xml, byName, args) {
   const records = junitRecords(xml, byName);
   const mode = runIgnoredMode(args);
-  const problems = mode === 'default' ? [] : records.filter((record) => record.status === 'ignored').map((record) => `${JSON.stringify(record.id)} is reported skipped under --run-ignored ${mode}: that is the mode's deselection, not an ignore disposition`);
+  const problems =
+    mode === 'default'
+      ? []
+      : records
+          .filter((record) => record.status === 'ignored')
+          .map(
+            (record) =>
+              `${JSON.stringify(record.id)} is reported skipped under --run-ignored ${mode}: that is the mode's deselection, not an ignore disposition`
+          );
   return { records, problems };
 }
 
@@ -66,12 +74,21 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   delete env.MIXDOG_CHILD_RECEIPTS;
   if (receipt) beginReceipt(receipt, 'nextest');
   const read = (path) => readFileSync(join(ROOT, path), 'utf8');
-  const tracked = receipt ? spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 28 }).stdout.split('\0').filter(Boolean) : [];
+  const tracked = receipt
+    ? spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 28 })
+        .stdout.split('\0')
+        .filter(Boolean)
+    : [];
   const byName = receipt ? packagesByName(tracked, read).byName : null;
   if (existsSync(options.junit)) rmSync(options.junit);
   let listing;
   if (receipt && options.list) {
-    const listed = spawnSync('cargo', ['nextest', 'list', ...scope, '--message-format', 'json'], { env, encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'inherit'] });
+    const listed = spawnSync('cargo', ['nextest', 'list', ...scope, '--message-format', 'json'], {
+      env,
+      encoding: 'utf8',
+      maxBuffer: 1 << 28,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
     if (listed.status !== 0) console.error('cargo nextest list failed: the receipt cannot say which targets exist');
     else listing = suiteNames(JSON.parse(listed.stdout));
   }

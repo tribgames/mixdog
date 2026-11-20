@@ -13,7 +13,10 @@ import { assertParity, createParity } from './remote-protocol-chat-parity.mjs';
 const live = verifiedFixture('live').recordings[0];
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const project = (rows) => summariesOfThreadRows(plain(rows));
-const nodeRuns = verifiedFixture('roster').recordings.map((recording) => ({ recording, parity: createParity({ live, node: recording, project }) }));
+const nodeRuns = verifiedFixture('roster').recordings.map((recording) => ({
+  recording,
+  parity: createParity({ live, node: recording, project }),
+}));
 const node = nodeRuns[0].recording;
 const parity = nodeRuns[0].parity;
 
@@ -47,16 +50,28 @@ function feedOver(listing) {
       stores.forEach((l) => l({ type: 'appSnapshot' }));
       await done;
     },
-    edge: ({ method, params }) => listeners.forEach((l) => l({ type: 'notification', notification: { method, params } })),
+    edge: ({ method, params }) =>
+      listeners.forEach((l) => l({ type: 'notification', notification: { method, params } })),
   };
 }
 
-test('the live recording is of a real mixdogd, its harness pinned, and every step ended with the feed folded to the core\'s list', () => {
+test("the live recording is of a real mixdogd, its harness pinned, and every step ended with the feed folded to the core's list", () => {
   assert.match(live.manifest.binarySha256, /^[0-9a-f]{64}$/);
   assert.match(live.manifest.source, /running mixdogd serve/);
-  assert.deepEqual(Object.keys(live.manifest.harness).sort(), ['lib/deadline.mjs', 'lib/env.mjs', 'lib/fake-provider.mjs', 'lib/pg-version.json', 'lib/proc.mjs', 'lib/scenarios.mjs', 'lib/stage.mjs']);
+  assert.deepEqual(Object.keys(live.manifest.harness).sort(), [
+    'lib/deadline.mjs',
+    'lib/env.mjs',
+    'lib/fake-provider.mjs',
+    'lib/pg-version.json',
+    'lib/proc.mjs',
+    'lib/scenarios.mjs',
+    'lib/stage.mjs',
+  ]);
   for (const hash of Object.values(live.manifest.harness)) assert.match(hash, /^[0-9a-f]{64}$/);
-  assert.deepEqual(live.steps.map((s) => s.name), node.manifest.actions);
+  assert.deepEqual(
+    live.steps.map((s) => s.name),
+    node.manifest.actions
+  );
 });
 
 // ── after each action, the roster the phone feed publishes from the core's real edges is the roster Node's phone published ──────────
@@ -74,21 +89,42 @@ live.steps.forEach((step, at) => {
     // point the fixture's manifest declares), so how many publications an action gives is free; each must be a roster some Node
     // recording's phone got in that action, two distinct rosters only in an order some Node recording shows, and the last Node's last.
     const name = `action:${step.name}`;
-    const sequences = nodeRuns.map(({ recording, parity: p }) => recording.steps.find((s) => s.name === name).published.map(p.nodeContent));
+    const sequences = nodeRuns.map(({ recording, parity: p }) =>
+      recording.steps.find((s) => s.name === name).published.map(p.nodeContent)
+    );
     const got = r.published.map(parity.phoneContent);
     const problems = [];
     if (sequences.every((s) => !s.length)) {
       if (got.length) problems.push(`Node's phone got no roster in this action; the core's got ${got.length}`);
     } else {
       const shown = new Set(sequences.flat());
-      got.forEach((content, index) => { if (!shown.has(content)) problems.push(`publication ${index + 1} of ${got.length} is a roster Node never published: ${content}`); });
-      const orders = new Set(sequences.flatMap((s) => s.flatMap((a, i) => s.slice(i + 1).filter((b) => b !== a).map((b) => `${a}\u0000${b}`))));
-      got.forEach((a, i) => got.slice(i + 1).forEach((b, j) => {
-        if (a !== b && shown.has(a) && shown.has(b) && !orders.has(`${a}\u0000${b}`)) problems.push(`publications ${i + 1} and ${i + j + 2}: an order Node never showed`);
-      }));
+      got.forEach((content, index) => {
+        if (!shown.has(content))
+          problems.push(`publication ${index + 1} of ${got.length} is a roster Node never published: ${content}`);
+      });
+      const orders = new Set(
+        sequences.flatMap((s) =>
+          s.flatMap((a, i) =>
+            s
+              .slice(i + 1)
+              .filter((b) => b !== a)
+              .map((b) => `${a}\u0000${b}`)
+          )
+        )
+      );
+      got.forEach((a, i) =>
+        got.slice(i + 1).forEach((b, j) => {
+          if (a !== b && shown.has(a) && shown.has(b) && !orders.has(`${a}\u0000${b}`))
+            problems.push(`publications ${i + 1} and ${i + j + 2}: an order Node never showed`);
+        })
+      );
       // The phone's roster at the end: its last publication, or (the action's edges coalesced into one refresh that changed nothing,
       // as a start and delete of one task does) the roster it attached with.
-      problems.push(...parity.classify(node.steps.find((s) => s.name === name).roster, r.published.at(-1) ?? attached).map((d) => `the last publication: ${d}`));
+      problems.push(
+        ...parity
+          .classify(node.steps.find((s) => s.name === name).roster, r.published.at(-1) ?? attached)
+          .map((d) => `the last publication: ${d}`)
+      );
     }
     assertParity(t, problems);
   });

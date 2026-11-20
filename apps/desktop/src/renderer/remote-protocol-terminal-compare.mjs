@@ -70,19 +70,36 @@ export function loadRuns() {
 
 /** `runs` when they are exactly the runs `runList` lists; throws naming the first that is not. */
 export function checkedRuns(runs, runList) {
-  assert.ok(Array.isArray(runList), "MANIFEST.json lists no runs (runList)");
+  assert.ok(Array.isArray(runList), 'MANIFEST.json lists no runs (runList)');
   assert.ok(Array.isArray(runs), 'runs.json is not a list of runs');
-  assert.equal(runs.length, runList.length, `runs.json has ${runs.length} runs; MANIFEST.json's runList lists ${runList.length}`);
+  assert.equal(
+    runs.length,
+    runList.length,
+    `runs.json has ${runs.length} runs; MANIFEST.json's runList lists ${runList.length}`
+  );
   runs.forEach((run, index) => {
     const sha256 = createHash('sha256').update(JSON.stringify(run)).digest('hex');
     assert.equal(runList[index].run, index, `MANIFEST.json's runList entry ${index} names run ${runList[index].run}`);
-    assert.equal(sha256, runList[index].sha256, `runs.json run ${index} is not the run MANIFEST.json's runList lists (sha256 ${sha256})`);
+    assert.equal(
+      sha256,
+      runList[index].sha256,
+      `runs.json run ${index} is not the run MANIFEST.json's runList lists (sha256 ${sha256})`
+    );
   });
   return runs;
 }
 
 const PARTS = ['order', 'claims.order', 'immediate.order'];
-const POWERSHELL_AT_PROMPT = new Set(['term_ph2a', 'term_ph2_l1', 'term_ph2_l2', 'term_ph2_l4', 'term_ph2_l5', 'term_ph2_l6', 'term_ph2_i1', 'term_ph2_i2']);
+const POWERSHELL_AT_PROMPT = new Set([
+  'term_ph2a',
+  'term_ph2_l1',
+  'term_ph2_l2',
+  'term_ph2_l4',
+  'term_ph2_l5',
+  'term_ph2_l6',
+  'term_ph2_i1',
+  'term_ph2_i2',
+]);
 const EXIT_AT_END = /\[process exited with code (-?\d+)\]\r\n$/;
 const EXIT_ANYWHERE = /\[process exited with code -?\d+\]\r\n/;
 
@@ -114,7 +131,11 @@ function withoutDisposalPairs(list, part) {
       const id = entry.event.id;
       text.set(id, (text.get(id) ?? '') + entry.event.data);
       if (EXIT_ANYWHERE.test(text.get(id))) {
-        assert.notEqual(state.get(id), 'running', `${part}: ${id} exited while running after its dispose answer (the exit's null was missing)`);
+        assert.notEqual(
+          state.get(id),
+          'running',
+          `${part}: ${id} exited while running after its dispose answer (the exit's null was missing)`
+        );
         if (state.has(id)) state.set(id, 'exited');
       }
     }
@@ -134,7 +155,8 @@ function withoutDisposalPairs(list, part) {
     if (!isData(entry)) entries += 1;
     kept.push(entry);
   }
-  for (const [id, at] of state) assert.notEqual(at, 'running', `${part}: ${id}'s running after its dispose answer never ended`);
+  for (const [id, at] of state)
+    assert.notEqual(at, 'running', `${part}: ${id}'s running after its dispose answer never ended`);
   return { kept, pairs };
 }
 
@@ -189,7 +211,12 @@ function attrOf(attr, core) {
   return `${attr.fg}.${attr.bg}.${underlineStyle}.${underlineColor}.${link ? JSON.stringify(link) : ''}`;
 }
 
-const charsetName = (charset) => (charset ? Object.entries(charset).map(([from, to]) => `${from}${to}`).join('') : 'ascii');
+const charsetName = (charset) =>
+  charset
+    ? Object.entries(charset)
+        .map(([from, to]) => `${from}${to}`)
+        .join('')
+    : 'ascii';
 
 /** A cell's own content written so that nothing a cell can hold reads as another: its code points with the four marks this form uses
  *  (`«`, `»`, `␀`, `\`, and `⏎`) escaped by `\`; an empty cell (erased, or a wide character's second cell) is the unescaped `␀`. */
@@ -255,8 +282,15 @@ function stateOf(tab) {
     state[`${name} cursor`] = [api.cursorX, api.baseY + api.cursorY];
     state[`${name} viewport`] = [api.viewportY, api.baseY];
     state[`${name} scroll region`] = [inner.scrollTop, inner.scrollBottom];
-    state[`${name} tab stops`] = Object.keys(inner.tabs).filter((x) => inner.tabs[x]).join(',');
-    state[`${name} saved cursor`] = [inner.savedX, inner.savedY, attrOf(inner.savedCurAttrData, core), charsetName(inner.savedCharset)];
+    state[`${name} tab stops`] = Object.keys(inner.tabs)
+      .filter((x) => inner.tabs[x])
+      .join(',');
+    state[`${name} saved cursor`] = [
+      inner.savedX,
+      inner.savedY,
+      attrOf(inner.savedCurAttrData, core),
+      charsetName(inner.savedCharset),
+    ];
   }
   const { coreService, optionsService, coreMouseService, _inputHandler: input, _charsetService: charsets } = core;
   for (const [mode, on] of Object.entries(coreService.decPrivateModes)) state[`mode ${mode}`] = on;
@@ -336,7 +370,8 @@ function unitsOf(value, path = '', out = {}) {
  *  error) to a phone's call, `other` for the rest. Output is not compared against answers: Node sent a tab's output through its relay
  *  lane's 16 ms buffer (remote-relay-push-lanes.ts:80-89) and each answer on its call's own path (remote-relay-client-calls.ts), two paths
  *  whose interleaving is timing; each is compared in its own order (MANIFEST.json `answersAgainstOutput`). */
-const kindOf = (entry) => (entry.push === 'activity' ? `activity ${entry.event.id}` : entry.call !== undefined ? 'answer' : 'other');
+const kindOf = (entry) =>
+  entry.push === 'activity' ? `activity ${entry.event.id}` : entry.call !== undefined ? 'answer' : 'other';
 
 /** A list as the comparison reads it: its entries besides output (as units; an answer's replay as the state it produces) and their kinds,
  *  and per position k from 0 to the number of those entries (the last: the list's end): each tab's state after all output before entry k
@@ -441,14 +476,20 @@ const showUnit = (value) => (value === undefined ? '<absent>' : JSON.stringify(v
 
 /** The units in which `got` differs from `node` (either may be null: nothing drawn yet), as message lines. */
 function unitDifferences(got, node) {
-  if (got === null || node === null) return got === node ? [] : [`drawn: got ${got === null ? 'no output' : 'output'}, Node ${node === null ? 'no output' : 'output'}`];
+  if (got === null || node === null)
+    return got === node
+      ? []
+      : [`drawn: got ${got === null ? 'no output' : 'output'}, Node ${node === null ? 'no output' : 'output'}`];
   const keys = [...new Set([...Object.keys(got), ...Object.keys(node)])];
-  return keys.filter((key) => !isDeepStrictEqual(got[key], node[key])).map((key) => `${key}: got ${showUnit(got[key])}, Node ${showUnit(node[key])}`);
+  return keys
+    .filter((key) => !isDeepStrictEqual(got[key], node[key]))
+    .map((key) => `${key}: got ${showUnit(got[key])}, Node ${showUnit(node[key])}`);
 }
 
 // The shell prints its host's Windows build in its banner, which differs from the recording PC's: the build number is the host's, not the phone's.
 const WINDOWS_BANNER = /Microsoft Windows \[Version [\d.]+\]/gu;
-const withoutHostBuild = (value) => JSON.parse(JSON.stringify(value ?? null).replace(WINDOWS_BANNER, 'Microsoft Windows [Version host]'));
+const withoutHostBuild = (value) =>
+  JSON.parse(JSON.stringify(value ?? null).replace(WINDOWS_BANNER, 'Microsoft Windows [Version host]'));
 
 /** Compares a whole state or entry (its units, or null) at one place. Where Node's runs agree on all of it, it must be theirs, and every
  *  unit that differs is named. Where they differ, the units they differ on are named in `exemptions` with the runs that differ from run
@@ -463,13 +504,23 @@ function compareUnits(gotUnits, recordedUnits, what, exemptions) {
     if (failures.length > 0) assert.fail(`${what}\n  ${failures.slice(0, 16).join('\n  ')}`);
     return;
   }
-  const units = [...new Set(differing.flatMap((run) => unitDifferences(recorded[run], recorded[0]).map((line) => line.split(': got ')[0])))];
+  const units = [
+    ...new Set(
+      differing.flatMap((run) => unitDifferences(recorded[run], recorded[0]).map((line) => line.split(': got ')[0]))
+    ),
+  ];
   const matched = recorded.flatMap((units, run) => (isDeepStrictEqual(units, got) ? [run] : []));
   if (matched.length === 0) {
-    const [closest] = recorded.map((units, run) => [run, unitDifferences(got, units)]).sort((a, b) => a[1].length - b[1].length);
-    assert.fail(`${what}: no Node run has this whole (they differ on ${units.join(', ')}); against run ${closest[0]}, the closest:\n  ${closest[1].slice(0, 16).join('\n  ')}`);
+    const [closest] = recorded
+      .map((units, run) => [run, unitDifferences(got, units)])
+      .sort((a, b) => a[1].length - b[1].length);
+    assert.fail(
+      `${what}: no Node run has this whole (they differ on ${units.join(', ')}); against run ${closest[0]}, the closest:\n  ${closest[1].slice(0, 16).join('\n  ')}`
+    );
   }
-  exemptions.push(`${what}: ${units.join(', ')} (Node's runs ${differing.join(', ')} differ from run 0; here the whole of run ${matched.join('/')})`);
+  exemptions.push(
+    `${what}: ${units.join(', ')} (Node's runs ${differing.join(', ')} differ from run 0; here the whole of run ${matched.join('/')})`
+  );
 }
 
 const nodeViews = new Map();
@@ -496,7 +547,11 @@ export async function nodeView(runs, part) {
     const pairs = read.map(([, placed]) => placed);
     const analyses = read.map(([, , analysis]) => analysis);
     const lengths = analyses.map((run) => run.entries.length);
-    assert.equal(new Set(lengths).size, 1, `Node's runs differ in ${part} beyond the recorded variation (${lengths.join(', ')} entries besides output)`);
+    assert.equal(
+      new Set(lengths).size,
+      1,
+      `Node's runs differ in ${part} beyond the recorded variation (${lengths.join(', ')} entries besides output)`
+    );
     const kinds = analyses.map((run) => run.kinds.join(','));
     assert.equal(new Set(kinds).size, 1, `Node's runs differ in ${part} in which entry is which tab's activity change`);
     views.set(key, { lists, pairs, analyses });
@@ -507,7 +562,11 @@ export async function nodeView(runs, part) {
 /** The list as the comparison reads it: without the PowerShell disposal pairs (the entries kept are the list's own objects). */
 export const comparedList = (list, part) => withoutDisposalPairs(list, part).kept;
 
-const streamOf = (list, tab) => list.filter((entry) => isData(entry) && entry.event.id === tab).map((entry) => entry.event.data).join('');
+const streamOf = (list, tab) =>
+  list
+    .filter((entry) => isData(entry) && entry.event.id === tab)
+    .map((entry) => entry.event.data)
+    .join('');
 const stateOrNull = (id) => (id === null ? null : states[id]);
 
 /** Compares a replayed trace with Node's runs; throws on the first part that differs. Returns: `exemptions`, each unit or line order left
@@ -535,18 +594,36 @@ export async function compareTraces(got, runs) {
         assert.equal(here, values[0], `${what}: got ${here}, every Node run ${values[0]}`);
         continue;
       }
-      assert.ok(values.includes(here), `${what}: got ${here}, which no Node run has (${[...new Set(values)].join(' | ')})`);
+      assert.ok(
+        values.includes(here),
+        `${what}: got ${here}, which no Node run has (${[...new Set(values)].join(' | ')})`
+      );
       const having = values.flatMap((value, run) => (value === 'absent' ? [] : [run]));
       exemptions.push(`${what} (Node's runs ${having.join(', ')} have it; here ${here})`);
     }
     // An output entry is compared by its data alone, so it may carry nothing else.
     for (const entry of mine.filter(isData)) {
-      assert.ok(isDeepStrictEqual(Object.keys(entry), ['push', 'event']) && isDeepStrictEqual(Object.keys(entry.event), ['id', 'data']), `${part}: an output entry with other fields: ${show(entry)}`);
+      assert.ok(
+        isDeepStrictEqual(Object.keys(entry), ['push', 'event']) &&
+          isDeepStrictEqual(Object.keys(entry.event), ['id', 'data']),
+        `${part}: an output entry with other fields: ${show(entry)}`
+      );
     }
     const analysis = await analyse(mine);
     const count = node.analyses[0].entries.length;
-    assert.equal(analysis.entries.length, count, `${part}: ${analysis.entries.length} entries besides output; Node: ${count}`);
-    analysis.entries.forEach((units, i) => compareUnits(units, node.analyses.map((run) => run.entries[i]), `${part} entry ${i}`, exemptions));
+    assert.equal(
+      analysis.entries.length,
+      count,
+      `${part}: ${analysis.entries.length} entries besides output; Node: ${count}`
+    );
+    analysis.entries.forEach((units, i) =>
+      compareUnits(
+        units,
+        node.analyses.map((run) => run.entries[i]),
+        `${part} entry ${i}`,
+        exemptions
+      )
+    );
     // With every entry one of Node's, the trace has Node's kinds of entries, so its commands are where Node's are.
     const { kinds } = node.analyses[0];
     const both = [analysis, ...node.analyses];
@@ -557,7 +634,8 @@ export async function compareTraces(got, runs) {
         // The screen the command ends in, whole.
         const recorded = node.analyses.map((run) => stateIdAt(run, end, tab));
         const here = stateIdAt(analysis, end, tab);
-        if (!recorded.every((id) => id === here)) compareUnits(stateOrNull(here), recorded.map(stateOrNull), `${part}: ${tab}'s screen ${where}`, exemptions);
+        if (!recorded.every((id) => id === here))
+          compareUnits(stateOrNull(here), recorded.map(stateOrNull), `${part}: ${tab}'s screen ${where}`, exemptions);
         // Its output against each of the tab's own activity changes it sent: an order every Node run has is required; where the runs show
         // both, either passes (not held to the other places: the order is the console's timing, decided 2026-11-11).
         for (const change of changes) {
@@ -569,19 +647,38 @@ export async function compareTraces(got, runs) {
             continue;
           }
           const runsOf = (order) => values.flatMap((other, run) => (other === order ? [run] : []));
-          assert.ok(values.includes(value), `${what}: ${value}, which no Node run has (${[...new Set(values)].map((order) => `${order}: ${runsOf(order).length} runs`).join(' | ')})`);
-          exemptions.push(`${what}: here ${value} (Node: ${[...new Set(values)].map((order) => `${order} in ${runsOf(order).length} runs`).join(', ')})`);
+          assert.ok(
+            values.includes(value),
+            `${what}: ${value}, which no Node run has (${[...new Set(values)].map((order) => `${order}: ${runsOf(order).length} runs`).join(' | ')})`
+          );
+          exemptions.push(
+            `${what}: here ${value} (Node: ${[...new Set(values)].map((order) => `${order} in ${runsOf(order).length} runs`).join(', ')})`
+          );
         }
-        const output = (run) => run.output.slice(from + 1, end + 1).map((at) => at.get(tab) ?? '').join('');
-        if (both.some((run) => output(run) !== '')) bytes.push({ part, where, tab, exact: node.analyses.some((run) => output(run) === output(analysis)) });
+        const output = (run) =>
+          run.output
+            .slice(from + 1, end + 1)
+            .map((at) => at.get(tab) ?? '')
+            .join('');
+        if (both.some((run) => output(run) !== ''))
+          bytes.push({ part, where, tab, exact: node.analyses.some((run) => output(run) === output(analysis)) });
       }
     }
     for (const tab of tabs) {
       const codes = node.lists.map((list) => EXIT_AT_END.exec(streamOf(list, tab))?.[1]);
       if (codes.every((code) => code !== undefined)) {
         const code = EXIT_AT_END.exec(streamOf(mine, tab))?.[1];
-        assert.notEqual(code, undefined, `${part}: ${tab}'s output does not end with its exit line: ${show(streamOf(mine, tab).slice(-200))}`);
-        compareUnits({ code }, codes.map((recorded) => ({ code: recorded })), `${part}: ${tab}'s exit`, exemptions);
+        assert.notEqual(
+          code,
+          undefined,
+          `${part}: ${tab}'s output does not end with its exit line: ${show(streamOf(mine, tab).slice(-200))}`
+        );
+        compareUnits(
+          { code },
+          codes.map((recorded) => ({ code: recorded })),
+          `${part}: ${tab}'s exit`,
+          exemptions
+        );
       }
     }
   }

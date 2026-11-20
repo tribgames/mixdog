@@ -381,7 +381,8 @@ export const DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS = 512;
 export const CORE_TRANSCRIPT_HISTORY_POSITION = /^h1:\d{1,10}:[^\r\n]{1,512}$/;
 export const validTranscriptHistoryPosition = (value: unknown): value is string =>
   typeof value === 'string' &&
-  (/^(?:s:\d{1,15}:\d{1,15}|a:\d{1,15}:\d{1,15}:\d{1,15})$/.test(value) || CORE_TRANSCRIPT_HISTORY_POSITION.test(value));
+  (/^(?:s:\d{1,15}:\d{1,15}|a:\d{1,15}:\d{1,15}:\d{1,15})$/.test(value) ||
+    CORE_TRANSCRIPT_HISTORY_POSITION.test(value));
 
 export type DesktopSessionFrameSource = 'live' | 'replay';
 export type DesktopSessionLaneEnd = 'gone' | 'unloaded' | 'disconnected';

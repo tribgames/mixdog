@@ -24,7 +24,12 @@ import { parseLiveArgs } from './lib/paths.mjs';
 
 const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 // The harness runs from the candidate checkout: keep the expected on-disk generation tied to its actual migrator.
-export const GENERATION = Number(readFileSync(new URL('../../native/core/crates/mixdog-migrate/src/desktop_profile/supplement.rs', import.meta.url), 'utf8').match(/pub const GENERATION: u32 = (\d+);/)?.[1]);
+export const GENERATION = Number(
+  readFileSync(
+    new URL('../../native/core/crates/mixdog-migrate/src/desktop_profile/supplement.rs', import.meta.url),
+    'utf8'
+  ).match(/pub const GENERATION: u32 = (\d+);/)?.[1]
+);
 if (!Number.isSafeInteger(GENERATION)) throw new Error('candidate profile migration generation is unavailable');
 const MARKER_WAIT_MS = 120_000;
 
@@ -37,17 +42,30 @@ async function effectiveDesktopSettings(config) {
     const tsxPackage = requireDesktop.resolve('tsx/package.json');
     const api = readJson(tsxPackage).exports['./esm/api'].import.default;
     const { tsImport } = await import(new URL(api, pathToFileURL(tsxPackage)).href);
-    return (await tsImport('../../apps/desktop/src/shared/desktop-settings.ts', { parentURL: import.meta.url, tsconfig: false })).desktopSettingsFromConfig;
+    return (
+      await tsImport('../../apps/desktop/src/shared/desktop-settings.ts', {
+        parentURL: import.meta.url,
+        tsconfig: false,
+      })
+    ).desktopSettingsFromConfig;
   })();
   return (await desktopReader)(config);
 }
 
 /** The Mixdog executable of an unpacked folder (or the executable itself). */
-export function findApp(app, { exists = existsSync, isDir = (p) => statSync(p).isDirectory(), platform = process.platform } = {}) {
+export function findApp(
+  app,
+  { exists = existsSync, isDir = (p) => statSync(p).isDirectory(), platform = process.platform } = {}
+) {
   const path = resolve(app);
   if (!exists(path)) throw new Error(`the app does not exist: ${path}`);
   if (!isDir(path)) return path;
-  const names = platform === 'win32' ? ['Mixdog.exe'] : platform === 'darwin' ? [join('Contents', 'MacOS', 'Mixdog'), 'Mixdog'] : ['mixdog', 'Mixdog'];
+  const names =
+    platform === 'win32'
+      ? ['Mixdog.exe']
+      : platform === 'darwin'
+        ? [join('Contents', 'MacOS', 'Mixdog'), 'Mixdog']
+        : ['mixdog', 'Mixdog'];
   const found = names.map((name) => join(path, name)).find((candidate) => exists(candidate));
   if (!found) throw new Error(`no Mixdog executable in ${path} (looked for ${names.join(', ')})`);
   return found;
@@ -57,18 +75,32 @@ export function findApp(app, { exists = existsSync, isDir = (p) => statSync(p).i
  * Invalid automatic expectations are a fixture error before launch. A deliberately malformed-source vector can
  * supply explicit remoteHostRecords instead, to assert the consumer's intended recovery/filtering behavior. */
 function expectedRemoteHost(row, index) {
-  const invalid = (field) => new Error(`synthetic remote-hosts.json row ${index}: invalid ${field}; provide explicit remoteHostRecords for an intentional malformed-source case`);
+  const invalid = (field) =>
+    new Error(
+      `synthetic remote-hosts.json row ${index}: invalid ${field}; provide explicit remoteHostRecords for an intentional malformed-source case`
+    );
   if (!row || typeof row.url !== 'string' || typeof row.name !== 'string') throw invalid('url/name');
   let parsed;
-  try { parsed = new URL(row.url.trim()); } catch { throw invalid('pairing URL'); }
+  try {
+    parsed = new URL(row.url.trim());
+  } catch {
+    throw invalid('pairing URL');
+  }
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
-  if (!(parsed.protocol === 'https:' || (parsed.protocol === 'http:' && loopback)) || parsed.username || parsed.password) throw invalid('pairing URL');
+  if (
+    !(parsed.protocol === 'https:' || (parsed.protocol === 'http:' && loopback)) ||
+    parsed.username ||
+    parsed.password
+  )
+    throw invalid('pairing URL');
   const route = /^\/d\/([^/]+)\/?$/i.exec(parsed.pathname);
   const device = route?.[1];
-  if (!device || !/^(?:[0-9a-f]{32,64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(device)) throw invalid('device route');
+  if (!device || !/^(?:[0-9a-f]{32,64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(device))
+    throw invalid('device route');
   const url = `${parsed.origin}/d/${device.toLowerCase()}/`;
   const label = (text) => {
-    let units = 0, kept = '';
+    let units = 0,
+      kept = '';
     for (const character of text) {
       units += character.length;
       if (units > 80) break;
@@ -94,13 +126,16 @@ export function loadVector(dir, { exists = existsSync, read = readJson } = {}) {
   if (!exists(profile)) throw new Error(`the vector has no profile/ folder: ${root}`);
   const home = exists(join(root, '.mixdog')) ? join(root, '.mixdog') : null;
   const expect = exists(join(root, 'expect.json')) ? read(join(root, 'expect.json')) : {};
-  if (!expect.sshHosts && exists(join(profile, 'ssh-hosts.json'))) expect.sshHosts = read(join(profile, 'ssh-hosts.json')).hosts.map((host) => host.id);
+  if (!expect.sshHosts && exists(join(profile, 'ssh-hosts.json')))
+    expect.sshHosts = read(join(profile, 'ssh-hosts.json')).hosts.map((host) => host.id);
   if (!expect.remoteHosts && !expect.remoteHostRecords && exists(join(profile, 'remote-hosts.json'))) {
     const hosts = read(join(profile, 'remote-hosts.json')).hosts;
-    if (!Array.isArray(hosts)) throw new Error('synthetic remote-hosts.json: hosts must be an array to derive expectations');
+    if (!Array.isArray(hosts))
+      throw new Error('synthetic remote-hosts.json: hosts must be an array to derive expectations');
     expect.remoteHostRecords = hosts.map(expectedRemoteHost);
   }
-  if (!expect.restore && exists(join(profile, 'server-windows.json'))) expect.restore = { enabled: read(join(profile, 'server-windows.json')).enabled !== false };
+  if (!expect.restore && exists(join(profile, 'server-windows.json')))
+    expect.restore = { enabled: read(join(profile, 'server-windows.json')).enabled !== false };
   return { root, profile, home, expect };
 }
 
@@ -113,11 +148,15 @@ export function markerProblems(dataDir, read = readJson) {
   } catch (error) {
     problems.push(`migration/complete.json: ${error.message}`);
   }
-  const unexpected = (complete?.kinds?.data?.quarantined_unexpected ?? 0) + (complete?.kinds?.desktopProfile?.quarantined_unexpected ?? 0);
-  if (complete && unexpected !== 0) problems.push(`complete.json records ${unexpected} unexpectedly quarantined item(s)`);
+  const unexpected =
+    (complete?.kinds?.data?.quarantined_unexpected ?? 0) +
+    (complete?.kinds?.desktopProfile?.quarantined_unexpected ?? 0);
+  if (complete && unexpected !== 0)
+    problems.push(`complete.json records ${unexpected} unexpectedly quarantined item(s)`);
   try {
     const gen = read(join(dataDir, 'migration', 'profile-gen.json'));
-    if (gen.generation !== GENERATION) problems.push(`profile-gen.json is at generation ${gen.generation}, not ${GENERATION}`);
+    if (gen.generation !== GENERATION)
+      problems.push(`profile-gen.json is at generation ${gen.generation}, not ${GENERATION}`);
   } catch (error) {
     problems.push(`migration/profile-gen.json: ${error.message}`);
   }
@@ -133,18 +172,25 @@ export const missingIds = (want, rows) => {
 /** Expected keys are compared structurally; the error names the path, never credential/config values. */
 export function subsetProblems(actual, expected, path = '') {
   if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
-    return Object.entries(expected).flatMap(([key, value]) => subsetProblems(actual?.[key], value, path ? `${path}.${key}` : key));
+    return Object.entries(expected).flatMap(([key, value]) =>
+      subsetProblems(actual?.[key], value, path ? `${path}.${key}` : key)
+    );
   }
   return isDeepStrictEqual(actual, expected) ? [] : [path || '<root>'];
 }
 
 export function upgradeEnvironment(paths, backupEnabled = false) {
-  return isolatedEnv(paths, { MIXDOG_SKIP_USER_DATA_BACKUP: backupEnabled ? '0' : '1', MIXDOG_USER_DATA_BACKUP_ROOT: join(paths.root, 'user-data-backups'), MIXDOG_RELAY_URL: 'off' });
+  return isolatedEnv(paths, {
+    MIXDOG_SKIP_USER_DATA_BACKUP: backupEnabled ? '0' : '1',
+    MIXDOG_USER_DATA_BACKUP_ROOT: join(paths.root, 'user-data-backups'),
+    MIXDOG_RELAY_URL: 'off',
+  });
 }
 
 export function backupProblems({ manifest, config, dataDir, instanceId, expected = {} }) {
   const problems = [];
-  if (typeof manifest?.dataDir !== 'string' || resolve(manifest.dataDir) !== resolve(dataDir)) problems.push('backup dataDir');
+  if (typeof manifest?.dataDir !== 'string' || resolve(manifest.dataDir) !== resolve(dataDir))
+    problems.push('backup dataDir');
   if (!instanceId || manifest?.instanceId !== instanceId) problems.push('backup incarnation');
   if (!manifest?.reason || !manifest?.createdAt) problems.push('backup completion metadata');
   if (!config || typeof config !== 'object') problems.push('backup config');
@@ -157,7 +203,8 @@ export function vectorDigest(vector) {
   const entries = {};
   const visit = (directory, prefix) => {
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      const path = join(directory, entry.name), relative = `${prefix}/${entry.name}`;
+      const path = join(directory, entry.name),
+        relative = `${prefix}/${entry.name}`;
       if (entry.isSymbolicLink()) throw new Error(`profile vector contains a link: ${relative}`);
       if (entry.isDirectory()) visit(path, relative);
       else if (entry.isFile()) entries[relative] = createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -171,7 +218,9 @@ export function vectorDigest(vector) {
 
 function verifyBackups(backupRoot, dataDir, expected) {
   const instanceId = readJson(join(dataDir, '.mixdog-user-data.json')).instanceId;
-  const manifests = readdirSync(backupRoot, { recursive: true }).map(String).filter((name) => name.replaceAll('\\', '/').endsWith('/backup.json'));
+  const manifests = readdirSync(backupRoot, { recursive: true })
+    .map(String)
+    .filter((name) => name.replaceAll('\\', '/').endsWith('/backup.json'));
   const failures = [];
   for (const relative of manifests) {
     const file = join(backupRoot, relative);
@@ -212,7 +261,7 @@ export function checksFor({ expect, dataDir, backupRoot, performWrite = false })
       name: 'projects',
       run: async ({ core }) => {
         const result = await core.call('project/list', {});
-        const rows = Array.isArray(result) ? result : result?.projects ?? [];
+        const rows = Array.isArray(result) ? result : (result?.projects ?? []);
         const paths = new Set(rows.map((row) => row.path ?? row.projectPath));
         const missing = (expect.projects ?? []).filter((path) => !paths.has(path));
         if (missing.length) throw new Error(`project/list lacks ${missing.join(', ')}`);
@@ -226,7 +275,10 @@ export function checksFor({ expect, dataDir, backupRoot, performWrite = false })
         const missing = missingIds(expect.sshHosts, rows);
         if (missing.length) throw new Error(`connections/ssh/list lacks ${missing.join(', ')}`);
         for (const record of expect.sshHostRecords ?? []) {
-          const differ = subsetProblems(rows.find((row) => row.id === record.id), record);
+          const differ = subsetProblems(
+            rows.find((row) => row.id === record.id),
+            record
+          );
           if (differ.length) throw new Error(`connections/ssh/list differs at ${record.id}: ${differ.join(', ')}`);
         }
         return `${(expect.sshHosts ?? []).length} host(s)`;
@@ -240,7 +292,9 @@ export function checksFor({ expect, dataDir, backupRoot, performWrite = false })
         const stored = state?.notifications;
         if (!stored || typeof stored !== 'object') throw new Error('notify/state holds no notification preferences');
         if (typeof expect.notifications === 'object') {
-          const differ = Object.keys(expect.notifications).filter((key) => key !== 'devices' && !isDeepStrictEqual(stored[key], expect.notifications[key]));
+          const differ = Object.keys(expect.notifications).filter(
+            (key) => key !== 'devices' && !isDeepStrictEqual(stored[key], expect.notifications[key])
+          );
           if (expect.notifications.devices) {
             const expectedDevices = expect.notifications.devices;
             for (const id of new Set([...Object.keys(expectedDevices), ...Object.keys(stored.devices ?? {})])) {
@@ -272,55 +326,87 @@ export function checksFor({ expect, dataDir, backupRoot, performWrite = false })
         const missing = missingIds(expect.remoteHosts, rows);
         if (missing.length) throw new Error(`remoteHosts/list lacks ${missing.join(', ')}`);
         for (const record of expect.remoteHostRecords ?? []) {
-          const differ = subsetProblems(rows.find((row) => row.id === record.id), record);
+          const differ = subsetProblems(
+            rows.find((row) => row.id === record.id),
+            record
+          );
           if (differ.length) throw new Error(`remoteHosts/list differs at ${record.id}: ${differ.join(', ')}`);
         }
         return `${rows.length} PC(s)`;
       },
     });
   }
-  if (expect.restore) list.push({ name: 'server window preferences', run: async ({ core }) => {
-    const value = await core.call('connections/restore/get', {});
-    const differ = subsetProblems(value, expect.restore);
-    if (differ.length) throw new Error(`connections/restore/get differs at ${differ.join(', ')}`);
-    return 'stored and consumed';
-  } });
-  if (expect.config) list.push({ name: 'effective configuration', run: async ({ core }) => {
-    const result = await core.call('config/read', { keys: Object.keys(expect.config) });
-    const differ = subsetProblems(result.config, expect.config);
-    if (differ.length) throw new Error(`config/read differs at ${differ.join(', ')}`);
-    return 'effective values retained';
-  } });
-  if (expect.desktopSettings) list.push({ name: 'effective desktop settings', run: async ({ core }) => {
-    const result = await core.call('config/read', { keys: ['agent', 'desktop'] });
-    if (!result?.config || typeof result.config.desktop !== 'object' || !result.config.desktop) throw new Error('config/read holds no desktop section');
-    const differ = subsetProblems(await effectiveDesktopSettings(result.config), expect.desktopSettings);
-    if (differ.length) throw new Error(`desktop settings differ at ${differ.join(', ')}`);
-    return 'desktop consumer applied fixture settings';
-  } });
-  if (expect.editorSettings) list.push({ name: 'effective editor settings', run: async ({ core, workspace }) => {
-    const value = await core.call('projectFs/readEditorSettings', { root: workspace, rel: 'synthetic.ts' });
-    const differ = subsetProblems(value, expect.editorSettings);
-    if (differ.length) throw new Error(`editor settings differ at ${differ.join(', ')}`);
-    return 'JSONC settings applied';
-  } });
-  if (performWrite && expect.configWrite) list.push({ name: 'unrelated configuration write', run: async ({ core }) => {
-    await core.call('config/value/write', expect.configWrite);
-    return 'fixture-requested write completed';
-  } });
-  if (expect.storedConfig) list.push({ name: 'stored configuration sentinels', run: async ({ read = readJson }) => {
-    const stored = read(join(dataDir, 'mixdog-config.json'));
-    const differ = subsetProblems(stored, expect.storedConfig);
-    for (const path of expect.storedConfigAbsent ?? []) {
-      const parts = path.split('.');
-      const key = parts.pop();
-      const parent = parts.reduce((value, part) => value?.[part], stored);
-      if (parent && Object.hasOwn(parent, key)) differ.push(`${path} must be absent`);
-    }
-    if (differ.length) throw new Error(`stored configuration differs at ${differ.join(', ')}`);
-    return 'known and unknown fixture keys retained';
-  } });
-  if (backupRoot) list.push({ name: 'owned configuration backup', run: async () => verifyBackups(backupRoot, dataDir, expect.backupConfig ?? expect.storedConfig ?? {}) });
+  if (expect.restore)
+    list.push({
+      name: 'server window preferences',
+      run: async ({ core }) => {
+        const value = await core.call('connections/restore/get', {});
+        const differ = subsetProblems(value, expect.restore);
+        if (differ.length) throw new Error(`connections/restore/get differs at ${differ.join(', ')}`);
+        return 'stored and consumed';
+      },
+    });
+  if (expect.config)
+    list.push({
+      name: 'effective configuration',
+      run: async ({ core }) => {
+        const result = await core.call('config/read', { keys: Object.keys(expect.config) });
+        const differ = subsetProblems(result.config, expect.config);
+        if (differ.length) throw new Error(`config/read differs at ${differ.join(', ')}`);
+        return 'effective values retained';
+      },
+    });
+  if (expect.desktopSettings)
+    list.push({
+      name: 'effective desktop settings',
+      run: async ({ core }) => {
+        const result = await core.call('config/read', { keys: ['agent', 'desktop'] });
+        if (!result?.config || typeof result.config.desktop !== 'object' || !result.config.desktop)
+          throw new Error('config/read holds no desktop section');
+        const differ = subsetProblems(await effectiveDesktopSettings(result.config), expect.desktopSettings);
+        if (differ.length) throw new Error(`desktop settings differ at ${differ.join(', ')}`);
+        return 'desktop consumer applied fixture settings';
+      },
+    });
+  if (expect.editorSettings)
+    list.push({
+      name: 'effective editor settings',
+      run: async ({ core, workspace }) => {
+        const value = await core.call('projectFs/readEditorSettings', { root: workspace, rel: 'synthetic.ts' });
+        const differ = subsetProblems(value, expect.editorSettings);
+        if (differ.length) throw new Error(`editor settings differ at ${differ.join(', ')}`);
+        return 'JSONC settings applied';
+      },
+    });
+  if (performWrite && expect.configWrite)
+    list.push({
+      name: 'unrelated configuration write',
+      run: async ({ core }) => {
+        await core.call('config/value/write', expect.configWrite);
+        return 'fixture-requested write completed';
+      },
+    });
+  if (expect.storedConfig)
+    list.push({
+      name: 'stored configuration sentinels',
+      run: async ({ read = readJson }) => {
+        const stored = read(join(dataDir, 'mixdog-config.json'));
+        const differ = subsetProblems(stored, expect.storedConfig);
+        for (const path of expect.storedConfigAbsent ?? []) {
+          const parts = path.split('.');
+          const key = parts.pop();
+          const parent = parts.reduce((value, part) => value?.[part], stored);
+          if (parent && Object.hasOwn(parent, key)) differ.push(`${path} must be absent`);
+        }
+        if (differ.length) throw new Error(`stored configuration differs at ${differ.join(', ')}`);
+        return 'known and unknown fixture keys retained';
+      },
+    });
+  if (backupRoot)
+    list.push({
+      name: 'owned configuration backup',
+      run: async () => verifyBackups(backupRoot, dataDir, expect.backupConfig ?? expect.storedConfig ?? {}),
+    });
   return list;
 }
 
@@ -345,51 +431,89 @@ export async function runChecks(checks, ctx, log = console.log) {
 async function main() {
   const args = parseLiveArgs(process.argv.slice(2));
   if (typeof args.app !== 'string' || typeof args['profile-vector'] !== 'string') {
-    throw new Error('usage: --app=<unpacked or installed Mixdog> --profile-vector=<dir> [--out=<dir>] [--iso-root=<dir>] [--keep]');
+    throw new Error(
+      'usage: --app=<unpacked or installed Mixdog> --profile-vector=<dir> [--out=<dir>] [--iso-root=<dir>] [--keep]'
+    );
   }
   const exe = findApp(args.app);
   const vector = loadVector(args['profile-vector']);
   const sourceBefore = vectorDigest(vector);
-  const isoRoot = resolve(typeof args['iso-root'] === 'string' ? args['iso-root'] : join(tmpdir(), `mixdog-upgrade-145-${process.pid}`));
+  const isoRoot = resolve(
+    typeof args['iso-root'] === 'string' ? args['iso-root'] : join(tmpdir(), `mixdog-upgrade-145-${process.pid}`)
+  );
   if (existsSync(isoRoot) && readdirSync(isoRoot).length) throw new Error(`the isolated root is not empty: ${isoRoot}`);
   const paths = isolatedPaths(isoRoot);
   const userData = join(paths.appData, 'Mixdog');
-  for (const dir of [paths.runtimeRoot, paths.localAppData, paths.tmp, paths.workspace]) mkdirSync(dir, { recursive: true });
+  for (const dir of [paths.runtimeRoot, paths.localAppData, paths.tmp, paths.workspace])
+    mkdirSync(dir, { recursive: true });
   cpSync(vector.profile, userData, { recursive: true });
   if (vector.home) cpSync(vector.home, paths.mixdogHome, { recursive: true });
   mkdirSync(paths.dataDir, { recursive: true });
 
-  const out = typeof args.out === 'string' ? resolve(args.out) : join(tmpdir(), `mixdog-upgrade-145-out-${process.pid}`);
+  const out =
+    typeof args.out === 'string' ? resolve(args.out) : join(tmpdir(), `mixdog-upgrade-145-out-${process.pid}`);
   mkdirSync(out, { recursive: true });
   const backupEnabled = args['backup-enabled'] === true;
   if (backupEnabled && !Object.keys(vector.expect.backupConfig ?? vector.expect.storedConfig ?? {}).length) {
-    throw new Error('--backup-enabled requires nonempty backupConfig or storedConfig expectations in the synthetic vector');
+    throw new Error(
+      '--backup-enabled requires nonempty backupConfig or storedConfig expectations in the synthetic vector'
+    );
   }
   const passes = args.restart === true ? 2 : 1;
-  let results = [];
+  const results = [];
   let failure = null;
   for (let pass = 0; pass < passes; pass++) {
     // Only this harness's empty-owned runtime is used; after ending its process tree a stale discovery must not satisfy the next wait.
     if (pass) rmSync(join(paths.runtimeRoot, 'daemon.json'), { force: true });
-    const child = spawnTree(exe, [], { env: upgradeEnvironment(paths, backupEnabled), cwd: paths.root, stdio: 'ignore' });
+    const child = spawnTree(exe, [], {
+      env: upgradeEnvironment(paths, backupEnabled),
+      cwd: paths.root,
+      stdio: 'ignore',
+    });
     let core = null;
     try {
-      core = await attachCore({ runtimeRoot: paths.runtimeRoot, clientName: 'upgrade-145', mainWindowId: `upgrade-145-${pass}`, timeoutMs: 180_000 });
-      const checks = checksFor({ expect: vector.expect, dataDir: paths.dataDir, backupRoot: backupEnabled ? join(paths.root, 'user-data-backups') : undefined, performWrite: pass === 0 });
-      results.push(...(await runChecks(checks, { core, workspace: paths.workspace })).map((result) => ({ ...result, pass: pass + 1 })));
+      core = await attachCore({
+        runtimeRoot: paths.runtimeRoot,
+        clientName: 'upgrade-145',
+        mainWindowId: `upgrade-145-${pass}`,
+        timeoutMs: 180_000,
+      });
+      const checks = checksFor({
+        expect: vector.expect,
+        dataDir: paths.dataDir,
+        backupRoot: backupEnabled ? join(paths.root, 'user-data-backups') : undefined,
+        performWrite: pass === 0,
+      });
+      results.push(
+        ...(await runChecks(checks, { core, workspace: paths.workspace })).map((result) => ({
+          ...result,
+          pass: pass + 1,
+        }))
+      );
     } catch (error) {
       failure = error;
     } finally {
-      try { await core?.close(); } catch {}
-      try { await endTree(child); } catch (error) { failure ??= error; }
+      try {
+        await core?.close();
+      } catch {}
+      try {
+        await endTree(child);
+      } catch (error) {
+        failure ??= error;
+      }
     }
     if (failure || results.some((result) => !result.ok)) break;
   }
   try {
     if (!isDeepStrictEqual(vectorDigest(vector), sourceBefore)) throw new Error('the immutable source vector changed');
-  } catch (error) { failure ??= error; }
+  } catch (error) {
+    failure ??= error;
+  }
   writeFileSync(join(out, 'source-manifest.json'), `${JSON.stringify(sourceBefore, null, 2)}\n`);
-  writeFileSync(join(out, 'summary.json'), `${JSON.stringify({ app: exe, vector: vector.root, backupEnabled, requestedPasses: passes, checks: results, failure: failure ? String(failure.message ?? failure) : null }, null, 2)}\n`);
+  writeFileSync(
+    join(out, 'summary.json'),
+    `${JSON.stringify({ app: exe, vector: vector.root, backupEnabled, requestedPasses: passes, checks: results, failure: failure ? String(failure.message ?? failure) : null }, null, 2)}\n`
+  );
   const logs = join(paths.dataDir, 'logs');
   if (existsSync(logs)) cpSync(logs, join(out, 'logs'), { recursive: true });
   if (!args.keep) rmSync(isoRoot, { recursive: true, force: true, maxRetries: 5 });

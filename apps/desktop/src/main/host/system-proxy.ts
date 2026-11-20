@@ -8,9 +8,19 @@ import type {
   HostSystemProxyResolveParams,
   HostSystemProxyResolveResponse,
 } from '../../../../../packages/protocol/src/index.ts';
-import { HOST_COMMAND_FAILED, HOST_INVALID_PARAMS, HOST_METHOD, type HostConnection, HostRpcError, objectParams } from './connection';
+import {
+  HOST_COMMAND_FAILED,
+  HOST_INVALID_PARAMS,
+  HOST_METHOD,
+  type HostConnection,
+  HostRpcError,
+  objectParams,
+} from './connection';
 
-export function registerSystemProxyHost(connection: HostConnection, resolveProxy: (url: string) => Promise<string>): void {
+export function registerSystemProxyHost(
+  connection: HostConnection,
+  resolveProxy: (url: string) => Promise<string>
+): void {
   connection.handleRequest(HOST_METHOD.systemProxyResolve, async (params): Promise<HostSystemProxyResolveResponse> => {
     const { url: raw } = objectParams<HostSystemProxyResolveParams>(params, HOST_METHOD.systemProxyResolve);
     let origin: string;

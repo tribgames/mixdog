@@ -18,7 +18,7 @@ test('only the external graph program is staged; patch and spawn are core librar
   const staged = await stageNativeTools({ root, platform: 'linux', arch: 'arm64', download: fakeDownload });
   assert.deepEqual(
     staged.map((file) => file.slice(root.length + 1).replaceAll('\\', '/')),
-    ['native-tools/mixdog-graph'],
+    ['native-tools/mixdog-graph']
   );
   assert.equal(await readFile(staged[0], 'utf8'), 'graph for linux-arm64');
   if (process.platform !== 'win32') assert.equal((await stat(staged[0])).mode & 0o777, 0o755);
@@ -34,6 +34,6 @@ test('a platform without published tools is refused before any download', async 
   const root = await mkdtemp(join(tmpdir(), 'stage-native-tools-'));
   await assert.rejects(
     stageNativeTools({ root, platform: 'freebsd', arch: 'x64', download: () => assert.fail('downloaded') }),
-    /not published for freebsd-x64/,
+    /not published for freebsd-x64/
   );
 });

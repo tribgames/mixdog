@@ -91,7 +91,10 @@ test('on a core connection project file-change subscriptions share one fs/watch 
     assert.equal(calls.length, 1);
     const [method, params] = calls[0];
     assert.equal(method, 'fs/watch');
-    assert.deepEqual({ path: params.path, recursive: params.recursive }, { path: '/work/core-project', recursive: true });
+    assert.deepEqual(
+      { path: params.path, recursive: params.recursive },
+      { path: '/work/core-project', recursive: true }
+    );
 
     push({ watchId: 'someone-else', changedPaths: ['/x'], kind: 'modified' });
     assert.deepEqual([first, second], [0, 0]);

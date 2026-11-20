@@ -139,9 +139,16 @@ test('the footer link opens Settings › Connection', async (t) => {
 
 test('a paired device starts on itself', async (t) => {
   const made = makeApi(makeState('c1'));
-  const own = await mountPanel(t, made, {}, {
-    prepare: (window) => { window.mixdogRemoteServer = 'relay'; },
-  });
+  const own = await mountPanel(
+    t,
+    made,
+    {},
+    {
+      prepare: (window) => {
+        window.mixdogRemoteServer = 'relay';
+      },
+    }
+  );
   assert.equal(own.document.querySelector('.notif-device-button b').textContent, 'Galaxy S24');
   await choose(own.document, 'Notification scope', 'Off');
   assert.deepEqual(made.calls, [['c1', { scope: 'off' }]]);
@@ -152,9 +159,16 @@ test('an SSH window does not load or offer notification preferences', async (t) 
   const { withServerGates } = await import('../core-direct/server-gates.ts');
   made.api = withServerGates({ ...made.api, connection: { id: 'server', kind: 'ssh', name: 'Server' } });
   const read = t.mock.method(made.api, 'getNotificationPreferences');
-  const { document, window } = await mountPanel(t, made, {}, {
-    prepare: (window) => { window.mixdogDesktop = made.api; },
-  });
+  const { document, window } = await mountPanel(
+    t,
+    made,
+    {},
+    {
+      prepare: (window) => {
+        window.mixdogDesktop = made.api;
+      },
+    }
+  );
   await act(async () => window.dispatchEvent(new window.CustomEvent('mixdog:setup-changed')));
   assert.equal(read.mock.callCount(), 0);
   assert.equal(document.getElementById('root').textContent, '');
@@ -350,8 +364,15 @@ test('leaving the panel saves the pending volume without playing the test sound'
     saves.push(volume);
     return { notificationVolume: volume };
   };
-  made.api.previewNotificationSound = async () => { previews += 1; };
-  const { document, window, root } = await mountPanel(t, made, {}, { globals: { navigator: { userAgent: 'Windows' } } });
+  made.api.previewNotificationSound = async () => {
+    previews += 1;
+  };
+  const { document, window, root } = await mountPanel(
+    t,
+    made,
+    {},
+    { globals: { navigator: { userAgent: 'Windows' } } }
+  );
   const slider = document.querySelector('input[type="range"]');
   await act(async () => {
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(slider, '250');
@@ -516,7 +537,9 @@ test('desktop unsupported result is localized and arbitrary errors stay unchange
   language.addResourceBundle('de', 'translation', { [key]: 'Dieser Computer unterstützt keine Benachrichtigungen.' });
   const previous = language.language;
   await language.changeLanguage('de');
-  t.after(async () => { await language.changeLanguage(previous || 'en'); });
+  t.after(async () => {
+    await language.changeLanguage(previous || 'en');
+  });
   const made = makeApi(makeState('c1'));
   let result = { ok: false, message: key };
   made.api.sendTestNotification = async () => result;
@@ -524,7 +547,10 @@ test('desktop unsupported result is localized and arbitrary errors stay unchange
   const send = [...document.querySelectorAll('button')].find((b) => b.textContent === translate('Send'));
   await clickEl(send);
   await settle();
-  assert.equal(document.querySelector('[role="status"]').textContent, 'Dieser Computer unterstützt keine Benachrichtigungen.');
+  assert.equal(
+    document.querySelector('[role="status"]').textContent,
+    'Dieser Computer unterstützt keine Benachrichtigungen.'
+  );
   result = { ok: false, message: 'Specific host failure: abc' };
   await clickEl(send);
   await settle();

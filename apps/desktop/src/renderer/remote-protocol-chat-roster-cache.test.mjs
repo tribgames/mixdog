@@ -17,14 +17,20 @@ function rig(listing = [], pageSize = 2) {
     call: async (method, params) => {
       requests.push({ method, params });
       const from = params.cursor ? Number(params.cursor) : 0;
-      const page = { data: listing.slice(from, from + pageSize), ...(from + pageSize < listing.length ? { nextCursor: String(from + pageSize) } : {}) };
+      const page = {
+        data: listing.slice(from, from + pageSize),
+        ...(from + pageSize < listing.length ? { nextCursor: String(from + pageSize) } : {}),
+      };
       if (hold && from === pageSize) await hold.promise;
       return page;
     },
     on: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
     store: { subscribe: (listener) => (stores.add(listener), () => stores.delete(listener)) },
   };
-  const feed = createRosterFeed({ summaries: (rows) => rows.map((r) => `${r.id}:${r.name}`), publish: (rows) => published.push(rows) });
+  const feed = createRosterFeed({
+    summaries: (rows) => rows.map((r) => `${r.id}:${r.name}`),
+    publish: (rows) => published.push(rows),
+  });
   feed.attach(client);
   return {
     feed,
@@ -126,11 +132,20 @@ test('a client that replaces the first one (a re-pairing in the same page) is li
   };
   const first = makeClient([row('old', 9)]);
   const second = makeClient([row('new', 9)]);
-  const adapter = createChatAdapter({ sharedFor: () => ({}), remoteSession: () => undefined, roster: { summaries: (rows) => rows.map((r) => r.id) } });
+  const adapter = createChatAdapter({
+    sharedFor: () => ({}),
+    remoteSession: () => undefined,
+    roster: { summaries: (rows) => rows.map((r) => r.id) },
+  });
   let handOver;
   let resetPairing;
   const host = {
-    ctx: { sessionsCatalog: { publish: (rows) => catalogs.push(rows) }, phone: { start: async () => undefined }, sessionInbox: { publish() {} }, viewSettledListeners: new Set() },
+    ctx: {
+      sessionsCatalog: { publish: (rows) => catalogs.push(rows) },
+      phone: { start: async () => undefined },
+      sessionInbox: { publish() {} },
+      viewSettledListeners: new Set(),
+    },
     client: () => first,
     declareLane() {},
     onClient: (listener) => ((handOver = listener), listener(first), () => undefined),
@@ -139,7 +154,7 @@ test('a client that replaces the first one (a re-pairing in the same page) is li
   adapter.install(host);
   for (const l of first.stores) l({ type: 'appSnapshot' });
   await settle();
-  assert.deepEqual(await adapter.calls.listSessions([], host), ['old'], 'the first pairing\'s list');
+  assert.deepEqual(await adapter.calls.listSessions([], host), ['old'], "the first pairing's list");
   resetPairing();
   assert.equal(first.stores.size, 0, 'sign-out immediately detaches, before a new pairing');
   host.client = () => second;

@@ -267,17 +267,30 @@ test('screen cancellation retires only the named start even without an offer or 
   const host = createRemoteWebrtcHost({
     sender: {
       send: (command) => commands.push(command),
-      release: () => { releases += 1; },
-      onEvent: (listener) => { senderEvent = listener; },
+      release: () => {
+        releases += 1;
+      },
+      onEvent: (listener) => {
+        senderEvent = listener;
+      },
     },
     sendSignal: async () => {},
     sources: () => ({
-      source: screen, page: () => ({ documentId: null, geometry: page }),
-      start() {}, stop: () => stop.push('stopped'), dispatch: async () => {},
+      source: screen,
+      page: () => ({ documentId: null, geometry: page }),
+      start() {},
+      stop: () => stop.push('stopped'),
+      dispatch: async () => {},
     }),
     report() {},
   });
-  const ready = (viewerAttempt) => ({ v: 1, source: screen, type: 'ready', receiveCodecs: ['video/VP8'], viewerAttempt });
+  const ready = (viewerAttempt) => ({
+    v: 1,
+    source: screen,
+    type: 'ready',
+    receiveCodecs: ['video/VP8'],
+    viewerAttempt,
+  });
   const cancel = (viewerAttempt) => ({ v: 1, source: screen, type: 'close', reason: 'viewer-left', viewerAttempt });
   await host.signal('c1', ready(1), []);
   await host.signal('c1', cancel(1));
@@ -288,7 +301,11 @@ test('screen cancellation retires only the named start even without an offer or 
   await host.signal('c2', ready(1), []);
   await host.signal('c1', cancel(1));
   assert.equal(commands.filter(({ type }) => type === 'close').length, 0, 'stale cancel cannot stop either peer');
-  senderEvent({ type: 'failed', connectionId: commands.find(({ type }) => type === 'open').connectionId, reason: 'ice-failed' });
+  senderEvent({
+    type: 'failed',
+    connectionId: commands.find(({ type }) => type === 'open').connectionId,
+    reason: 'ice-failed',
+  });
   await host.signal('c1', cancel(2));
   assert.equal(stop.length, 1, 'the other viewer still holds the source');
   assert.equal(releases, 1);
@@ -308,13 +325,22 @@ test('a newer screen start gets a fresh viewer after failure without stopping ca
   const host = createRemoteWebrtcHost({
     sender: {
       send: (command) => commands.push(command),
-      onEvent: (listener) => { emit = listener; },
-      release: () => { released += 1; },
+      onEvent: (listener) => {
+        emit = listener;
+      },
+      release: () => {
+        released += 1;
+      },
     },
     sendSignal: async (_client, signal) => signals.push(signal),
     sources: () => ({
-      source: screen, start() {}, stop: () => { stopped += 1; },
-      page: () => ({ documentId: null, geometry }), dispatch: async () => {},
+      source: screen,
+      start() {},
+      stop: () => {
+        stopped += 1;
+      },
+      page: () => ({ documentId: null, geometry }),
+      dispatch: async () => {},
       capturePlan: () => ({ sourceId: 'screen:1:0', width: 400, height: 300, maxFrameRate: 30 }),
     }),
     report() {},
@@ -330,7 +356,10 @@ test('a newer screen start gets a fresh viewer after failure without stopping ca
   assert.equal(opens().length, 2);
   const { connectionId } = opens()[1];
   emit({ type: 'offer', connectionId, sdp: SDP });
-  assert.equal(signals.find((signal) => signal.type === 'offer' && signal.connectionId === connectionId)?.generation, 1);
+  assert.equal(
+    signals.find((signal) => signal.type === 'offer' && signal.connectionId === connectionId)?.generation,
+    1
+  );
   assert.equal(stopped, 0);
   assert.equal(released, 0);
   assert.equal(commands.filter(({ type }) => type === 'source-capture').length, 1);

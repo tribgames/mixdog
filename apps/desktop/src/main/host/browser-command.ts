@@ -64,10 +64,7 @@ const REMOTE_ACTIONS: Record<string, (session: unknown, fields: Record<string, u
   tabOpen: (_session, fields) => [normalizeRemoteTabUrl(fields.url)],
   release: (_session, fields) => [normalizeRemoteBrowserTabId(fields.id)],
   credentialSuggestions: (session) => [requiredSessionId(session)],
-  credentialFill: (session, fields) => [
-    requiredSessionId(session),
-    normalizeBrowserCredentialId(fields.credentialId),
-  ],
+  credentialFill: (session, fields) => [requiredSessionId(session), normalizeBrowserCredentialId(fields.credentialId)],
   importSources: () => [],
   importStart: (_session, fields) => [normalizeBrowserImportRequest(fields)],
 };

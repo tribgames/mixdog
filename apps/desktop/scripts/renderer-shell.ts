@@ -40,12 +40,21 @@ export function stampRendererShell(html: string, bundle: Record<string, BundleOu
     }
   }
   // Lazy chunks and fixed-name assets can change without a new HTML reference.
-  const files = Object.keys(bundle).sort().map((name) => {
-    const { code, source } = bundle[name];
-    return [name, createHash('sha256').update(code ?? source ?? '').digest('hex')];
-  });
+  const files = Object.keys(bundle)
+    .sort()
+    .map((name) => {
+      const { code, source } = bundle[name];
+      return [
+        name,
+        createHash('sha256')
+          .update(code ?? source ?? '')
+          .digest('hex'),
+      ];
+    });
   const publicAssets = publicDir ? publicFiles(publicDir).sort() : [];
-  const version = createHash('sha256').update(JSON.stringify([html, files, publicAssets])).digest('hex');
+  const version = createHash('sha256')
+    .update(JSON.stringify([html, files, publicAssets]))
+    .digest('hex');
   return html.replace(
     '</head>',
     [

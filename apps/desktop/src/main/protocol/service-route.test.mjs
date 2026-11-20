@@ -92,29 +92,97 @@ const CASES = [
   ['renameProject', ['/p', 'al'], [['project/update', { path: '/p', alias: 'al' }]]],
   ['removeProject', ['/p'], [['project/delete', { path: '/p' }]]],
   ['getTaskWorkspace', [], [['project/taskWorkspace', {}]]],
-  ['codeGraphQuery', ['/p', 'symbols', 'q'], [['project/directory', { path: '/p' }], ['project/codeGraph', { path: '/resolved', mode: 'symbols', query: 'q' }]]],
-  ['listProjectDir', ['/p', 'a'], [['project/directory', { path: '/p' }], ['projectFs/listDir', { root: '/resolved', rel: 'a' }]]],
-  ['readProjectTextFile', ['/p', 'a.txt'], [['project/directory', { path: '/p' }], ['projectFs/readText', { root: '/resolved', rel: 'a.txt' }]]],
+  [
+    'codeGraphQuery',
+    ['/p', 'symbols', 'q'],
+    [
+      ['project/directory', { path: '/p' }],
+      ['project/codeGraph', { path: '/resolved', mode: 'symbols', query: 'q' }],
+    ],
+  ],
+  [
+    'listProjectDir',
+    ['/p', 'a'],
+    [
+      ['project/directory', { path: '/p' }],
+      ['projectFs/listDir', { root: '/resolved', rel: 'a' }],
+    ],
+  ],
+  [
+    'readProjectTextFile',
+    ['/p', 'a.txt'],
+    [
+      ['project/directory', { path: '/p' }],
+      ['projectFs/readText', { root: '/resolved', rel: 'a.txt' }],
+    ],
+  ],
   [
     'writeProjectTextFile',
     ['/p', 'a.txt', 'new', 'old', 'utf16le'],
-    [['project/directory', { path: '/p' }], ['projectFs/writeText', { root: '/resolved', rel: 'a.txt', content: 'new', expectedContent: 'old', encoding: 'utf16le' }]],
+    [
+      ['project/directory', { path: '/p' }],
+      [
+        'projectFs/writeText',
+        { root: '/resolved', rel: 'a.txt', content: 'new', expectedContent: 'old', encoding: 'utf16le' },
+      ],
+    ],
   ],
   [
     'writeProjectTextFile',
     ['/p', 'a.txt', 'new', 'old'],
-    [['project/directory', { path: '/p' }], ['projectFs/writeText', { root: '/resolved', rel: 'a.txt', content: 'new', expectedContent: 'old' }]],
+    [
+      ['project/directory', { path: '/p' }],
+      ['projectFs/writeText', { root: '/resolved', rel: 'a.txt', content: 'new', expectedContent: 'old' }],
+    ],
   ],
-  ['statProjectFile', ['/p', 'a'], [['project/directory', { path: '/p' }], ['projectFs/stat', { root: '/resolved', rel: 'a' }]]],
+  [
+    'statProjectFile',
+    ['/p', 'a'],
+    [
+      ['project/directory', { path: '/p' }],
+      ['projectFs/stat', { root: '/resolved', rel: 'a' }],
+    ],
+  ],
   [
     'createProjectEntry',
     ['/p', 'd', 'n', true],
-    [['project/directory', { path: '/p' }], ['projectFs/create', { root: '/resolved', relDir: 'd', name: 'n', directory: true }]],
+    [
+      ['project/directory', { path: '/p' }],
+      ['projectFs/create', { root: '/resolved', relDir: 'd', name: 'n', directory: true }],
+    ],
   ],
-  ['renameProjectEntry', ['/p', 'a', 'b'], [['project/directory', { path: '/p' }], ['projectFs/rename', { root: '/resolved', rel: 'a', newName: 'b' }]]],
-  ['moveProjectEntry', ['/p', 'a', 'd'], [['project/directory', { path: '/p' }], ['projectFs/move', { root: '/resolved', rel: 'a', targetDirRel: 'd' }]]],
-  ['copyProjectEntry', ['/p', 'a', 'd'], [['project/directory', { path: '/p' }], ['projectFs/copy', { root: '/resolved', rel: 'a', targetDirRel: 'd' }]]],
-  ['projectEntryPath', ['/p', 'a'], [['project/directory', { path: '/p' }], ['projectFs/entryPath', { root: '/resolved', rel: 'a' }]]],
+  [
+    'renameProjectEntry',
+    ['/p', 'a', 'b'],
+    [
+      ['project/directory', { path: '/p' }],
+      ['projectFs/rename', { root: '/resolved', rel: 'a', newName: 'b' }],
+    ],
+  ],
+  [
+    'moveProjectEntry',
+    ['/p', 'a', 'd'],
+    [
+      ['project/directory', { path: '/p' }],
+      ['projectFs/move', { root: '/resolved', rel: 'a', targetDirRel: 'd' }],
+    ],
+  ],
+  [
+    'copyProjectEntry',
+    ['/p', 'a', 'd'],
+    [
+      ['project/directory', { path: '/p' }],
+      ['projectFs/copy', { root: '/resolved', rel: 'a', targetDirRel: 'd' }],
+    ],
+  ],
+  [
+    'projectEntryPath',
+    ['/p', 'a'],
+    [
+      ['project/directory', { path: '/p' }],
+      ['projectFs/entryPath', { root: '/resolved', rel: 'a' }],
+    ],
+  ],
   [
     'markSessionRead',
     ['t1', 7, false],
@@ -129,11 +197,7 @@ const CASES = [
   ['stopShellJob', ['t1', 'j1'], [['thread/backgroundTerminals/terminate', { threadId: 't1', taskId: 'j1' }]]],
   ['releaseShellJob', ['t1', 'j1'], [['thread/backgroundTerminals/release', { threadId: 't1', taskId: 'j1' }]]],
   ['setQuotaAutoResume', [false], [['config/value/write', { path: 'quotaAutoResume', value: false }]]],
-  [
-    'readSessionFinalAnswer',
-    ['t1', 123],
-    [['thread/finalAnswer/read', { threadId: 't1', startedAt: 123 }]],
-  ],
+  ['readSessionFinalAnswer', ['t1', 123], [['thread/finalAnswer/read', { threadId: 't1', startedAt: 123 }]]],
   ['prefetchSession', ['t1', 64, 'trace'], [['thread/read', { threadId: 't1', window: { lastItems: 64 } }]]],
   ['prefetchSession', ['t1'], [['thread/read', { threadId: 't1', window: { lastItems: 32 } }]]],
   ['setSessionFavorite', ['t1', true], [['thread/metadata/update', { threadId: 't1', favorite: true }]]],
@@ -178,16 +242,17 @@ const CASES = [
   ['agentRoomAction', ['leave', ['r1']], [['room/leave', { input: { roomId: 'r1' } }]]],
   ['agentRoomAction', ['remove', ['r1']], [['room/remove', { input: { roomId: 'r1' } }]]],
   ['agentRoomAction', ['reset', ['r1']], [['room/reset', { input: { roomId: 'r1' } }]]],
-  [
-    'inheritSession',
-    ['t1', route, { compact: true }],
-    [['thread/fork', { threadId: 't1', route, compact: true }]],
-  ],
+  ['inheritSession', ['t1', route, { compact: true }], [['thread/fork', { threadId: 't1', route, compact: true }]]],
   ['inheritSession', ['t1', null, null], [['thread/fork', { threadId: 't1' }]]],
   [
     'submitToSession',
     ['t1', 'text', { id: 'sub1', priority: 'next' }],
-    [['turn/start', { threadId: 't1', input: { prompt: 'text', options: { priority: 'next', clientSubmissionId: 'sub1' } } }]],
+    [
+      [
+        'turn/start',
+        { threadId: 't1', input: { prompt: 'text', options: { priority: 'next', clientSubmissionId: 'sub1' } } },
+      ],
+    ],
   ],
   [
     'abortSession',
@@ -199,7 +264,17 @@ const CASES = [
     'searchProjectFiles',
     ['/p', 'q', 50, false, true, 'mention'],
     [
-      ['search/start', { sessionId: 'search:mention', roots: ['/p'], limit: 50, includeIgnored: false, includeDirectories: true, consumer: 'mention' }],
+      [
+        'search/start',
+        {
+          sessionId: 'search:mention',
+          roots: ['/p'],
+          limit: 50,
+          includeIgnored: false,
+          includeDirectories: true,
+          consumer: 'mention',
+        },
+      ],
       ['search/update', { sessionId: 'search:mention', query: 'q' }],
     ],
   ],
@@ -252,18 +327,33 @@ test('setModelRoute writes the pick as Node sent it and answers the thread state
   const pick = { ...route, effort: 'ultra' };
   const addressed = await client.setModelRoute(pick, 't1');
   assert.equal(addressed.effort, 'high');
-  assert.deepEqual(calls.filter(({ method }) => method === 'route/set'), [
-    { method: 'route/set', params: { threadId: 't1', route: { ...pick, applyToCurrentSession: true, keepMainModel: true } } },
-  ]);
+  assert.deepEqual(
+    calls.filter(({ method }) => method === 'route/set'),
+    [
+      {
+        method: 'route/set',
+        params: { threadId: 't1', route: { ...pick, applyToCurrentSession: true, keepMainModel: true } },
+      },
+    ]
+  );
   calls.length = 0;
   const main = await client.setModelRoute(pick);
   assert.equal(main.effort, 'high');
-  assert.deepEqual(calls.filter(({ method }) => method === 'route/set'), [
-    { method: 'route/set', params: { threadId: 'control-1', route: { ...pick, applyToCurrentSession: true, keepMainModel: false } } },
-  ]);
+  assert.deepEqual(
+    calls.filter(({ method }) => method === 'route/set'),
+    [
+      {
+        method: 'route/set',
+        params: { threadId: 'control-1', route: { ...pick, applyToCurrentSession: true, keepMainModel: false } },
+      },
+    ]
+  );
   calls.length = 0;
   assert.equal((await client.setFast(false)).sessionId, 'control-1');
-  assert.deepEqual(calls.filter(({ method }) => method === 'fast/set'), [{ method: 'fast/set', params: { threadId: 'control-1', on: false } }]);
+  assert.deepEqual(
+    calls.filter(({ method }) => method === 'fast/set'),
+    [{ method: 'fast/set', params: { threadId: 'control-1', on: false } }]
+  );
 });
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -303,11 +393,21 @@ test('a visible set older than or equal to the newest one sent changes nothing; 
   assert.equal(await service.call('setVisibleSessions', [['b'], 1]), true);
   assert.equal(await service.call('setVisibleSessions', [['b'], 2]), true);
   await settled();
-  assert.deepEqual(calls.map((call) => [call.method, call.params.threadId]), [['thread/resume', 'a']]);
+  assert.deepEqual(
+    calls.map((call) => [call.method, call.params.threadId]),
+    [['thread/resume', 'a']]
+  );
   await service.call('setVisibleSessions', [['c']]);
   await assert.rejects(service.call('setVisibleSessions', [['d'], 0]), /visible session version/);
   await settled();
-  assert.deepEqual(calls.map((call) => [call.method, call.params.threadId]), [['thread/resume', 'a'], ['thread/unsubscribe', 'a'], ['thread/resume', 'c']]);
+  assert.deepEqual(
+    calls.map((call) => [call.method, call.params.threadId]),
+    [
+      ['thread/resume', 'a'],
+      ['thread/unsubscribe', 'a'],
+      ['thread/resume', 'c'],
+    ]
+  );
 });
 
 const failure = (reason) =>
@@ -339,7 +439,15 @@ function modeled(answer = () => 'ok', { defer = false, report } = {}) {
   let clients = 0;
   let client;
   const open = () => {
-    const opened = { id: ++clients, status: { state: 'ready' }, connection: 1, subs: new Set(), restoring: new Map(), core: new Set(), closed: false };
+    const opened = {
+      id: ++clients,
+      status: { state: 'ready' },
+      connection: 1,
+      subs: new Set(),
+      restoring: new Map(),
+      core: new Set(),
+      closed: false,
+    };
     opened.restores = 0;
     opened.threadSubscription = (threadId) => ({
       followed: opened.subs.has(threadId),
@@ -502,7 +610,11 @@ test('a registration is accepted at once and never waits on any thread: a held r
   assert.equal(await m.show(['a', 'b', 'c'], 2), true);
   await settled();
   assert.deepEqual([...m.current().core].sort(), ['b', 'c']);
-  assert.equal(m.sent.filter(([, method, threadId]) => method === 'thread/resume' && threadId === 'a').length, 1, 'a has one request at a time');
+  assert.equal(
+    m.sent.filter(([, method, threadId]) => method === 'thread/resume' && threadId === 'a').length,
+    1,
+    'a has one request at a time'
+  );
 });
 
 test('a session the core does not have is retried at the slowest rate and does not stop the others; the answer stays true', async () => {
@@ -511,7 +623,10 @@ test('a session the core does not have is retried at the slowest rate and does n
   assert.equal(await m.show(['a', 'b', 'c'], 1), true);
   await settled();
   assertConverged(m, ['b', 'c']);
-  assert.deepEqual([...m.timers].map((timer) => timer.ms), [FOLLOW_RETRY_MAX_MS]);
+  assert.deepEqual(
+    [...m.timers].map((timer) => timer.ms),
+    [FOLLOW_RETRY_MAX_MS]
+  );
   gone = false;
   m.fire();
   await settled();
@@ -581,7 +696,9 @@ test('a late answer of a retired generation changes nothing, whether it succeeds
 });
 
 test('a retired attempt that is answered while the next one is in flight starts nothing', async () => {
-  const m = modeled((method, threadId, client) => (client.id === 1 && method === 'thread/unsubscribe') || client.id === 2 ? 'hold' : 'ok');
+  const m = modeled((method, threadId, client) =>
+    (client.id === 1 && method === 'thread/unsubscribe') || client.id === 2 ? 'hold' : 'ok'
+  );
   await m.show(['a'], 1);
   await settled();
   await m.show([], 2);
@@ -633,7 +750,11 @@ test('the rejected interleaving: an owed cleanup survives the replacement it fol
   assert.equal(m.timers.size, 1);
   m.fire();
   await settled();
-  assert.equal(m.sent.filter(([, method]) => method === 'thread/unsubscribe').length, unsubscribes + 1, 'the cleanup is sent');
+  assert.equal(
+    m.sent.filter(([, method]) => method === 'thread/unsubscribe').length,
+    unsubscribes + 1,
+    'the cleanup is sent'
+  );
   assertConverged(m, []);
   assert.equal(m.timers.size, 0);
 });
@@ -667,7 +788,7 @@ test('an owed cleanup ends with the connection it was owed on', async () => {
   assert.equal(m.timers.size, 0);
 });
 
-test('a request lost with the client\'s own connection is sent again on the new one at once, not after a backoff', async () => {
+test("a request lost with the client's own connection is sent again on the new one at once, not after a backoff", async () => {
   let hold = true;
   const m = modeled(() => (hold ? 'hold' : 'ok'));
   await m.show(['a', 'b'], 1);
@@ -704,7 +825,11 @@ test('a thread another caller follows is left alone: never registered, or resume
   m.fire();
   await settled();
   assert.equal(m.sent.filter(([, method, threadId]) => method === 'thread/unsubscribe' && threadId !== 'a').length, 0);
-  assert.equal(m.sent.filter(([, method, threadId]) => method === 'thread/unsubscribe' && threadId === 'a').length, 1, 'only the lane\'s own hide');
+  assert.equal(
+    m.sent.filter(([, method, threadId]) => method === 'thread/unsubscribe' && threadId === 'a').length,
+    1,
+    "only the lane's own hide"
+  );
   assertConverged(m, ['a', 'b', 'n']);
   // Shown and hidden, a thread is the lane's: hiding it unsubscribes it.
   await m.show(['b', 'n'], 4);
@@ -714,7 +839,7 @@ test('a thread another caller follows is left alone: never registered, or resume
   assertConverged(m, ['a', 'b']);
 });
 
-test('a hide during the client\'s own restore waits for it, then unsubscribes what the restore attached', async () => {
+test("a hide during the client's own restore waits for it, then unsubscribes what the restore attached", async () => {
   let holdRestore = false;
   const m = modeled((method) => (holdRestore && method === 'restore' ? 'hold' : 'ok'));
   await m.show(['a'], 1);
@@ -723,7 +848,11 @@ test('a hide during the client\'s own restore waits for it, then unsubscribes wh
   m.reconnect();
   await m.show([], 2);
   await settled();
-  assert.equal(m.sent.filter(([, method]) => method === 'thread/unsubscribe').length, 0, 'nothing is sent while the restore decides');
+  assert.equal(
+    m.sent.filter(([, method]) => method === 'thread/unsubscribe').length,
+    0,
+    'nothing is sent while the restore decides'
+  );
   m.take('restore', 'a').settle();
   await settled();
   assertConverged(m, [], 'the restored subscription is removed');
@@ -745,7 +874,11 @@ test('an unsubscribe that reaches the client after its restore began is not take
   assert.equal(m.sent.filter(([, method]) => method === 'thread/unsubscribe').length, 1);
   m.take('restore', 'a').settle();
   await settled();
-  assert.equal(m.sent.filter(([, method]) => method === 'thread/unsubscribe').length, 2, 'sent again once the restore ended');
+  assert.equal(
+    m.sent.filter(([, method]) => method === 'thread/unsubscribe').length,
+    2,
+    'sent again once the restore ended'
+  );
   assertConverged(m, []);
   assert.equal(m.timers.size, 0);
 });
@@ -760,7 +893,7 @@ test('a wanted thread whose restore is in flight is not resumed twice; one the r
   await m.show(['a', 'b'], 2);
   await settled();
   const resumes = () => m.sent.filter(([, method]) => method === 'thread/resume').length;
-  assert.equal(resumes(), 2, 'the restores are the client\'s');
+  assert.equal(resumes(), 2, "the restores are the client's");
   m.take('restore', 'a').settle();
   m.take('restore', 'b').settle('fail');
   await settled();
@@ -845,14 +978,20 @@ test('the main process client disposes its service lane: an outstanding retry se
 
 test('repeated replacements leave one retry per thread and no stranded work; dispose releases it all', async () => {
   let refuse = true;
-  const m = modeled((method, threadId, client) => (client.id > 1 && refuse ? (threadId === 'a' ? 'hold' : 'fail') : 'ok'));
+  const m = modeled((method, threadId, client) =>
+    client.id > 1 && refuse ? (threadId === 'a' ? 'hold' : 'fail') : 'ok'
+  );
   await m.show(['a', 'b'], 1);
   await settled();
   for (let i = 0; i < 25; i++) {
     m.replace();
     await settled();
     assert.ok(m.timers.size <= 1, 'at most b retries');
-    assert.equal(m.held.filter((entry) => entry.client === m.current()).length, 1, 'one request of a on the open client');
+    assert.equal(
+      m.held.filter((entry) => entry.client === m.current()).length,
+      1,
+      'one request of a on the open client'
+    );
   }
   refuse = false;
   m.replace();
@@ -903,7 +1042,16 @@ async function accepted(net, serve) {
   return conn;
 }
 
-const threadRow = (id) => ({ id, preview: '', title: '', updatedAt: 1, messageCount: 0, cwd: '/w', classification: {}, projectPath: null });
+const threadRow = (id) => ({
+  id,
+  preview: '',
+  title: '',
+  updatedAt: 1,
+  messageCount: 0,
+  cwd: '/w',
+  classification: {},
+  projectPath: null,
+});
 /** A core that answers each `thread/resume` with a subscription and its snapshot, and records what its connection holds. A
  *  resume held (`resume` answers 'hold') is answered by `release`, and attaches the thread only then, as the core's queued
  *  resume does; `thread/unsubscribe` is answered at once. `other` answers any other request. */
@@ -915,14 +1063,17 @@ function scriptedCore({ resume = () => 'ok', unsubscribe = () => 'ok', other = (
   const answerResume = (request, conn, attach = true) => {
     const threadId = request.params.threadId;
     const epoch = `e${++epochs}`;
-      epochOf.set(threadId, epoch);
-      if (attach) subscribed.add(threadId);
-      conn.serverSend({ id: request.id, result: { thread: threadRow(threadId), subscription: { id: `s${epochs}`, mode: 'snapshot', epoch, startSeq: 1 } } });
-      conn.serverSend({
-        method: 'thread/snapshot',
-        params: { thread: threadRow(threadId), items: [], state: { title: 'T' }, hasOlder: false },
-        feed: { id: threadId, epoch, seq: 1 },
-      });
+    epochOf.set(threadId, epoch);
+    if (attach) subscribed.add(threadId);
+    conn.serverSend({
+      id: request.id,
+      result: { thread: threadRow(threadId), subscription: { id: `s${epochs}`, mode: 'snapshot', epoch, startSeq: 1 } },
+    });
+    conn.serverSend({
+      method: 'thread/snapshot',
+      params: { thread: threadRow(threadId), items: [], state: { title: 'T' }, hasOlder: false },
+      feed: { id: threadId, epoch, seq: 1 },
+    });
   };
   const serve = (request, conn) => {
     const threadId = request.params?.threadId;
@@ -968,7 +1119,11 @@ function scriptedCore({ resume = () => 'ok', unsubscribe = () => 'ok', other = (
     },
     /** A live frame of the thread's feed, as the core sends it to a subscribed connection. */
     frame(conn, threadId, title, seq = 2) {
-      conn.serverSend({ method: 'thread/name/updated', params: { threadId, title }, feed: { id: threadId, epoch: epochOf.get(threadId), seq } });
+      conn.serverSend({
+        method: 'thread/name/updated',
+        params: { threadId, title },
+        feed: { id: threadId, epoch: epochOf.get(threadId), seq },
+      });
     },
   };
 }
@@ -1013,18 +1168,22 @@ function replaceable(first, { handOver = async () => undefined } = {}) {
 }
 const titleOf = (client, threadId) => client.store.thread(threadId)?.state.fields.desktopSessionTitle;
 
-test('real client: a held resume of one thread holds back neither the registration nor another thread\'s live frames', async () => {
+test("real client: a held resume of one thread holds back neither the registration nor another thread's live frames", async () => {
   const net = new MockNetwork();
   const core = scriptedCore({ resume: (threadId) => (threadId === 'a' ? 'hold' : 'ok') });
   const { client, conn } = await realClient(net, core.serve);
-  const service = createServiceLane({ protocol: replaceable(client).protocol, snapshot: () => HELD, schedule: () => () => undefined });
+  const service = createServiceLane({
+    protocol: replaceable(client).protocol,
+    snapshot: () => HELD,
+    schedule: () => () => undefined,
+  });
   assert.equal(await service.call('setVisibleSessions', [['a', 'b'], 1]), true);
   await settled();
   assert.equal(client.threadSubscription('b').followed, true);
   assert.equal(client.threadSubscription('a').followed, false);
   core.frame(conn, 'b', 'live');
   await settled();
-  assert.equal(titleOf(client, 'b'), 'live', 'b\'s live frame is folded');
+  assert.equal(titleOf(client, 'b'), 'live', "b's live frame is folded");
   service.dispose();
   await client.close();
 });
@@ -1094,18 +1253,24 @@ test('real client: after a replacement whose resume fails, the lane repairs it a
   await reopened.client.close();
 });
 
-test('real client: a forked thread\'s snapshot is not torn down by the lane, and the fork answers its state', async () => {
+test("real client: a forked thread's snapshot is not torn down by the lane, and the fork answers its state", async () => {
   const net = new MockNetwork();
-  const core = scriptedCore({ other: (request) => (request.method === 'thread/fork' ? { thread: threadRow('forked') } : {}) });
+  const core = scriptedCore({
+    other: (request) => (request.method === 'thread/fork' ? { thread: threadRow('forked') } : {}),
+  });
   const { client } = await realClient(net, core.serve);
-  const service = createServiceLane({ protocol: replaceable(client).protocol, snapshot: () => HELD, schedule: () => () => undefined });
+  const service = createServiceLane({
+    protocol: replaceable(client).protocol,
+    snapshot: () => HELD,
+    schedule: () => () => undefined,
+  });
   await service.call('setVisibleSessions', [['src'], 1]);
   await settled();
   const answer = await createChatApi(client, sharedFor(client)).inheritSession('src', null, null);
   assert.equal(answer.sessionId, 'forked');
-  assert.ok(answer.snapshot, 'the fork answers the new thread\'s state');
+  assert.ok(answer.snapshot, "the fork answers the new thread's state");
   await settled();
-  assert.equal(client.threadSubscription('forked').followed, true, 'its caller\'s subscription stays');
+  assert.equal(client.threadSubscription('forked').followed, true, "its caller's subscription stays");
   assert.deepEqual([...core.subscribed].sort(), ['forked', 'src']);
   // Shown, then hidden, it is the lane's to let go.
   await service.call('setVisibleSessions', [['src', 'forked'], 2]);
@@ -1122,7 +1287,11 @@ test('real client: a hide while the client restores the thread after its own rec
   let holdResume = false;
   const core = scriptedCore({ resume: () => (holdResume ? 'hold' : 'ok') });
   const { client, conn } = await realClient(net, core.serve);
-  const service = createServiceLane({ protocol: replaceable(client).protocol, snapshot: () => HELD, schedule: () => () => undefined });
+  const service = createServiceLane({
+    protocol: replaceable(client).protocol,
+    snapshot: () => HELD,
+    schedule: () => () => undefined,
+  });
   await service.call('setVisibleSessions', [['a'], 1]);
   await settled();
   holdResume = true;
@@ -1197,13 +1366,17 @@ test('real client: the core removes the thread, then attaches the restore; both 
   await endsUnsubscribed(run);
 });
 
-test('real client: the restore is answered and settles while the lane\'s unsubscribe is still in flight', async () => {
+test("real client: the restore is answered and settles while the lane's unsubscribe is still in flight", async () => {
   const run = await overlappedHide();
   run.unsubscribe.remove();
   run.restore.attach();
   run.restore.reply();
   await settled();
-  assert.equal(run.client.threadSubscription('a').restoring, false, 'the restore ended before the unsubscribe was answered');
+  assert.equal(
+    run.client.threadSubscription('a').restoring,
+    false,
+    'the restore ended before the unsubscribe was answered'
+  );
   assert.equal(run.unsubscribes(), 1, 'the lane still waits on its request');
   run.unsubscribe.reply();
   await endsUnsubscribed(run);
@@ -1234,7 +1407,11 @@ test('real client: threads restored and then hidden leave nothing behind in the 
   const net = new MockNetwork();
   const core = scriptedCore();
   const { client, conn } = await realClient(net, core.serve);
-  const service = createServiceLane({ protocol: replaceable(client).protocol, snapshot: () => HELD, schedule: () => () => undefined });
+  const service = createServiceLane({
+    protocol: replaceable(client).protocol,
+    snapshot: () => HELD,
+    schedule: () => () => undefined,
+  });
   const ids = Array.from({ length: 20 }, (_, i) => `t${i}`);
   await service.call('setVisibleSessions', [ids, 1]);
   await settled();
@@ -1283,7 +1460,17 @@ test('searchProjectFiles stops the consumer session before it starts one on anot
   await service.call('searchProjectFiles', ['/q', 'ab', 50, false, false, 'mention']);
   assert.deepEqual(
     calls.map(({ method }) => method),
-    ['search/start', 'search/update', 'search/stop', 'search/start', 'search/update', 'search/update', 'search/stop', 'search/start', 'search/update']
+    [
+      'search/start',
+      'search/update',
+      'search/stop',
+      'search/start',
+      'search/update',
+      'search/update',
+      'search/stop',
+      'search/start',
+      'search/update',
+    ]
   );
 });
 // The core answers `search/update` with nothing: the files come on the search's feed (`search/updated`), and `search/completed`
@@ -1297,9 +1484,19 @@ test('searchProjectFiles answers the files the feed carried for its query when t
   emitFor = ({ sessionId, query }) => {
     emit('search/updated', { sessionId, query: 'other', files: [{ path: 'stale.ts', matchType: 'file' }] });
     emit('search/updated', { sessionId: 'search:another', query, files: [{ path: 'theirs.ts', matchType: 'file' }] });
-    emit('search/updated', { sessionId, query, files: [{ path: 'src', matchType: 'directory' }, { path: 'src/a.ts', matchType: 'file' }] });
+    emit('search/updated', {
+      sessionId,
+      query,
+      files: [
+        { path: 'src', matchType: 'directory' },
+        { path: 'src/a.ts', matchType: 'file' },
+      ],
+    });
   };
-  assert.deepEqual(await service.call('searchProjectFiles', ['/p', 'a', 50, false, true, 'mention']), ['src/', 'src/a.ts']);
+  assert.deepEqual(await service.call('searchProjectFiles', ['/p', 'a', 50, false, true, 'mention']), [
+    'src/',
+    'src/a.ts',
+  ]);
 });
 
 test('a newer query of the same consumer ends the older one, which answers what it had', async () => {
@@ -1313,7 +1510,12 @@ test('a newer query of the same consumer ends the older one, which answers what 
     return {};
   };
   const service = createServiceLane({
-    protocol: { call, ...threadCalls(call), notify: () => undefined, onEvent: (listener) => (listeners.add(listener), () => listeners.delete(listener)) },
+    protocol: {
+      call,
+      ...threadCalls(call),
+      notify: () => undefined,
+      onEvent: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+    },
     snapshot: () => HELD,
   });
   const older = service.call('searchProjectFiles', ['/p', 'a', 50, false, false, 'mention']);
@@ -1337,10 +1539,16 @@ test('a newer query of the same consumer ends the older one, which answers what 
 test('the project list is the contract rows, and a project folder is its path', async () => {
   const { service } = lane(async (method) =>
     method === 'project/list'
-      ? { projects: [{ path: 'C:\\Project\\mixdog', name: 'mixdog', alias: null, hidden: false, lastUsedAt: 1794176253087 }] }
+      ? {
+          projects: [
+            { path: 'C:\\Project\\mixdog', name: 'mixdog', alias: null, hidden: false, lastUsedAt: 1794176253087 },
+          ],
+        }
       : { path: 'C:\\answered' }
   );
-  assert.deepEqual(await service.call('listProjects', []), [{ name: 'mixdog', path: 'C:\\Project\\mixdog', alias: null }]);
+  assert.deepEqual(await service.call('listProjects', []), [
+    { name: 'mixdog', path: 'C:\\Project\\mixdog', alias: null },
+  ]);
   for (const [method, args] of [
     ['projectDirectory', ['/p']],
     ['projectRecoveryDirectory', ['/p']],
@@ -1359,7 +1567,8 @@ test('an attachment is read a page at a time by its digest; a missing one, one o
   const { service } = lane(async (method, params) => {
     assert.equal(method, 'blob/read');
     reads.push(params);
-    if (params.digest !== `sha256:${ref}`) throw Object.assign(new Error('rpc'), { detail: { kind: 'rpc', data: { reason: 'blobNotFound' } } });
+    if (params.digest !== `sha256:${ref}`)
+      throw Object.assign(new Error('rpc'), { detail: { kind: 'rpc', data: { reason: 'blobNotFound' } } });
     return { bytesB64: blob.subarray(params.offset, params.offset + params.length).toString('base64') };
   });
   assert.equal(await service.call('readAttachmentImage', [ref]), blob.toString('base64'));
@@ -1367,7 +1576,11 @@ test('an attachment is read a page at a time by its digest; a missing one, one o
     { digest: `sha256:${ref}`, offset: 0, length: pageBytes },
     { digest: `sha256:${ref}`, offset: pageBytes, length: pageBytes },
   ]);
-  assert.equal(await service.call('readAttachmentImage', [ref, pageBytes + 5]), blob.toString('base64'), 'a blob of exactly the bound');
+  assert.equal(
+    await service.call('readAttachmentImage', [ref, pageBytes + 5]),
+    blob.toString('base64'),
+    'a blob of exactly the bound'
+  );
   assert.equal(await service.call('readAttachmentImage', [ref, pageBytes + 4]), null, 'one byte over the bound');
   assert.equal(await service.call('readAttachmentImage', ['b'.repeat(64)]), null, 'the store has no such blob');
   reads.length = 0;
@@ -1460,7 +1673,10 @@ test('a project the core refuses sends no file request, and the refusal reaches 
     return { ok: true };
   });
   await assert.rejects(service.call('writeProjectTextFile', ['/nope', 'a', 'c', 'e']));
-  assert.deepEqual(calls.map(({ method }) => method), ['project/directory']);
+  assert.deepEqual(
+    calls.map(({ method }) => method),
+    ['project/directory']
+  );
 });
 
 test('a folder answer without a path is an error, not a request with the project string', async () => {
@@ -1487,7 +1703,10 @@ test('a client with a capability lane sends an approval decision through it, and
 test('a thread the client follows without the lane wanting it is released once it stays unwanted past the grace', async () => {
   const sweeps = [];
   const unsubscribed = [];
-  const threads = new Map([['stray', {}], ['shown', {}]]);
+  const threads = new Map([
+    ['stray', {}],
+    ['shown', {}],
+  ]);
   const service = createServiceLane({
     protocol: {
       call: async () => ({}),
@@ -1498,7 +1717,16 @@ test('a thread the client follows without the lane wanting it is released once i
         threads.delete(threadId);
       },
       onEvent: () => () => {},
-      client: () => ({ status: { state: 'ready' }, store: { threads }, threadSubscription: (id) => ({ followed: threads.has(id), restoring: false, restoresStarted: 0, connection: 1 }) }),
+      client: () => ({
+        status: { state: 'ready' },
+        store: { threads },
+        threadSubscription: (id) => ({
+          followed: threads.has(id),
+          restoring: false,
+          restoresStarted: 0,
+          connection: 1,
+        }),
+      }),
     },
     snapshot: () => HELD,
     schedule: () => () => undefined,
@@ -1543,13 +1771,21 @@ test('a delayed rejection of an older query does not restart the session or take
   let rejectOld;
   let updates = 0;
   let emit;
-  const { calls, service, emit: emitter } = lane(async (method, params) => {
+  const {
+    calls,
+    service,
+    emit: emitter,
+  } = lane(async (method, params) => {
     if (method === 'search/update' && params.query === 'a') {
       updates += 1;
       if (updates === 1) return new Promise((_, reject) => (rejectOld = reject));
     }
     if (method === 'search/update' && params.query === 'ab') {
-      emit('search/updated', { sessionId: 'search:mention', query: 'ab', files: [{ path: 'ab.ts', matchType: 'file' }] });
+      emit('search/updated', {
+        sessionId: 'search:mention',
+        query: 'ab',
+        files: [{ path: 'ab.ts', matchType: 'file' }],
+      });
     }
     return {};
   });
@@ -1561,5 +1797,8 @@ test('a delayed rejection of an older query does not restart the session or take
   assert.deepEqual(await newer, ['ab.ts']);
   rejectOld(new Error('Search session is not open.'));
   assert.deepEqual(await older, []);
-  assert.deepEqual(calls.map(({ method }) => method).filter((m) => m !== 'search/update'), ['search/start']);
+  assert.deepEqual(
+    calls.map(({ method }) => method).filter((m) => m !== 'search/update'),
+    ['search/start']
+  );
 });

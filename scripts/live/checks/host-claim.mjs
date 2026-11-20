@@ -13,7 +13,10 @@ export async function run({ env, deadlineMs = 60_000 }) {
     if (rows.length) return `hostState rows: ${rows.map((row) => row.key ?? '(unkeyed)').join(', ')}`;
     const state = await core.request('notify/state', {});
     if (state?.supported === true) return 'notify/state: the desktop host answered (supported: true)';
-    if (Date.now() > deadline) throw new Error(`no host claim seen after ${deadlineMs} ms: hostState is empty and notify/state.supported is ${JSON.stringify(state?.supported)}`);
+    if (Date.now() > deadline)
+      throw new Error(
+        `no host claim seen after ${deadlineMs} ms: hostState is empty and notify/state.supported is ${JSON.stringify(state?.supported)}`
+      );
     await sleep(500);
   }
 }

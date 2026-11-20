@@ -110,7 +110,18 @@ import { readOrCreateHostId, createLocalHostRole } from './protocol/desktop-host
 import { showRemoteScreenIndicator } from './remote-screen/screen-indicator';
 import { openCore } from './protocol/open-core';
 import type { WsEndpoint } from './protocol/ws-connector';
-import { type CoreProcess, coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, desktopConfirmationWriter, forceEndCore, readCoreState, requestCoreStop, resolveLocalCore } from './protocol/local-core';
+import {
+  type CoreProcess,
+  coreBinaryPath,
+  coreEnvironment,
+  coreExit,
+  coreLaunchPath,
+  desktopConfirmationWriter,
+  forceEndCore,
+  readCoreState,
+  requestCoreStop,
+  resolveLocalCore,
+} from './protocol/local-core';
 import { watchCore } from '../../../../packages/protocol-client/src/launch/ensure-core.mjs';
 import { createOpenRequestedHandler } from './protocol/open-requested';
 import { createVisualizePublisher } from './protocol/visualize-publish';
@@ -176,10 +187,7 @@ import { createSecureDesktopHelper } from './remote-screen/secure-desktop-helper
 import { createSecureDesktopClient, secureDesktopInstallerFor, type SecureDesktopInstaller } from './secure-desktop';
 import { createPcAccess, pendingRevokesFile, type PcAccess } from './pc-access';
 import { createAccountAdminCheck } from './secure-desktop/account-admin';
-import {
-  type RemoteControllerKeyRecord,
-  type RemoteControllerKeysOwed,
-} from '../shared/remote-controller-key';
+import type { RemoteControllerKeyRecord, RemoteControllerKeysOwed } from '../shared/remote-controller-key';
 import { fileSnapshots } from './file-snapshot';
 import { clampBoundsToWorkArea, persistWindowState, readWindowState } from './window-state';
 import {
@@ -688,7 +696,7 @@ const localService = localConnection.client;
 // window's local page IPC and the visualize html panes ask it through this client.
 setCoreLocalPages(
   createCoreLocalPages(
-    <T,>(name: string, args: unknown[]) => localService.invokeDesktopOperation(name, args) as Promise<T>,
+    <T>(name: string, args: unknown[]) => localService.invokeDesktopOperation(name, args) as Promise<T>,
     // Large page files go to this PC's core as blobs (`blob/put`) on its own connection.
     localConnection.protocol
   )
@@ -960,7 +968,10 @@ let computerBridge: ReturnType<typeof createComputerBridge> | null = null;
 function applyComputerBridge(): void {
   if (!computerBridge) return;
   if (computerControlEnabled) computerBridge.startBridge();
-  else void computerBridge.stopBridge().catch((error: unknown) => diagnostics?.write('computer-bridge-stop-failed', { error: String(error) }));
+  else
+    void computerBridge
+      .stopBridge()
+      .catch((error: unknown) => diagnostics?.write('computer-bridge-stop-failed', { error: String(error) }));
 }
 // Observation only: the bridge keeps serving reads while every input action is
 // refused by the host, so a running agent turn is narrowed the moment it flips.
@@ -1034,7 +1045,7 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
 // This PC's host role on its protocol connection: the in-app browser, OS toasts, the system proxy, power and
 // updater reports (DS §12). The computer pill follows the core's `computer` section.
 const localProtocol = localConnection.protocol;
-if (!localProtocol) throw new Error('This PC\'s connection has no protocol link.');
+if (!localProtocol) throw new Error("This PC's connection has no protocol link.");
 // The loopback computer bridge (other tools on this PC reach Computer Use through it): every command goes to the core's
 // computer/bridge/run, a dropped caller or a stop to computer/bridge/abort, so the bridge and the agent tool share the
 // core's helper pool, foreground lane and user-control hold. It listens only while Computer Use is on.
@@ -1073,7 +1084,10 @@ const hostRole = createLocalHostRole({
   },
   // The engine lane's record of every host/browser/* call, for the golden replay: a development build only, into the folder
   // MIXDOG_BROWSER_TRANSCRIPT names (a diagnostics location, not a choice of implementation).
-  browserEngineTranscript: createTranscriptTap({ dir: process.env.MIXDOG_BROWSER_TRANSCRIPT, devBuild: !app.isPackaged }),
+  browserEngineTranscript: createTranscriptTap({
+    dir: process.env.MIXDOG_BROWSER_TRANSCRIPT,
+    devBuild: !app.isPackaged,
+  }),
   visualize: () => ({
     execute: (command) => visualize.execute(command),
     exportForDevice: (command) => visualize.exportForDevice(command),
@@ -1218,7 +1232,8 @@ function publishWindowFocus(): void {
 // Each host connection starts with nothing reported: the current windows once now and again whenever the link comes up.
 publishWindowFocus();
 localProtocol.onEvent((event) => {
-  if (event.type === 'status' && (event as { status: { state: string } }).status.state === 'ready') publishWindowFocus();
+  if (event.type === 'status' && (event as { status: { state: string } }).status.state === 'ready')
+    publishWindowFocus();
 });
 // A window's painted sessions changed (the per-window listener of ipc.ts stores them first).
 ipcMain.on(DESKTOP_IPC.reportScreenSessions, () => setImmediate(publishWindowFocus));
@@ -1659,7 +1674,10 @@ const quitSequence = createDesktopQuitSequence({
   // the single-instance lock alive: the next launch would wait on them behind a black window.
   teardownTimeoutMs: DESKTOP_QUIT_TEARDOWN_TIMEOUT_MS,
   onTeardownTimeout: () => {
-    diagnostics?.write('desktop-quit-teardown-timeout', { timeoutMs: DESKTOP_QUIT_TEARDOWN_TIMEOUT_MS, corePid: localCoreProcess?.pid ?? null });
+    diagnostics?.write('desktop-quit-teardown-timeout', {
+      timeoutMs: DESKTOP_QUIT_TEARDOWN_TIMEOUT_MS,
+      corePid: localCoreProcess?.pid ?? null,
+    });
     forceEndCore(localCoreProcess);
   },
   exit: () => {
@@ -2179,7 +2197,10 @@ function createDesktopPetController(): DesktopPet {
   return createDesktopPet({
     call: (method, params) => localProtocol.call(method, params),
     reportError: (what, error) =>
-      diagnostics?.write('desktop-pet-core-failed', { what, message: error instanceof Error ? error.message : String(error) }),
+      diagnostics?.write('desktop-pet-core-failed', {
+        what,
+        message: error instanceof Error ? error.message : String(error),
+      }),
     screen,
     createWindow: (bounds, layer) => {
       const window = new BrowserWindow({
@@ -2495,7 +2516,8 @@ const serverWindowTokens = new WeakMap<BrowserWindow, string>();
 const closingByCore = new WeakSet<BrowserWindow>();
 const serverConnections = createServerConnections<DesktopConnection>({
   pool: connectionPool,
-  create: (record) => createDesktopConnection({ id: record.id, kind: record.kind, name: record.name }, connectionDependencies),
+  create: (record) =>
+    createDesktopConnection({ id: record.id, kind: record.kind, name: record.name }, connectionDependencies),
 });
 const serverWindows = createServerWindows({
   core: localProtocol,
@@ -2804,7 +2826,11 @@ function installWindowCloseCleanup(
           console.error(`Failed to detach from ${connection.name}:`, error);
         });
       }
-      hostRole.host.windowHost?.windowClosed(connection.id, !quitApproved && !closingByCore.has(window), serverWindowTokens.get(window));
+      hostRole.host.windowHost?.windowClosed(
+        connection.id,
+        !quitApproved && !closingByCore.has(window),
+        serverWindowTokens.get(window)
+      );
     }
   });
 }
@@ -2832,17 +2858,19 @@ function startDesktopDiagnostics(appReadyAt: number): void {
   // The daemon handshake is already running (started before whenReady);
   // stamp its start into the timeline now that the sink exists.
   reportDaemonServiceStart();
-  bootTimeline.open(log, () => log.write('desktop-start', {
-    totalMs: Date.now() - desktopProcessStartedAt,
-    electronVersion: process.versions.electron,
-    chromeVersion: process.versions.chrome,
-    nodeVersion: process.versions.node,
-    sessionProcess: 'daemon',
-    gpuRendering: softwareRenderingThisLaunch ? 'software-fallback' : 'hardware',
-    crashReporterStatus,
-    ...(crashReporterErrorName ? { crashReporterErrorName } : {}),
-    ...(gpuFallbackMarker ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow } : {}),
-  }));
+  bootTimeline.open(log, () =>
+    log.write('desktop-start', {
+      totalMs: Date.now() - desktopProcessStartedAt,
+      electronVersion: process.versions.electron,
+      chromeVersion: process.versions.chrome,
+      nodeVersion: process.versions.node,
+      sessionProcess: 'daemon',
+      gpuRendering: softwareRenderingThisLaunch ? 'software-fallback' : 'hardware',
+      crashReporterStatus,
+      ...(crashReporterErrorName ? { crashReporterErrorName } : {}),
+      ...(gpuFallbackMarker ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow } : {}),
+    })
+  );
   startCrashHandlerWatch();
   startDiagnosticsEventLoopMonitor();
 }

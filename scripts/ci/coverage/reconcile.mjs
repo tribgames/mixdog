@@ -47,8 +47,12 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
   /** the files and targets the inventory expects, by identity */
   const expected = new Map(manifest.units.map((unit) => [idKey(unit.id), unit]));
   /** unit → the clauses it must discharge; a classified file or target has none but its skips are still checked */
-  const required = new Map([...expected].filter(([, unit]) => unit.requires && !unit.listed).map(([key, unit]) => [key, unit.requires]));
-  const exempt = new Set(manifest.classified.flatMap((entry) => ['node', 'python', 'shell'].map((family) => idKey([family, entry.path]))));
+  const required = new Map(
+    [...expected].filter(([, unit]) => unit.requires && !unit.listed).map(([key, unit]) => [key, unit.requires])
+  );
+  const exempt = new Set(
+    manifest.classified.flatMap((entry) => ['node', 'python', 'shell'].map((family) => idKey([family, entry.path])))
+  );
 
   // ---- 1. artifacts
   const intact = artifacts(receipts, plan.legs, context, fail);
@@ -64,12 +68,30 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
     if (receipt.listing !== undefined) listings.push({ where, list: receipt.listing });
     for (const record of receipt.records) {
       const key = idKey(record.id);
-      if (FAILED.has(record.status)) fail(`failed: ${key} ${record.status} in ${leg.id} slot ${slot}${record.reasonText ? ` (${record.reasonText})` : ''}`);
+      if (FAILED.has(record.status))
+        fail(
+          `failed: ${key} ${record.status} in ${leg.id} slot ${slot}${record.reasonText ? ` (${record.reasonText})` : ''}`
+        );
       // a passing suite says nothing: its cases are reported on their own
       if (record.kind === 'suite' && record.status === 'pass') continue;
       if (record.status === 'pass') passed.set(key, [...(passed.get(key) ?? []), where]);
       const unit = unitKey(record.id);
-      observed.set(unit, [...(observed.get(unit) ?? []), { key, id: record.id, kind: record.kind, at: where, leg: leg.id, slot, os: leg.os, status: record.status, reasonCode: record.reasonCode ?? 'uncoded', reasonText: record.reasonText ?? '', path }]);
+      observed.set(unit, [
+        ...(observed.get(unit) ?? []),
+        {
+          key,
+          id: record.id,
+          kind: record.kind,
+          at: where,
+          leg: leg.id,
+          slot,
+          os: leg.os,
+          status: record.status,
+          reasonCode: record.reasonCode ?? 'uncoded',
+          reasonText: record.reasonText ?? '',
+          path,
+        },
+      ]);
     }
   }
 
@@ -77,7 +99,8 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
   /** per build variant, and per leg slot for the listings of standalone runs: the targets the listing shows */
   const shown = new Map();
   /** a target the plan declares absent from a variant (a platform cfg), by rule and never by what a listing lacks */
-  const absentOn = (unit, variant) => (plan.rust?.absent ?? []).some((rule) => rule.variants.includes(variant) && matchesAny(unit.source, [rule.glob]));
+  const absentOn = (unit, variant) =>
+    (plan.rust?.absent ?? []).some((rule) => rule.variants.includes(variant) && matchesAny(unit.source, [rule.glob]));
   /** @param {'workspace'|'listed'} how */
   const osOf = (where) => plan.legs.find((leg) => where.startsWith(`${leg.id}#`))?.os;
   const consider = (suites, how, clausesOf, from, variant) => {
@@ -106,14 +129,31 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
     }
     try {
       const testAts = variant.testLegs.map(at);
-      const legs = [...new Set([...testAts, ...Object.values(variant.profileLegs ?? {}).flat().map(at)])].sort();
-      consider(listedSuites(lists.all, byName), 'workspace', () => [{ anyOf: legs }], `the ${variant.name} build`, variant.name);
+      const legs = [
+        ...new Set([
+          ...testAts,
+          ...Object.values(variant.profileLegs ?? {})
+            .flat()
+            .map(at),
+        ]),
+      ].sort();
+      consider(
+        listedSuites(lists.all, byName),
+        'workspace',
+        () => [{ anyOf: legs }],
+        `the ${variant.name} build`,
+        variant.name
+      );
       const profileMatches = new Map();
       for (const [profile, list] of Object.entries(lists.profiles ?? {})) {
-        for (const test of listedTests(list, byName)) if (test.matches) profileMatches.set(idKey(test.id), [...(profileMatches.get(idKey(test.id)) ?? []), profile]);
+        for (const test of listedTests(list, byName))
+          if (test.matches)
+            profileMatches.set(idKey(test.id), [...(profileMatches.get(idKey(test.id)) ?? []), profile]);
       }
       for (const test of listedTests(lists.all, byName)) {
-        const targets = (profileMatches.get(idKey(test.id)) ?? []).filter((profile) => variant.profileLegs?.[profile]).flatMap((profile) => variant.profileLegs[profile].map(at));
+        const targets = (profileMatches.get(idKey(test.id)) ?? [])
+          .filter((profile) => variant.profileLegs?.[profile])
+          .flatMap((profile) => variant.profileLegs[profile].map(at));
         if (!test.ignored || targets.length === 0) continue;
         // the partitions report it ignored (a scheduler exclusion); the profile leg must pass the same case
         promised.set(`${idKey(test.id)}|${variant.name}`, { key: idKey(test.id), targets, variant: variant.name });
@@ -125,7 +165,13 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
   }
   for (const { where, list } of listings) {
     try {
-      consider(listedSuites(list, byName), 'listed', (unit) => unit.requires.filter((clause) => clause.anyOf.includes(where)), where, where);
+      consider(
+        listedSuites(list, byName),
+        'listed',
+        (unit) => unit.requires.filter((clause) => clause.anyOf.includes(where)),
+        where,
+        where
+      );
     } catch (error) {
       fail(`the listing in ${where} is unreadable: ${error.message}`);
     }
@@ -133,18 +179,23 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
   // a target the inventory expects that a listing does not show has vanished from that variant; another variant showing it proves nothing
   for (const [key, unit] of expected) {
     if (unit.workspace) {
-      for (const variant of (plan.rust?.variants ?? []).filter((entry) => rustLists[entry.name])) if (!absentOn(unit, variant.name) && !shown.get(variant.name)?.has(key)) fail(`vanished: ${key} is expected on ${variant.name} but its listing does not show it`);
+      for (const variant of (plan.rust?.variants ?? []).filter((entry) => rustLists[entry.name]))
+        if (!absentOn(unit, variant.name) && !shown.get(variant.name)?.has(key))
+          fail(`vanished: ${key} is expected on ${variant.name} but its listing does not show it`);
     } else if (unit.listed) {
       // each platform the plan assigns the crate to has its own listing, and must show the target (or be declared without it)
       for (const clause of unit.requires) {
         const seen = clause.anyOf.some((where) => shown.get(where)?.has(key));
-        if (!seen && !clause.anyOf.some((where) => absentOn(unit, osOf(where)))) fail(`vanished: ${key} is expected on ${clause.anyOf.join(' or ')} but no listing there shows it`);
+        if (!seen && !clause.anyOf.some((where) => absentOn(unit, osOf(where))))
+          fail(`vanished: ${key} is expected on ${clause.anyOf.join(' or ')} but no listing there shows it`);
       }
     }
   }
   for (const [unit, list] of observed) {
     if (required.has(unit) || exempt.has(unit)) continue;
-    fail(`unknown: ${unit} was reported by ${list[0].leg} slot ${list[0].slot} but the inventory assigns no test file or target of that name`);
+    fail(
+      `unknown: ${unit} was reported by ${list[0].leg} slot ${list[0].slot} but the inventory assigns no test file or target of that name`
+    );
   }
 
   // ---- 4. skips: an exact reviewed exception for every one, and what runs each excepted case instead
@@ -155,11 +206,30 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
   const skipped = (observation) => ['skip', 'todo', 'xfail', 'ignored'].includes(observation.status);
   for (const list of observed.values()) {
     for (const observation of list) {
-      if (!skipped(observation) || (observation.status === 'ignored' && dropped.has(`${observation.key}|${observation.at}`))) continue;
-      const kind = observation.status === 'ignored' ? 'ignored' : observation.status === 'todo' || observation.status === 'xfail' ? 'todo' : 'skip';
-      const probe = { id: observation.id, platform: observation.os, slot: observation.slot, kind, reasonCode: observation.reasonCode, reasonText: observation.reasonText };
+      if (
+        !skipped(observation) ||
+        (observation.status === 'ignored' && dropped.has(`${observation.key}|${observation.at}`))
+      )
+        continue;
+      const kind =
+        observation.status === 'ignored'
+          ? 'ignored'
+          : observation.status === 'todo' || observation.status === 'xfail'
+            ? 'todo'
+            : 'skip';
+      const probe = {
+        id: observation.id,
+        platform: observation.os,
+        slot: observation.slot,
+        kind,
+        reasonCode: observation.reasonCode,
+        reasonText: observation.reasonText,
+      };
       const index = excepted.findIndex((tuple) => allows(tuple, probe));
-      if (index < 0) fail(`unexcepted skip: ${observation.key} ${kind} on ${observation.os} (${observation.leg} slot ${observation.slot}) reason ${observation.reasonCode}${observation.reasonText ? ` "${observation.reasonText}"` : ''} has no reviewed exception`);
+      if (index < 0)
+        fail(
+          `unexcepted skip: ${observation.key} ${kind} on ${observation.os} (${observation.leg} slot ${observation.slot}) reason ${observation.reasonCode}${observation.reasonText ? ` "${observation.reasonText}"` : ''} has no reviewed exception`
+        );
       else {
         used.add(index);
         usedAt.set(index, [...(usedAt.get(index) ?? []), observation.at]);
@@ -174,15 +244,26 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
       fail(`unrouted: ${unit} has no applicable leg`);
       continue;
     }
-    const all = (observed.get(unit) ?? []).filter((observation) => !(observation.status === 'ignored' && dropped.has(`${observation.key}|${observation.at}`)));
+    const all = (observed.get(unit) ?? []).filter(
+      (observation) => !(observation.status === 'ignored' && dropped.has(`${observation.key}|${observation.at}`))
+    );
     const named = new Set(clauses.flatMap((clause) => clause.anyOf));
-    for (const observation of all) if (!named.has(observation.at)) fail(`wrong leg: ${unit} was reported by ${observation.leg} slot ${observation.slot}, which no routing clause of it names`);
+    for (const observation of all)
+      if (!named.has(observation.at))
+        fail(
+          `wrong leg: ${unit} was reported by ${observation.leg} slot ${observation.slot}, which no routing clause of it names`
+        );
     for (const clause of clauses) {
       const here = all.filter((observation) => clause.anyOf.includes(observation.at));
       const ran = here.some((observation) => observation.kind === 'case' && observation.status === 'pass');
       // a leg that only skips a file is not where it runs: its skips must each say where the case runs instead
-      const elsewhere = here.length > 0 && here.every((observation) => skipped(observation) && observation.tuple?.replacement.kind === 'runs');
-      if (!ran && !elsewhere) fail(`no-cases: ${unit} ran no case in ${clause.anyOf.join(' or ')}: nothing was reported there, or every report was a failure or a skip with no replacement`);
+      const elsewhere =
+        here.length > 0 &&
+        here.every((observation) => skipped(observation) && observation.tuple?.replacement.kind === 'runs');
+      if (!ran && !elsewhere)
+        fail(
+          `no-cases: ${unit} ran no case in ${clause.anyOf.join(' or ')}: nothing was reported there, or every report was a failure or a skip with no replacement`
+        );
     }
   }
 
@@ -190,7 +271,9 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
   excepted.forEach((tuple, index) => {
     const key = idKey(tuple.id);
     if (!used.has(index)) {
-      fail(`stale exception: ${key} on ${tuple.platform} (${tuple.kind}, ${tuple.reasonCode}) was not reported by any leg: the case runs, is gone, or skips for another reason`);
+      fail(
+        `stale exception: ${key} on ${tuple.platform} (${tuple.kind}, ${tuple.reasonCode}) was not reported by any leg: the case runs, is gone, or skips for another reason`
+      );
       return;
     }
     // where the excepted case is executed instead: a pass of it there, or a pass of every test that starts it as a child process
@@ -210,20 +293,48 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
       const scope = (plan.gateScopes ?? []).find((entry) => idKey(entry.id) === key);
       if (joins.length === targets.length && !context.joins && scope && !scope.gates.includes(context.gate)) return;
       if (joins.length && !context.joins) {
-        fail(`no replacement: ${key} is excepted on ${tuple.platform} with a replacement in a join leg, which this gate call (${context.gate}) has no join for`);
+        fail(
+          `no replacement: ${key} is excepted on ${tuple.platform} with a replacement in a join leg, which this gate call (${context.gate}) has no join for`
+        );
         return;
       }
       if (joins.length === targets.length) return;
-      if (joins.length) fail(`no replacement: ${key} is excepted on ${tuple.platform} with a replacement that mixes gate legs and join legs`);
-      if (!(passed.get(key) ?? []).some((where) => targets.includes(where))) fail(`no replacement: ${key} is excepted on ${tuple.platform} because it runs in ${targets.join(' or ')}, which reported no pass of it`);
+      if (joins.length)
+        fail(
+          `no replacement: ${key} is excepted on ${tuple.platform} with a replacement that mixes gate legs and join legs`
+        );
+      if (!(passed.get(key) ?? []).some((where) => targets.includes(where)))
+        fail(
+          `no replacement: ${key} is excepted on ${tuple.platform} because it runs in ${targets.join(' or ')}, which reported no pass of it`
+        );
     } else if (replacement.kind === 'parent') {
       // the child is a test of the parent's own invocation: the parent must pass where the child was reported
-      for (const parentId of replacement.parents) for (const where of new Set(usedAt.get(index))) if (!(passed.get(idKey(parentId)) ?? []).includes(where)) fail(`no replacement: ${key} is excepted on ${tuple.platform} because ${idKey(parentId)} starts it, which did not pass in ${where}`);
+      for (const parentId of replacement.parents)
+        for (const where of new Set(usedAt.get(index)))
+          if (!(passed.get(idKey(parentId)) ?? []).includes(where))
+            fail(
+              `no replacement: ${key} is excepted on ${tuple.platform} because ${idKey(parentId)} starts it, which did not pass in ${where}`
+            );
     }
   });
   // a scope names a case an exception sends to a join leg, or it is stale
-  for (const scope of plan.gateScopes ?? []) if (!excepted.some((tuple) => idKey(tuple.id) === idKey(scope.id) && tuple.replacement.kind === 'runs' && tuple.replacement.in.every((ref) => isJoinObligation(plan, at(ref))))) fail(`stale scope: ${idKey(scope.id)} is scoped to ${scope.gates.join(', ')} but no exception sends it to a join leg`);
-  for (const { key, targets, variant } of promised.values()) if (!(passed.get(key) ?? []).some((where) => targets.includes(where))) fail(`no replacement: ${key} is ignored in the ${variant} partitions and a profile leg is to run it, but ${targets.join(' or ')} reported no pass of it`);
+  for (const scope of plan.gateScopes ?? [])
+    if (
+      !excepted.some(
+        (tuple) =>
+          idKey(tuple.id) === idKey(scope.id) &&
+          tuple.replacement.kind === 'runs' &&
+          tuple.replacement.in.every((ref) => isJoinObligation(plan, at(ref)))
+      )
+    )
+      fail(
+        `stale scope: ${idKey(scope.id)} is scoped to ${scope.gates.join(', ')} but no exception sends it to a join leg`
+      );
+  for (const { key, targets, variant } of promised.values())
+    if (!(passed.get(key) ?? []).some((where) => targets.includes(where)))
+      fail(
+        `no replacement: ${key} is ignored in the ${variant} partitions and a profile leg is to run it, but ${targets.join(' or ')} reported no pass of it`
+      );
   return [...new Set(problems)].sort(compareKeys);
 }
 
@@ -233,8 +344,10 @@ function manifestProblems(manifest, plan, context, fail) {
   if (manifest.sha !== context.sha) fail(`the manifest is for ${manifest.sha}, the release commit is ${context.sha}`);
   const { digest, ...bare } = manifest;
   if (digest !== digestOf(bare)) fail('the manifest digest does not match its content');
-  if (manifest.planDigest !== planDigest(plan)) fail('the manifest was routed by another plan than the one in the checkout');
-  if (JSON.stringify(plan.legs.map((leg) => leg.id).sort()) !== JSON.stringify(manifest.legs)) fail('the manifest legs differ from the plan legs');
+  if (manifest.planDigest !== planDigest(plan))
+    fail('the manifest was routed by another plan than the one in the checkout');
+  if (JSON.stringify(plan.legs.map((leg) => leg.id).sort()) !== JSON.stringify(manifest.legs))
+    fail('the manifest legs differ from the plan legs');
 }
 
 /**
@@ -258,16 +371,21 @@ function artifacts(receipts, legs, context, fail) {
     for (const text of own) fail(`${path}: the receipt ${text}`);
     if (own.length) continue;
     const env = receipt.envelope;
-    if (invocationIds.has(receipt.id)) fail(`${path}: the invocation id ${receipt.id} is also the id of ${invocationIds.get(receipt.id)}`);
+    if (invocationIds.has(receipt.id))
+      fail(`${path}: the invocation id ${receipt.id} is also the id of ${invocationIds.get(receipt.id)}`);
     invocationIds.set(receipt.id, path);
     if (env.sha !== context.sha) fail(`${path}: produced at ${env.sha}, not the release commit ${context.sha}`);
-    if (env.repository !== context.repository) fail(`${path}: produced in the repository ${env.repository}, not ${context.repository}`);
-    if (env.workflow !== context.workflow) fail(`${path}: produced by the workflow ${env.workflow}, not ${context.workflow}`);
+    if (env.repository !== context.repository)
+      fail(`${path}: produced in the repository ${env.repository}, not ${context.repository}`);
+    if (env.workflow !== context.workflow)
+      fail(`${path}: produced by the workflow ${env.workflow}, not ${context.workflow}`);
     if (String(env.runId) !== String(context.runId)) fail(`${path}: from run ${env.runId}, not ${context.runId}`);
     const attempt = String(env.attempt);
     const reused = context.allowReused && /^[1-9]\d*$/.test(attempt) && Number(attempt) < Number(context.attempt);
-    if (attempt !== String(context.attempt) && !reused) fail(`${path}: from attempt ${attempt}, not permitted in attempt ${context.attempt}`);
-    if (legAttempts.has(env.leg) && legAttempts.get(env.leg) !== attempt) fail(`${path}: leg ${env.leg} mixes producer attempts`);
+    if (attempt !== String(context.attempt) && !reused)
+      fail(`${path}: from attempt ${attempt}, not permitted in attempt ${context.attempt}`);
+    if (legAttempts.has(env.leg) && legAttempts.get(env.leg) !== attempt)
+      fail(`${path}: leg ${env.leg} mixes producer attempts`);
     legAttempts.set(env.leg, attempt);
     const leg = planLegs.get(env.leg);
     if (!leg) {
@@ -280,19 +398,34 @@ function artifacts(receipts, legs, context, fail) {
       fail(`${path}: slot ${env.slot} is not a slot of ${leg.id} (${leg.slots.map((entry) => entry.id).join(', ')})`);
       continue;
     }
-    if (env.producer !== slot.producer) fail(`${path}: written by the ${env.producer} producer, the plan's producer of ${leg.id} slot ${slot.id} is ${slot.producer}`);
+    if (env.producer !== slot.producer)
+      fail(
+        `${path}: written by the ${env.producer} producer, the plan's producer of ${leg.id} slot ${slot.id} is ${slot.producer}`
+      );
     // the parent is the invocation whose children folder held this receipt, and it must be the declared parent slot of the same leg
     if (slot.parent === undefined) {
-      if (parent !== null || env.parentSlot !== null) fail(`${path}: ${leg.id} slot ${slot.id} is a top-level slot but the receipt was left by a child invocation`);
+      if (parent !== null || env.parentSlot !== null)
+        fail(`${path}: ${leg.id} slot ${slot.id} is a top-level slot but the receipt was left by a child invocation`);
     } else {
       const actual = parent === null ? undefined : byPath.get(parent);
-      if (!actual) fail(`${path}: ${leg.id} slot ${slot.id} is a child of ${slot.parent} but the receipt was not left in a children folder of a ${slot.parent} invocation`);
-      else if (actual.envelope?.leg !== leg.id || actual.envelope?.slot !== slot.parent || actual.id !== env.parentInvocation || env.parentSlot !== slot.parent) {
-        fail(`${path}: ${leg.id} slot ${slot.id} must be launched by its parent slot ${slot.parent}; it names ${env.parentSlot} (invocation ${env.parentInvocation}) and was left by ${actual.envelope?.leg} slot ${actual.envelope?.slot} (invocation ${actual.id})`);
+      if (!actual)
+        fail(
+          `${path}: ${leg.id} slot ${slot.id} is a child of ${slot.parent} but the receipt was not left in a children folder of a ${slot.parent} invocation`
+        );
+      else if (
+        actual.envelope?.leg !== leg.id ||
+        actual.envelope?.slot !== slot.parent ||
+        actual.id !== env.parentInvocation ||
+        env.parentSlot !== slot.parent
+      ) {
+        fail(
+          `${path}: ${leg.id} slot ${slot.id} must be launched by its parent slot ${slot.parent}; it names ${env.parentSlot} (invocation ${env.parentInvocation}) and was left by ${actual.envelope?.leg} slot ${actual.envelope?.slot} (invocation ${actual.id})`
+        );
       }
     }
     const slots = byLeg.get(leg.id) ?? new Map();
-    if (slots.has(env.slot)) fail(`${path}: a second receipt for ${leg.id} slot ${env.slot} (${slots.get(env.slot).path})`);
+    if (slots.has(env.slot))
+      fail(`${path}: a second receipt for ${leg.id} slot ${env.slot} (${slots.get(env.slot).path})`);
     else slots.set(env.slot, { path, receipt });
     byLeg.set(leg.id, slots);
     intact.push({ path, receipt, leg });
@@ -325,8 +458,12 @@ export function reconcileJoin({ manifest, plan, exceptions, receipts, context })
     const at = `${leg.id}#${receipt.envelope.slot}`;
     for (const record of receipt.records) {
       const key = idKey(record.id);
-      if (record.kind !== 'case' || !(units.has(unitKey(record.id)) || packaged.has(record.id[1]))) fail(`unknown: ${key} was reported in ${at} but the inventory assigns no test file of that name`);
-      else if (record.status !== 'pass') fail(`${record.status}: ${key} in ${at}${record.reasonText ? ` (${record.reasonText})` : ''}: a join leg runs a prepared environment, where nothing may skip or fail`);
+      if (record.kind !== 'case' || !(units.has(unitKey(record.id)) || packaged.has(record.id[1])))
+        fail(`unknown: ${key} was reported in ${at} but the inventory assigns no test file of that name`);
+      else if (record.status !== 'pass')
+        fail(
+          `${record.status}: ${key} in ${at}${record.reasonText ? ` (${record.reasonText})` : ''}: a join leg runs a prepared environment, where nothing may skip or fail`
+        );
       else {
         passed.add(`${key}|${at}`);
         passed.add(`${record.id[1]}|${at}`);
@@ -334,11 +471,18 @@ export function reconcileJoin({ manifest, plan, exceptions, receipts, context })
     }
   }
   // a file that runs after packaging has its own required slot: no release sink before it ran and passed there
-  for (const entry of manifest.classified.filter((item) => item.joinSlot)) if (!passed.has(`${entry.path}|${entry.joinSlot}`)) fail(`no replacement: ${entry.path} runs after packaging in ${entry.joinSlot}, which reported no pass of it`);
+  for (const entry of manifest.classified.filter((item) => item.joinSlot))
+    if (!passed.has(`${entry.path}|${entry.joinSlot}`))
+      fail(`no replacement: ${entry.path} runs after packaging in ${entry.joinSlot}, which reported no pass of it`);
   for (const tuple of exceptions.exceptions) {
     if (tuple.replacement.kind !== 'runs') continue;
-    const targets = tuple.replacement.in.map((ref) => obligationOf(plan, ref)).filter((target) => isJoinObligation(plan, target));
-    if (targets.length && !targets.some((target) => passed.has(`${idKey(tuple.id)}|${target}`))) fail(`no replacement: ${idKey(tuple.id)} is excepted on ${tuple.platform} because it runs in ${targets.join(' or ')}, which reported no pass of it`);
+    const targets = tuple.replacement.in
+      .map((ref) => obligationOf(plan, ref))
+      .filter((target) => isJoinObligation(plan, target));
+    if (targets.length && !targets.some((target) => passed.has(`${idKey(tuple.id)}|${target}`)))
+      fail(
+        `no replacement: ${idKey(tuple.id)} is excepted on ${tuple.platform} because it runs in ${targets.join(' or ')}, which reported no pass of it`
+      );
   }
   return [...new Set(problems)].sort(compareKeys);
 }

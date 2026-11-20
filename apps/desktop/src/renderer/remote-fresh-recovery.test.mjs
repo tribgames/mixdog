@@ -12,11 +12,29 @@ test("a fresh recovery publishes the phone client's current projection to the pa
   const ctx = { sessionsCatalog: { publish() {} }, sessionInbox: createRemoteSessionInbox({ onGap() {} }) };
   let state = { sessionId: 'sess_a', items: [], toolApproval: { id: 'ap-1', kind: 'approval' } };
   const resumed = [];
-  const client = { call: async () => ({}), resumeThread: async (id) => resumed.push(id), unsubscribeThread: async () => undefined, server: { connection: { device: 'Phone' } } };
+  const client = {
+    call: async () => ({}),
+    resumeThread: async (id) => resumed.push(id),
+    unsubscribeThread: async () => undefined,
+    server: { connection: { device: 'Phone' } },
+  };
   const adapter = createChatAdapter({
     sharedFor: (handed) => {
-      const protocol = { call: (method, params) => handed.call(method, params), snapshot: () => ({ entries: [] }), noteUserInput() {}, respond() {}, pendingServerRequests: () => [] };
-      return { routeService, lane: createCapabilityLane({ protocol }), coreErrorForWindow, normalizedProviderModels, sessionStateOf: () => state, foldRows: () => [] };
+      const protocol = {
+        call: (method, params) => handed.call(method, params),
+        snapshot: () => ({ entries: [] }),
+        noteUserInput() {},
+        respond() {},
+        pendingServerRequests: () => [],
+      };
+      return {
+        routeService,
+        lane: createCapabilityLane({ protocol }),
+        coreErrorForWindow,
+        normalizedProviderModels,
+        sessionStateOf: () => state,
+        foldRows: () => [],
+      };
     },
     remoteSession: () => undefined,
     roster: { summaries: (rows) => summariesOfThreadRows(rows) },

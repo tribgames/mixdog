@@ -13,7 +13,11 @@ const EDITABILITY = asset('editability.js');
 const CUSTOM_CONTROL = asset('custom-control.js');
 
 function apply(element, name, args = []) {
-  const source = asset(name).split('__MIXDOG_CUSTOM_CONTROL__').join(CUSTOM_CONTROL).split('__MIXDOG_EDITABILITY__').join(EDITABILITY);
+  const source = asset(name)
+    .split('__MIXDOG_CUSTOM_CONTROL__')
+    .join(CUSTOM_CONTROL)
+    .split('__MIXDOG_EDITABILITY__')
+    .join(EDITABILITY);
   return element.ownerDocument.defaultView.eval(`(${source})`).apply(element, args);
 }
 
@@ -195,7 +199,10 @@ test('custom selection waits for its associated list to render without opening i
 test('a native selection miss names the options the control actually offers', async () => {
   const f = fixture('<select><option value="a">Alpha</option><option value="b">Beta</option></select>');
   try {
-    await assert.rejects(selectRef(f.dom.window.document.querySelector('select'), ['Gamma']), /options include: Alpha \| Beta/);
+    await assert.rejects(
+      selectRef(f.dom.window.document.querySelector('select'), ['Gamma']),
+      /options include: Alpha \| Beta/
+    );
   } finally {
     f.dom.window.close();
   }
@@ -208,14 +215,19 @@ test('the options a select lists carry their marks, a custom control is said to 
   );
   try {
     const document = f.dom.window.document;
-    assert.deepEqual(
-      plain(apply(document.querySelector('select'), 'read-select-options.js')),
-      { options: ['One', 'Two [selected]', 'Three [disabled]'] }
-    );
+    assert.deepEqual(plain(apply(document.querySelector('select'), 'read-select-options.js')), {
+      options: ['One', 'Two [selected]', 'Three [disabled]'],
+    });
     assert.deepEqual({ ...apply(document.getElementById('c'), 'read-select-options.js') }, { custom: true });
     assert.deepEqual({ ...apply(document.getElementById('box'), 'read-checked.js') }, { checked: true, radio: false });
-    assert.deepEqual({ ...apply(document.getElementById('radio'), 'read-checked.js') }, { checked: false, radio: true });
-    assert.equal(apply(document.getElementById('text'), 'read-checked.js').error, 'element is not a checkbox or radio button');
+    assert.deepEqual(
+      { ...apply(document.getElementById('radio'), 'read-checked.js') },
+      { checked: false, radio: true }
+    );
+    assert.equal(
+      apply(document.getElementById('text'), 'read-checked.js').error,
+      'element is not a checkbox or radio button'
+    );
     assert.equal(apply(document.createElement('select'), 'read-select-options.js').error, 'stale');
   } finally {
     f.dom.window.close();

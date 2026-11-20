@@ -13,7 +13,13 @@ import zlib from 'node:zlib';
 
 import { CUSTOM } from './paths.mjs';
 
-const chunk = (delta, finish = null) => ({ id: 'scripted', object: 'chat.completion.chunk', created: 0, model: 'smoke', choices: [{ index: 0, delta, finish_reason: finish }] });
+const chunk = (delta, finish = null) => ({
+  id: 'scripted',
+  object: 'chat.completion.chunk',
+  created: 0,
+  model: 'smoke',
+  choices: [{ index: 0, delta, finish_reason: finish }],
+});
 const frame = (c) => `data: ${typeof c === 'string' ? c : JSON.stringify(c)}\n\n`;
 
 /**
@@ -34,7 +40,8 @@ function resolveTemplates(value, results) {
     return `unresolved(${value.slice(5)})`;
   }
   if (Array.isArray(value)) return value.map((v) => resolveTemplates(v, results));
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolveTemplates(v, results)]));
+  if (value && typeof value === 'object')
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolveTemplates(v, results)]));
   return value;
 }
 
@@ -45,7 +52,13 @@ const requestView = (r, i) => ({
   url: r.url,
   tools: Array.isArray(r.body?.tools) ? r.body.tools.map((t) => t.function?.name ?? t.name).filter(Boolean) : undefined,
   lastToolResults: r.body ? lastToolResults(r.body).map((t) => t.slice(0, 4000)) : undefined,
-  answer: r.answer ? { kind: r.answer.calls ? 'calls' : r.answer.stream ? 'stream' : r.answer.status ? 'status' : 'text', calls: r.answer.calls, tag: r.answer.tag } : undefined,
+  answer: r.answer
+    ? {
+        kind: r.answer.calls ? 'calls' : r.answer.stream ? 'stream' : r.answer.status ? 'status' : 'text',
+        calls: r.answer.calls,
+        tag: r.answer.tag,
+      }
+    : undefined,
   streamStartedAt: r.streamStartedAt,
   streamEndedAt: r.streamEndedAt,
 });
@@ -80,7 +93,11 @@ export function startProvider() {
         }
         if (req.url.startsWith('/__control/requests')) {
           const since = Number(new URL(req.url, 'http://x').searchParams.get('since') ?? 0);
-          return json(200, { total: requests.length, queued: state.queue.length, requests: requests.slice(since).map((r, k) => requestView(r, since + k)) });
+          return json(200, {
+            total: requests.length,
+            queued: state.queue.length,
+            requests: requests.slice(since).map((r, k) => requestView(r, since + k)),
+          });
         }
         return json(404, { error: 'unknown control' });
       }
@@ -174,10 +191,11 @@ export function startProvider() {
         state,
         chats: () => requests.filter((r) => r.body && r.url.endsWith('/chat/completions')),
         nextRequest: () => new Promise((r) => waiters.push(r)),
-        close: () => new Promise((r) => {
-          server.closeAllConnections();
-          server.close(r);
-        }),
+        close: () =>
+          new Promise((r) => {
+            server.closeAllConnections();
+            server.close(r);
+          }),
       });
     });
   });
@@ -185,7 +203,12 @@ export function startProvider() {
 
 /** The same control surface over HTTP, for a runner attached to a holder process's provider. */
 export function providerControl(baseURL) {
-  const post = (path, body) => fetch(`${baseURL}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) }).then((r) => r.json());
+  const post = (path, body) =>
+    fetch(`${baseURL}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    }).then((r) => r.json());
   return {
     baseURL,
     push: (answers) => post('/__control/queue', { answers }),
@@ -197,7 +220,18 @@ export function providerControl(baseURL) {
 
 /** The config the instance starts with: the scripted endpoint as its only provider. */
 export const providerConfig = (baseURL) => ({
-  agent: { providers: { [CUSTOM]: { type: 'custom', name: 'smoke', protocol: 'openai-chat', baseURL, auth: 'none', models: [{ id: 'smoke' }] } } },
+  agent: {
+    providers: {
+      [CUSTOM]: {
+        type: 'custom',
+        name: 'smoke',
+        protocol: 'openai-chat',
+        baseURL,
+        auth: 'none',
+        models: [{ id: 'smoke' }],
+      },
+    },
+  },
 });
 
 /** The tool results the request at the end of `messages` carries after the last assistant tool_calls message. */
@@ -212,5 +246,8 @@ export function lastToolResults(body) {
   }
   if (at < 0) return [];
   const text = (m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content));
-  return msgs.slice(at + 1).filter((m) => m.role === 'tool').map(text);
+  return msgs
+    .slice(at + 1)
+    .filter((m) => m.role === 'tool')
+    .map(text);
 }

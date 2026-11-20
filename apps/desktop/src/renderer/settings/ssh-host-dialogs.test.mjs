@@ -97,7 +97,10 @@ test('model login: switching to server accounts asks once, naming the running se
   const dialog = document.querySelector('.conn-dialog');
   assert.equal(dialog.getAttribute('role'), 'alertdialog');
   assert.equal(dialog.querySelector('h3').textContent, 'Switch to server accounts?');
-  assert.match(dialog.querySelector('.ssh-warn').textContent, /The app on the server restarts, and 1 running session stops\./);
+  assert.match(
+    dialog.querySelector('.ssh-warn').textContent,
+    /The app on the server restarts, and 1 running session stops\./
+  );
   assert.equal(
     calls.some((call) => call[0] === 'settings'),
     false,
@@ -295,13 +298,18 @@ test('server logins: a status rejection before dispatch keeps the owning flow un
   const { document } = await mount(t, {
     host: { ...HOST, settings: { modelLogin: 'server' } },
     sshServerLoginBegin: async () => ({
-      flowId: 'f5', provider: 'gemini-oauth', state: 'pending', forwarded: true,
+      flowId: 'f5',
+      provider: 'gemini-oauth',
+      state: 'pending',
+      forwarded: true,
     }),
     sshServerLoginStatus: async () => {
       if (++reads === 1) throw new Error('This window has no connection to the core.');
       return await status.promise;
     },
-    sshServerLoginCancel: async (...args) => { cancelled.push(args); },
+    sshServerLoginCancel: async (...args) => {
+      cancelled.push(args);
+    },
   });
   await click(buttonNamed(document, 'Manage server logins'));
   await click(document.querySelectorAll('.ssh-login-row')[2].querySelector('button'));
@@ -330,7 +338,8 @@ test('server logins: a server that disconnects mid-login closes the steps and sh
     sshServerLoginBegin: (_id, provider) =>
       Promise.resolve({ flowId: 'f5', provider, state: 'pending', url: 'https://x', error: null, forwarded: true }),
     sshServerLoginStatus: async () => {
-      if (!connected) throw IPC('mixdog:ssh-server-login-status', 'connect-first: Connect to build-box to manage its logins.');
+      if (!connected)
+        throw IPC('mixdog:ssh-server-login-status', 'connect-first: Connect to build-box to manage its logins.');
       return { flowId: 'f5', provider: 'gemini-oauth', state: 'pending', url: null, error: null, forwarded: true };
     },
     sshServerLoginCancel: async (id, flowId) => {

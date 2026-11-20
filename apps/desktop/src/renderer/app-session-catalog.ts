@@ -4,7 +4,13 @@
 import { startTransition, useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 
 import type { DesktopSessionSummary } from '../shared/contract';
-import { IncompleteCatalogError, isPartialCatalog, mergeSessionCatalogPushRows, mergeSessionCatalogRows, withPartialCatalogRows } from '../shared/session-catalog';
+import {
+  IncompleteCatalogError,
+  isPartialCatalog,
+  mergeSessionCatalogPushRows,
+  mergeSessionCatalogRows,
+  withPartialCatalogRows,
+} from '../shared/session-catalog';
 import { publishAgentRooms, seedAgentRooms } from './agent-room-store';
 import { publishAgentModeSessions, seedAgentModeSessions } from './agent-chat-mode';
 import { publishCatalogApprovalSessions } from './session-catalog-approvals';
@@ -120,7 +126,9 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
       // A first page only adds and updates: what it does not list is not known to be gone.
       const merged = partial
         ? mergeSessionCatalogRows(current, withPartialCatalogRows(current, rows))
-        : lowPriority ? mergeSessionCatalogPushRows(current, rows) : mergeSessionCatalogRows(current, rows);
+        : lowPriority
+          ? mergeSessionCatalogPushRows(current, rows)
+          : mergeSessionCatalogRows(current, rows);
       // The shared stores take every accepted host catalog, unchanged rows
       // too: a remounted owner seeded nothing into stores its mounted readers
       // held, so the host's answer is what brings them to it.

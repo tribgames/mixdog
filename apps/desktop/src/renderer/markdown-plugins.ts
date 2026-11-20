@@ -37,7 +37,13 @@ const ESCAPE_OR_REFERENCE = /\\[!-/:-@[-`{-~]|&(?:#(?:\d{1,7}|x[\da-f]{1,6})|[\d
  *  line ends a code span turned into spaces); outside code (`code` false) an
  *  escape or a reference decodes, and its characters sit where it starts.
  *  null: `value` does not read off that source. */
-export function sourceOffsets(source: string, start: number, end: number, value: string, code: boolean): number[] | null {
+export function sourceOffsets(
+  source: string,
+  start: number,
+  end: number,
+  value: string,
+  code: boolean
+): number[] | null {
   const offsets: number[] = [];
   if (end - start === value.length && source.startsWith(value, start)) {
     for (let index = 0; index < value.length; index += 1) offsets.push(start + index);
@@ -142,9 +148,7 @@ function sliceSpans(spans: ChildSpan[], start: number, end: number, source: stri
   for (const span of spans) {
     if (span.end <= start || span.start >= end) continue;
     if (span.child.type === 'text' && typeof span.child.value === 'string') {
-      result.push(
-        textSlice(span.child, Math.max(0, start - span.start), Math.min(end, span.end) - span.start, source)
-      );
+      result.push(textSlice(span.child, Math.max(0, start - span.start), Math.min(end, span.end) - span.start, source));
     } else {
       result.push(span.child);
     }

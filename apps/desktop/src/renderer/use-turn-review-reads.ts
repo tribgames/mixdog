@@ -16,7 +16,12 @@ import {
   type AgentTurnReview,
   type TurnReviewFile,
 } from './turn-review-cache';
-import { cachedTurnReviewState, fileChangeKey, TURN_REVIEW_CAPABILITY, type TurnReviewCapabilityValue } from './turn-review-model';
+import {
+  cachedTurnReviewState,
+  fileChangeKey,
+  TURN_REVIEW_CAPABILITY,
+  type TurnReviewCapabilityValue,
+} from './turn-review-model';
 import type { useTurnReviewDisclosure } from './use-turn-review-disclosure';
 import { sectionStoreFor } from './section-store';
 

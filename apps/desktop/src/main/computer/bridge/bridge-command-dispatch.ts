@@ -29,7 +29,11 @@ export async function runOnCore(
 ): Promise<ComputerBridgeRunResult> {
   const sessionKey = sessionKeyOf(command);
   const signalId = `bridge-${++nextSignal}`;
-  const params: ComputerBridgeRunParams = { command: command as ComputerBridgeRunParams['command'], sessionKey, signalId };
+  const params: ComputerBridgeRunParams = {
+    command: command as ComputerBridgeRunParams['command'],
+    sessionKey,
+    signalId,
+  };
   const abort = (): void => {
     const ending: ComputerBridgeAbortParams = { sessionKey, signalId };
     void callCore(COMPUTER_BRIDGE_ABORT, ending).catch(() => {

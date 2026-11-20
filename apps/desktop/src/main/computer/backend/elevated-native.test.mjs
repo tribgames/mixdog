@@ -9,19 +9,53 @@ process.env.MIXDOG_COMPUTER_BIN ||= 'mixdog-computer';
 
 function fixture() {
   const child = Object.assign(new EventEmitter(), {
-    pid: 222, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill() {},
+    pid: 222,
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill() {},
   });
-  const finishes = [], identities = [], commands = [];
+  const finishes = [],
+    identities = [],
+    commands = [];
   let cancel;
-  const result = runElevatedRequest({ request: { action: 'click', delivery: 'foreground', window_id: 'hwnd:0x1' },
-    id: 7, directory: 'unused', inputMarker: '81', inactiveLedger: 'fixture.ledger',
-    spawnProcess(program, args, options) { commands.push({ program, args, options }); return child; },
-    onWorkerIdentity(identity) { identities.push(identity); },
-    begin(callback) { cancel = callback; return { finish(stopped) { finishes.push(stopped); } }; },
+  const result = runElevatedRequest({
+    request: { action: 'click', delivery: 'foreground', window_id: 'hwnd:0x1' },
+    id: 7,
+    directory: 'unused',
+    inputMarker: '81',
+    inactiveLedger: 'fixture.ledger',
+    spawnProcess(program, args, options) {
+      commands.push({ program, args, options });
+      return child;
+    },
+    onWorkerIdentity(identity) {
+      identities.push(identity);
+    },
+    begin(callback) {
+      cancel = callback;
+      return {
+        finish(stopped) {
+          finishes.push(stopped);
+        },
+      };
+    },
   });
-  return { child, finishes, identities, commands, result, cancel: () => cancel(),
-    send(value) { child.stdout.write(`${JSON.stringify(value)}\n`); },
-    close(code = 0) { child.stdout.end(); child.emit('close', code); } };
+  return {
+    child,
+    finishes,
+    identities,
+    commands,
+    result,
+    cancel: () => cancel(),
+    send(value) {
+      child.stdout.write(`${JSON.stringify(value)}\n`);
+    },
+    close(code = 0) {
+      child.stdout.end();
+      child.emit('close', code);
+    },
+  };
 }
 
 test('native adapter sends one request, forwards cancellation and waits for the final receipt', async () => {
@@ -48,7 +82,10 @@ test('unconfirmed cleanup and lost receipt keep pool capacity held with their or
     const f = fixture();
     if (receipt) f.send(receipt);
     f.close();
-    await assert.rejects(f.result, receipt ? /cleanup_unconfirmed/ : /privileged_worker_unavailable: elevated worker returned no response/);
+    await assert.rejects(
+      f.result,
+      receipt ? /cleanup_unconfirmed/ : /privileged_worker_unavailable: elevated worker returned no response/
+    );
     assert.deepEqual(f.finishes, [false]);
   }
 });
@@ -69,7 +106,12 @@ test('a missing receipt preserves the original launcher exit error distinctions'
   for (const [code, diagnostic, message, stopped] of [
     [0, '', 'privileged_worker_unavailable: elevated worker returned no response', false],
     [1223, '', 'privileged_worker_cancelled: UAC consent was declined', true],
-    [7, 'failed\n  to start', 'privileged_worker_launcher_failed: elevated worker exited with code 7 (failed to start)', false],
+    [
+      7,
+      'failed\n  to start',
+      'privileged_worker_launcher_failed: elevated worker exited with code 7 (failed to start)',
+      false,
+    ],
   ]) {
     const f = fixture();
     if (diagnostic) f.child.stderr.write(diagnostic);
@@ -81,7 +123,12 @@ test('a missing receipt preserves the original launcher exit error distinctions'
 
 test('an access denied identity query never promotes a held worker to gone', async () => {
   const identity = { pid: 33, startTicks: '638661232000000000' };
-  assert.equal(await processIdentityGone(identity, async () => { throw new Error('access denied'); }), false);
+  assert.equal(
+    await processIdentityGone(identity, async () => {
+      throw new Error('access denied');
+    }),
+    false
+  );
   assert.equal(await processIdentityGone(identity, async () => identity.startTicks), false);
   assert.equal(await processIdentityGone(identity, async () => null), true);
   assert.equal(await processIdentityGone(identity, async () => '638661232000000001'), true);
@@ -90,7 +137,10 @@ test('an access denied identity query never promotes a held worker to gone', asy
 test('identity query waits for stdout draining after exit before declaring a PID absent', async () => {
   const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), kill() {} });
   let settled = false;
-  const query = readProcessStartTicks(33, () => child).then((answer) => { settled = true; return answer; });
+  const query = readProcessStartTicks(33, () => child).then((answer) => {
+    settled = true;
+    return answer;
+  });
   child.emit('exit', 0);
   await Promise.resolve();
   assert.equal(settled, false);

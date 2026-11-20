@@ -37,7 +37,10 @@ export function useCoreLink(grace: number = CORE_LINK_GRACE_MS): { view: CoreLin
       apply(push.status, push.link);
     });
     // What a push already said is newer than the read.
-    void sections.snapshot().then((held) => (pushed ? undefined : apply(held.status, held.link))).catch(() => undefined);
+    void sections
+      .snapshot()
+      .then((held) => (pushed ? undefined : apply(held.status, held.link)))
+      .catch(() => undefined);
     return () => {
       live = false;
       off();

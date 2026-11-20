@@ -19,7 +19,8 @@ function rig() {
     on: (listener) => (eventListeners.add(listener), () => eventListeners.delete(listener)),
     store: {
       appFeed: () => ({ id: 'app', epoch: 'e1', seq: 1 }),
-      section: (section, key) => (sections.has(`${section}:${key}`) ? { value: sections.get(`${section}:${key}`) } : undefined),
+      section: (section, key) =>
+        sections.has(`${section}:${key}`) ? { value: sections.get(`${section}:${key}`) } : undefined,
       subscribe: (listener) => (storeListeners.add(listener), () => storeListeners.delete(listener)),
       appLive: () => live,
     },
@@ -37,7 +38,12 @@ function rig() {
     fanOut: (set, value) => fanned.push([set.name, value]),
     phone: { start: () => Promise.resolve() },
   };
-  const host = { ctx, client: () => client, declareLane() {}, onClient: (listener) => (listener(client), () => undefined) };
+  const host = {
+    ctx,
+    client: () => client,
+    declareLane() {},
+    onClient: (listener) => (listener(client), () => undefined),
+  };
   const setSection = (key, value) => {
     sections.set(`hostState:${key}`, value);
     for (const listener of storeListeners) listener({ type: 'section', section: 'hostState', key });
@@ -68,12 +74,15 @@ test('the page input and the parity actions are browser/command requests with th
     ['browser/command', { action: 'credentialSuggestions', input: { session_id: 's1' } }],
     ['browser/command', { action: 'credentialFill', input: { session_id: 's1', credentialId: 'a'.repeat(24) } }],
     ['browser/command', { action: 'importSources' }],
-    ['browser/command', { action: 'importStart', input: { jobId: 'job-12345', sourceId: 'x', profileId: 'p', items: ['history'] } }],
+    [
+      'browser/command',
+      { action: 'importStart', input: { jobId: 'job-12345', sourceId: 'x', profileId: 'p', items: ['history'] } },
+    ],
     ['browser/command', { action: 'release', input: { id: 'main-browser-a' } }],
   ]);
 });
 
-test('the live view subscribes, acknowledges frames, and signals over the core\'s three methods', async () => {
+test("the live view subscribes, acknowledges frames, and signals over the core's three methods", async () => {
   const { host, requests, notes } = rig();
   const c = browser.calls;
   assert.equal(await c.browserRemoteStream(['s1', { maxWidth: 800, maxHeight: 600 }], host), null);
@@ -96,13 +105,31 @@ test('frames, signals, watched tabs and import progress reach the page as Node p
   emit('browser/frame', { sessionId: 's1', seq: 1 });
   emit('browser/webrtcSignal', { signal: { type: 'answer' } });
   setSection('browserTabs', { tabs: [{ id: 'main-browser-a' }] });
-  assert.deepEqual(fanned, [['frame', { sessionId: 's1', seq: 1 }], ['webrtc', { type: 'answer' }]], 'tabs are not pushed before the phone watches');
-  assert.deepEqual(await browser.calls.browserRemoteTabs([true], host), [{ id: 'main-browser-a' }], 'starting the watch answers the current list');
+  assert.deepEqual(
+    fanned,
+    [
+      ['frame', { sessionId: 's1', seq: 1 }],
+      ['webrtc', { type: 'answer' }],
+    ],
+    'tabs are not pushed before the phone watches'
+  );
+  assert.deepEqual(
+    await browser.calls.browserRemoteTabs([true], host),
+    [{ id: 'main-browser-a' }],
+    'starting the watch answers the current list'
+  );
   setSection('browserTabs', { tabs: [] });
   setSection('browserImport', { jobId: 'job-12345', state: 'running' });
   setLive(false);
   setSection('browserImport', { jobId: 'stale' });
-  assert.deepEqual(fanned.slice(2), [['tabs', []], ['import', { jobId: 'job-12345', state: 'running' }]], 'a replay of what stood is not a change');
+  assert.deepEqual(
+    fanned.slice(2),
+    [
+      ['tabs', []],
+      ['import', { jobId: 'job-12345', state: 'running' }],
+    ],
+    'a replay of what stood is not a change'
+  );
   await browser.calls.browserRemoteTabs([false], host);
   setLive(true);
   setSection('browserTabs', { tabs: [{ id: 'x' }] });
@@ -110,16 +137,22 @@ test('frames, signals, watched tabs and import progress reach the page as Node p
   stop();
 });
 
-test('the Web Push fallback calls reach the core\'s remoteAccess methods', async () => {
+test("the Web Push fallback calls reach the core's remoteAccess methods", async () => {
   const { host, requests } = rig();
   const c = notifications.calls;
   await c.pushPublicKey([], host);
-  await c.registerPushSubscription([{ endpoint: 'https://push.example/x', p256dh: 'k', auth: 'a', clientId: 'b1', label: 'Chrome' }], host);
+  await c.registerPushSubscription(
+    [{ endpoint: 'https://push.example/x', p256dh: 'k', auth: 'a', clientId: 'b1', label: 'Chrome' }],
+    host
+  );
   await c.removePushSubscription(['https://push.example/x'], host);
   assert.throws(() => c.removePushSubscription([5], host), { message: 'endpoint must be a string.' });
   assert.deepEqual(requests, [
     ['remoteAccess/pushPublicKey', {}],
-    ['remoteAccess/registerPushSubscription', { input: { endpoint: 'https://push.example/x', p256dh: 'k', auth: 'a', clientId: 'b1', label: 'Chrome' } }],
+    [
+      'remoteAccess/registerPushSubscription',
+      { input: { endpoint: 'https://push.example/x', p256dh: 'k', auth: 'a', clientId: 'b1', label: 'Chrome' } },
+    ],
     ['remoteAccess/removePushSubscription', { endpoint: 'https://push.example/x' }],
   ]);
 });
@@ -132,7 +165,14 @@ test('only live PC surface requests reach the phone, without a tab watch', () =>
   emit('ui/openRequested', { kind: 'browser', sessionId: 's1', reveal: true });
   emit('ui/openRequested', { kind: 'browser', sessionId: 's1', hide: true });
   setLive(true);
-  emit('ui/openRequested', { kind: 'browser', sessionId: 's1', reveal: true, handoff: true, tabId: 'p1', title: 'Page' });
+  emit('ui/openRequested', {
+    kind: 'browser',
+    sessionId: 's1',
+    reveal: true,
+    handoff: true,
+    tabId: 'p1',
+    title: 'Page',
+  });
   emit('ui/openRequested', { kind: 'browser', sessionId: 's1', hide: true });
   assert.deepEqual(fanned, [
     ['open', { sessionId: 's1', reveal: true, handoff: true, tabId: 'p1', title: 'Page' }],

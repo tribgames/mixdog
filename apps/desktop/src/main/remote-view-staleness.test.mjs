@@ -23,13 +23,24 @@ test('streaming rows and unattributed prompts never make a view stale', () => {
 });
 
 test('a live completion can bound the window by its final reply when its restored display id differs', () => {
-  const held = [{ kind: 'turndone', id: 'live-end', finalAssistantId: 'reply' }, { kind: 'assistant', id: 'later' }];
-  const latest = [user('old', 'Desktop'), { kind: 'assistant', id: 'reply' },
-    { kind: 'turndone', id: 'stored-end', finalAssistantId: 'reply' }, held[1]];
+  const held = [
+    { kind: 'turndone', id: 'live-end', finalAssistantId: 'reply' },
+    { kind: 'assistant', id: 'later' },
+  ];
+  const latest = [
+    user('old', 'Desktop'),
+    { kind: 'assistant', id: 'reply' },
+    { kind: 'turndone', id: 'stored-end', finalAssistantId: 'reply' },
+    held[1],
+  ];
   assert.equal(viewIsStale(held, latest, 'Pixel'), false);
   // Do not skip to the next shared row: that could hide an unseen prompt.
   assert.equal(viewIsStale(held, [...latest.slice(0, 2), user('new', 'Desktop'), ...latest.slice(2)], 'Pixel'), true);
-  assert.equal(viewIsStale(held, [latest[1], ...latest], 'Pixel'), true, 'an ambiguous reply ID does not establish a boundary');
+  assert.equal(
+    viewIsStale(held, [latest[1], ...latest], 'Pixel'),
+    true,
+    'an ambiguous reply ID does not establish a boundary'
+  );
 });
 
 test('a connection that holds no rows has no view to be stale', () => {

@@ -346,7 +346,19 @@ function recordReveal(key: string, text: string, view: RevealView, paced: boolea
     return;
   }
   if (!entry) {
-    entry = { key, text, shown: 0, ceiling: 0, paced, nextAt: now, steppedAt: now, idle: false, timer: null, version: 0, revision: 0 };
+    entry = {
+      key,
+      text,
+      shown: 0,
+      ceiling: 0,
+      paced,
+      nextAt: now,
+      steppedAt: now,
+      idle: false,
+      timer: null,
+      version: 0,
+      revision: 0,
+    };
     remember(key, entry);
   }
   if (entry.paced !== paced) {

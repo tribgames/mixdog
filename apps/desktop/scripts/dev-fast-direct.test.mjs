@@ -387,12 +387,7 @@ test('packaged production dependency closure accepts asarUnpack packages from th
     },
     'node_modules/ws/package.json': { name: 'ws' },
   });
-  const unpackedJson = join(
-    `${archive}.unpacked`,
-    'node_modules',
-    'koffi',
-    'package.json'
-  );
+  const unpackedJson = join(`${archive}.unpacked`, 'node_modules', 'koffi', 'package.json');
   await mkdir(join(unpackedJson, '..'), { recursive: true });
   await writeFile(
     unpackedJson,

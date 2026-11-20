@@ -179,17 +179,21 @@ export function createInterceptTable() {
       }
       sequence += 1;
       const id = `i${sequence}`;
-      await mutate(guest, () => {
-        rules.set(id, {
-          id,
-          pattern,
-          matcher: patternMatcher(pattern),
-          resourceTypes: (spec.resourceTypes ?? []).map((type) => String(type).toLowerCase()),
-          abort,
-          body,
-          hits: 0,
-        });
-      }, apply);
+      await mutate(
+        guest,
+        () => {
+          rules.set(id, {
+            id,
+            pattern,
+            matcher: patternMatcher(pattern),
+            resourceTypes: (spec.resourceTypes ?? []).map((type) => String(type).toLowerCase()),
+            abort,
+            body,
+            hits: 0,
+          });
+        },
+        apply
+      );
       return id;
     },
 
@@ -356,7 +360,10 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
         const cookies = await partitionSession.cookies.get({ url });
         for (const entry of cookies) {
           const host = String(entry.domain || new URL(url).hostname).replace(/^\./, '');
-          await partitionSession.cookies.remove(`${entry.secure ? 'https' : 'http'}://${host}${entry.path || '/'}`, entry.name);
+          await partitionSession.cookies.remove(
+            `${entry.secure ? 'https' : 'http'}://${host}${entry.path || '/'}`,
+            entry.name
+          );
           removed.push(entry);
         }
       }
@@ -477,7 +484,9 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
           await removeScript(id, script.identifier);
         } catch (error) {
           if (signal.aborted) throw signal.reason || error;
-          failures.push(new Error(`${id}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }));
+          failures.push(
+            new Error(`${id}: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+          );
         }
       }
       if (failures.length) {
@@ -542,7 +551,8 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
       if (tracesByGuest.has(guest)) throw new Error('a performance trace is already running for this page');
       const chosen = typeof params.exportPath === 'string' && params.exportPath ? params.exportPath : undefined;
       if (chosen && !isAbsolute(chosen)) throw invalid('performance exportPath must be an absolute directory');
-      if (!chosen && params.saveTrace === true && !deps.traceDirectory) throw new Error('browser trace export is unavailable');
+      if (!chosen && params.saveTrace === true && !deps.traceDirectory)
+        throw new Error('browser trace export is unavailable');
       const exportPath = chosen ?? (params.saveTrace === true ? deps.traceDirectory?.() : undefined);
       const categories =
         Array.isArray(params.categories) && params.categories.length
@@ -552,9 +562,7 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
       const complete = new Promise<void>((resolve) => {
         resolveComplete = resolve;
       });
-      const raw = exportPath
-        ? new BrowserTraceExport((value) => ctx.redactKnown(page.pageId, value))
-        : undefined;
+      const raw = exportPath ? new BrowserTraceExport((value) => ctx.redactKnown(page.pageId, value)) : undefined;
       tracesByGuest.set(guest, {
         trace: new BrowserPerformanceTrace(200_000, 2_000, raw),
         complete,
@@ -637,7 +645,9 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
       return { items: recorded.filter(changed).map(downloadItem) };
     }
     const id = typeof params.id === 'string' && params.id ? params.id : undefined;
-    const selected = id ? recorded.find((entry) => entry.id === id) : recorded.find((entry) => entry.state === 'completed');
+    const selected = id
+      ? recorded.find((entry) => entry.id === id)
+      : recorded.find((entry) => entry.state === 'completed');
     if (!selected) throw new Error(id ? `unknown download ${id}` : 'no completed download is available to take');
     if (selected.state !== 'completed') {
       throw new Error(`download ${selected.id} is ${selected.state}; wait for completion before taking it`);
@@ -645,6 +655,9 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
     const bytes = await readDownload(selected, signal);
     const blob = await uploadBlob(connection, bytes, selected.mimeType);
     // The attached file reads as the type its extension names (the old attach's rule), else Chromium's.
-    return { items: [{ ...downloadItem(selected), mimeType: downloadMimeType(selected.file, selected.mimeType) }], blob };
+    return {
+      items: [{ ...downloadItem(selected), mimeType: downloadMimeType(selected.file, selected.mimeType) }],
+      blob,
+    };
   });
 }

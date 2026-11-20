@@ -29,7 +29,12 @@ async function mounted(body) {
   /** A lane publication of the session at feed seq `seq`. */
   const shown = (seq) =>
     act(async () => {
-      store.apply({ sessionId: 's', frameSource: 'live', snapshot: { sessionId: 's', items: [{ id: `q${seq}`, role: 'user', text: 'x' }] }, streamPosition: { epoch: 'e', seq, order: 1 } });
+      store.apply({
+        sessionId: 's',
+        frameSource: 'live',
+        snapshot: { sessionId: 's', items: [{ id: `q${seq}`, role: 'user', text: 'x' }] },
+        streamPosition: { epoch: 'e', seq, order: 1 },
+      });
       await new Promise((resolve) => setTimeout(resolve, 5));
     });
   try {

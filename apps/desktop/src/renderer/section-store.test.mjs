@@ -8,7 +8,8 @@ const entry = (section, key, revision, value) => ({ section, key, revision, valu
 /** A whole-store replace as the relay sends it: begin, chunks of two, commit. */
 function replaceWith(source, entries, epoch) {
   source.push({ kind: 'replace', stage: 'begin' });
-  for (let at = 0; at < entries.length; at += 2) source.push({ kind: 'replace', stage: 'chunk', entries: entries.slice(at, at + 2) });
+  for (let at = 0; at < entries.length; at += 2)
+    source.push({ kind: 'replace', stage: 'chunk', entries: entries.slice(at, at + 2) });
   source.push({ kind: 'replace', stage: 'commit', epoch });
 }
 
@@ -27,7 +28,10 @@ function bridge(initial) {
 test('a snapshot older than a pushed entry never moves a section backwards', async () => {
   const source = bridge({ status: 'ready', entries: [entry('usage', 'day', 1, 'old')] });
   const store = createSectionStore(source);
-  source.push({ kind: 'sections', changes: [{ section: 'usage', key: 'day', entry: entry('usage', 'day', 3, 'new') }] });
+  source.push({
+    kind: 'sections',
+    changes: [{ section: 'usage', key: 'day', entry: entry('usage', 'day', 3, 'new') }],
+  });
   await store.ready();
   assert.equal(store.get('usage', 'day').value, 'new');
 });
@@ -48,11 +52,18 @@ test('a snapshot answered after newer pushes neither resurrects a deleted entry 
   const source = lateSnapshot();
   const store = createSectionStore(source);
   source.push({ kind: 'sections', changes: [{ section: 'notice', key: 'a', entry: null }] });
-  source.push({ kind: 'sections', changes: [{ section: 'config', key: null, entry: entry('config', null, 9, 'pushed') }] });
+  source.push({
+    kind: 'sections',
+    changes: [{ section: 'config', key: null, entry: entry('config', null, 9, 'pushed') }],
+  });
   source.push({ kind: 'status', status: 'reconnecting' });
   source.answer({
     status: 'ready',
-    entries: [entry('notice', 'a', 1, 'deleted since'), entry('config', null, 4, 'older'), entry('usage', 'day', 1, 'only here')],
+    entries: [
+      entry('notice', 'a', 1, 'deleted since'),
+      entry('config', null, 4, 'older'),
+      entry('usage', 'day', 1, 'only here'),
+    ],
   });
   await store.ready();
   assert.equal(store.get('notice', 'a'), undefined, 'the pushed deletion stands');
@@ -124,13 +135,20 @@ test('a client-library fold store feeds the same store (the phone)', async () =>
 });
 
 test('a replace is swapped in only at its commit, in one notification, with the held store intact until then', async () => {
-  const source = bridge({ status: 'ready', entries: [entry('notice', 'a', 1, 'held'), entry('config', null, 1, 'old')] });
+  const source = bridge({
+    status: 'ready',
+    entries: [entry('notice', 'a', 1, 'held'), entry('config', null, 1, 'old')],
+  });
   const store = createSectionStore(source);
   await store.ready();
   let notified = 0;
   store.subscribe('*', () => notified++);
   source.push({ kind: 'replace', stage: 'begin' });
-  source.push({ kind: 'replace', stage: 'chunk', entries: [entry('config', null, 2, 'new'), entry('usage', 'day', 1, 'u')] });
+  source.push({
+    kind: 'replace',
+    stage: 'chunk',
+    entries: [entry('config', null, 2, 'new'), entry('usage', 'day', 1, 'u')],
+  });
   assert.equal(store.get('config').value, 'old');
   assert.equal(store.get('notice', 'a').value, 'held');
   assert.equal(notified, 0);
@@ -139,24 +157,38 @@ test('a replace is swapped in only at its commit, in one notification, with the 
   assert.equal(notified, 1);
   assert.equal(store.get('config').value, 'new');
   assert.equal(store.get('notice', 'a'), undefined);
-  assert.deepEqual(store.list('usage').map((e) => e.key), ['day']);
+  assert.deepEqual(
+    store.list('usage').map((e) => e.key),
+    ['day']
+  );
   assert.equal(store.get('agentPool').revision, 1);
 });
 
 test('a tell (reviewDiff) is heard when it happens, never from a snapshot or a first attach', async () => {
-  const source = bridge({ status: 'ready', epoch: 'core-1', entries: [entry('reviewDiff', null, 5, {}), entry('usage', 'day', 1, 'u')] });
+  const source = bridge({
+    status: 'ready',
+    epoch: 'core-1',
+    entries: [entry('reviewDiff', null, 5, {}), entry('usage', 'day', 1, 'u')],
+  });
   const store = createSectionStore(source);
   const heard = [];
   store.subscribe('reviewDiff', () => heard.push('reviewDiff'));
   store.subscribe('usage', () => heard.push('usage'));
   await store.ready();
   assert.deepEqual(heard, ['usage'], 'a snapshot that holds the last tell does not make a late listener act on it');
-  source.push({ kind: 'sections', changes: [{ section: 'reviewDiff', key: null, entry: entry('reviewDiff', null, 6, {}) }] });
+  source.push({
+    kind: 'sections',
+    changes: [{ section: 'reviewDiff', key: null, entry: entry('reviewDiff', null, 6, {}) }],
+  });
   assert.deepEqual(heard, ['usage', 'reviewDiff'], 'a tell pushed live is heard');
 });
 
 test('a whole store of the same core tells what was told while the link was down, once, and nothing else', async () => {
-  const source = bridge({ status: 'ready', epoch: 'core-1', entries: [entry('reviewDiff', null, 5, {}), entry('usage', 'day', 1, 'u')] });
+  const source = bridge({
+    status: 'ready',
+    epoch: 'core-1',
+    entries: [entry('reviewDiff', null, 5, {}), entry('usage', 'day', 1, 'u')],
+  });
   const store = createSectionStore(source);
   const heard = [];
   store.subscribe('reviewDiff', () => heard.push('reviewDiff'));
@@ -166,7 +198,11 @@ test('a whole store of the same core tells what was told while the link was down
   replaceWith(source, [entry('reviewDiff', null, 6, {})], 'core-1');
   assert.deepEqual(heard, ['reviewDiff'], 'a newer tell was made while the link was down');
   replaceWith(source, [], 'core-1');
-  assert.deepEqual(heard, ['reviewDiff'], 'a core that holds no tell tells nobody (it never drops one: a clear is a tell too)');
+  assert.deepEqual(
+    heard,
+    ['reviewDiff'],
+    'a core that holds no tell tells nobody (it never drops one: a clear is a tell too)'
+  );
   replaceWith(source, [entry('reviewDiff', null, 1, {})], 'core-1');
   assert.deepEqual(heard, ['reviewDiff', 'reviewDiff'], 'a tell the store does not hold');
 });

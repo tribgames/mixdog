@@ -5,7 +5,13 @@ import { createComputerPillSource } from './computer-pill.ts';
 import { COMPUTER_USER_CONTROL, createComputerPillControls, createCoreUserControl } from './computer-user-control.ts';
 import { computerUseOverlayPresentation } from '../computer/overlay/model.ts';
 
-const open = { active: true, observeOnly: false, controller: null, sessionThreadId: 'th1', sessions: [{ sessionThreadId: 'th1', observeOnly: false }] };
+const open = {
+  active: true,
+  observeOnly: false,
+  controller: null,
+  sessionThreadId: 'th1',
+  sessions: [{ sessionThreadId: 'th1', observeOnly: false }],
+};
 
 test('the pill actions send computer/userControl and settle whatever the core answers', async () => {
   const sent = [];
@@ -146,5 +152,8 @@ test('the setting and the pill actions go to the core where the desktop has no h
 test('a shortcut that failed to register is said by the pill', () => {
   const snapshot = createComputerPillSource(() => 5).snapshot();
   assert.equal(computerUseOverlayPresentation(snapshot).shortcutUnavailable, undefined);
-  assert.match(computerUseOverlayPresentation(snapshot, 'en', { shortcutUnavailable: true }).shortcutUnavailable, /Ctrl\+Alt\+Esc/);
+  assert.match(
+    computerUseOverlayPresentation(snapshot, 'en', { shortcutUnavailable: true }).shortcutUnavailable,
+    /Ctrl\+Alt\+Esc/
+  );
 });

@@ -18,7 +18,6 @@ import { streamPositionReached } from '../../../../packages/protocol-client/src/
 
 type SessionLaneSource = (listener: (update: DesktopSessionStateUpdate) => void) => () => void;
 
-
 interface SessionLaneStore {
   get(sessionId: string): Snapshot | null;
   /** The authoritative content revision the cached lane was accepted at. */

@@ -286,7 +286,12 @@ export interface RemoteWebrtcVideoLimit {
 
 export type RemoteWebrtcClientSignal =
   /** The phone can receive video for this source: the desktop answers with an offer. */
-  | (RemoteWebrtcSourceRef & { type: 'ready'; receiveCodecs: string[]; videoLimit?: RemoteWebrtcVideoLimit; viewerAttempt?: number })
+  | (RemoteWebrtcSourceRef & {
+      type: 'ready';
+      receiveCodecs: string[];
+      videoLimit?: RemoteWebrtcVideoLimit;
+      viewerAttempt?: number;
+    })
   /** Screen departure independent of the peer. Keep the peer ref when known for older hosts. */
   | (RemoteWebrtcSourceRef & {
       type: 'close';
@@ -1111,9 +1116,10 @@ export function parseRemoteWebrtcClientSignal(value: unknown): RemoteWebrtcClien
         return codec;
       });
       const ref = sourceRef(input);
-      const attempt = input.viewerAttempt === undefined
-        ? {}
-        : { viewerAttempt: screenViewerAttempt(ref.source, input.viewerAttempt) };
+      const attempt =
+        input.viewerAttempt === undefined
+          ? {}
+          : { viewerAttempt: screenViewerAttempt(ref.source, input.viewerAttempt) };
       if (input.videoLimit === undefined) return { ...ref, type: 'ready', receiveCodecs, ...attempt };
       const limit = record(input.videoLimit, 'video limit');
       return {

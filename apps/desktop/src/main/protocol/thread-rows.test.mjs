@@ -35,11 +35,26 @@ test("an agent's worker session keeps the mark the sidebar hides it by, as Node'
   ]);
   // The same two as Node's listing holds them: the worker is `agent-only`.
   const node = desktopSessionSummaries([
-    { ...row('t_lead', { cwd: 'C:\\Repo' }), classification: undefined, owner: 'cli', agent: 'lead', visibility: 'ordinary' },
-    { ...row('t_worker', { cwd: 'C:\\Repo' }), classification: undefined, owner: 'agent', agent: 'worker', visibility: 'agent-only' },
+    {
+      ...row('t_lead', { cwd: 'C:\\Repo' }),
+      classification: undefined,
+      owner: 'cli',
+      agent: 'lead',
+      visibility: 'ordinary',
+    },
+    {
+      ...row('t_worker', { cwd: 'C:\\Repo' }),
+      classification: undefined,
+      owner: 'agent',
+      agent: 'worker',
+      visibility: 'agent-only',
+    },
   ]);
   assert.deepEqual([lead.agentSession, worker.agentSession], [undefined, true]);
-  assert.deepEqual([lead.agentSession, worker.agentSession], node.map((summary) => summary.agentSession));
+  assert.deepEqual(
+    [lead.agentSession, worker.agentSession],
+    node.map((summary) => summary.agentSession)
+  );
 });
 
 test('a core row with no stored classification falls back to its folder, as a Node row does', () => {

@@ -50,7 +50,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const status = await new Promise((done) => child.on('close', (code) => done(code ?? 1)));
   if (rest) lines.push(rest);
   if (receipt) {
-    const tracked = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 28 }).stdout.split('\0').filter(Boolean);
+    const tracked = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 28 })
+      .stdout.split('\0')
+      .filter(Boolean);
     const pkg = packagesByName(tracked, (path) => readFileSync(join(ROOT, path), 'utf8')).byName.get(name);
     const lib = pkg?.targets.find((target) => target.kind === 'lib');
     if (!lib) {

@@ -9,9 +9,10 @@ type Question = DesktopSshAskpass & { kind: 'passphrase' | 'password' | 'otp' | 
 
 /** The questions ssh asks while a connection runs (passphrase, password, code).
  *  Shows the newest question that belongs to this window's attempt or cleanup. */
-export function useSshAskpass(
-  belongs: (attemptId: string) => boolean
-): { question: DesktopSshAskpass | null; answer(secret: string | null): void } {
+export function useSshAskpass(belongs: (attemptId: string) => boolean): {
+  question: DesktopSshAskpass | null;
+  answer(secret: string | null): void;
+} {
   const [question, setQuestion] = useState<DesktopSshAskpass | null>(null);
   const current = useRef<DesktopSshAskpass | null>(null);
   const belongsRef = useRef(belongs);
@@ -30,16 +31,13 @@ export function useSshAskpass(
     });
     return unsubscribe;
   }, []);
-  const answer = useCallback(
-    (secret: string | null) => {
-      const asked = current.current;
-      if (!asked) return;
-      current.current = null;
-      setQuestion(null);
-      void sshAskpassReply(asked.attemptId, asked.requestId, secret).catch(() => undefined);
-    },
-    []
-  );
+  const answer = useCallback((secret: string | null) => {
+    const asked = current.current;
+    if (!asked) return;
+    current.current = null;
+    setQuestion(null);
+    void sshAskpassReply(asked.attemptId, asked.requestId, secret).catch(() => undefined);
+  }, []);
   return { question, answer };
 }
 

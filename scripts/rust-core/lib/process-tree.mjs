@@ -25,8 +25,10 @@ const BUILD_COMMAND = 'cargo build --release --manifest-path scripts/rust-core/t
 
 /** The built `treerun` binary: a missing one is an error that says how to build it, never a fallback to an unowned spawn. */
 export function helperPath() {
-  const path = process.env.MIXDOG_TREE_HELPER || join(HELPER_DIR, 'target', 'release', WINDOWS ? 'treerun.exe' : 'treerun');
-  if (!existsSync(path)) throw new Error(`the process-tree helper ${path} is not built; build it with: ${BUILD_COMMAND}`);
+  const path =
+    process.env.MIXDOG_TREE_HELPER || join(HELPER_DIR, 'target', 'release', WINDOWS ? 'treerun.exe' : 'treerun');
+  if (!existsSync(path))
+    throw new Error(`the process-tree helper ${path} is not built; build it with: ${BUILD_COMMAND}`);
   return path;
 }
 
@@ -43,7 +45,8 @@ export const outcomeOf = (text) => {
   } catch {
     throw new Error(`the tree helper's record is incomplete: ${text.slice(0, 200)}`);
   }
-  if (record.complete !== true) throw new Error(`the tree helper's record has no completion member: ${text.slice(0, 200)}`);
+  if (record.complete !== true)
+    throw new Error(`the tree helper's record has no completion member: ${text.slice(0, 200)}`);
   return record;
 };
 
@@ -61,7 +64,8 @@ export function spawnTree(program, args, options = {}) {
   // `signal` is not forwarded to `spawn` (that would end only the helper): an abort ends the tree through the helper.
   const { shell, env, stdio = 'pipe', signal, ...rest } = options;
   const streams = typeof stdio === 'string' ? [stdio, stdio, stdio] : [...stdio];
-  if (streams.length > 3) throw new Error('spawnTree: stdio index 3 is the tree helper\'s channel; pass at most three entries');
+  if (streams.length > 3)
+    throw new Error("spawnTree: stdio index 3 is the tree helper's channel; pass at most three entries");
   while (streams.length < 3) streams.push('ignore');
   // Index 3, POSIX: the parent's end of a socket pair; its EOF is how the helper learns this process died (Windows watches
   // this process by its handle). Index 4: the record pipe, which this process only reads, so no write of its own can fail it.
@@ -89,7 +93,9 @@ export function spawnTree(program, args, options = {}) {
     };
   });
   child.stdio[4].on('data', (chunk) => sent.push(chunk));
-  child.stdio[4].on('error', (error) => settle({ error: new Error(`the tree helper's record pipe failed: ${error.message}`) }));
+  child.stdio[4].on('error', (error) =>
+    settle({ error: new Error(`the tree helper's record pipe failed: ${error.message}`) })
+  );
   // 'end' comes before the pipe's 'close', so before the child's own 'close': a caller's 'close' finds the record read.
   child.stdio[4].once('end', () => {
     try {
@@ -99,7 +105,8 @@ export function spawnTree(program, args, options = {}) {
     }
   });
   child.treeOutcome = () => {
-    if (!settled) throw new Error(`the tree helper of pid ${child.pid} has not ended its record yet (await child.treeRecord)`);
+    if (!settled)
+      throw new Error(`the tree helper of pid ${child.pid} has not ended its record yet (await child.treeRecord)`);
     if (settled.error) throw settled.error;
     return settled.value;
   };
@@ -116,8 +123,14 @@ export function spawnTree(program, args, options = {}) {
       return;
     }
     if (outcome?.launch) {
-      const message = outcome.launch === 'ENOENT' ? `spawn ${program} ENOENT` : `spawn ${program} ${outcome.launch}: ${outcome.message}`;
-      child.emit('error', Object.assign(new Error(message), { code: outcome.launch, syscall: `spawn ${program}`, path: program }));
+      const message =
+        outcome.launch === 'ENOENT'
+          ? `spawn ${program} ENOENT`
+          : `spawn ${program} ${outcome.launch}: ${outcome.message}`;
+      child.emit(
+        'error',
+        Object.assign(new Error(message), { code: outcome.launch, syscall: `spawn ${program}`, path: program })
+      );
     }
   };
   child.once('exit', () => {
@@ -125,7 +138,8 @@ export function spawnTree(program, args, options = {}) {
     report();
   });
   if (signal) {
-    const abort = () => endTree(child).catch((error) => child.emit('error', Object.assign(error, { code: 'ETREEHELPER' })));
+    const abort = () =>
+      endTree(child).catch((error) => child.emit('error', Object.assign(error, { code: 'ETREEHELPER' })));
     if (signal.aborted) abort();
     else {
       signal.addEventListener('abort', abort, { once: true });
@@ -148,14 +162,16 @@ const ASK = 'e';
  * ending its tree (POSIX: nothing else ends it), whatever its exit code says.
  */
 function unestablished(child) {
-  if (child.signalCode !== null) return `the tree helper of pid ${child.pid} died of ${child.signalCode}, so the end of its tree cannot be established`;
+  if (child.signalCode !== null)
+    return `the tree helper of pid ${child.pid} died of ${child.signalCode}, so the end of its tree cannot be established`;
   let outcome;
   try {
     outcome = child.treeOutcome();
   } catch (error) {
     return `${error.message}, so the end of its tree cannot be established`;
   }
-  if (!outcome) return `the tree helper of pid ${child.pid} exited (code ${child.exitCode}) without its completion record, so the end of its tree cannot be established`;
+  if (!outcome)
+    return `the tree helper of pid ${child.pid} exited (code ${child.exitCode}) without its completion record, so the end of its tree cannot be established`;
   if (outcome.failure) return `the tree helper of pid ${child.pid} could not show its tree ended: ${outcome.failure}`;
   return null;
 }
@@ -184,8 +200,18 @@ export async function endTree(child, { deadlineMs = KILL_DEADLINE_MS } = {}) {
   // The helper's exit and the end of its record pipe (only the helper holds the other end), under one deadline.
   let timer;
   const finished = new Promise((resolveFinished, reject) => {
-    timer = setTimeout(() => reject(new Error(`the tree helper of pid ${child.pid} did not exit within ${deadlineMs}ms${killed.length ? ' after it was told to end the tree' : ''}`)), deadlineMs);
-    Promise.all([gone(child) || new Promise((resolveExit) => child.once('exit', resolveExit)), child.treeRecord]).then(resolveFinished);
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `the tree helper of pid ${child.pid} did not exit within ${deadlineMs}ms${killed.length ? ' after it was told to end the tree' : ''}`
+          )
+        ),
+      deadlineMs
+    );
+    Promise.all([gone(child) || new Promise((resolveExit) => child.once('exit', resolveExit)), child.treeRecord]).then(
+      resolveFinished
+    );
   }).finally(() => clearTimeout(timer));
   try {
     await finished;
@@ -212,10 +238,21 @@ export async function endTree(child, { deadlineMs = KILL_DEADLINE_MS } = {}) {
  * and `escapedEnded` (pids of descendants outside the group that the helper adopted and ended); a helper that could not show
  * the tree ended rejects.
  */
-export function runTree(program, args, { label, cwd, env, deadlineMs, inherit = false, shell = false, onSpawn, signal: abortSignal }) {
+export function runTree(
+  program,
+  args,
+  { label, cwd, env, deadlineMs, inherit = false, shell = false, onSpawn, signal: abortSignal }
+) {
   return new Promise((resolveRun, reject) => {
-    if (abortSignal?.aborted) return reject(Object.assign(new Error(`${label} was aborted before it started`), { code: 'ABORT_ERR' }));
-    const child = spawnTree(program, args, { cwd, env, shell, windowsHide: true, stdio: inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'] });
+    if (abortSignal?.aborted)
+      return reject(Object.assign(new Error(`${label} was aborted before it started`), { code: 'ABORT_ERR' }));
+    const child = spawnTree(program, args, {
+      cwd,
+      env,
+      shell,
+      windowsHide: true,
+      stdio: inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+    });
     const out = [];
     const err = [];
     child.stdout?.on('data', (chunk) => out.push(chunk));
@@ -231,12 +268,20 @@ export function runTree(program, args, { label, cwd, env, deadlineMs, inherit = 
       abortSignal?.removeEventListener('abort', onAbort);
       try {
         const { killed } = await endTree(child);
-        reject(Object.assign(new Error(`${message} (ended: ${killed.length ? killed.join(', ') : 'nothing was left running'})`), { code }));
+        reject(
+          Object.assign(
+            new Error(`${message} (ended: ${killed.length ? killed.join(', ') : 'nothing was left running'})`),
+            { code }
+          )
+        );
       } catch (error) {
         reject(Object.assign(new Error(`${message}; ${error.message}`), { code }));
       }
     };
-    const deadline = setTimeout(() => fail(`${label} did not finish within ${deadlineMs}ms and was ended\n${stderrText().slice(-600)}`), deadlineMs);
+    const deadline = setTimeout(
+      () => fail(`${label} did not finish within ${deadlineMs}ms and was ended\n${stderrText().slice(-600)}`),
+      deadlineMs
+    );
     const onAbort = () => fail(`${label} was aborted and its tree ended`, 'ABORT_ERR');
     abortSignal?.addEventListener('abort', onAbort, { once: true });
     child.once('error', (error) => fail(`${label} could not run: ${error.message}`, error.code));
@@ -255,9 +300,24 @@ export function runTree(program, args, { label, cwd, env, deadlineMs, inherit = 
         outcome = child.treeOutcome();
       } catch {}
       const stdoutBytes = Buffer.concat(out);
-      const result = { status: outcome?.signal ? null : code, signal: outcome?.signal ? signalName(outcome.signal) : signal, escapes: outcome?.escapes, escapedEnded: outcome?.escaped_ended ?? [], stdout: stdoutBytes.toString('utf8'), stderr: stderrText(), stdoutBytes };
+      const result = {
+        status: outcome?.signal ? null : code,
+        signal: outcome?.signal ? signalName(outcome.signal) : signal,
+        escapes: outcome?.escapes,
+        escapedEnded: outcome?.escaped_ended ?? [],
+        stdout: stdoutBytes.toString('utf8'),
+        stderr: stderrText(),
+        stdoutBytes,
+      };
       if (why) {
-        reject(Object.assign(new Error(`${label} finished (status ${result.status}, signal ${result.signal}) but its process tree was not shown ended: ${why}\nits stderr: ${result.stderr.slice(-600)}`), { result }));
+        reject(
+          Object.assign(
+            new Error(
+              `${label} finished (status ${result.status}, signal ${result.signal}) but its process tree was not shown ended: ${why}\nits stderr: ${result.stderr.slice(-600)}`
+            ),
+            { result }
+          )
+        );
         return;
       }
       resolveRun(result);

@@ -386,7 +386,10 @@ export function packagingManifestForFingerprint(manifest) {
  *  such file made the deploy refuse its own snapshot ("core sources changed after planning"). Binary files are unchanged. */
 function sameLineEndings(contents) {
   if (contents.indexOf(13) === -1 || contents.subarray(0, 8192).includes(0)) return contents;
-  return Buffer.from(contents.toString('latin1').replaceAll(String.fromCharCode(13, 10), String.fromCharCode(10)), 'latin1');
+  return Buffer.from(
+    contents.toString('latin1').replaceAll(String.fromCharCode(13, 10), String.fromCharCode(10)),
+    'latin1'
+  );
 }
 
 async function contentsForFingerprint(path) {
@@ -782,7 +785,8 @@ async function pruneExcludedPackageOutput(outDir) {
   for (const entry of await readdir(outDir, { recursive: true, withFileTypes: true })) {
     if (!entry.isFile()) continue;
     const file = join(entry.parentPath, entry.name);
-    if (packageExcludesOutputFile(`out/${relative(outDir, file).replaceAll(sep, '/')}`)) await rm(file, { force: true });
+    if (packageExcludesOutputFile(`out/${relative(outDir, file).replaceAll(sep, '/')}`))
+      await rm(file, { force: true });
   }
 }
 
@@ -920,7 +924,9 @@ async function main() {
     }
     const stamped = (await readFile(sidecar, 'utf8').catch(() => '')).trim();
     if (stamped !== hash) {
-      throw new Error(`${binary} was not built from the core sources in ${root} (${stamped ? 'they changed since' : 'no .source-hash beside it'}); rebuild it`);
+      throw new Error(
+        `${binary} was not built from the core sources in ${root} (${stamped ? 'they changed since' : 'no .source-hash beside it'}); rebuild it`
+      );
     }
     process.stdout.write(`[fastdirect] ${binary} matches the core sources\n`);
     return;
@@ -942,7 +948,9 @@ async function main() {
     const root = resolve(args['source-root'] || repoRoot);
     const { hash } = await fingerprint(coreInputs(root), root);
     if (hash !== plan.groups.core.hash) {
-      throw new Error(`The core sources in ${root} changed after planning; rerun the deploy so a mixed build is never installed`);
+      throw new Error(
+        `The core sources in ${root} changed after planning; rerun the deploy so a mixed build is never installed`
+      );
     }
     process.stdout.write('[fastdirect] core sources are still current\n');
     return;

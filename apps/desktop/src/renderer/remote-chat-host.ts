@@ -29,7 +29,8 @@ export const READ_NOT_VIEWED = 'This session is not open on this device.';
 export const READ_NOT_HELD = 'This row is not in the transcript this device holds.';
 
 /** remote-methods.ts STALE_SESSION_VIEW_MESSAGE. */
-export const STALE_SESSION_VIEW_MESSAGE = 'This conversation changed on another device. Review the latest messages, then send again.';
+export const STALE_SESSION_VIEW_MESSAGE =
+  'This conversation changed on another device. Review the latest messages, then send again.';
 
 /** ipc-validation.ts: the page size of a historical-position read. */
 const HISTORY_PAGE_ITEMS = 512;
@@ -106,7 +107,8 @@ function showsText(prompt: unknown, submit: unknown): boolean {
   return text.trim() !== '';
 }
 
-const reasonOf = (error: unknown): unknown => (error as { detail?: { data?: { reason?: unknown } } } | null)?.detail?.data?.reason;
+const reasonOf = (error: unknown): unknown =>
+  (error as { detail?: { data?: { reason?: unknown } } } | null)?.detail?.data?.reason;
 
 export function createChatHostApi(client: ChatClient, shared: ChatHostShared, base: ChatApi, options: ChatHostOptions) {
   const remoteId = (): string => remoteSessionIdOf(options.remoteSession());
@@ -133,13 +135,19 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
       throw shared.coreErrorForWindow(error);
     });
   const start = async (call: StartCall, projectPath?: string): Promise<SessionSnapshot> => {
-    const { cwd, projectPath: project } = await startFolder(({ method, params }) => send(method, params), call, projectPath);
+    const { cwd, projectPath: project } = await startFolder(
+      ({ method, params }) => send(method, params),
+      call,
+      projectPath
+    );
     return blankSnapshot(cwd, project, remoteId());
   };
   /** Keep individual row IDs here: a tool group in this page can begin before
    * the phone's window and otherwise swallow its first row's ID. */
   const latestRows = async (threadId: string): Promise<unknown[]> => {
-    const page = (await send('thread/items/list', { threadId, limit: LATEST_ROWS })) as { data?: Parameters<typeof rowsOf>[0][] };
+    const page = (await send('thread/items/list', { threadId, limit: LATEST_ROWS })) as {
+      data?: Parameters<typeof rowsOf>[0][];
+    };
     return (page.data ?? []).flatMap(rowsOf);
   };
   /** remote-relay-device-methods.ts staleView: the rows this connection holds against the thread's latest rows. */
@@ -157,9 +165,15 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
   return {
     ...base,
     startTask: (): Promise<SessionSnapshot> => start('startTask'),
-    startProject: (projectPath: string): Promise<SessionSnapshot> => start('startProject', requiredString(projectPath, 'projectPath')),
-    startProjectTask: (projectPath: string): Promise<SessionSnapshot> => start('startProjectTask', requiredString(projectPath, 'projectPath')),
-    submitToSession: async (sessionId: string, prompt: DesktopPromptContent, submit: DesktopSubmitOptions = {}): Promise<boolean> => {
+    startProject: (projectPath: string): Promise<SessionSnapshot> =>
+      start('startProject', requiredString(projectPath, 'projectPath')),
+    startProjectTask: (projectPath: string): Promise<SessionSnapshot> =>
+      start('startProjectTask', requiredString(projectPath, 'projectPath')),
+    submitToSession: async (
+      sessionId: string,
+      prompt: DesktopPromptContent,
+      submit: DesktopSubmitOptions = {}
+    ): Promise<boolean> => {
       if (await staleView(sessionId)) throw new Error(STALE_SESSION_VIEW_MESSAGE);
       if (!showsText(prompt, submit)) return false;
       return base.submitToSession(sessionId, prompt, submit);
@@ -169,27 +183,38 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
       submit: DesktopSubmitOptions = {},
       draft: Parameters<ChatApi['submitNewTask']>[2] = {}
     ): Promise<DesktopNewTaskSubmitResult> => {
-      if (!showsText(prompt, submit)) return { accepted: false, sessionId: '', snapshot: null } as unknown as DesktopNewTaskSubmitResult;
+      if (!showsText(prompt, submit))
+        return { accepted: false, sessionId: '', snapshot: null } as unknown as DesktopNewTaskSubmitResult;
       const started = await base.submitNewTask(prompt, submit, draft);
-      return (started.snapshot ? { ...started, snapshot: decorated(started.snapshot) } : started) as DesktopNewTaskSubmitResult;
+      return (
+        started.snapshot ? { ...started, snapshot: decorated(started.snapshot) } : started
+      ) as DesktopNewTaskSubmitResult;
     },
     inheritSession: async (...args: Parameters<ChatApi['inheritSession']>) => {
       const forked = await base.inheritSession(...args);
       return { ...forked, snapshot: decorated(forked.snapshot) };
     },
-    setModelRoute: async (...args: Parameters<ChatApi['setModelRoute']>) => decorated(await base.setModelRoute(...args)),
+    setModelRoute: async (...args: Parameters<ChatApi['setModelRoute']>) =>
+      decorated(await base.setModelRoute(...args)),
     setFast: async (...args: Parameters<ChatApi['setFast']>) => decorated(await base.setFast(...args)),
     // desktop: the desktop's own pages keep every row whole; the phone's rows are the capped projection of remoteTranscriptRow.
-    readTranscriptHistory: async (sessionId: string, request: DesktopTranscriptHistoryRequest, desktop = false): Promise<DesktopTranscriptHistoryPage> => {
+    readTranscriptHistory: async (
+      sessionId: string,
+      request: DesktopTranscriptHistoryRequest,
+      desktop = false
+    ): Promise<DesktopTranscriptHistoryPage> => {
       const history = requiredTranscriptHistoryRequest(request);
       const state = shared.sessionStateOf(sessionId);
       if (!state) throw new Error(READ_NOT_VIEWED);
       const older = 'before' in history;
       const anchor = (history as { before?: string; after?: string })[older ? 'before' : 'after'];
       const boundary = older ? state.items?.[0] : state.items?.at(-1);
-      const cursor = history.position && CORE_TRANSCRIPT_HISTORY_POSITION.test(history.position)
-        ? history.position
-        : boundary?.id === anchor ? historyPositionOf(boundary, older ? 'before' : 'after') : undefined;
+      const cursor =
+        history.position && CORE_TRANSCRIPT_HISTORY_POSITION.test(history.position)
+          ? history.position
+          : boundary?.id === anchor
+            ? historyPositionOf(boundary, older ? 'before' : 'after')
+            : undefined;
       let page: { data?: unknown[]; hasOlder?: boolean; hasNewer?: boolean };
       try {
         page = (await send('thread/items/list', {
@@ -201,7 +226,8 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
         })) as typeof page;
       } catch (error) {
         // The row is gone (a rewind or a clear): the reader returns to the live tail.
-        if (reasonOf(error) === 'cursorInvalidated') return { items: [], hasOlder: false, hasNewer: false, reset: true } as DesktopTranscriptHistoryPage;
+        if (reasonOf(error) === 'cursorInvalidated')
+          return { items: [], hasOlder: false, hasNewer: false, reset: true } as DesktopTranscriptHistoryPage;
         throw error;
       }
       const items = shared.foldRows(page.data ?? []);
@@ -209,12 +235,15 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
       const positionEdges = items.map((item) => {
         const before = historyPositionOf(item, 'before');
         const after = historyPositionOf(item, 'after');
-        return before === after ? null : { ...(before === undefined ? {} : { before }), ...(after === undefined ? {} : { after }) };
+        return before === after
+          ? null
+          : { ...(before === undefined ? {} : { before }), ...(after === undefined ? {} : { after }) };
       });
       holdHistory(sessionId, items);
       return {
         items: desktop ? items : items.map((item) => remoteTranscriptRow(item, false).row),
-        hasOlder: page.hasOlder === true, hasNewer: page.hasNewer === true,
+        hasOlder: page.hasOlder === true,
+        hasNewer: page.hasNewer === true,
         ...(positions.some((position) => position !== null) ? { positions } : {}),
         ...(positionEdges.some((edges) => edges !== null) ? { positionEdges } : {}),
       } as DesktopTranscriptHistoryPage;
@@ -249,4 +278,3 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
 }
 
 export type ChatHostApi = ReturnType<typeof createChatHostApi>;
-

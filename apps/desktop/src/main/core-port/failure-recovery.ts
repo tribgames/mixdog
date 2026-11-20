@@ -37,7 +37,15 @@ export interface RecoveryOptions {
   log(event: string, fields: Record<string, unknown>): void;
 }
 
-export function watchRecovery({ reports, runtimeRoot, readState, ensureRoot, watch, runs = processRuns, log }: RecoveryOptions): () => void {
+export function watchRecovery({
+  reports,
+  runtimeRoot,
+  readState,
+  ensureRoot,
+  watch,
+  runs = processRuns,
+  log,
+}: RecoveryOptions): () => void {
   /** The failure being watched for, and the watch of the runtime directory for it. */
   let standing: BootFailure | null = null;
   let watching: RecoveryWatch | null = null;
@@ -86,12 +94,15 @@ export function watchRecovery({ reports, runtimeRoot, readState, ensureRoot, wat
           if (watching !== own || !live || standing !== failure) return;
           install(failure);
           void look(failure);
-        },
+        }
       );
       watching = own;
     } catch (error) {
       // Recorded, not swallowed: the card and Try again remain, but recovery will not be noticed by itself.
-      log('core-recovery-watch-failed', { runtimeRoot, message: error instanceof Error ? error.message : String(error) });
+      log('core-recovery-watch-failed', {
+        runtimeRoot,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 
@@ -117,7 +128,7 @@ export function watchRecovery({ reports, runtimeRoot, readState, ensureRoot, wat
       } catch {
         /* observing recovery must not break reporting */
       }
-    }),
+    })
   );
   queueMicrotask(() => follow(reports.current()));
   return () => {

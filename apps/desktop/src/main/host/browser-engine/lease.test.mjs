@@ -152,7 +152,11 @@ test('an input that waited longer than its bound expires unsent', async () => {
   const first = h.leases.executeLocal('p1', () => new Promise(() => {}), { takeover: true, reason: 'pointer' });
   first.catch(() => {});
   let ran = false;
-  const late = h.leases.executeLocal('p1', async () => (ran = true), { takeover: true, maxWaitMs: 2_000, reason: 'key' });
+  const late = h.leases.executeLocal('p1', async () => (ran = true), {
+    takeover: true,
+    maxWaitMs: 2_000,
+    reason: 'key',
+  });
   const failure = assert.rejects(late, /expired/);
   h.clock.advance(2_001);
   await failure;

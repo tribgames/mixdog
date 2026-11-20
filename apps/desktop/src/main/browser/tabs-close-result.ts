@@ -49,8 +49,7 @@ export async function controlSessionTab(
     // A tab of an unloaded session is selected under the id it always had.
     await tabs.restore?.(sessionId);
     tabs.select(sessionId, control.tabId, control.follow);
-  }
-  else return closeSessionTab(tabs, sessionId, control.tabId);
+  } else return closeSessionTab(tabs, sessionId, control.tabId);
 }
 
 /** How long a close waits for the pane to drop the tab before reporting it

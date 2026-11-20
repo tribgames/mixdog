@@ -12,7 +12,11 @@ import { findOrtLibrary, parseLiveArgs, resolveLivePaths } from './paths.mjs';
 import { CUSTOM } from './paths.mjs';
 
 test('parseLiveArgs reads --a=b, --a b and bare flags', () => {
-  assert.deepEqual(parseLiveArgs(['--core=x.exe', '--out', 'dir', '--keep']), { core: 'x.exe', out: 'dir', keep: true });
+  assert.deepEqual(parseLiveArgs(['--core=x.exe', '--out', 'dir', '--keep']), {
+    core: 'x.exe',
+    out: 'dir',
+    keep: true,
+  });
 });
 
 test('resolveLivePaths: argument beats environment, environment beats the default', () => {
@@ -30,16 +34,28 @@ test('resolveLivePaths: argument beats environment, environment beats the defaul
 
 test('resolveLivePaths refuses a missing or nonexistent core', () => {
   assert.throws(() => resolveLivePaths({ argv: [], env: {}, exists: () => true }), /no core binary/);
-  assert.throws(() => resolveLivePaths({ argv: ['--core=nope'], env: { MIXDOG_LIVE_ORT_LIBRARY: 'o' }, exists: () => false }), /does not exist/);
+  assert.throws(
+    () => resolveLivePaths({ argv: ['--core=nope'], env: { MIXDOG_LIVE_ORT_LIBRARY: 'o' }, exists: () => false }),
+    /does not exist/
+  );
 });
 
 test('findOrtLibrary: first existing candidate, none on macOS x64, an error when none exists', () => {
   const seen = [];
-  const found = findOrtLibrary({ desktopDir: 'd', repoRoot: 'r', platform: 'win32', arch: 'x64', exists: (p) => (seen.push(p), p.includes(join('d', 'node_modules'))) });
+  const found = findOrtLibrary({
+    desktopDir: 'd',
+    repoRoot: 'r',
+    platform: 'win32',
+    arch: 'x64',
+    exists: (p) => (seen.push(p), p.includes(join('d', 'node_modules'))),
+  });
   assert.ok(found.endsWith(join('onnxruntime-node', 'bin', 'napi-v6', 'win32', 'x64', 'onnxruntime.dll')));
   assert.equal(seen.length, 2);
   assert.equal(findOrtLibrary({ platform: 'darwin', arch: 'x64', exists: () => false }), null);
-  assert.throws(() => findOrtLibrary({ desktopDir: 'd', repoRoot: 'r', platform: 'linux', arch: 'x64', exists: () => false }), /not found/);
+  assert.throws(
+    () => findOrtLibrary({ desktopDir: 'd', repoRoot: 'r', platform: 'linux', arch: 'x64', exists: () => false }),
+    /not found/
+  );
 });
 
 test('mergeOverlay merges objects deeply, replaces arrays and scalars, and leaves its inputs alone', () => {
@@ -60,10 +76,13 @@ test('instanceConfig: scripted provider and Browser Use, with the caller overlay
 });
 
 test('parseCimProcess reads ExecutablePath and tolerates no process', () => {
-  assert.deepEqual(parseCimProcess('{"ProcessId":7,"ExecutablePath":"C:\\\\x\\\\mixdogd.exe","CommandLine":"mixdogd serve"}\r\n'), {
-    executablePath: 'C:\\x\\mixdogd.exe',
-    commandLine: 'mixdogd serve',
-  });
+  assert.deepEqual(
+    parseCimProcess('{"ProcessId":7,"ExecutablePath":"C:\\\\x\\\\mixdogd.exe","CommandLine":"mixdogd serve"}\r\n'),
+    {
+      executablePath: 'C:\\x\\mixdogd.exe',
+      commandLine: 'mixdogd serve',
+    }
+  );
   assert.deepEqual(parseCimProcess('  \r\n'), { executablePath: '', commandLine: '' });
   assert.deepEqual(parseCimProcess('{"ProcessId":7,"ExecutablePath":null}'), { executablePath: '', commandLine: '' });
 });
@@ -86,21 +105,38 @@ test('linuxLoad and macLoad parse their sources', () => {
   assert.equal(linuxLoad('cpu  100 0 100 700 100 0 0 0\n', 'cpu  200 0 200 800 100 0 0 0\n'), 66.7);
   assert.equal(linuxLoad('cpu 1 1 1 1 1', 'cpu 1 1 1 1 1'), null);
   assert.equal(linuxLoad('', ''), null);
-  assert.equal(macLoad('CPU usage: 10.0% user, 5.0% sys, 85.0% idle\nCPU usage: 20.0% user, 10.0% sys, 70.0% idle\n'), 30);
+  assert.equal(
+    macLoad('CPU usage: 10.0% user, 5.0% sys, 85.0% idle\nCPU usage: 20.0% user, 10.0% sys, 70.0% idle\n'),
+    30
+  );
   assert.equal(macLoad('nothing'), null);
 });
 
 test('start arguments carry the overlay, inspector and env allowlist only when given', () => {
   assert.deepEqual(startArgs({ overlayFile: 'o.json' }).slice(-1), ['--config-overlay=o.json']);
-  const full = startArgs({ overlayFile: 'o.json', inspectorPort: 9229, passEnv: ['MIXDOG_DIAGNOSTICS', 'MIXDOG_AGENT_TRACE_TIMING'] });
-  assert.deepEqual(full.slice(-3), ['--config-overlay=o.json', '--inspect-main=9229', '--pass-env=MIXDOG_DIAGNOSTICS,MIXDOG_AGENT_TRACE_TIMING']);
-  assert.equal(startArgs({}).some((a) => a.startsWith('--inspect-main')), false);
+  const full = startArgs({
+    overlayFile: 'o.json',
+    inspectorPort: 9229,
+    passEnv: ['MIXDOG_DIAGNOSTICS', 'MIXDOG_AGENT_TRACE_TIMING'],
+  });
+  assert.deepEqual(full.slice(-3), [
+    '--config-overlay=o.json',
+    '--inspect-main=9229',
+    '--pass-env=MIXDOG_DIAGNOSTICS,MIXDOG_AGENT_TRACE_TIMING',
+  ]);
+  assert.equal(
+    startArgs({}).some((a) => a.startsWith('--inspect-main')),
+    false
+  );
 });
 
 test('starterEnv names the core and the root, drops ELECTRON_RUN_AS_NODE, sets the dist only when given', () => {
   const env = starterEnv({ coreExe: 'c', isoRoot: 'r', parent: { ELECTRON_RUN_AS_NODE: '1', PATH: 'p' } });
   assert.deepEqual(env, { PATH: 'p', MIXDOGD_BIN: 'c', MIXDOG_DEV_ISOLATED_ROOT: 'r' });
-  assert.equal(starterEnv({ coreExe: 'c', isoRoot: 'r', electronDist: 'e', parent: {} }).ELECTRON_OVERRIDE_DIST_PATH, 'e');
+  assert.equal(
+    starterEnv({ coreExe: 'c', isoRoot: 'r', electronDist: 'e', parent: {} }).ELECTRON_OVERRIDE_DIST_PATH,
+    'e'
+  );
 });
 
 test('profileShares and topFunctions split a CPU profile by self time', () => {

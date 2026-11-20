@@ -101,7 +101,9 @@ export function normalizeRendererLongTaskDiagnostic(input: unknown): Record<stri
 
 /** A renderer-direct core link line (`kind: 'core-link'`, renderer/core-direct/client.ts `reportCoreLink`): an event of the
  *  link vocabulary and its scalar fields, bounded; frames and anything not a number, boolean or short text are dropped. */
-export function normalizeRendererCoreLinkDiagnostic(input: unknown): { event: string; fields: Record<string, unknown> } | null {
+export function normalizeRendererCoreLinkDiagnostic(
+  input: unknown
+): { event: string; fields: Record<string, unknown> } | null {
   const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
   if (record.kind !== 'core-link' || typeof record.event !== 'string' || !LINK_EVENTS.has(record.event)) return null;
   const fields: Record<string, unknown> = {};

@@ -13,7 +13,10 @@ test('the lane is one job until it holds more than a shard of files, and never m
 
 test('the matrix numbers every shard from one, over the same total', () => {
   assert.deepEqual(shardMatrix(1), { include: [{ shard: 1, of: 1 }] });
-  assert.deepEqual(shardMatrix(3).include.map((leg) => `${leg.shard}/${leg.of}`), ['1/3', '2/3', '3/3']);
+  assert.deepEqual(
+    shardMatrix(3).include.map((leg) => `${leg.shard}/${leg.of}`),
+    ['1/3', '2/3', '3/3']
+  );
 });
 
 test('full coverage emits the reviewed single Linux leg even above the PR shard threshold', () => {

@@ -20,11 +20,16 @@ function scripted({ replies = {}, sections = {}, browserId } = {}) {
   return { sent, call: async (name, args) => adapter.calls[name](args, host) };
 }
 
-const windowGone = Object.assign(new Error('rpc'), { detail: { kind: 'rpc', data: { reason: 'capabilityUnavailable', capability: 'desktopHost' } } });
+const windowGone = Object.assign(new Error('rpc'), {
+  detail: { kind: 'rpc', data: { reason: 'capabilityUnavailable', capability: 'desktopHost' } },
+});
 
-test('a setting toggle needs a boolean and writes the setting\'s own config path', async () => {
+test("a setting toggle needs a boolean and writes the setting's own config path", async () => {
   const { sent, call } = scripted({ replies: { 'config/value/write': { config: {} } } });
-  await assert.rejects(call('updateSetting', ['saveChatLogins', 'yes']), { name: 'TypeError', message: 'enabled must be a boolean.' });
+  await assert.rejects(call('updateSetting', ['saveChatLogins', 'yes']), {
+    name: 'TypeError',
+    message: 'enabled must be a boolean.',
+  });
   assert.deepEqual(sent, []);
   await call('updateSetting', ['saveChatLogins', true]);
   await call('updateSetting', ['autoClear', false]);
@@ -35,19 +40,35 @@ test('a setting toggle needs a boolean and writes the setting\'s own config path
 });
 
 test('rail pins: a list of unsupported destinations is refused before any write; a valid one is written once and answered as saved', async () => {
-  const { sent, call } = scripted({ replies: { 'config/value/write': { values: [{ pins: ['sessions', 'agents'], revision: 4 }] } } });
+  const { sent, call } = scripted({
+    replies: { 'config/value/write': { values: [{ pins: ['sessions', 'agents'], revision: 4 }] } },
+  });
   for (const bad of ['sessions', ['nowhere'], [1]]) {
-    await assert.rejects(call('updateActivityRailPins', [bad]), { message: 'Activity rail pins must be an array of supported destinations.' });
+    await assert.rejects(call('updateActivityRailPins', [bad]), {
+      message: 'Activity rail pins must be an array of supported destinations.',
+    });
   }
   assert.deepEqual(sent, []);
-  assert.deepEqual(await call('updateActivityRailPins', [['sessions', 'agents', 'sessions']]), { pins: ['sessions', 'agents'], revision: 4 });
-  assert.deepEqual(sent, [{ method: 'config/value/write', params: { path: 'desktop.activityRailPins', value: ['sessions', 'agents', 'sessions'] } }]);
+  assert.deepEqual(await call('updateActivityRailPins', [['sessions', 'agents', 'sessions']]), {
+    pins: ['sessions', 'agents'],
+    revision: 4,
+  });
+  assert.deepEqual(sent, [
+    {
+      method: 'config/value/write',
+      params: { path: 'desktop.activityRailPins', value: ['sessions', 'agents', 'sessions'] },
+    },
+  ]);
   const unsaved = scripted({ replies: { 'config/value/write': { values: [] } } });
-  await assert.rejects(unsaved.call('updateActivityRailPins', [['sessions']]), { message: 'The config write did not return valid activity rail pins.' });
+  await assert.rejects(unsaved.call('updateActivityRailPins', [['sessions']]), {
+    message: 'The config write did not return valid activity rail pins.',
+  });
 });
 
 test('the saved rail pins are read from the held desktop config', async () => {
-  const { call } = scripted({ sections: { 'config:desktop': { value: { activityRailPins: { pins: ['skills'], revision: 2 } } } } });
+  const { call } = scripted({
+    sections: { 'config:desktop': { value: { activityRailPins: { pins: ['skills'], revision: 2 } } } },
+  });
   assert.deepEqual(await call('readActivityRailPins', []), { pins: ['skills'], revision: 2 });
 });
 
@@ -59,14 +80,23 @@ test('a paired phone reads and saves notification preferences using the limited 
     replies: {
       'remoteAccess/state': {
         settings: { name: 'Desk' },
-        clients: [{
-          id: 'phone', name: 'Phone · Mixdog App', platform: 'Android', browser: 'Mixdog App',
-          alias: 'Pocket', createdAt: 20, online: true,
-        }],
+        clients: [
+          {
+            id: 'phone',
+            name: 'Phone · Mixdog App',
+            platform: 'Android',
+            browser: 'Mixdog App',
+            alias: 'Pocket',
+            createdAt: 20,
+            online: true,
+          },
+        ],
         pushRegistered: ['phone'],
       },
       'notify/state': { supported: true, notifications },
-      'config/value/write': ({ value }) => { notifications.devices.phone = value; },
+      'config/value/write': ({ value }) => {
+        notifications.devices.phone = value;
+      },
     },
   });
 
@@ -78,17 +108,26 @@ test('a paired phone reads and saves notification preferences using the limited 
   ]);
   assert.equal(before.preferences.phone.scope, 'bots');
   const after = await call('setNotificationPreferences', ['phone', { scope: 'all' }]);
-  assert.deepEqual(sent.filter(({ method }) => method === 'config/value/write'), [{
-    method: 'config/value/write',
-    params: { path: 'notifications.devices.phone', value: { scope: 'all' }, mode: 'mergePatchBots' },
-  }]);
+  assert.deepEqual(
+    sent.filter(({ method }) => method === 'config/value/write'),
+    [
+      {
+        method: 'config/value/write',
+        params: { path: 'notifications.devices.phone', value: { scope: 'all' }, mode: 'mergePatchBots' },
+      },
+    ]
+  );
   assert.equal(after.preferences.phone.scope, 'all');
 });
 
-test('the window\'s display preferences and updater state are the held sections, or the window did not answer', async () => {
+test("the window's display preferences and updater state are the held sections, or the window did not answer", async () => {
   const none = scripted();
-  await assert.rejects(none.call('readHostDisplayPreferences', []), { message: 'The desktop app did not answer the remote request.' });
-  await assert.rejects(none.call('getUpdaterState', []), { message: 'The desktop app did not answer the remote request.' });
+  await assert.rejects(none.call('readHostDisplayPreferences', []), {
+    message: 'The desktop app did not answer the remote request.',
+  });
+  await assert.rejects(none.call('getUpdaterState', []), {
+    message: 'The desktop app did not answer the remote request.',
+  });
   const held = scripted({ sections: { 'update:null': { value: { status: 'idle' } } } });
   assert.deepEqual(await held.call('getUpdaterState', []), { status: 'idle' });
 });
@@ -98,12 +137,17 @@ test('update commands go to the core as check or install, and install is confirm
   await call('checkForDesktopUpdate', []);
   await call('showDesktopUpdate', [true]);
   await call('showDesktopUpdate', ['true']);
-  assert.deepEqual(sent.map((s) => s.params), [{ action: 'check' }, { action: 'install', confirmed: true }, { action: 'install', confirmed: false }]);
+  assert.deepEqual(
+    sent.map((s) => s.params),
+    [{ action: 'check' }, { action: 'install', confirmed: true }, { action: 'install', confirmed: false }]
+  );
 });
 
 test('a request the window did not answer reads as the desktop not answering, other failures keep their text', async () => {
   const { call } = scripted({ replies: { 'update/desktop/command': windowGone } });
-  await assert.rejects(call('checkForDesktopUpdate', []), { message: 'The desktop app did not answer the remote request.' });
+  await assert.rejects(call('checkForDesktopUpdate', []), {
+    message: 'The desktop app did not answer the remote request.',
+  });
 });
 
 test('feedback is checked before it is posted', async () => {
@@ -114,17 +158,31 @@ test('feedback is checked before it is posted', async () => {
 
 test('provider-model changes name their origin, and the answer is null', async () => {
   const { sent, call } = scripted();
-  await assert.rejects(call('notifyProviderModelsChanged', ['  ']), { name: 'TypeError', message: 'origin is invalid.' });
-  await assert.rejects(call('notifyProviderModelsChanged', [5]), { name: 'TypeError', message: 'origin must be a string.' });
+  await assert.rejects(call('notifyProviderModelsChanged', ['  ']), {
+    name: 'TypeError',
+    message: 'origin is invalid.',
+  });
+  await assert.rejects(call('notifyProviderModelsChanged', [5]), {
+    name: 'TypeError',
+    message: 'origin must be a string.',
+  });
   assert.equal(await call('notifyProviderModelsChanged', [' window-1 ']), null);
   assert.deepEqual(sent, [{ method: 'ui/providerModels/announce', params: { origin: 'window-1' } }]);
 });
 
-test('the core\'s settings and provider-model announcements reach the phone\'s listeners', () => {
+test("the core's settings and provider-model announcements reach the phone's listeners", () => {
   const seen = [];
-  const listeners = { settingsChangedListeners: 'S', providerModelsListeners: 'P', updaterListeners: 'U', activityRailPinsListeners: 'R' };
+  const listeners = {
+    settingsChangedListeners: 'S',
+    providerModelsListeners: 'P',
+    updaterListeners: 'U',
+    activityRailPinsListeners: 'R',
+  };
   let handler;
-  const client = { store: { section: () => undefined, appFeed: () => undefined, subscribe: () => () => {} }, on: (fn) => ((handler = fn), () => {}) };
+  const client = {
+    store: { section: () => undefined, appFeed: () => undefined, subscribe: () => () => {} },
+    on: (fn) => ((handler = fn), () => {}),
+  };
   const host = {
     ctx: { ...listeners, fanOut: (list, value) => seen.push([list, value]) },
     client: () => client,
@@ -133,7 +191,10 @@ test('the core\'s settings and provider-model announcements reach the phone\'s l
   adapter.install(host);
   handler({ type: 'notification', notification: { method: 'ui/providerModels/changed', params: { origin: 'w1' } } });
   handler({ type: 'notification', notification: { method: 'ui/unrelated', params: {} } });
-  assert.deepEqual(seen.map(([list]) => list), ['P']);
+  assert.deepEqual(
+    seen.map(([list]) => list),
+    ['P']
+  );
 });
 
 test('a connected phone follows only changes to the configured orchestration default', async () => {
@@ -148,13 +209,18 @@ test('a connected phone follows only changes to the configured orchestration def
   const client = {
     store: {
       appFeed: () => ({ id: 'app', epoch: 'e1', seq: 1 }),
-      section: (section, key) => section === 'config' && key === 'agent' ? { value: agent } : undefined,
+      section: (section, key) => (section === 'config' && key === 'agent' ? { value: agent } : undefined),
       subscribe: (listener) => (subscribers.add(listener), () => subscribers.delete(listener)),
     },
     on: () => () => {},
   };
   const stop = adapter.install({
-    ctx: { orchestrationModeListeners: listeners, fanOut: (set, value) => { for (const listener of set) listener(value); } },
+    ctx: {
+      orchestrationModeListeners: listeners,
+      fanOut: (set, value) => {
+        for (const listener of set) listener(value);
+      },
+    },
     onClient: (wire) => (wire(client), () => {}),
   });
   const updateAgent = async (next) => {
@@ -174,13 +240,27 @@ test('a connected phone follows only changes to the configured orchestration def
 
 test('the phone pages a stubbed config subtree it reads (settings, pins, conversation overrides) and nothing else', async () => {
   const { sent, call } = scripted({
-    sections: { 'config:desktop': { value: null }, 'config:agent': { value: {} }, 'config:notifications': { value: null } },
-    replies: { 'config/read': ({ keys }) => ({ config: { desktop: { keepAwake: false, activityRailPins: { pins: ['skills'], revision: 2 } }, notifications: {} } }) },
+    sections: {
+      'config:desktop': { value: null },
+      'config:agent': { value: {} },
+      'config:notifications': { value: null },
+    },
+    replies: {
+      'config/read': ({ keys }) => ({
+        config: {
+          desktop: { keepAwake: false, activityRailPins: { pins: ['skills'], revision: 2 } },
+          notifications: {},
+        },
+      }),
+    },
   });
   assert.equal((await call('readSettings', [])).keepAwake, false);
   assert.deepEqual(await call('readActivityRailPins', []), { pins: ['skills'], revision: 2 });
   assert.deepEqual(await call('listConversationNotifications', []), []);
-  assert.deepEqual(sent.map((s) => s.params.keys), [['desktop'], ['desktop'], ['notifications']]);
+  assert.deepEqual(
+    sent.map((s) => s.params.keys),
+    [['desktop'], ['desktop'], ['notifications']]
+  );
 });
 
 test('a live change of a stubbed agent or desktop subtree is paged, and a read a newer change superseded is discarded', async () => {
@@ -188,7 +268,7 @@ test('a live change of a stubbed agent or desktop subtree is paged, and a read a
   const pinsSeen = [];
   const subscribers = new Set();
   const answers = [];
-  let agent = null;
+  const agent = null;
   const client = {
     store: {
       appFeed: () => ({ id: 'app', epoch: 'e1', seq: 1 }),
@@ -198,14 +278,29 @@ test('a live change of a stubbed agent or desktop subtree is paged, and a read a
     call: (method, params) => new Promise((resolve) => answers.push({ params, resolve })),
     on: () => () => {},
   };
-  const fan = (set, value) => { for (const listener of set) listener(value); };
+  const fan = (set, value) => {
+    for (const listener of set) listener(value);
+  };
   const stop = adapter.install({
-    ctx: { orchestrationModeListeners: new Set([(v) => seen.push(v)]), activityRailPinsListeners: new Set([(v) => pinsSeen.push(v)]), fanOut: fan },
+    ctx: {
+      orchestrationModeListeners: new Set([(v) => seen.push(v)]),
+      activityRailPinsListeners: new Set([(v) => pinsSeen.push(v)]),
+      fanOut: fan,
+    },
     onClient: (wire) => (wire(client), () => {}),
   });
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   // Startup reads: pins (desktop stub) and the mode (agent stub).
-  answers.splice(0).forEach(({ params, resolve }) => resolve({ config: params.keys[0] === 'agent' ? { agent: { orchestrationMode: 'focused' } } : { desktop: { activityRailPins: { pins: ['sessions'], revision: 1 } } } }));
+  answers
+    .splice(0)
+    .forEach(({ params, resolve }) =>
+      resolve({
+        config:
+          params.keys[0] === 'agent'
+            ? { agent: { orchestrationMode: 'focused' } }
+            : { desktop: { activityRailPins: { pins: ['sessions'], revision: 1 } } },
+      })
+    );
   await settle();
   const change = (key) => subscribers.forEach((s) => s({ type: 'section', section: 'config', key }));
   change('agent');
@@ -235,7 +330,12 @@ test('a live mode change that supersedes the initial paged read of a stubbed age
     on: () => () => {},
   };
   const stop = adapter.install({
-    ctx: { orchestrationModeListeners: new Set([(v) => seen.push(v)]), fanOut: (set, value) => { for (const l of set) l(value); } },
+    ctx: {
+      orchestrationModeListeners: new Set([(v) => seen.push(v)]),
+      fanOut: (set, value) => {
+        for (const l of set) l(value);
+      },
+    },
     onClient: (wire) => (wire(client), () => {}),
   });
   subscribers.forEach((s) => s({ type: 'section', section: 'config', key: 'agent' }));

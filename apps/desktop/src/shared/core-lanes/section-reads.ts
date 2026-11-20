@@ -6,12 +6,7 @@ import type { ActivityRailPinsState } from '../activity-rail-pins';
 import type { DesktopEditorSettings, DesktopSettings } from '../contract';
 import type { NotificationPreferencesState } from '../contract-notifications';
 import type { DesktopSectionsSnapshot } from '../contract-sections';
-import {
-  activeOverrides,
-  migratedAtOf,
-  notificationPreferencesStateOf,
-  storedOverrides,
-} from '../notification-state';
+import { activeOverrides, migratedAtOf, notificationPreferencesStateOf, storedOverrides } from '../notification-state';
 import { desktopSettingsFromConfig } from '../desktop-settings';
 import { storedPinsState } from '../activity-rail-pins';
 import { markdownDefaultViewSetting } from '../editor-settings';
@@ -46,7 +41,9 @@ const configTree = (snapshot: DesktopSectionsSnapshot, subtree: string): Record<
 /** A `config` subtree over the inline limit is held as a stub (`value` null): its value is read with `config/read`, so the
  *  readers below see the stored settings, not an empty subtree. */
 const configStubs = (snapshot: DesktopSectionsSnapshot, subtrees: readonly string[]) =>
-  snapshot.entries.filter((entry) => entry.section === 'config' && entry.key !== null && subtrees.includes(entry.key) && entry.value === null);
+  snapshot.entries.filter(
+    (entry) => entry.section === 'config' && entry.key !== null && subtrees.includes(entry.key) && entry.value === null
+  );
 
 export const hasConfigStub = (snapshot: DesktopSectionsSnapshot, subtrees: readonly string[]): boolean =>
   configStubs(snapshot, subtrees).length > 0;
@@ -62,7 +59,12 @@ export async function withPagedConfig(
   if (stubs.length === 0) return snapshot;
   const { config } = record(await call('config/read', { keys: stubs.map((entry) => entry.key) }));
   const paged = record(config);
-  return { ...snapshot, entries: snapshot.entries.map((entry) => (stubs.includes(entry) ? { ...entry, value: paged[entry.key as string] } : entry)) };
+  return {
+    ...snapshot,
+    entries: snapshot.entries.map((entry) =>
+      stubs.includes(entry) ? { ...entry, value: paged[entry.key as string] } : entry
+    ),
+  };
 }
 
 /** The `config` subtrees each section read uses. */
@@ -154,7 +156,9 @@ export const remoteAccessMember = (snapshot: DesktopSectionsSnapshot, member: st
   remoteMember(remoteSection(snapshot), member);
 /** `termActivity`: Node answered `[{id, state}]` of the tabs with a known state; the section is `{<tabId>: state}`. */
 export function termActivity(snapshot: DesktopSectionsSnapshot): { id: string; state: unknown }[] {
-  const entry = snapshot.entries.find((candidate) => candidate.section === 'terminalActivity' && candidate.key === null);
+  const entry = snapshot.entries.find(
+    (candidate) => candidate.section === 'terminalActivity' && candidate.key === null
+  );
   if (!entry) {
     throw Object.assign(new Error('The core has not pushed section terminalActivity.'), { code: 'sectionUnavailable' });
   }

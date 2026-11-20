@@ -5,7 +5,11 @@ import { isOutcomeUnknown } from '../shared/outcome-unknown.ts';
 import { gitActionFailureText } from './source-control-action-failure.ts';
 
 // The client library's failure for an op whose outcome it could not learn (packages/protocol-client ClientFailure).
-const unknown = () => Object.assign(new Error('opOutcomeUnknown'), { name: 'ClientError', detail: { kind: 'opOutcomeUnknown', opId: 'op-1', state: 'statusFailed' } });
+const unknown = () =>
+  Object.assign(new Error('opOutcomeUnknown'), {
+    name: 'ClientError',
+    detail: { kind: 'opOutcomeUnknown', opId: 'op-1', state: 'statusFailed' },
+  });
 
 test('an unknown outcome tells the person the Git action may have run', () => {
   const text = gitActionFailureText(unknown());

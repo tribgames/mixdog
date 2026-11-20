@@ -118,7 +118,11 @@ test('full-page capture anchors fixed and sticky elements in flow and restores t
 test('whether a page is past the limits is decided from its size at the capture pixel ratio', () => {
   assert.equal(fullPageExceedsLimits({ x: 0, y: 0, width: 1_280, height: 18_000 }, 1), false);
   assert.equal(fullPageExceedsLimits({ x: 0, y: 0, width: 5_000, height: 4_000 }, 2), true, 'page zoom counts');
-  assert.equal(fullPageExceedsLimits({ x: 0, y: 0, width: 1_000, height: 40_000 }, 0.5), false, 'a zoomed-out page can fit');
+  assert.equal(
+    fullPageExceedsLimits({ x: 0, y: 0, width: 1_000, height: 40_000 }, 0.5),
+    false,
+    'a zoomed-out page can fit'
+  );
   assert.equal(fullPageExceedsLimits({ x: 0, y: 0, width: 320, height: 400_000 }, 1), true);
   assert.equal(fullPageExceedsLimits({ x: 0, y: 0, width: 7_680, height: 20_000 }, 1), true);
 });
@@ -138,7 +142,12 @@ function simulateBands({ page, viewport, zoom, displayScale, pinch = 1 }) {
   for (let y = 0; y < page.height; y += plan.height) {
     for (let x = 0; x < page.width; x += plan.width) {
       bands++;
-      const band = { x, y, width: Math.min(plan.width, page.width - x), height: Math.min(plan.height, page.height - y) };
+      const band = {
+        x,
+        y,
+        width: Math.min(plan.width, page.width - x),
+        height: Math.min(plan.height, page.height - y),
+      };
       const left = Math.min(x, Math.max(0, page.width - viewport.width));
       const top = Math.min(y, Math.max(0, page.height - viewport.height));
       const offset = { x: x - left, y: y - top };
@@ -147,7 +156,9 @@ function simulateBands({ page, viewport, zoom, displayScale, pinch = 1 }) {
       const image = { width: Math.ceil(area.width * displayScale), height: Math.ceil(area.height * displayScale) };
       assert.ok(image.width * image.height <= MAX_FULL_PAGE_BAND_PIXELS, `band image ${image.width}x${image.height}`);
       const crop = bandImageCrop(offset, band, dipPerCss, area, image);
-      assert.ok(crop.x >= 0 && crop.y >= 0 && crop.x + crop.width <= image.width && crop.y + crop.height <= image.height);
+      assert.ok(
+        crop.x >= 0 && crop.y >= 0 && crop.x + crop.width <= image.width && crop.y + crop.height <= image.height
+      );
       assert.ok(Math.abs(crop.width - band.width * ratio) <= 1 && Math.abs(crop.height - band.height * ratio) <= 1);
       const piece = bandOutputRect(band, page, output);
       columns.set(x, [piece.x, piece.width]);
@@ -155,7 +166,10 @@ function simulateBands({ page, viewport, zoom, displayScale, pinch = 1 }) {
     }
   }
   // Every output column and row is written by exactly one band.
-  for (const [spans, size] of [[[...columns.values()], output.width], [[...rows.values()], output.height]]) {
+  for (const [spans, size] of [
+    [[...columns.values()], output.width],
+    [[...rows.values()], output.height],
+  ]) {
     let edge = 0;
     for (const [start, length] of spans) {
       assert.equal(start, edge);
@@ -167,20 +181,51 @@ function simulateBands({ page, viewport, zoom, displayScale, pinch = 1 }) {
 }
 
 test('a page past the limits is read in bands of its own viewport and composed into one scaled image', () => {
-  const tall = simulateBands({ page: { width: 320, height: 400_000 }, viewport: { width: 320, height: 800 }, zoom: 1, displayScale: 1 });
+  const tall = simulateBands({
+    page: { width: 320, height: 400_000 },
+    viewport: { width: 320, height: 800 },
+    zoom: 1,
+    displayScale: 1,
+  });
   assert.deepEqual([tall.plan.width, tall.plan.height, tall.bands], [320, 800, 500], 'the viewport is never enlarged');
   assert.ok(tall.output.height <= 32_768 && tall.output.width * tall.output.height <= 24_000_000);
 
-  const wide = simulateBands({ page: { width: 7_680, height: 20_000 }, viewport: { width: 1_265, height: 800 }, zoom: 1, displayScale: 1 });
+  const wide = simulateBands({
+    page: { width: 7_680, height: 20_000 },
+    viewport: { width: 1_265, height: 800 },
+    zoom: 1,
+    displayScale: 1,
+  });
   assert.equal(wide.bands, 7 * 25);
   assert.ok(wide.output.width * wide.output.height <= 24_000_000 && wide.output.scale < 1);
 
   // Page zoom other than 1, a high-DPI display, and a phone layout shown pinched out.
-  simulateBands({ page: { width: 1_707, height: 60_000 }, viewport: { width: 1_692, height: 1_067 }, zoom: 0.75, displayScale: 1.25 });
-  simulateBands({ page: { width: 1_164, height: 90_000 }, viewport: { width: 1_149, height: 727 }, zoom: 1.1, displayScale: 1.5 });
-  simulateBands({ page: { width: 980, height: 120_000 }, viewport: { width: 980, height: 1_865 }, zoom: 1, displayScale: 1, pinch: 0.419 });
+  simulateBands({
+    page: { width: 1_707, height: 60_000 },
+    viewport: { width: 1_692, height: 1_067 },
+    zoom: 0.75,
+    displayScale: 1.25,
+  });
+  simulateBands({
+    page: { width: 1_164, height: 90_000 },
+    viewport: { width: 1_149, height: 727 },
+    zoom: 1.1,
+    displayScale: 1.5,
+  });
+  simulateBands({
+    page: { width: 980, height: 120_000 },
+    viewport: { width: 980, height: 1_865 },
+    zoom: 1,
+    displayScale: 1,
+    pinch: 0.419,
+  });
   // A viewport too large for one band is read in smaller pieces of it.
-  const dense = simulateBands({ page: { width: 3_840, height: 40_000 }, viewport: { width: 3_825, height: 2_160 }, zoom: 1, displayScale: 2 });
+  const dense = simulateBands({
+    page: { width: 3_840, height: 40_000 },
+    viewport: { width: 3_825, height: 2_160 },
+    zoom: 1,
+    displayScale: 2,
+  });
   assert.ok(dense.plan.width === 3_825 && dense.plan.height < 2_160);
 });
 
@@ -277,7 +322,10 @@ test('a page past the limits is captured whole in its own viewport, scaled, and 
       assert.ok(area.width * displayScale * area.height * displayScale <= 4_000_000, 'one band stays small');
     }
     assert.deepEqual(f.state.scroll, { x: 0, y: 1_234 }, 'the page is scrolled back');
-    assert.ok(f.calls.every((method) => method.startsWith('Runtime.')), 'no viewport or device override');
+    assert.ok(
+      f.calls.every((method) => method.startsWith('Runtime.')),
+      'no viewport or device override'
+    );
   }
 });
 
@@ -299,10 +347,15 @@ test('a viewport that changes during a banded capture fails it and the page is s
 });
 
 test('a banded capture that cannot scroll the page back reports it', async () => {
-  const f = bandedPage({ page: { width: 320, height: 100_000 }, visible: { width: 320, height: 800 }, restoreFails: true });
+  const f = bandedPage({
+    page: { width: 320, height: 100_000 },
+    visible: { width: 320, height: 800 },
+    restoreFails: true,
+  });
   await assert.rejects(
     captureTiledDocument(f.cdp, f.guest, { x: 0, y: 0, width: 320, height: 100_000 }, jpeg, 8_000, 2_000),
-    (error) => error.name === 'BrowserScreenshotRestoreError' && /scroll restoration failed; page went away/.test(error.message)
+    (error) =>
+      error.name === 'BrowserScreenshotRestoreError' && /scroll restoration failed; page went away/.test(error.message)
   );
 });
 
@@ -317,7 +370,15 @@ test('a cancelled banded capture stops reading and scrolls the page back', async
     },
   });
   await assert.rejects(
-    captureTiledDocument(f.cdp, f.guest, { x: 0, y: 0, width: 320, height: 400_000 }, jpeg, 8_000, 2_000, controller.signal),
+    captureTiledDocument(
+      f.cdp,
+      f.guest,
+      { x: 0, y: 0, width: 320, height: 400_000 },
+      jpeg,
+      8_000,
+      2_000,
+      controller.signal
+    ),
     /stopped/
   );
   assert.deepEqual(f.state.scroll, { x: 0, y: 77 });

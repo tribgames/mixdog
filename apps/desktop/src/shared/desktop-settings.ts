@@ -25,7 +25,9 @@ export function isNotificationVolume(value: unknown): value is number {
 }
 
 export function isBotHandoffLimit(value: unknown): value is number {
-  return Number.isInteger(value) && (value as number) >= BOT_HANDOFF_LIMIT_MIN && (value as number) <= BOT_HANDOFF_LIMIT_MAX;
+  return (
+    Number.isInteger(value) && (value as number) >= BOT_HANDOFF_LIMIT_MIN && (value as number) <= BOT_HANDOFF_LIMIT_MAX
+  );
 }
 
 export const SESSION_RETENTION_DEFAULTS: Readonly<Record<SessionRetentionSettingKey, number>> = {

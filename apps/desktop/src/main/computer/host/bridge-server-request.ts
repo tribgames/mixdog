@@ -22,7 +22,12 @@ type Respond = (response: ServerResponse, status: number, body: Record<string, u
 export interface BridgeRequestContext {
   host: Pick<
     BridgeServerHost,
-    'abortComputerSession' | 'executeSerialized' | 'reapIdleSessionWorkers' | 'waitForUser' | 'processFate' | 'isBridgeWanted'
+    | 'abortComputerSession'
+    | 'executeSerialized'
+    | 'reapIdleSessionWorkers'
+    | 'waitForUser'
+    | 'processFate'
+    | 'isBridgeWanted'
   >;
   state: BridgeServerState;
   respond: Respond;

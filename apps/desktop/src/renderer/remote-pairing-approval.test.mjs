@@ -407,8 +407,9 @@ test('an installed surface still asks directly, and without a deviceId still rep
 });
 
 test('a claim the relay no longer knows is filed again on its own', async (t) => {
-  const run = await runApproval(t, async (path, approved) =>
-    path === '/claim/c1' ? { status: 'unknown' } : approved(),
+  const run = await runApproval(
+    t,
+    async (path, approved) => (path === '/claim/c1' ? { status: 'unknown' } : approved()),
     { quickPoll: true }
   );
   await until(() => run.accepted() === 1);
@@ -424,15 +425,19 @@ test('a page that thaws past the poll deadline still polls once more', async (t)
     Date.now = realNow;
   });
   let polls = 0;
-  const run = await runApproval(t, async (_path, approved) => {
-    polls += 1;
-    if (polls === 1) {
-      // Frozen in the background for longer than the whole wait.
-      skew += 301_000;
-      return { status: 'pending' };
-    }
-    return approved();
-  }, { quickPoll: true });
+  const run = await runApproval(
+    t,
+    async (_path, approved) => {
+      polls += 1;
+      if (polls === 1) {
+        // Frozen in the background for longer than the whole wait.
+        skew += 301_000;
+        return { status: 'pending' };
+      }
+      return approved();
+    },
+    { quickPoll: true }
+  );
   await until(() => run.accepted() === 1);
   assert.equal(polls, 2);
   assert.notEqual(run.document.querySelector('.mxp-title')?.textContent, 'Request expired');

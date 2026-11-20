@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { registerHooks } from 'node:module';
 import test from 'node:test';
-import { createPrimaryWindowActivation, openDesktopNotificationSession, retainNotification } from './notification-window.ts';
+import {
+  createPrimaryWindowActivation,
+  openDesktopNotificationSession,
+  retainNotification,
+} from './notification-window.ts';
 import { createHeldChannel } from '../preload/held-ipc.ts';
 import { DESKTOP_IPC } from '../shared/contract-ipc.ts';
 
@@ -65,7 +69,8 @@ function harness(t, { windows }) {
   );
   /** The core tells a toast for each of `rows`. */
   const finish = (rows) => {
-    for (const row of rows) handlers.get('host/notification/show')({ title: 'T', body: 'finished the work', threadId: row.id });
+    for (const row of rows)
+      handlers.get('host/notification/show')({ title: 'T', body: 'finished the work', threadId: row.id });
   };
   return {
     notifications,

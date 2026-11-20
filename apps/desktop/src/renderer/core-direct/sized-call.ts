@@ -28,7 +28,7 @@ function stringSlots(root: Json, pointer: string): Array<[Container, string]> {
   const walk = (node: Json, rest: string[]): void => {
     if (node === null || typeof node !== 'object') return;
     const [head, ...tail] = rest;
-    const keys = head === '*' ? Object.keys(node) : Object.prototype.hasOwnProperty.call(node, head) ? [head] : [];
+    const keys = head === '*' ? Object.keys(node) : Object.hasOwn(node, head) ? [head] : [];
     for (const key of keys) {
       const child = (node as Record<string, Json>)[key];
       if (tail.length === 0) {
@@ -36,7 +36,13 @@ function stringSlots(root: Json, pointer: string): Array<[Container, string]> {
       } else walk(child, tail);
     }
   };
-  walk(root, pointer.split('/').slice(1).map((segment) => segment.replace(/~1/g, '/').replace(/~0/g, '~')));
+  walk(
+    root,
+    pointer
+      .split('/')
+      .slice(1)
+      .map((segment) => segment.replace(/~1/g, '/').replace(/~0/g, '~'))
+  );
   return slots;
 }
 
@@ -85,21 +91,28 @@ function isBase64Field(pointer: string): boolean {
  * A request still over the frame bound once its listed fields are references throws a TypeError naming the largest field.
  */
 export async function sizedCall(client: SizedCallClient, method: string, params: unknown): Promise<unknown> {
-  const send = (body: unknown): Promise<unknown> => (client.call as (m: string, p: unknown) => Promise<unknown>)(method, body);
+  const send = (body: unknown): Promise<unknown> =>
+    (client.call as (m: string, p: unknown) => Promise<unknown>)(method, body);
   const frameBound = (client.server?.limits?.maxInboundFrameBytes ?? DEFAULT_MAX_INBOUND_FRAME_BYTES) - ENVELOPE_BYTES;
   const size = bytesOf(params);
   if (size <= Math.min(SEND_BOUND_BYTES, frameBound)) return send(params);
   const pointers = BLOB_REF_FIELDS[method];
   if (!pointers) {
     if (size <= frameBound) return send(params);
-    throw new TypeError(`${method} is too large to send: the request is ${size} bytes and the core accepts ${frameBound} bytes in one frame.`);
+    throw new TypeError(
+      `${method} is too large to send: the request is ${size} bytes and the core accepts ${frameBound} bytes in one frame.`
+    );
   }
   const body = structuredClone(params) as Json;
-  const slots = pointers.flatMap((pointer) => stringSlots(body, pointer).map(([container, key]) => {
-    const target = container as Record<string, Json>;
-    const value = target[key] as string;
-    return { target, key, pointer, value, wireBytes: bytesOf(value) };
-  })).sort((a, b) => b.wireBytes - a.wireBytes);
+  const slots = pointers
+    .flatMap((pointer) =>
+      stringSlots(body, pointer).map(([container, key]) => {
+        const target = container as Record<string, Json>;
+        const value = target[key] as string;
+        return { target, key, pointer, value, wireBytes: bytesOf(value) };
+      })
+    )
+    .sort((a, b) => b.wireBytes - a.wireBytes);
   const placeholder = { $blobRef: `sha256:${'0'.repeat(64)}`, as: 'base64' };
   const refBytes = bytesOf(placeholder);
   const uploads: typeof slots = [];
@@ -111,7 +124,9 @@ export async function sizedCall(client: SizedCallClient, method: string, params:
     uploads.push(slot);
   }
   if (total > frameBound) {
-    throw new TypeError(`${slots[0]?.pointer ?? pointers[0]} is too large to send: the request is ${total} bytes and the core accepts ${frameBound} bytes in one frame.`);
+    throw new TypeError(
+      `${slots[0]?.pointer ?? pointers[0]} is too large to send: the request is ${total} bytes and the core accepts ${frameBound} bytes in one frame.`
+    );
   }
   for (const { target, key, pointer, value } of uploads) {
     const blob = blobOf(pointer, value);

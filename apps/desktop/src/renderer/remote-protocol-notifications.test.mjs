@@ -11,7 +11,7 @@ function scripted(replies = {}) {
   return { sent, call: async (name, args) => adapter.calls[name](args, host) };
 }
 
-test('push registrations are the core\'s requests; the phone adds only the argument checks Node made', async () => {
+test("push registrations are the core's requests; the phone adds only the argument checks Node made", async () => {
   const { sent, call } = scripted();
   await call('pushPublicKey', []);
   await call('registerPushSubscription', [{ endpoint: 'https://push.test/e' }]);
@@ -39,21 +39,36 @@ test('a token that is not a string and a blank endpoint are refused before anyth
   assert.deepEqual(sent, []);
 });
 
-test('Allow / Deny of a notification is the core\'s decision: the phone sends the three ids and answers the outcome', async () => {
+test("Allow / Deny of a notification is the core's decision: the phone sends the three ids and answers the outcome", async () => {
   const { sent, call } = scripted({ 'thread/approval/answerNotification': { outcome: 'accepted' } });
   assert.equal(await call('answerApprovalNotification', ['sess_a', 'ap1', 'allow']), 'accepted');
-  assert.deepEqual(sent, [{ method: 'thread/approval/answerNotification', params: { threadId: 'sess_a', approvalId: 'ap1', action: 'allow' } }]);
+  assert.deepEqual(sent, [
+    {
+      method: 'thread/approval/answerNotification',
+      params: { threadId: 'sess_a', approvalId: 'ap1', action: 'allow' },
+    },
+  ]);
 });
 
 test('only a notice the connected client hears raised live is shown; a snapshot or a replay is not', () => {
   const shown = [];
-  const sections = { 'notice:a': { value: { key: 'a', code: 'secret-storage-failed', params: { name: 5, where: 'x' } } }, 'notice:b': { value: { key: 'b', code: 'unknown-code' } } };
+  const sections = {
+    'notice:a': { value: { key: 'a', code: 'secret-storage-failed', params: { name: 5, where: 'x' } } },
+    'notice:b': { value: { key: 'b', code: 'unknown-code' } },
+  };
   let live = false;
   let notify;
   const client = {
-    store: { subscribe: (fn) => ((notify = fn), () => {}), section: (name, key) => sections[`${name}:${key}`], appLive: () => live },
+    store: {
+      subscribe: (fn) => ((notify = fn), () => {}),
+      section: (name, key) => sections[`${name}:${key}`],
+      appLive: () => live,
+    },
   };
-  const host = { ctx: { desktopNoticeListeners: 'N', fanOut: (list, notice) => shown.push([list, notice]) }, onClient: (wire) => (wire(client), () => {}) };
+  const host = {
+    ctx: { desktopNoticeListeners: 'N', fanOut: (list, notice) => shown.push([list, notice]) },
+    onClient: (wire) => (wire(client), () => {}),
+  };
   adapter.install(host);
   notify({ type: 'section', section: 'notice', key: 'a' });
   assert.deepEqual(shown, [], 'not live yet: what a snapshot holds is not a raised notice');

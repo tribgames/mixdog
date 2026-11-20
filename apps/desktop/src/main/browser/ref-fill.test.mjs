@@ -48,11 +48,20 @@ test('an input takes the value through the native setter with the events a form 
         document.getElementById(id).addEventListener(type, () => events.push(`${id}:${type}`));
       }
     }
-    assert.deepEqual({ ...apply(document.getElementById('name'), 'fill-ref.js', ['Ada']) }, { value: 'Ada', sensitive: false });
+    assert.deepEqual(
+      { ...apply(document.getElementById('name'), 'fill-ref.js', ['Ada']) },
+      { value: 'Ada', sensitive: false }
+    );
     assert.equal(document.getElementById('name').value, 'Ada');
-    assert.deepEqual({ ...apply(document.getElementById('note'), 'fill-ref.js', ['a\nb']) }, { value: 'a\nb', sensitive: false });
+    assert.deepEqual(
+      { ...apply(document.getElementById('note'), 'fill-ref.js', ['a\nb']) },
+      { value: 'a\nb', sensitive: false }
+    );
     // A password answers no value and is marked sensitive, so the engine registers it as a secret.
-    assert.deepEqual({ ...apply(document.getElementById('pw'), 'fill-ref.js', ['hunter2']) }, { value: '', sensitive: true });
+    assert.deepEqual(
+      { ...apply(document.getElementById('pw'), 'fill-ref.js', ['hunter2']) },
+      { value: '', sensitive: true }
+    );
     assert.equal(document.getElementById('pw').value, 'hunter2');
     assert.deepEqual(events, ['name:input', 'name:change', 'note:input', 'note:change', 'pw:input', 'pw:change']);
   } finally {
@@ -72,7 +81,11 @@ test('a file input, a disabled field, a read-only field and a non-editable eleme
     assert.equal(error('ro'), 'element is readonly');
     assert.equal(error('text'), 'element is not editable');
     assert.equal(error('inert'), 'element is disabled');
-    assert.equal(apply(document.createElement('input'), 'fill-ref.js', ['v']).error, 'stale', 'a detached element is stale');
+    assert.equal(
+      apply(document.createElement('input'), 'fill-ref.js', ['v']).error,
+      'stale',
+      'a detached element is stale'
+    );
   } finally {
     dom.window.close();
   }

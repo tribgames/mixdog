@@ -49,7 +49,16 @@ type Toolkit = ReturnType<typeof createBrowserCommandToolkit>;
 export interface BrowserEnginePorts {
   base: Pick<
     BrowserHostFoundation,
-    'state' | 'sessions' | 'cdp' | 'display' | 'documents' | 'urls' | 'urlPolicy' | 'partition' | 'engineIntercept' | 'engineLane'
+    | 'state'
+    | 'sessions'
+    | 'cdp'
+    | 'display'
+    | 'documents'
+    | 'urls'
+    | 'urlPolicy'
+    | 'partition'
+    | 'engineIntercept'
+    | 'engineLane'
   >;
   tools: Pick<Toolkit, 'dialogs' | 'input' | 'snapshots' | 'screenshots' | 'refPoints'>;
   lifecycle: ReturnType<typeof createBrowserGuestLifecycle>;
@@ -343,7 +352,9 @@ export function createBrowserEngine(
       revision: (guest, signal) => documents.revision(guest, signal),
     },
     refCall: { evaluate },
-    cdpSend: { prepareVisualOutput: async (guest, signal) => ports.tools.screenshots.prepareVisualOutput(guest, signal) },
+    cdpSend: {
+      prepareVisualOutput: async (guest, signal) => ports.tools.screenshots.prepareVisualOutput(guest, signal),
+    },
     screenshot: {
       screenshots: ports.tools.screenshots,
       resolveRefRect: (guest, ref, signal) => ports.tools.refPoints.resolveRefRect(guest, ref, signal),
@@ -354,7 +365,11 @@ export function createBrowserEngine(
   const unbind = ports.base.engineLane.bind({
     ctx,
     leases,
-    sink: createEngineEventSink(events, (guest) => state.pageId(guest), () => engaged),
+    sink: createEngineEventSink(
+      events,
+      (guest) => state.pageId(guest),
+      () => engaged
+    ),
     guestAppeared: follow,
     visibilityChanged: (guest) => {
       if (engaged) facts.changed(guest);

@@ -9,6 +9,6 @@ test('a completed draft asset with the same name and size must still match the v
   verifyAssets([uploaded], expected, ['package.zip']);
   assert.throws(
     () => verifyAssets([{ ...uploaded, digest: `sha256:${'b'.repeat(64)}` }], expected, ['package.zip']),
-    /differs from the verified bytes/,
+    /differs from the verified bytes/
   );
 });

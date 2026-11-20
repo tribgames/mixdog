@@ -105,9 +105,16 @@ export async function ensureFilePreviewFile(preview: FilePreviewRecord): Promise
   if (!preview.regenerating) {
     const regenerate = preview.regenerate;
     preview.regenerating = (async () => {
-      if (await access(preview.path).then(() => true, () => false)) return;
+      if (
+        await access(preview.path).then(
+          () => true,
+          () => false
+        )
+      )
+        return;
       const fresh = await regenerate();
-      if (`${fresh.mtimeMs}:${fresh.size}` !== preview.version) throw new Error('The source changed since this preview.');
+      if (`${fresh.mtimeMs}:${fresh.size}` !== preview.version)
+        throw new Error('The source changed since this preview.');
       preview.path = resolve(fresh.path);
       preview.generation += 1;
     })().finally(() => {

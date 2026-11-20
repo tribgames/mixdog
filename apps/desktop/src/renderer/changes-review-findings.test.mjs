@@ -18,7 +18,10 @@ const dom = (t) =>
     rootId: 'root',
   });
 const spacerHeight = (scope) =>
-  [...scope.querySelectorAll('[data-scm-spacer]')].reduce((sum, spacer) => sum + Number.parseFloat(spacer.style.height), 0);
+  [...scope.querySelectorAll('[data-scm-spacer]')].reduce(
+    (sum, spacer) => sum + Number.parseFloat(spacer.style.height),
+    0
+  );
 const FILES = 9000;
 const paths = (count, prefix = 'src/f') => Array.from({ length: count }, (_, index) => `${prefix}${index}.ts`);
 
@@ -78,7 +81,15 @@ async function showDocks(t, sessionId, list, panes = 1, extra = {}) {
           null,
           h(Chip),
           ...Array.from({ length: count }, (_, index) =>
-            h(SessionDiffPane, { key: `pane-${index}`, paneKey: `pane-${index}`, sessionId, cwd, active: true, onClose() {}, ...props })
+            h(SessionDiffPane, {
+              key: `pane-${index}`,
+              paneKey: `pane-${index}`,
+              sessionId,
+              cwd,
+              active: true,
+              onClose() {},
+              ...props,
+            })
           )
         )
       )
@@ -127,7 +138,10 @@ test('1: a dock on a list of only deleted files folds them without a pass over t
   const docks = await showDocks(t, 'f1-deleted', () => paths(FILES).map((path) => ({ path, status: 'D' })), 0);
   const reads = instrument(docks.out.rows);
   await docks.render(1);
-  assert.ok(docks.sections().every((section) => section.dataset.collapsed === 'true'), 'deleted files start folded');
+  assert.ok(
+    docks.sections().every((section) => section.dataset.collapsed === 'true'),
+    'deleted files start folded'
+  );
   assert.ok(reads.count < FILES / 2, `the dock read ${reads.count} row fields`);
 });
 
@@ -173,7 +187,15 @@ test('3: new files arriving keep the focused files-menu row mounted and focused'
   const menu = (files) =>
     h(
       TurnReviewFilesMenu,
-      { sessionId: 'f3-menu', historyTurns: 1, label: 'Uncommitted', title: 'Files', files, onViewChanges() {}, onOpenFile() {} },
+      {
+        sessionId: 'f3-menu',
+        historyTurns: 1,
+        label: 'Uncommitted',
+        title: 'Files',
+        files,
+        onViewChanges() {},
+        onOpenFile() {},
+      },
       'Files'
     );
   await act(async () => view.root.render(menu(filesOf(paths(FILES)))));
@@ -233,7 +255,9 @@ function offsetInViewport(stack, path) {
   let top = 0;
   for (const node of stack.children) {
     if (node.dataset.sessionDiffPath === path) return top - stack.scrollTop;
-    top += node.matches('[data-scm-spacer]') ? Number.parseFloat(node.style.height) : node.getBoundingClientRect().height;
+    top += node.matches('[data-scm-spacer]')
+      ? Number.parseFloat(node.style.height)
+      : node.getBoundingClientRect().height;
   }
   return Number.NaN;
 }
@@ -265,16 +289,30 @@ async function foldedStack(t) {
   const box = mockSectionBoxes(t, view);
   const ref = React.createRef();
   const rows = paths(100).map((path) => ({ id: path, path, status: 'M', parts: [], additions: 1, deletions: 1 }));
-  const render = (list = rows) => act(() => view.root.render(h(SessionDiffStack, {
-    stackRef: ref, rows: list, withPatch: (row) => row, focusRow: null, mode: 'unified',
-    selectedRow: rows[0], isFolded: () => false, onToggle() {}, canRevertPath: () => false, onRevert() {},
-  })));
+  const render = (list = rows) =>
+    act(() =>
+      view.root.render(
+        h(SessionDiffStack, {
+          stackRef: ref,
+          rows: list,
+          withPatch: (row) => row,
+          focusRow: null,
+          mode: 'unified',
+          selectedRow: rows[0],
+          isFolded: () => false,
+          onToggle() {},
+          canRevertPath: () => false,
+          onRevert() {},
+        })
+      )
+    );
   await render();
   const stack = ref.current;
-  const scroll = (top) => act(() => {
-    stack.scrollTop = top;
-    stack.dispatchEvent(new view.window.Event('scroll'));
-  });
+  const scroll = (top) =>
+    act(() => {
+      stack.scrollTop = top;
+      stack.dispatchEvent(new view.window.Event('scroll'));
+    });
   return { view, box, rows, render, stack, scroll };
 }
 
@@ -291,11 +329,16 @@ test('4: a browser clamp after removal above the viewport applies the shrink onl
   const { rows, stack, render, scroll } = await foldedStack(t);
   let requested = 0;
   Object.defineProperties(stack, {
-    scrollHeight: { get: () => spacerHeight(stack) + [...stack.querySelectorAll('.session-diff-section')]
-      .reduce((sum, section) => sum + section.offsetHeight, 0) },
+    scrollHeight: {
+      get: () =>
+        spacerHeight(stack) +
+        [...stack.querySelectorAll('.session-diff-section')].reduce((sum, section) => sum + section.offsetHeight, 0),
+    },
     scrollTop: {
       get: () => Math.min(requested, stack.scrollHeight - stack.clientHeight),
-      set: (value) => { requested = value; },
+      set: (value) => {
+        requested = value;
+      },
     },
   });
   await scroll(stack.scrollHeight - stack.clientHeight);
@@ -346,7 +389,16 @@ test('5: a menu opened empty learns the touch row height once its rows arrive', 
   const menu = (files, ready) =>
     h(
       TurnReviewFilesMenu,
-      { sessionId: 'f5-menu', historyTurns: 1, label: 'Uncommitted', title: 'Files', files, ready, onViewChanges() {}, onOpenFile() {} },
+      {
+        sessionId: 'f5-menu',
+        historyTurns: 1,
+        label: 'Uncommitted',
+        title: 'Files',
+        files,
+        ready,
+        onViewChanges() {},
+        onOpenFile() {},
+      },
       'Files'
     );
   await act(async () => view.root.render(menu(new Map(), false)));
@@ -493,7 +545,14 @@ test('recheck 2: the first task of a parse does not grow with the patch', async 
 test('recheck 3: selecting a late file listed without its patch never scans the listed files', async (t) => {
   dom(t);
   const count = FILES;
-  const listed = paths(count).map((path) => ({ path, status: 'M', additions: 1, deletions: 1, patchOmitted: true, reason: 'too_large' }));
+  const listed = paths(count).map((path) => ({
+    path,
+    status: 'M',
+    additions: 1,
+    deletions: 1,
+    patchOmitted: true,
+    reason: 'too_large',
+  }));
   const reads = { count: 0 };
   const files = new Proxy(listed, {
     get(target, key, receiver) {

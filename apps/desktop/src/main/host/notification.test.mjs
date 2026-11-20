@@ -31,13 +31,20 @@ function build(overrides = {}) {
           this.shown += 1;
           if (overrides.showThrows) throw new Error('show failed');
         },
-        close() { this.closed = (this.closed ?? 0) + 1; },
-        on(event, fn) { listeners.push([toast, event, fn]); },
+        close() {
+          this.closed = (this.closed ?? 0) + 1;
+        },
+        on(event, fn) {
+          listeners.push([toast, event, fn]);
+        },
       };
       calls.toasts.push(toast);
       return toast;
     },
-    playSound: async (volume) => { calls.sounds.push(volume); return 'played'; },
+    playSound: async (volume) => {
+      calls.sounds.push(volume);
+      return 'played';
+    },
     activate: (thread) => calls.activations.push(thread),
     isSupported: () => true,
     idleSeconds: () => 0,
@@ -45,7 +52,8 @@ function build(overrides = {}) {
     ...overrides,
   });
   const show = (params) => handlers.get('host/notification/show')(params);
-  const fire = (toast, event, ...args) => listeners.filter(([t, e]) => t === toast && e === event).forEach(([, , fn]) => fn(...args));
+  const fire = (toast, event, ...args) =>
+    listeners.filter(([t, e]) => t === toast && e === event).forEach(([, , fn]) => fn(...args));
   return { show, calls, sent, fire, closeAll };
 }
 
@@ -55,7 +63,10 @@ test('a click on a local toast brings the window forward on the session it names
   fire(calls.toasts[0], 'click');
   assert.deepEqual(calls.activations, ['th9']);
   assert.deepEqual(sent, [['host/notification/clicked', { threadId: 'th9' }]]);
-  assert.deepEqual(calls.steps.map(([event]) => event), ['turn-notification-requested', 'turn-notification-clicked']);
+  assert.deepEqual(
+    calls.steps.map(([event]) => event),
+    ['turn-notification-requested', 'turn-notification-clicked']
+  );
   assert.deepEqual(calls.steps[1][1], { sessionId: 'th9' });
 });
 
@@ -67,7 +78,7 @@ test('a click on a toast that names no session only brings the window forward', 
   assert.deepEqual(sent, []);
 });
 
-test('a session the pet overlay shows has no toast and no sound; a server\'s toast is not the overlay\'s to hide', () => {
+test("a session the pet overlay shows has no toast and no sound; a server's toast is not the overlay's to hide", () => {
   const { show, calls } = build({ showsThread: (id) => id === 'pet' });
   show({ title: 'T', body: 'B', threadId: 'pet', sound: 'default' });
   assert.equal(calls.toasts.length, 0);
@@ -86,24 +97,36 @@ test('the steps of a toast reach the diagnostics: requested, os-show, sound, clo
   fire(calls.toasts[0], 'close');
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(calls.sounds, [40]);
-  assert.deepEqual(
-    calls.steps.map(([event]) => event).sort(),
-    ['turn-notification-closed', 'turn-notification-failed', 'turn-notification-os-show', 'turn-notification-requested', 'turn-notification-sound'],
-  );
-  assert.deepEqual(calls.steps.find(([event]) => event === 'turn-notification-failed')[1], { sessionId: 'a', error: 'denied' });
+  assert.deepEqual(calls.steps.map(([event]) => event).sort(), [
+    'turn-notification-closed',
+    'turn-notification-failed',
+    'turn-notification-os-show',
+    'turn-notification-requested',
+    'turn-notification-sound',
+  ]);
+  assert.deepEqual(calls.steps.find(([event]) => event === 'turn-notification-failed')[1], {
+    sessionId: 'a',
+    error: 'denied',
+  });
 });
 
 test('a toast the OS cannot show is reported as suppressed, and one that cannot be built as failed', () => {
   const unsupported = build({ isSupported: () => false });
   unsupported.show({ title: 'T', body: 'B', threadId: 'a' });
   assert.equal(unsupported.calls.toasts.length, 0);
-  assert.deepEqual(unsupported.calls.steps, [['turn-notification-suppressed', { sessionId: 'a', reason: 'unsupported' }]]);
-  const broken = build({ createNotification: () => { throw new Error('no toast'); } });
+  assert.deepEqual(unsupported.calls.steps, [
+    ['turn-notification-suppressed', { sessionId: 'a', reason: 'unsupported' }],
+  ]);
+  const broken = build({
+    createNotification: () => {
+      throw new Error('no toast');
+    },
+  });
   broken.show({ title: 'T', body: 'B', threadId: 'a' });
   assert.deepEqual(broken.calls.steps, [['turn-notification-failed', { sessionId: 'a', error: 'no toast' }]]);
 });
 
-test('the test notification is worded in this PC\'s language and an unsupported host shows nothing', () => {
+test("the test notification is worded in this PC's language and an unsupported host shows nothing", () => {
   const words = build({ translate: (key) => `de:${key}` });
   words.show({ title: 'Mixdog', body: TEST_NOTIFICATION_BODY });
   assert.deepEqual(words.calls.toasts[0].content, { title: 'Mixdog', body: `de:${TEST_NOTIFICATION_BODY}` });
@@ -120,16 +143,26 @@ test('a toast whose show fails is reported and plays no sound; a failing sound l
   broken.show({ title: 'T', body: 'B', threadId: 'a', sound: 'soft-rise' });
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(broken.calls.sounds, []);
-  assert.deepEqual(broken.calls.steps.map(([event]) => event), ['turn-notification-requested', 'turn-notification-failed']);
+  assert.deepEqual(
+    broken.calls.steps.map(([event]) => event),
+    ['turn-notification-requested', 'turn-notification-failed']
+  );
 
-  const mute = build({ playSound: async () => { throw new Error('no audio device'); } });
+  const mute = build({
+    playSound: async () => {
+      throw new Error('no audio device');
+    },
+  });
   mute.show({ title: 'T', body: 'B', threadId: 'a', sound: 'soft-rise' });
   mute.fire(mute.calls.toasts[0], 'show');
   await new Promise((resolve) => setImmediate(resolve));
   mute.fire(mute.calls.toasts[0], 'click');
   assert.deepEqual(mute.calls.activations, ['a']);
   assert.deepEqual(mute.sent, [['host/notification/clicked', { threadId: 'a' }]]);
-  assert.deepEqual(mute.calls.steps.find(([event]) => event === 'turn-notification-sound-failed')[1], { sessionId: 'a', error: 'no audio device' });
+  assert.deepEqual(mute.calls.steps.find(([event]) => event === 'turn-notification-sound-failed')[1], {
+    sessionId: 'a',
+    error: 'no audio device',
+  });
 });
 
 test('closing a banner reports it and opens nothing; quitting closes the toasts still held', () => {

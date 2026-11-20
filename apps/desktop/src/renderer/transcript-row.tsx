@@ -32,7 +32,11 @@ import {
 } from './streaming-markdown';
 import StreamingMarkdownBody from './StreamingMarkdownBody';
 import { dropStreamFadeTimeline, type StreamFadeTimeline, streamFadeTimeline } from './markdown-stream-fade';
-import { preloadSyncMarkdownParser, subscribeSyncMarkdownParser, syncMarkdownParserLoad } from './markdown-worker-client';
+import {
+  preloadSyncMarkdownParser,
+  subscribeSyncMarkdownParser,
+  syncMarkdownParserLoad,
+} from './markdown-worker-client';
 import { CopyControl } from './transcript-primitives';
 import { noteStreamCommit } from './transcript-stream-metrics';
 import { REVEAL_JOIN_CHARS, useTranscriptTextReveal } from './use-transcript-text-reveal';
@@ -135,8 +139,7 @@ function useStreamFade(
   useSyncExternalStore(subscribe, version, version);
   const now = performance.now();
   const pass = timeline ? timeline.read(text, now, revision, !streaming) : null;
-  const live =
-    streaming || (timeline ? timeline.owes(text.length) || timeline.visibleUntil(now) > 0 : false);
+  const live = streaming || (timeline ? timeline.owes(text.length) || timeline.visibleUntil(now) > 0 : false);
   const [, fadeEnded] = useState(0);
   useLayoutEffect(() => {
     if (timeline && pass) timeline.commit(pass);
@@ -464,7 +467,11 @@ export const TranscriptRow = memo(
     // streaming presentation, then ends in one commit.
     const streamedHere = useRef(false);
     if (assistant && item.streaming) streamedHere.current = true;
-    const parserLoad = useSyncExternalStore(subscribeSyncMarkdownParser, syncMarkdownParserLoad, syncMarkdownParserLoad);
+    const parserLoad = useSyncExternalStore(
+      subscribeSyncMarkdownParser,
+      syncMarkdownParserLoad,
+      syncMarkdownParserLoad
+    );
     const ending = streamedHere.current && !item.streaming;
     if (ending && typeof parserLoad === 'object') throw parserLoad.error;
     const streaming = Boolean(item.streaming) || (ending && parserLoad !== 'ready');
@@ -526,7 +533,9 @@ export const TranscriptRow = memo(
     const text = user ? userTranscriptDisplayText(item) : String(item.text || '');
     if (user && isTranscriptCancelledStatusText(text)) {
       const cause = isProcessRestartStatusText(text) ? 'restart' : undefined;
-      return <CompletionStatus item={{ kind: 'turndone', status: 'cancelled', cause, elapsedMs: 0 } as TranscriptItem} />;
+      return (
+        <CompletionStatus item={{ kind: 'turndone', status: 'cancelled', cause, elapsedMs: 0 } as TranscriptItem} />
+      );
     }
     if (!isVisibleTranscriptItem(item)) return null;
     const gitRequest = user ? parseIslandGitRequestText(text) : null;

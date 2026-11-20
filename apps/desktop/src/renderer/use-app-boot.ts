@@ -1,10 +1,6 @@
 import { startTransition, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { preloadAgentPool } from './AgentActivityPane';
-import {
-  loadOnboardingWizardModule,
-  loadSidebarPanelModule,
-  type SidebarPanelKey,
-} from './app-shell-components';
+import { loadOnboardingWizardModule, loadSidebarPanelModule, type SidebarPanelKey } from './app-shell-components';
 import {
   preloadSessionGoalIsland,
   preloadUtilityDock,

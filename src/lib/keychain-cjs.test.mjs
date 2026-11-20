@@ -154,7 +154,11 @@ test('win32 getSecret remembers an absent secret for one run: one disk access fo
     // Another program stores the entry and publishes no secrets marker.
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, 'x');
-    assert.equal(keychain.hasSecret('acct'), true, 'an entry created outside this process is seen without an invalidation');
+    assert.equal(
+      keychain.hasSecret('acct'),
+      true,
+      'an entry created outside this process is seen without an invalidation'
+    );
   } finally {
     fs.readFileSync = realRead;
     Object.defineProperty(process, 'platform', realPlatform);

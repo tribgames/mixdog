@@ -17,7 +17,11 @@ test('no capability accepts more arguments than its protocol method declares', (
     const max = CAPABILITY_ARITY[capability]?.[1];
     if (max === undefined || max === 0) continue;
     try {
-      routeCapability(capability, Array.from({ length: max }, () => 'x'), 'thread-1');
+      routeCapability(
+        capability,
+        Array.from({ length: max }, () => 'x'),
+        'thread-1'
+      );
     } catch (error) {
       if (/takes at most/.test(String(error?.message))) tooMany.push(`${capability}: ${error.message}`);
     }
@@ -52,7 +56,11 @@ test('no terminal UI store_call passes more arguments than its protocol method d
       const args = content ? count + 1 : 0;
       seen += 1;
       try {
-        resolveAction(match[1], Array.from({ length: args }, () => 'x'), { threadId: 'thread-1' });
+        resolveAction(
+          match[1],
+          Array.from({ length: args }, () => 'x'),
+          { threadId: 'thread-1' }
+        );
       } catch (error) {
         if (/takes at most/.test(String(error?.message))) tooMany.push(`${name}: ${error.message}`);
       }

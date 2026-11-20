@@ -75,7 +75,10 @@ test('a raised card shows and its answer reaches the core', () => {
   subscribeBrowserApprovals(client, (prompt, answer) => seen.push({ prompt, answer }));
   client.emit({ type: 'serverRequest', request: browserRequest('r1', { url: 'u' }) });
   client.emit({ type: 'serverRequest', request: { id: 'other', method: 'item/tool/requestApproval', params: {} } });
-  assert.deepEqual(seen.map((s) => s.prompt.id), ['held', 'r1']);
+  assert.deepEqual(
+    seen.map((s) => s.prompt.id),
+    ['held', 'r1']
+  );
   assert.equal(seen[1].answer('deny', 'because'), true);
   assert.deepEqual(client.responses, [{ id: 'r1', answer: { result: { approved: false, reason: 'because' } } }]);
 });
@@ -98,7 +101,11 @@ test('an answer that cannot leave reports false', () => {
 test('the core resolving a request elsewhere closes its card; stopping closes the rest', () => {
   const client = fakeClient();
   const closed = [];
-  const stop = subscribeBrowserApprovals(client, () => undefined, (id) => closed.push(id));
+  const stop = subscribeBrowserApprovals(
+    client,
+    () => undefined,
+    (id) => closed.push(id)
+  );
   client.emit({ type: 'serverRequest', request: browserRequest('r1') });
   client.emit({ type: 'serverRequest', request: browserRequest('r2') });
   client.emit({ type: 'serverRequestResolved', params: { threadId: 't1', requestId: 'r1', resolution: {} } });
@@ -113,7 +120,11 @@ test('a dropped connection closes the cards; the core offers them again after th
   const client = fakeClient();
   const opened = [];
   const closed = [];
-  subscribeBrowserApprovals(client, (prompt) => opened.push(prompt.id), (id) => closed.push(id));
+  subscribeBrowserApprovals(
+    client,
+    (prompt) => opened.push(prompt.id),
+    (id) => closed.push(id)
+  );
   client.emit({ type: 'serverRequest', request: browserRequest('r1') });
   client.emit({ type: 'status', status: { state: 'reconnecting', attempt: 0 } });
   assert.deepEqual(closed, ['r1']);

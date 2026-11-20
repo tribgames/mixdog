@@ -13,13 +13,13 @@ import type { BrowserCredentialFillResult, createBrowserCredentialFill } from '.
 import type { CredentialVault, VaultLoginSummary } from './credential-vault';
 import type { LinkedSignIn } from './linked-sign-in';
 import type { LinkedSignInStore } from './linked-sign-in-store';
-import {
-  type BrowserCredentialSuggestion,
-  type BrowserHistoryEntry,
-  type BrowserImportRequest,
-  type BrowserImportResult,
-  type BrowserImportSource,
-  type BrowserProfileImportService,
+import type {
+  BrowserCredentialSuggestion,
+  BrowserHistoryEntry,
+  BrowserImportRequest,
+  BrowserImportResult,
+  BrowserImportSource,
+  BrowserProfileImportService,
 } from './profile-import';
 import {
   chromeLockHeld,

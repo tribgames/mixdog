@@ -8,8 +8,19 @@ import { connect, sessionReducer } from '../../../../packages/protocol-client/sr
 import { MockNetwork } from '../../../../packages/protocol-client/src/mock.ts';
 import { adapter } from './remote-protocol-capabilities.ts';
 
-const protocolOptions = JSON.parse(readFileSync(new URL('../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8'));
-const row = (id) => ({ id, preview: '', title: '', updatedAt: 1, messageCount: 0, cwd: '/w', classification: {}, projectPath: null });
+const protocolOptions = JSON.parse(
+  readFileSync(new URL('../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8')
+);
+const row = (id) => ({
+  id,
+  preview: '',
+  title: '',
+  updatedAt: 1,
+  messageCount: 0,
+  cwd: '/w',
+  classification: {},
+  projectPath: null,
+});
 
 async function phoneClient(voice) {
   const net = new MockNetwork();
@@ -32,9 +43,15 @@ async function phoneClient(voice) {
       const request = JSON.parse(await conn.nextSent());
       sent.push(request);
       if (request.method === 'thread/start') {
-        conn.serverSend({ id: request.id, result: { thread: row('control'), subscription: { id: 's1', mode: 'snapshot', epoch: 'e0', startSeq: 1 } } });
+        conn.serverSend({
+          id: request.id,
+          result: { thread: row('control'), subscription: { id: 's1', mode: 'snapshot', epoch: 'e0', startSeq: 1 } },
+        });
       } else if (request.method === 'thread/read') {
-        conn.serverSend({ id: request.id, result: { thread: row(request.params.threadId), items: [], state: {}, hasOlder: false } });
+        conn.serverSend({
+          id: request.id,
+          result: { thread: row(request.params.threadId), items: [], state: {}, hasOlder: false },
+        });
       } else if (request.method === 'voice/getVoiceStatus') {
         conn.serverSend({ id: request.id, result: voice });
       } else conn.serverSend({ id: request.id, result: {} });
@@ -48,7 +65,10 @@ test('a capability no other group claims is answered over the protocol, not reje
   const host = { ctx: {}, client: () => client, declareLane() {} };
   const answer = await adapter.calls.invokeCapability([{ capability: 'getVoiceStatus', args: [] }], host);
   assert.equal(answer.value.installed, true, 'the composer shows the microphone from this value');
-  assert.ok(sent.some((request) => request.method === 'voice/getVoiceStatus'), `the core was asked: ${sent.map((request) => request.method)}`);
+  assert.ok(
+    sent.some((request) => request.method === 'voice/getVoiceStatus'),
+    `the core was asked: ${sent.map((request) => request.method)}`
+  );
 });
 
 test('the delegation-mode control and the composer reads are answered, so their placeholders settle', async () => {
@@ -58,7 +78,10 @@ test('the delegation-mode control and the composer reads are answered, so their 
     const before = sent.length;
     const answer = await adapter.calls.invokeCapability([{ capability, args: [] }], host);
     assert.ok('value' in answer, `${capability} answers the page`);
-    assert.ok(sent.slice(before).some((request) => !/^thread\//.test(request.method)), `${capability} reached the core: ${sent.slice(before).map((r) => r.method)}`);
+    assert.ok(
+      sent.slice(before).some((request) => !/^thread\//.test(request.method)),
+      `${capability} reached the core: ${sent.slice(before).map((r) => r.method)}`
+    );
   }
 });
 
@@ -83,7 +106,10 @@ test('what the desktop refuses to a remote client, or malformed, is refused befo
   await refused({ capability: 'setAgentPermission', args: ['agent', 'tool', 'allow'] }, /standing allow/);
   await refused({ capability: 'setDeveloperOption', args: ['allowAllActions', true] }, /Allow all actions/);
   // A capability's own rule: a retry names the addressed session.
-  await refused({ capability: 'retryFailedTurn', args: ['sess_a', 'turn-1'], sessionId: 'sess_b' }, /retry session must match/);
+  await refused(
+    { capability: 'retryFailedTurn', args: ['sess_a', 'turn-1'], sessionId: 'sess_b' },
+    /retry session must match/
+  );
 });
 
 test('the other permission modes and turning the option off are not refused', async () => {
@@ -103,10 +129,15 @@ test('a project path is absolute in either syntax on the phone, the host platfor
   const { isAbsolute } = await import('node:path');
   const { requiredDesktopCapabilityRequest } = await import('../main/ipc-capability-request.ts');
   const skills = (projectPath) => ({ capability: 'skillsStatus', args: [{ projectPath }] });
-  const phone = async (projectPath) => adapter.calls.invokeCapability([skills(projectPath)], { ctx: {}, client: () => ({}), declareLane() {} });
+  const phone = async (projectPath) =>
+    adapter.calls.invokeCapability([skills(projectPath)], { ctx: {}, client: () => ({}), declareLane() {} });
   for (const path of ['C:/work', 'C:\\work', '/work']) {
     // The phone's rule takes either syntax (it gets as far as the client, which is not a real one here).
-    await assert.rejects(() => phone(path), (error) => !/projectPath is invalid/.test(error.message), path);
+    await assert.rejects(
+      () => phone(path),
+      (error) => !/projectPath is invalid/.test(error.message),
+      path
+    );
   }
   await assert.rejects(() => phone('work'), /projectPath is invalid/);
   for (const path of ['C:/work', '/work', 'work']) {

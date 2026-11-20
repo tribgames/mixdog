@@ -144,7 +144,10 @@ export class ServerUploadCoordinator {
 
   constructor(link: UploadLink, options: { clock?: UploadClock; deadlineMs?: number } = {}) {
     this.#link = link;
-    this.#clock = options.clock ?? { setTimeout: (run, ms) => setTimeout(run, ms), clearTimeout: (h) => clearTimeout(h as never) };
+    this.#clock = options.clock ?? {
+      setTimeout: (run, ms) => setTimeout(run, ms),
+      clearTimeout: (h) => clearTimeout(h as never),
+    };
     this.#deadlineMs = options.deadlineMs ?? UPLOAD_CALL_DEADLINE_MS;
     this.#stopWatching = link.onEvent((event) => {
       if (event.type !== 'status') return;
@@ -173,7 +176,8 @@ export class ServerUploadCoordinator {
     // Everything an upload is sized by is what this connection's core advertised at `initialize`; one that did not state it
     // (or stated nonsense) cannot be uploaded to, and says so at setup.
     const limits = client.server?.limits ?? {};
-    const positive = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+    const positive = (value: unknown): value is number =>
+      typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
     const { maxInboundFrameBytes: frame, maxBlobPutChunkBytes: chunk, maxUploadInFlightBytes: offered } = limits;
     let problem: string | null = null;
     if (!positive(frame) || frame <= ENVELOPE_BYTES) problem = 'The server did not state a usable frame size.';
@@ -184,7 +188,8 @@ export class ServerUploadCoordinator {
       retired: false,
       windowBytes: positive(offered) ? Math.min(offered, SERVER_UPLOAD_ALLOWANCE_MAX_BYTES) : 0,
       // The advertised chunk, and never a frame the client's own bound refuses.
-      chunkBytes: positive(frame) && positive(chunk) ? Math.min(chunk, Math.floor((frame - ENVELOPE_BYTES) / 4) * 3) : 0,
+      chunkBytes:
+        positive(frame) && positive(chunk) ? Math.min(chunk, Math.floor((frame - ENVELOPE_BYTES) / 4) * 3) : 0,
       problem,
       outstanding: 0,
       ring: [],
@@ -281,7 +286,8 @@ export class ServerUploadCoordinator {
   /** A begin the server answered for an owner that is gone: the transfer it names is aborted, not installed. */
   #abortRemote(gen: Generation, reply: unknown): void {
     const id = (reply as { uploadId?: unknown } | null)?.uploadId;
-    if (typeof id === 'string' && !gen.retired) void this.#call(gen, 'transfer/abort', { transferId: id }).promise.catch(() => undefined);
+    if (typeof id === 'string' && !gen.retired)
+      void this.#call(gen, 'transfer/abort', { transferId: id }).promise.catch(() => undefined);
   }
 
   async begin(owner: object, name: string, size: number, scope: string): Promise<UploadBegun> {
@@ -369,7 +375,8 @@ export class ServerUploadCoordinator {
       if (!(bytes instanceof Uint8Array) || bytes.length === 0 || bytes.length > upload.chunkBytes) {
         throw new TypeError('upload chunk is invalid.');
       }
-      if (offset !== upload.nextOffset || offset + bytes.length > upload.size) throw new TypeError('upload offset is invalid.');
+      if (offset !== upload.nextOffset || offset + bytes.length > upload.size)
+        throw new TypeError('upload offset is invalid.');
       if (upload.queued.length + upload.flights.size >= upload.inFlightChunks) {
         throw new TypeError('too many upload chunks are waiting.');
       }
@@ -500,7 +507,10 @@ export class ServerUploadCoordinator {
   }
 
   /** Completes an upload whose chunks were all answered. */
-  async commit(owner: object, uploadId: string): Promise<{ absolutePath: string; name: string; dir: boolean; size: number }> {
+  async commit(
+    owner: object,
+    uploadId: string
+  ): Promise<{ absolutePath: string; name: string; dir: boolean; size: number }> {
     const upload = this.#find(owner, uploadId);
     if (upload.closed || upload.committing) throw new Error('The upload is gone: it was cancelled or failed.');
     if (upload.failure) throw upload.failure.error;

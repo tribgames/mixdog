@@ -29,7 +29,11 @@ export function shellRecords(file, lines) {
     if (!ok) continue;
     const id = ['shell', file, ok[1]];
     const reasons = failed.get(ok[1]);
-    records.push(reasons ? { kind: 'case', id, status: 'fail', reasonText: reasons.join('; ') } : { kind: 'case', id, status: 'pass' });
+    records.push(
+      reasons
+        ? { kind: 'case', id, status: 'fail', reasonText: reasons.join('; ') }
+        : { kind: 'case', id, status: 'pass' }
+    );
   }
   return records;
 }
@@ -48,7 +52,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const file = relative(ROOT, resolve(script)).split(sep).join('/');
   const child = spawn('bash', [resolve(script)], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   const lines = [];
-  for (const [stream, out] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
+  for (const [stream, out] of [
+    [child.stdout, process.stdout],
+    [child.stderr, process.stderr],
+  ]) {
     let rest = '';
     stream.on('data', (chunk) => {
       out.write(chunk);

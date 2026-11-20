@@ -8,7 +8,11 @@ test("a terminal reveal reaches the phone's listeners, well-formed only, once pe
   const { api, push, settle } = await adapterWorld();
   const runs = [];
   const off = api.onTerminalRunRequested((request) => runs.push(request));
-  const reveal = { sessionId: 's1', terminalId: 'session-terminal:s1:2', tabs: [{ id: 'session-terminal:s1:2', tab: 2 }] };
+  const reveal = {
+    sessionId: 's1',
+    terminalId: 'session-terminal:s1:2',
+    tabs: [{ id: 'session-terminal:s1:2', tab: 2 }],
+  };
   const open = (params) => push('ui/openRequested', { kind: 'terminal', ...params });
 
   await open(reveal);

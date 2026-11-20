@@ -15,19 +15,35 @@ const pgvector = { version: '0.8.2' };
 const platforms = ['linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64', 'win32-x64'].map((key) => {
   const [os, arch] = key.split('-');
   const script = { linux: 'linux.sh', darwin: 'macos.sh', win32: 'windows.ps1' }[os];
-  const buildHash = createHash('sha256').update(readFileSync(`scripts/build-runtime-${script}`)).digest('hex');
+  const buildHash = createHash('sha256')
+    .update(readFileSync(`scripts/build-runtime-${script}`))
+    .digest('hex');
   const suffix = `${key}-pg${pgVersion}-pgvector${pgvector.version}`;
-  return { key, os, arch, buildHash, tar: `mixdog-runtime-${suffix}.tar.gz`, marker: `build-success-${suffix}-${buildHash}.marker` };
+  return {
+    key,
+    os,
+    arch,
+    buildHash,
+    tar: `mixdog-runtime-${suffix}.tar.gz`,
+    marker: `build-success-${suffix}-${buildHash}.marker`,
+  };
 });
 
 const runtimeTag = /^runtime-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-if (!runtimeTag.test(tag ?? '') || !/^[a-f0-9]{40}$/.test(ref ?? '')) throw new Error('Expected a runtime tag and gated commit SHA');
+if (!runtimeTag.test(tag ?? '') || !/^[a-f0-9]{40}$/.test(ref ?? ''))
+  throw new Error('Expected a runtime tag and gated commit SHA');
 const releases = listReleases(repo);
-const remoteCommit = (name) => execFileSync('git', ['ls-remote', '--refs', 'origin', `refs/tags/${name}`], { encoding: 'utf8' }).trim().split(/\s+/)[0];
+const remoteCommit = (name) =>
+  execFileSync('git', ['ls-remote', '--refs', 'origin', `refs/tags/${name}`], { encoding: 'utf8' })
+    .trim()
+    .split(/\s+/)[0];
 function belongsToCommit(name, state) {
   const remote = remoteCommit(name);
-  return (!remote || remote === ref) && (state.state !== 'public' || remote === ref)
-    && (!state.release || state.release.target_commitish === ref);
+  return (
+    (!remote || remote === ref) &&
+    (state.state !== 'public' || remote === ref) &&
+    (!state.release || state.release.target_commitish === ref)
+  );
 }
 
 function requireCommit(name, state) {
@@ -42,8 +58,12 @@ function plan() {
   const current = releaseState(releases, tag);
   const force = process.env.FORCE_REBUILD === 'true';
   const refresh = process.env.REFRESH_MANIFEST === 'true';
-  const unchanged = tag === shipped && current.state === 'public'
-    && platforms.every(({ marker }) => current.release.assets.some((asset) => asset.name === marker && asset.state === 'uploaded'));
+  const unchanged =
+    tag === shipped &&
+    current.state === 'public' &&
+    platforms.every(({ marker }) =>
+      current.release.assets.some((asset) => asset.name === marker && asset.state === 'uploaded')
+    );
   let selected = tag;
   let mode = 'skip';
   let refreshCommit = '';
@@ -54,12 +74,19 @@ function plan() {
     }
     mode = 'refresh';
   } else if (force || !unchanged) {
-    ({ tag: selected, mode } = selectRuntimeRelease({ requested: tag, shipped, inspect: (candidate) => {
-      const state = releaseState(releases, candidate);
-      return { state: state.state, belongsToCommit: belongsToCommit(candidate, state) };
-    } }));
+    ({ tag: selected, mode } = selectRuntimeRelease({
+      requested: tag,
+      shipped,
+      inspect: (candidate) => {
+        const state = releaseState(releases, candidate);
+        return { state: state.state, belongsToCommit: belongsToCommit(candidate, state) };
+      },
+    }));
   }
-  appendFileSync(process.env.GITHUB_OUTPUT, `tag=${selected}\nmode=${mode}\nhas_builds=${mode === 'build'}\nrefresh_commit=${refreshCommit}\n`);
+  appendFileSync(
+    process.env.GITHUB_OUTPUT,
+    `tag=${selected}\nmode=${mode}\nhas_builds=${mode === 'build'}\nrefresh_commit=${refreshCommit}\n`
+  );
 }
 
 function writeJson(file, value) {
@@ -87,14 +114,25 @@ async function publish() {
     if (readFileSync(sidecar, 'utf8').trim().split(/\s+/)[0].toLowerCase() !== hash) {
       throw new Error(`${tar} does not match its smoked checksum`);
     }
-    manifest.assets[key] = { url: `https://github.com/${repo}/releases/download/${tag}/${tar}`, sha256: hash, size: record.size };
+    manifest.assets[key] = {
+      url: `https://github.com/${repo}/releases/download/${tag}/${tar}`,
+      sha256: hash,
+      size: record.size,
+    };
     if (mode === 'refresh') {
       expected.push(record, await recordFile(sidecar));
       continue;
     }
     const markerPath = join('dist', marker);
-    writeJson(markerPath, { build_hash: buildHash, pg_version: pgVersion, pgvector_version: pgvector.version,
-      built_at: generated, commit_sha: ref, os, arch });
+    writeJson(markerPath, {
+      build_hash: buildHash,
+      pg_version: pgVersion,
+      pgvector_version: pgvector.version,
+      built_at: generated,
+      commit_sha: ref,
+      os,
+      arch,
+    });
     files.push(archive, sidecar, markerPath);
     expected.push(record, await recordFile(sidecar), await recordFile(markerPath));
   }
@@ -106,7 +144,11 @@ async function publish() {
     process.env.RELEASE_ID = String(state.release.id);
     readRelease(false, state.release.target_commitish);
     const names = expected.map(({ name }) => name);
-    verifyAssets(readAssets().filter(({ name }) => names.includes(name) || /^mixdog-runtime-/.test(name)), expected, names);
+    verifyAssets(
+      readAssets().filter(({ name }) => names.includes(name) || /^mixdog-runtime-/.test(name)),
+      expected,
+      names
+    );
     if (remoteCommit(tag) !== commit) throw new Error(`${tag} moved during verification`);
     writeJson(manifestPath, manifest);
     return;

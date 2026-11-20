@@ -9,7 +9,13 @@ import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-import { BROWSER_BOUND_DROP_GUARD_INSTALL, BROWSER_BOUND_DROP_GUARD_TAKE, BROWSER_DROP_GUARD_AIM, BROWSER_DROP_GUARD_INSTALL, BROWSER_DROP_GUARD_TAKE } from './file-drop.ts';
+import {
+  BROWSER_BOUND_DROP_GUARD_INSTALL,
+  BROWSER_BOUND_DROP_GUARD_TAKE,
+  BROWSER_DROP_GUARD_AIM,
+  BROWSER_DROP_GUARD_INSTALL,
+  BROWSER_DROP_GUARD_TAKE,
+} from './file-drop.ts';
 import { BROWSER_DOCUMENT_ROOTS } from './documents.ts';
 import { BROWSER_EDITABILITY_CHECK } from './editability.ts';
 import { BROWSER_FRAME_HAS_TRANSFORM } from './frame-transform.ts';
@@ -84,7 +90,7 @@ test('ref-rect asset equals the rect function and the ref expression', () => {
 
 test('scroll-text asset equals the match and apply expressions', () => {
   const parts = sections('scroll-text.js');
-  for (const wanted of ['Hello World', 'quote " and \ slash']) {
+  for (const wanted of ['Hello World', 'quote " and  slash']) {
     assert.equal(
       fill(parts.browserScrollTextMatchExpression, {
         __MIXDOG_DOCUMENT_ROOTS__: BROWSER_DOCUMENT_ROOTS,
@@ -101,7 +107,12 @@ test('scroll-text asset equals the match and apply expressions', () => {
 
 test('visual-locator asset equals the expression for every query and maximum', () => {
   const text = asset('visual-locator.js');
-  for (const [query, maximum] of [['Red Button', 20], ['  파란 버튼 ', 3], ['', 500], ['x', 0]]) {
+  for (const [query, maximum] of [
+    ['Red Button', 20],
+    ['  파란 버튼 ', 3],
+    ['', 500],
+    ['x', 0],
+  ]) {
     const clamped = Math.min(50, Math.max(1, Math.trunc(maximum)));
     assert.equal(
       fill(text, {

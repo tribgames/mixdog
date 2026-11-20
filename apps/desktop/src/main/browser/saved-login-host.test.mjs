@@ -53,9 +53,18 @@ function computerHost(answer) {
 const host = (options = {}) => {
   const worker = computerHost(options.answer ?? (() => ({ ok: true, result: { action: 'fill_saved_login' } })));
   const state = { on: options.on ?? true, worker, ...vault() };
-  return { state, host: createSavedLoginHost({ autoSignIn: () => state.on, credentials: state.credentials, worker, text }) };
+  return {
+    state,
+    host: createSavedLoginHost({ autoSignIn: () => state.on, credentials: state.credentials, worker, text }),
+  };
 };
-const ask = (turn = 7, extra = {}) => ({ turn_id: turn, origin: ORIGIN, account: 'j•••e@example.com', field: 'password', ...extra });
+const ask = (turn = 7, extra = {}) => ({
+  turn_id: turn,
+  origin: ORIGIN,
+  account: 'j•••e@example.com',
+  field: 'password',
+  ...extra,
+});
 
 test('a value is handed over only for an admitted fill, once per lookup, and nothing is kept', async () => {
   const { state, host: saved } = host();
@@ -90,7 +99,10 @@ test('the lookup is for the exact secure origin of the fill', async () => {
   await assert.rejects(saved.value('s1', ask(7, { origin: 'https://user:pw@login.example.com' })), /secure origin/);
   await assert.rejects(saved.value('s1', ask(7, { origin: 'not a url' })), /secure origin/);
   assert.deepEqual(state.lookups, []);
-  await assert.rejects(saved.value('s1', ask(7, { origin: 'https://evil.example.com/login' })), /no saved login for this origin/);
+  await assert.rejects(
+    saved.value('s1', ask(7, { origin: 'https://evil.example.com/login' })),
+    /no saved login for this origin/
+  );
   assert.deepEqual(state.lookups, [{ url: 'https://evil.example.com', account: 'j•••e@example.com' }]);
   // A page address is reduced to its origin before the vault is asked.
   assert.equal((await saved.value('s1', ask(7, { origin: `${ORIGIN}/signin?next=%2Fhome` }))).origin, ORIGIN);
@@ -119,7 +131,13 @@ test('a request that names no session, turn, field or account is refused', async
 
 test('releasing a turn ends it and the older turns of that session only', async () => {
   const { host: saved } = host();
-  for (const [session, turn] of [['s1', 1], ['s1', 2], ['s1', 3], ['s2', 1]]) saved.admit(session, { turn_id: turn });
+  for (const [session, turn] of [
+    ['s1', 1],
+    ['s1', 2],
+    ['s1', 3],
+    ['s2', 1],
+  ])
+    saved.admit(session, { turn_id: turn });
   saved.release('s1', { turn_id: 2 });
   await assert.rejects(saved.value('s1', ask(1)), /not admitted/);
   await assert.rejects(saved.value('s1', ask(2)), /not admitted/);
@@ -127,7 +145,13 @@ test('releasing a turn ends it and the older turns of that session only', async 
   assert.equal((await saved.value('s2', ask(1))).value, PASSWORD);
 });
 const TARGET = { window_id: 'hwnd:0x1', pid: '4242', origin: ORIGIN };
-const step = (extra = {}) => ({ turn_id: 7, window_id: 'hwnd:0x1', account: 'j•••e@example.com', field: 'password', ...extra });
+const step = (extra = {}) => ({
+  turn_id: 7,
+  window_id: 'hwnd:0x1',
+  account: 'j•••e@example.com',
+  field: 'password',
+  ...extra,
+});
 
 test('a worker step is the computer host fill command of an admitted fill, and its response comes back as it is', async () => {
   const answer = (command) =>
@@ -139,7 +163,10 @@ test('a worker step is the computer host fill command of an admitted fill, and i
   assert.deepEqual(state.worker.commands, [], 'an unadmitted fill reaches no computer host');
   saved.admit('s1', { turn_id: 7 });
   assert.deepEqual(await saved.check('s1', step()), { ok: true, result: { saved_login_target: TARGET } });
-  assert.deepEqual(await saved.type('s1', step({ text: PASSWORD, expected: TARGET })), { ok: false, error: 'field changed' });
+  assert.deepEqual(await saved.type('s1', step({ text: PASSWORD, expected: TARGET })), {
+    ok: false,
+    error: 'field changed',
+  });
   assert.deepEqual(state.worker.commands, [
     {
       action: 'fill_saved_login',

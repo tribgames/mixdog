@@ -16,7 +16,10 @@ const exec = promisify(execFile);
 export async function artifactPath(root, path) {
   const target = await realpath(path);
   const location = relative(await realpath(root), target);
-  assert.ok(location && !isAbsolute(location) && location.split(sep)[0] !== '..', `${path} resolves outside ${root}: ${target}`);
+  assert.ok(
+    location && !isAbsolute(location) && location.split(sep)[0] !== '..',
+    `${path} resolves outside ${root}: ${target}`
+  );
   return target;
 }
 
@@ -43,9 +46,15 @@ function start(program, args, options) {
   let stdout = '';
   let stderr = '';
   let error;
-  child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout = (stdout + chunk).slice(-8192); });
-  child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr = (stderr + chunk).slice(-8192); });
-  child.on('error', (cause) => { error = cause; });
+  child.stdout.setEncoding('utf8').on('data', (chunk) => {
+    stdout = (stdout + chunk).slice(-8192);
+  });
+  child.stderr.setEncoding('utf8').on('data', (chunk) => {
+    stderr = (stderr + chunk).slice(-8192);
+  });
+  child.on('error', (cause) => {
+    error = cause;
+  });
   const done = new Promise((settled) => {
     child.once('close', (code, signal) => settled({ code, signal, error, stdout, stderr }));
   });
@@ -55,9 +64,12 @@ function start(program, args, options) {
 async function deadline(promise, ms, message) {
   let timer;
   try {
-    return await Promise.race([promise, new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), ms);
-    })]);
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
   } finally {
     clearTimeout(timer);
   }
@@ -67,7 +79,9 @@ async function forceStop({ child, done }, options) {
   if (child.pid && child.exitCode === null && child.signalCode === null) {
     if (windows) {
       await exec(join(options.env.SystemRoot, 'System32', 'taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], {
-        ...options, windowsHide: true, timeout: 10_000,
+        ...options,
+        windowsHide: true,
+        timeout: 10_000,
       });
     } else {
       try {
@@ -85,7 +99,11 @@ async function run(program, args, options) {
   try {
     const result = await deadline(process.done, 20_000, `${basename(program)} did not exit`);
     assert.ifError(result.error);
-    assert.equal(result.code, 0, `${basename(program)} failed (${result.signal ?? result.code})\n${process.diagnostics()}`);
+    assert.equal(
+      result.code,
+      0,
+      `${basename(program)} failed (${result.signal ?? result.code})\n${process.diagnostics()}`
+    );
     return result.stdout;
   } finally {
     await forceStop(process, options);
@@ -114,7 +132,12 @@ async function serving(runtime, core) {
         if (record) return record;
       }
     };
-    return await Promise.race([ready(), core.done.then(() => { throw new Error('packaged core exited before serving'); })]);
+    return await Promise.race([
+      ready(),
+      core.done.then(() => {
+        throw new Error('packaged core exited before serving');
+      }),
+    ]);
   } catch (error) {
     throw new Error(`packaged core did not become ready\n${core.diagnostics()}`, { cause: error });
   } finally {
@@ -164,9 +187,17 @@ export async function withPackagedCore(resources, version, check) {
   const temp = join(root, 'tmp');
   const env = {
     ...(windows ? { SystemRoot: process.env.SystemRoot } : {}),
-    HOME: home, USERPROFILE: home, APPDATA: home, LOCALAPPDATA: home,
-    XDG_CONFIG_HOME: home, XDG_DATA_HOME: home, XDG_CACHE_HOME: home, XDG_RUNTIME_DIR: runtime,
-    TMPDIR: temp, TMP: temp, TEMP: temp,
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: home,
+    LOCALAPPDATA: home,
+    XDG_CONFIG_HOME: home,
+    XDG_DATA_HOME: home,
+    XDG_CACHE_HOME: home,
+    XDG_RUNTIME_DIR: runtime,
+    TMPDIR: temp,
+    TMP: temp,
+    TEMP: temp,
     MIXDOG_ROOT: source,
     MIXDOG_HOME: home,
     MIXDOG_CONFIG_DIR: home,
@@ -224,16 +255,21 @@ export async function withPackagedCore(resources, version, check) {
       const launchers = join(data, 'skill-launchers');
       const installs = await readdir(launchers);
       assert.equal(installs.length, 1, 'the isolated core must generate one set of skill launchers');
-      const launcher = await artifactFile(launchers, join(launchers, installs[0], `mixdog-skill-node${windows ? '.cmd' : ''}`));
+      const launcher = await artifactFile(
+        launchers,
+        join(launchers, installs[0], `mixdog-skill-node${windows ? '.cmd' : ''}`)
+      );
       if (!windows) return run(launcher, args, { ...options, env: skillEnv });
       // Expand into quoted cmd arguments so the batch file has to forward %*.
       // The separate PowerShell carrier would skip the batch forwarding path.
       const values = [launcher, ...args];
       const names = values.map((_, i) => `MIXDOG_ARTIFACT_ARG_${i}`);
-      const command = `\"${names.map((name) => `\"%${name}%\"`).join(' ')}\"`;
+      const command = `"${names.map((name) => `"%${name}%"`).join(' ')}"`;
       const commandEnv = Object.fromEntries(names.map((name, i) => [name, values[i]]));
       return run(join(env.SystemRoot, 'System32', 'cmd.exe'), ['/d', '/s', '/v:off', '/c', command], {
-        ...options, env: { ...skillEnv, ...commandEnv }, windowsVerbatimArguments: true,
+        ...options,
+        env: { ...skillEnv, ...commandEnv },
+        windowsVerbatimArguments: true,
       });
     };
     await check({ call, program, source, workspace, copyFixture, runGuardedSkill, launchSkill });

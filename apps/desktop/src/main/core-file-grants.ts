@@ -10,7 +10,11 @@ export interface CoreFileGrants {
   /** `grant: false` describes a chat link's path: a file outside every Project is addressed as its own folder's file
    *  with no token, so nothing is granted. The picker and drop keep their one-off grants. */
   describe(paths: unknown, grant?: boolean): Promise<DesktopLocalPathEntry[]>;
-  requireGrant(accessToken: unknown, projectPath: unknown, relPath: unknown): Promise<{ root: string; rel: string; absolute: string }>;
+  requireGrant(
+    accessToken: unknown,
+    projectPath: unknown,
+    relPath: unknown
+  ): Promise<{ root: string; rel: string; absolute: string }>;
 }
 
 type Invoke = <T>(name: string, args: unknown[]) => Promise<T>;
@@ -35,7 +39,11 @@ export function createCoreFileGrants(invoke: Invoke): CoreFileGrants {
     },
     async requireGrant(accessToken, projectPath, relPath) {
       const token = requiredString(accessToken, 'file access token', 128);
-      return call('grantRedeem', [token, requiredString(projectPath, 'projectPath'), requiredString(relPath, 'relPath')]);
+      return call('grantRedeem', [
+        token,
+        requiredString(projectPath, 'projectPath'),
+        requiredString(relPath, 'relPath'),
+      ]);
     },
   };
 }

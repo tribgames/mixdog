@@ -70,7 +70,8 @@ export const STREAM_FRAME_PROBE = `
 
 function opacities(runs) {
   const out = [];
-  for (const [offset, length, opacity] of runs ?? []) for (let index = 0; index < length; index += 1) out[offset + index] = opacity;
+  for (const [offset, length, opacity] of runs ?? [])
+    for (let index = 0; index < length; index += 1) out[offset + index] = opacity;
   return out;
 }
 

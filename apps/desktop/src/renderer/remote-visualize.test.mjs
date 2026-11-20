@@ -47,7 +47,13 @@ test('a media pane is read in bounded ranges into a blob URL', async () => {
   await withPhoneApi(
     {
       visualizePaneFile: () => ({ kind: 'image', mime: 'image/png', size: 3, mtimeMs: 1, rel: 'out/chart.png' }),
-      visualizePaneRange: () => ({ data: Buffer.from('png').toString('base64'), mime: 'image/png', offset: 0, size: 3, mtimeMs: 1 }),
+      visualizePaneRange: () => ({
+        data: Buffer.from('png').toString('base64'),
+        mime: 'image/png',
+        offset: 0,
+        size: 3,
+        mtimeMs: 1,
+      }),
     },
     async ({ ctx, api, calls }) => {
       ctx.peerVisualize = true;
@@ -75,7 +81,13 @@ test('a page is read once per host content identity, on its own pairing only', a
   await withPhoneApi(
     {
       visualizePaneFile: () => meta,
-      visualizePaneRange: () => ({ data: Buffer.from(bytes).toString('base64'), mime: 'text/html', offset: 0, size: bytes.length, mtimeMs: 1 }),
+      visualizePaneRange: () => ({
+        data: Buffer.from(bytes).toString('base64'),
+        mime: 'text/html',
+        offset: 0,
+        size: bytes.length,
+        mtimeMs: 1,
+      }),
     },
     async ({ ctx, api, calls }) => {
       ctx.peerVisualize = true;
@@ -86,7 +98,14 @@ test('a page is read once per host content identity, on its own pairing only', a
       // Size and mtime never change here: only the content identity tells pages apart.
       const serve = async (contentId, read) => {
         const before = calls.length;
-        meta = { kind: 'html', mime: 'text/html', size: 60, mtimeMs: 1, rel: 'page.html', ...(contentId ? { contentId } : {}) };
+        meta = {
+          kind: 'html',
+          mime: 'text/html',
+          size: 60,
+          mtimeMs: 1,
+          rel: 'page.html',
+          ...(contentId ? { contentId } : {}),
+        };
         bytes = read ?? '';
         const source = await api.visualizePaneSource('s1', 'v5', 0);
         return { ...source, calls: calls.length - before };
@@ -126,11 +145,24 @@ test('a page is read once per host content identity, on its own pairing only', a
 
 test('a pane over the remote size cap is refused before any byte moves', async () => {
   await withPhoneApi(
-    { visualizePaneFile: () => ({ kind: 'video', mime: 'video/mp4', size: 65 * 1024 * 1024, mtimeMs: 1, rel: 'clip.mp4' }), visualizePaneRange: () => ({}) },
+    {
+      visualizePaneFile: () => ({
+        kind: 'video',
+        mime: 'video/mp4',
+        size: 65 * 1024 * 1024,
+        mtimeMs: 1,
+        rel: 'clip.mp4',
+      }),
+      visualizePaneRange: () => ({}),
+    },
     async ({ ctx, api, calls }) => {
       ctx.peerVisualize = true;
       await assert.rejects(api.visualizePaneSource('s1', 'v2', 0), /too large/);
-      assert.deepEqual(calls.map((call) => call.method), ['visualizePaneFile'], 'no range was requested');
+      assert.deepEqual(
+        calls.map((call) => call.method),
+        ['visualizePaneFile'],
+        'no range was requested'
+      );
     }
   );
 });

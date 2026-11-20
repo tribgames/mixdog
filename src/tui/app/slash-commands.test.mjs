@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeSlashCommandName, overlayBlocksGlobalTranscriptScroll, slashArgumentHint } from './slash-commands.mjs';
+import {
+  normalizeSlashCommandName,
+  overlayBlocksGlobalTranscriptScroll,
+  slashArgumentHint,
+} from './slash-commands.mjs';
 
 test('a command name resolves through its aliases, and an unknown one stays as typed', () => {
   assert.equal(normalizeSlashCommandName('clear'), 'clear');

@@ -12,7 +12,7 @@ import { withPhoneApi } from './test-support/phone-api-rig.mjs';
 // read by that reader and only then fanned out, is NOT held: nothing carries the push today. Node's other check there
 // (`if (!authenticated) return`, "clear relay hints cannot change pin preferences") has no counterpart: the phone's relay connector opens every
 // frame that is not one of the relay's own words as a sealed one (apps/mobile/src/relay-connector.ts `handle`).
-test('paired web pins: the two calls go out under Node\'s names and parameters; a pins listener is called while subscribed (delivery is not covered)', async () => {
+test("paired web pins: the two calls go out under Node's names and parameters; a pins listener is called while subscribed (delivery is not covered)", async () => {
   const initial = { pins: ['projects', 'sessions'], revision: 1 };
   const saved = { pins: ['search', 'projects'], revision: 2 };
   const handlers = { readActivityRailPins: () => initial, updateActivityRailPins: () => saved };

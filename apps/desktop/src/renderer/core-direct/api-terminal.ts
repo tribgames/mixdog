@@ -11,7 +11,12 @@ import { routeDesktopNotification, routeDesktopOperation } from '../../shared/co
 import { termActivity } from '../../shared/core-lanes/section-reads';
 import { readTerminalActivityEvent, type TerminalActivityEvent } from '../../shared/terminal-activity';
 import { attachNeedsRedraw, TerminalFeedPositions, type TerminalFeedPosition } from '../../shared/terminal-feed-reader';
-import { createTerminalOutputDecoder, terminalActivityChanges, terminalReply, terminalSizeOwnerChanges } from '../../shared/terminal-protocol';
+import {
+  createTerminalOutputDecoder,
+  terminalActivityChanges,
+  terminalReply,
+  terminalSizeOwnerChanges,
+} from '../../shared/terminal-protocol';
 import { requiredString } from '../../shared/scm-input';
 import type { TerminalSizeOwner, TerminalSizeOwnerEvent } from '../../shared/terminal-size-owner';
 import { TerminalDataBufferer, type TerminalDataEvent } from './terminal-data-buffer';
@@ -152,8 +157,9 @@ export function createTerminalApi(ctx: DirectContext): Pick<DesktopApi, DirectKe
       return;
     }
     if (event.type !== 'notification') return;
-    const { method, params, feed } = (event as { notification: { method: string; params?: unknown; feed?: { id: string } } })
-      .notification;
+    const { method, params, feed } = (
+      event as { notification: { method: string; params?: unknown; feed?: { id: string } } }
+    ).notification;
     if (method === 'ui/openRequested') {
       const open = params as ({ kind?: unknown; sessionId?: unknown } & Record<string, unknown>) | undefined;
       if (open?.kind !== 'terminal' || typeof open.sessionId !== 'string' || !open.sessionId) return;
@@ -178,7 +184,8 @@ export function createTerminalApi(ctx: DirectContext): Pick<DesktopApi, DirectKe
   connection.onReplaced(reattach);
 
   // The activity and size owner are read from the sections the connection holds each time one changes.
-  const sectionValue = (name: 'terminalActivity' | 'terminalTabs'): unknown => connection.protocolClient()?.store.section(name, null)?.value;
+  const sectionValue = (name: 'terminalActivity' | 'terminalTabs'): unknown =>
+    connection.protocolClient()?.store.section(name, null)?.value;
   const activity = new Map<string, unknown>();
   const owners = new Map<string, TerminalSizeOwner>();
   connection.onStoreChange((change) => {

@@ -7,7 +7,8 @@ test('a tab resumes from the last stamp noted; a value that is not a stamp leave
   assert.equal(positions.resumeFrom('t1'), undefined);
   positions.note('t1', { id: 'process:t1', epoch: 'e1', seq: 4 });
   positions.note('t1', { id: 'process:t1', epoch: 'e1', seq: 5, from: 5 });
-  for (const bad of [undefined, null, 'x', { epoch: 'e1' }, { epoch: '', seq: 1 }, { epoch: 'e1', seq: Number.NaN }]) positions.note('t1', bad);
+  for (const bad of [undefined, null, 'x', { epoch: 'e1' }, { epoch: '', seq: 1 }, { epoch: 'e1', seq: Number.NaN }])
+    positions.note('t1', bad);
   assert.deepEqual(positions.resumeFrom('t1'), { epoch: 'e1', seq: 5 });
   assert.equal(positions.resumeFrom('t2'), undefined);
   positions.forget('t1');

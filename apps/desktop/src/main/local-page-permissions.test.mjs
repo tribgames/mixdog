@@ -78,7 +78,9 @@ test('a file token goes to the core with the path the renderer named, never a br
   const h = harness(t);
   const sender = owner();
   await h.run(DESKTOP_IPC.localPageUrl, sender, ROOT, 'page.html', 'selected-secret-token');
-  assert.deepEqual(h.pageCalls(), [['localPageUrlIn', [ROOT, 'page.html', 'selected-secret-token', windowIdFor(sender)]]]);
+  assert.deepEqual(h.pageCalls(), [
+    ['localPageUrlIn', [ROOT, 'page.html', 'selected-secret-token', windowIdFor(sender)]],
+  ]);
   assert.equal(h.hostCalls.length, 0, 'a token must not ask for project authority');
 });
 
@@ -126,4 +128,3 @@ test('a closed owner gets no URL, and closing one owner revokes only its pages',
   assert.deepEqual(revokes, [['localPageRevokeOwner', [windowIdFor(first)]]]);
   await assert.rejects(h.run(DESKTOP_IPC.localPageUrl, first, ROOT, 'c.html'), LocalAccessDeniedError);
 });
-

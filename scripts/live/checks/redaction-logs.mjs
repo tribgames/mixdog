@@ -10,7 +10,8 @@ const MAX_BYTES = 32 * 1024 * 1024;
 const TEXT_EXT = new Set(['.log', '.txt', '.err', '.out', '.jsonl', '.json', '']);
 /** Files that hold credentials by design and are not logs. */
 const NOT_LOGS = new Set(['daemon.json', 'mixdog-config.json', 'source.json']);
-const REDACTED = /^(?:\[?<?\*{3,}>?\]?|\[?redacted\]?|<redacted>|null|undefined|true|false|none|\$\{?\w+\}?|%\w+%|x{4,})$/i;
+const REDACTED =
+  /^(?:\[?<?\*{3,}>?\]?|\[?redacted\]?|<redacted>|null|undefined|true|false|none|\$\{?\w+\}?|%\w+%|x{4,})$/i;
 const PATTERNS = [
   ['private key', /-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----/],
   ['sk- key', /\bsk-[A-Za-z0-9_-]{20,}/],
@@ -18,7 +19,10 @@ const PATTERNS = [
   ['aws key id', /\bAKIA[0-9A-Z]{16}\b/],
   ['bearer token', /\bBearer\s+([A-Za-z0-9._~+/=-]{20,})/i],
   ['url credentials', /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:([^\s/@]{3,})@/i],
-  ['secret assignment', /\b(?:pass(?:word|wd|phrase)?|secret|token|api[_-]?key|private[_-]?key)["']?\s*[:=]\s*["']?([^\s"',;&}\]]{8,})/i],
+  [
+    'secret assignment',
+    /\b(?:pass(?:word|wd|phrase)?|secret|token|api[_-]?key|private[_-]?key)["']?\s*[:=]\s*["']?([^\s"',;&}\]]{8,})/i,
+  ],
 ];
 
 /** Kinds of secret found in one line; `literals` are exact secrets of this run. */
@@ -53,7 +57,12 @@ function* files(dir, depth = 0) {
 /** The folders that hold the instance's logs and crash captures. */
 export function logRoots(env) {
   const { info } = env;
-  const roots = [join(info.dataDir, 'daemon-crash'), join(info.dataDir, 'logs'), join(info.profile, 'logs'), join(info.profile, 'runtime')];
+  const roots = [
+    join(info.dataDir, 'daemon-crash'),
+    join(info.dataDir, 'logs'),
+    join(info.profile, 'logs'),
+    join(info.profile, 'runtime'),
+  ];
   return [...new Set(roots)].filter((r) => existsSync(r));
 }
 
@@ -101,17 +110,24 @@ export function scanFiles(paths, literals) {
 }
 
 export async function run({ env }) {
-  const tokens = Object.values(env.doc?.endpoints ?? {}).map((e) => e?.token).filter((t) => typeof t === 'string' && t.length >= 8);
+  const tokens = Object.values(env.doc?.endpoints ?? {})
+    .map((e) => e?.token)
+    .filter((t) => typeof t === 'string' && t.length >= 8);
   const roots = logRoots(env);
   const all = new Set(logFiles(env));
   for (const root of roots) for (const f of files(root)) all.add(f);
   const { findings, scannedFiles, scannedLines } = scanFiles([...all], tokens);
   const lower = [...all].map((f) => f.toLowerCase());
-  const coverage = ['ssh', 'browser', 'computer'].map((path) => `${path}:${lower.some((f) => f.includes(path)) ? 'own log' : 'core log only'}`).join(' ');
+  const coverage = ['ssh', 'browser', 'computer']
+    .map((path) => `${path}:${lower.some((f) => f.includes(path)) ? 'own log' : 'core log only'}`)
+    .join(' ');
   const capture = existsSync(join(env.info.dataDir, 'daemon-crash')) ? 'present' : 'absent';
   const summary = `${scannedFiles} files, ${scannedLines} lines under ${roots.length} folders and beside the core and launcher; crash capture dir ${capture}; paths ${coverage}`;
   if (findings.length) {
-    const shown = findings.slice(0, 20).map((f) => `${f.file}:${f.line} ${f.kind}`).join('; ');
+    const shown = findings
+      .slice(0, 20)
+      .map((f) => `${f.file}:${f.line} ${f.kind}`)
+      .join('; ');
     throw new Error(`${findings.length} secret findings (${shown}); ${summary}`);
   }
   return `no secrets found; ${summary}`;

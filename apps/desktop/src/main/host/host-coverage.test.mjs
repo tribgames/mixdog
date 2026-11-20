@@ -55,13 +55,22 @@ function served() {
     computer: {
       mirror: createComputerPresence({ notifyPointerReleased() {}, now: () => 1 }),
       permissions: { read: () => ({}), request() {} },
-      environment: { ready: new Promise(() => {}), sources: () => ({ power: new EventEmitter(), screen: new EventEmitter() }) },
+      environment: {
+        ready: new Promise(() => {}),
+        sources: () => ({ power: new EventEmitter(), screen: new EventEmitter() }),
+      },
       desktopHostScreen: () => null,
       desktopHostCommand: () => null,
       computerSwitch: createComputerSwitch(true),
     },
     updater: { check: async () => ({}), getState: () => ({}), confirmBusy: async () => false, install: async () => {} },
-    notifications: { createNotification() {}, playSound: async () => {}, activate() {}, isSupported: () => true, idleSeconds: () => 0 },
+    notifications: {
+      createNotification() {},
+      playSound: async () => {},
+      activate() {},
+      isSupported: () => true,
+      idleSeconds: () => 0,
+    },
     windows: { open: async () => true, close() {}, focus() {} },
   });
   return connection.servedMethods();
@@ -70,14 +79,21 @@ function served() {
 // A notification with delivery 'app' (host/state/updated: the hostState section) goes to every app client through the
 // section machinery, not to the host role, so only requests and connection-delivered notifications need a host handler.
 const hostMethods = (rows) =>
-  rows.filter((row) => row.delivery !== 'app').map((row) => row.method).filter((method) => method.startsWith('host/'));
+  rows
+    .filter((row) => row.delivery !== 'app')
+    .map((row) => row.method)
+    .filter((method) => method.startsWith('host/'));
 
 test('every host/* server request and notification in the method table has a desktop handler', () => {
   const servedMethods = new Set(served());
   const missing = [...hostMethods(methodTable.serverRequests), ...hostMethods(methodTable.serverNotifications)].filter(
     (method) => !servedMethods.has(method) && !(method in PENDING)
   );
-  assert.deepEqual(missing, [], `host methods with no handler (add one, or list it in PENDING with its task id): ${missing.join(', ')}`);
+  assert.deepEqual(
+    missing,
+    [],
+    `host methods with no handler (add one, or list it in PENDING with its task id): ${missing.join(', ')}`
+  );
 });
 
 test('a PENDING entry names a task and still lacks its handler', () => {

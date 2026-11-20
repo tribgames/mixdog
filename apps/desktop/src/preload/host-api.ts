@@ -19,7 +19,13 @@ export interface HostApiDeps {
   browserTexture: ReturnType<typeof createBrowserTextureBridge>;
 }
 
-export function createHostApi({ invokeIpc, subscribeIpc, ipcRenderer, webUtils, browserTexture }: HostApiDeps): DesktopHostApi {
+export function createHostApi({
+  invokeIpc,
+  subscribeIpc,
+  ipcRenderer,
+  webUtils,
+  browserTexture,
+}: HostApiDeps): DesktopHostApi {
   // Listening starts with the preload, not with the renderer's first effect: a
   // click that reveals a window still loading must not be lost to that gap.
   const notificationOpenSessions = createHeldChannel<string>();
@@ -73,7 +79,8 @@ export function createHostApi({ invokeIpc, subscribeIpc, ipcRenderer, webUtils, 
         return '';
       }
     },
-    resolveLocalPaths: (paths, sessionId, options) => invokeIpc(DESKTOP_IPC.resolveLocalPaths, paths, sessionId, options),
+    resolveLocalPaths: (paths, sessionId, options) =>
+      invokeIpc(DESKTOP_IPC.resolveLocalPaths, paths, sessionId, options),
     listServerDirectories: (path, includeHidden) =>
       invokeIpc(DESKTOP_IPC.listServerDirectories, path, includeHidden === true),
     serverUploadBegin: (name, size, scope) => invokeIpc(DESKTOP_IPC.serverUploadBegin, name, size, scope),
@@ -270,7 +277,6 @@ export function createHostApi({ invokeIpc, subscribeIpc, ipcRenderer, webUtils, 
       void invokeIpc(DESKTOP_IPC.observeSignIn, { capability, args }, value).catch(() => {});
     },
     invokePcQuotaCapability: (request: DesktopCapabilityRequest) => invokeIpc(DESKTOP_IPC.pcQuotaInvoke, request),
-    readPcQuotaCapabilities: (requests: DesktopCapabilityReadRequest[]) =>
-      invokeIpc(DESKTOP_IPC.pcQuotaRead, requests),
+    readPcQuotaCapabilities: (requests: DesktopCapabilityReadRequest[]) => invokeIpc(DESKTOP_IPC.pcQuotaRead, requests),
   };
 }

@@ -210,7 +210,8 @@ test('what is queued for a page that closed is dropped at the flush: no seq is t
   // The page closes, and the host's own entry about it is queued afterwards (the debugger that could not come up).
   gone.add('p1');
   const text = 'x'.repeat(30_000);
-  for (let n = 0; n < 20; n += 1) events.push('p1', { method: 'Mixdog.internalConsole', params: { level: 'error', text } });
+  for (let n = 0; n < 20; n += 1)
+    events.push('p1', { method: 'Mixdog.internalConsole', params: { level: 'error', text } });
   events.push('p2', { method: 'Log.entryAdded', params: { n: 1 } });
   // The scheduled flush is a timer callback: a throw from it is an uncaught exception of the process.
   assert.doesNotThrow(() => {

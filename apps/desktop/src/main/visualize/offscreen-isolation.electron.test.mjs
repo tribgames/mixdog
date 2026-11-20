@@ -55,45 +55,41 @@ const wrote = (state, tag) => {
   assert.equal(state.caches, `c-${tag}`);
 };
 
-test(
-  'off-screen renders and snapshots keep origin-scoped storage to themselves and reuse page-server connections',
-  // Like the lane's other suites: the Linux CI lanes have no display server.
-  { timeout: 150_000, skip: process.platform !== 'win32' && 'Windows only' },
-  async () => {
-    const result = await runFixture();
-    // The writes took: what follows is isolation, not storage that never worked.
-    wrote(result.written, 'A');
-    wrote(result.overlapWritten, 'W');
-    assert.deepEqual(result.laterOther, NOTHING, 'another artifact rendered later');
-    assert.deepEqual(result.laterSame, NOTHING, 'the same artifact rendered again');
-    assert.deepEqual(result.overlapping, NOTHING, 'another artifact rendered while the writer is open');
+test('off-screen renders and snapshots keep origin-scoped storage to themselves and reuse page-server connections', // Like the lane's other suites: the Linux CI lanes have no display server.
+{ timeout: 150_000, skip: process.platform !== 'win32' && 'Windows only' }, async () => {
+  const result = await runFixture();
+  // The writes took: what follows is isolation, not storage that never worked.
+  wrote(result.written, 'A');
+  wrote(result.overlapWritten, 'W');
+  assert.deepEqual(result.laterOther, NOTHING, 'another artifact rendered later');
+  assert.deepEqual(result.laterSame, NOTHING, 'the same artifact rendered again');
+  assert.deepEqual(result.overlapping, NOTHING, 'another artifact rendered while the writer is open');
 
-    // Two network-allowed renders visiting one external site: the second
-    // carries none of the first's cookies, by request or in script.
-    const { external } = result;
-    const fromB = external.seen.filter(({ tag }) => tag === 'B');
-    assert.equal(fromB.length, 4, JSON.stringify(external.seen));
-    for (const { path, cookie } of fromB) assert.doesNotMatch(cookie, /-A=/, `render B's ${path} carried ${cookie}`);
-    assert.doesNotMatch(String(external.visitB.frameCookies), /-A=/, 'render B read render A cookies in script');
+  // Two network-allowed renders visiting one external site: the second
+  // carries none of the first's cookies, by request or in script.
+  const { external } = result;
+  const fromB = external.seen.filter(({ tag }) => tag === 'B');
+  assert.equal(fromB.length, 4, JSON.stringify(external.seen));
+  for (const { path, cookie } of fromB) assert.doesNotMatch(cookie, /-A=/, `render B's ${path} carried ${cookie}`);
+  assert.doesNotMatch(String(external.visitB.frameCookies), /-A=/, 'render B read render A cookies in script');
 
-    // Another open render's origin is no address for a worker: not for a
-    // dedicated one (judged as its page) nor a shared one (no window at all).
-    const { workers } = result;
-    assert.equal(workers.own, 200, 'a dedicated worker fetches from its own page');
-    assert.match(String(workers.dedicated), /^refused/, `dedicated worker got ${workers.dedicated}`);
-    assert.match(String(workers.shared), /^refused/, `shared worker got ${workers.shared}`);
-    assert.match(workers.serviceWorker, /^rejected/, 'no service worker registers');
+  // Another open render's origin is no address for a worker: not for a
+  // dedicated one (judged as its page) nor a shared one (no window at all).
+  const { workers } = result;
+  assert.equal(workers.own, 200, 'a dedicated worker fetches from its own page');
+  assert.match(String(workers.dedicated), /^refused/, `dedicated worker got ${workers.dedicated}`);
+  assert.match(String(workers.shared), /^refused/, `shared worker got ${workers.shared}`);
+  assert.match(workers.serviceWorker, /^rejected/, 'no service worker registers');
 
-    // A page load opens up to 6 connections; one that stays per render was
-    // the leak (each one's socket outlived it in the network service).
-    assert.ok(
-      result.thumbnailConnections <= 6,
-      `${result.renders} renders opened ${result.thumbnailConnections} page-server connections`
-    );
+  // A page load opens up to 6 connections; one that stays per render was
+  // the leak (each one's socket outlived it in the network service).
+  assert.ok(
+    result.thumbnailConnections <= 6,
+    `${result.renders} renders opened ${result.thumbnailConnections} page-server connections`
+  );
 
-    assert.ok(result.snapshotState, 'the second snapshot reported what it found');
-    wrote(result.snapshotState.after, 'artifact-b');
-    assert.deepEqual(result.snapshotState.before, NOTHING, 'a snapshot of another project after one that wrote');
-    assert.equal(result.snapshotPicture, 'data:image/png;base64,');
-  }
-);
+  assert.ok(result.snapshotState, 'the second snapshot reported what it found');
+  wrote(result.snapshotState.after, 'artifact-b');
+  assert.deepEqual(result.snapshotState.before, NOTHING, 'a snapshot of another project after one that wrote');
+  assert.equal(result.snapshotPicture, 'data:image/png;base64,');
+});

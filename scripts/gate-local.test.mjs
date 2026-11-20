@@ -27,7 +27,7 @@ async function stubbedCheckout(t) {
     'test-failure-summary.mjs',
   ])
     await copyFile(join(here, 'lib', name), join(root, 'scripts', 'lib', name));
-  for (const name of ['check-changelog-locales','check-model-recommendations'])
+  for (const name of ['check-changelog-locales', 'check-model-recommendations'])
     await writeFile(join(root, 'scripts', `${name}.mjs`), '');
   // Stand-in for scripts/test.mjs: `--list` prints one file of the selected
   // lane in the real runner's `<lane> <file>` form, so every lane gets a
@@ -116,7 +116,7 @@ test('concurrent gate runs keep separate log dirs, and a start sweeps only stale
     assert.equal(printed.length, 6, run.stdout);
     const names = await readdir(logDirs[index]);
     assert.equal(names.length, 6);
-    assert.ok(names.includes("packages.log"), "the package typecheck has a recorded gate result");
+    assert.ok(names.includes('packages.log'), 'the package typecheck has a recorded gate result');
     for (const path of printed)
       assert.ok(path.startsWith(logDirs[index]) && names.includes(path.split(/[\\/]/).at(-1)));
   }

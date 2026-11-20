@@ -167,8 +167,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const loading = status === null;
   const busyAny = Boolean(busy);
   const flowLive = flowState === 'pending' || flowState === 'code';
-  const canConnect =
-    typeof host?.githubCliLoginStart === 'function' && typeof host.githubCliLoginCancel === 'function';
+  const canConnect = typeof host?.githubCliLoginStart === 'function' && typeof host.githubCliLoginCancel === 'function';
   const cli = cliStatusView(loading, status);
 
   // Same grammar as every other Extensions card: sections of item rows whose

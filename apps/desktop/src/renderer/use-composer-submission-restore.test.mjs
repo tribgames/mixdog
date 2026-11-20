@@ -5,7 +5,11 @@ import { createRoot } from 'react-dom/client';
 
 import { installTestDom } from './test-support/test-dom.mjs';
 
-installTestDom(null, { html: '<html><body></body></html>', jsdom: { url: 'https://mixdog.test/' }, expose: ['sessionStorage', 'navigator'] });
+installTestDom(null, {
+  html: '<html><body></body></html>',
+  jsdom: { url: 'https://mixdog.test/' },
+  expose: ['sessionStorage', 'navigator'],
+});
 
 const { applyPromptRestore, useComposerPromptRestore } = await import('./use-composer-prompt-restore.ts');
 const {
@@ -38,20 +42,49 @@ test('a reply after the notification inserts nothing; a notification after the r
 test('a reply without an id, or for submissions this composer never sent, is applied as before', () => {
   const submission = nextComposerSubmissionId();
   const applied = new Map();
-  assert.equal(restoreAlreadyApplied({ restoreText: 'draft', restoredSubmissionIds: [submission] }, 's1', applied), false);
-  assert.equal(restoreAlreadyApplied({ restoreText: 'draft', restoreId: 'restore-1-other', restoredSubmissionIds: ['other'] }, 's1', applied), false);
-  assert.equal(restoreAlreadyApplied({ restoreText: 'draft', restoreId: 'restore-1-other', restoredSubmissionIds: ['other'] }, 's1', applied), false);
+  assert.equal(
+    restoreAlreadyApplied({ restoreText: 'draft', restoredSubmissionIds: [submission] }, 's1', applied),
+    false
+  );
+  assert.equal(
+    restoreAlreadyApplied(
+      { restoreText: 'draft', restoreId: 'restore-1-other', restoredSubmissionIds: ['other'] },
+      's1',
+      applied
+    ),
+    false
+  );
+  assert.equal(
+    restoreAlreadyApplied(
+      { restoreText: 'draft', restoreId: 'restore-1-other', restoredSubmissionIds: ['other'] },
+      's1',
+      applied
+    ),
+    false
+  );
 });
 
 test('an applied offer still held in its session state is not inserted again after many other restores and a revisit', () => {
   const heldSubmission = nextComposerSubmissionId();
-  const held = { id: `restore-1-${heldSubmission}`, ids: [heldSubmission], text: 'held prompt', device: 'desktop-1', at: 1 };
+  const held = {
+    id: `restore-1-${heldSubmission}`,
+    ids: [heldSubmission],
+    text: 'held prompt',
+    device: 'desktop-1',
+    at: 1,
+  };
   assert.equal(applyPromptRestore(held, '', 's-held'), 'held prompt');
   // 200 other restores, all of one submission minted here, so the held submission stays this device's own.
   const otherSubmission = nextComposerSubmissionId();
   for (let index = 0; index < 200; index += 1) {
     const session = `s-other-${index}`;
-    const other = { id: `restore-${index}-${otherSubmission}`, ids: [otherSubmission], text: 'other', device: 'desktop-1', at: index };
+    const other = {
+      id: `restore-${index}-${otherSubmission}`,
+      ids: [otherSubmission],
+      text: 'other',
+      device: 'desktop-1',
+      at: index,
+    };
     assert.equal(applyPromptRestore(other, '', session), 'other');
   }
   assert.ok(wasSubmittedHere(heldSubmission), 'ownership alone would apply it again');
@@ -137,7 +170,13 @@ test('a Stop of a submission whose input read is pending puts the prompt back on
         // The core published the Stop's hand-back for this device, then refused the start with the typed stop outcome.
         submit: async (_content, options) => {
           submitted = options.id;
-          setPromptRestore({ id: `restore-5-${submitted}`, ids: [submitted], text: 'my prompt', device: 'desktop-1', at: 5 });
+          setPromptRestore({
+            id: `restore-5-${submitted}`,
+            ids: [submitted],
+            text: 'my prompt',
+            device: 'desktop-1',
+            at: 5,
+          });
           throw Object.assign(new Error('The turn was stopped before it started.'), { code: 'ETURNSTOPPED' });
         },
         abort: async () => ({}),

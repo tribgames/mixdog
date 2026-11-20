@@ -43,9 +43,15 @@ test('a host without browserParity leaves the pane on its single stream', async 
 
 test('a browserParity host exposes tabs, history, saved logins and import over their own methods', async () => {
   const handlers = Object.fromEntries(
-    ['browserRemoteTabs', 'browserRemoteTabOpen', 'browserRemoteTabClose', 'browserHistorySearch', 'browserCredentialSuggestions', 'browserCredentialFill', 'browserProfileImportSources'].map(
-      (method) => [method, () => method]
-    )
+    [
+      'browserRemoteTabs',
+      'browserRemoteTabOpen',
+      'browserRemoteTabClose',
+      'browserHistorySearch',
+      'browserCredentialSuggestions',
+      'browserCredentialFill',
+      'browserProfileImportSources',
+    ].map((method) => [method, () => method])
   );
   await withPhoneApi(handlers, async ({ ctx, api, calls }) => {
     ctx.peerBrowserParity = true;
@@ -57,7 +63,11 @@ test('a browserParity host exposes tabs, history, saved logins and import over t
       ['browserRemoteTabClose', ['main-browser-a'], () => api.remoteBrowserCloseTab('main-browser-a')],
       ['browserHistorySearch', ['ex'], () => api.browserHistorySearch('ex')],
       ['browserCredentialSuggestions', ['main-browser-a'], () => api.browserCredentialSuggestions('main-browser-a')],
-      ['browserCredentialFill', ['main-browser-a', 'a'.repeat(24)], () => api.browserCredentialFill('main-browser-a', 'a'.repeat(24))],
+      [
+        'browserCredentialFill',
+        ['main-browser-a', 'a'.repeat(24)],
+        () => api.browserCredentialFill('main-browser-a', 'a'.repeat(24)),
+      ],
       ['browserProfileImportSources', undefined, () => api.browserProfileImportSources()],
     ];
     for (const [method, params, invoke] of expected) {

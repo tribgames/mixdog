@@ -14,16 +14,24 @@ function builtTargets(dir, targets) {
     mkdirSync(join(dir, target, 'release'), { recursive: true });
     const name = target.includes('windows') ? 'mixdogd.exe' : 'mixdogd';
     writeFileSync(join(dir, target, 'release', name), `binary for ${target}`);
-    writeFileSync(join(dir, target, 'release', target.includes('windows') ? 'mixdog-askpass.exe' : 'mixdog-askpass'), `askpass for ${target}`);
+    writeFileSync(
+      join(dir, target, 'release', target.includes('windows') ? 'mixdog-askpass.exe' : 'mixdog-askpass'),
+      `askpass for ${target}`
+    );
   }
 }
 
 /** A JS runtime payload stand-in: the layout of stage-js-bundle.mjs with placeholder contents. */
-const fakePayload = (js = 'node') => async ({ key, payloadDir }) => {
-  mkdirSync(join(payloadDir, 'js'), { recursive: true });
-  writeFileSync(join(payloadDir, 'js', 'node'), `${js} for ${key}`);
-  writeFileSync(join(payloadDir, 'js-runtime.json'), '{"program":"js/node","packageRoot":"js/pkg/node_modules/mixdog","electron":false}\n');
-};
+const fakePayload =
+  (js = 'node') =>
+  async ({ key, payloadDir }) => {
+    mkdirSync(join(payloadDir, 'js'), { recursive: true });
+    writeFileSync(join(payloadDir, 'js', 'node'), `${js} for ${key}`);
+    writeFileSync(
+      join(payloadDir, 'js-runtime.json'),
+      '{"program":"js/node","packageRoot":"js/pkg/node_modules/mixdog","electron":false}\n'
+    );
+  };
 
 /** The payload check stand-in records what it was asked to verify; its real counterpart is core-layout.test.mjs. */
 const verified = [];
@@ -39,16 +47,25 @@ test('a local deploy stages the host core from a plain cargo release build, and 
   writeFileSync(binary, 'cargo release build');
   writeFileSync(join(dir, 'mixdog-askpass.exe'), 'cargo askpass build');
   const options = { binary, runtimeDir, host: { platform: 'win32', arch: 'x64' }, hostRunnable: true };
-  await assert.rejects(stageHostCore({ ...options, version: '1.4.6', reportedVersion: () => '1.4.5' }), /reports version 1\.4\.5/);
+  await assert.rejects(
+    stageHostCore({ ...options, version: '1.4.6', reportedVersion: () => '1.4.5' }),
+    /reports version 1\.4\.5/
+  );
   assert.equal(existsSync(join(runtimeDir, 'core', 'mixdogd.exe')), false);
 
   await stageHostCore({ ...options, version: '1.4.6', reportedVersion: () => '1.4.6' });
   assert.equal(readFileSync(join(runtimeDir, 'core', 'mixdogd.exe'), 'utf8'), 'cargo release build');
   assert.equal(readFileSync(join(runtimeDir, 'core', 'mixdog-askpass.exe'), 'utf8'), 'cargo askpass build');
-  assert.deepEqual(JSON.parse(readFileSync(join(runtimeDir, 'core', 'js-runtime.json'), 'utf8')), jsRuntimeManifest('win32', 'x64'));
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(runtimeDir, 'core', 'js-runtime.json'), 'utf8')),
+    jsRuntimeManifest('win32', 'x64')
+  );
   // The Office engine reads its templates from assets/templates beside the executable: the bytes of the crate's assets.
   for (const file of OFFICE_TEMPLATE_FILES) {
-    assert.deepEqual(readFileSync(join(runtimeDir, 'core', OFFICE_TEMPLATES_DIR, file)), readFileSync(join(OFFICE_TEMPLATES_SOURCE, file)));
+    assert.deepEqual(
+      readFileSync(join(runtimeDir, 'core', OFFICE_TEMPLATES_DIR, file)),
+      readFileSync(join(OFFICE_TEMPLATES_SOURCE, file))
+    );
   }
   // The SSH install's bundles need every platform's build: a local deploy ships none.
   assert.equal(existsSync(join(runtimeDir, 'server-cores')), false);
@@ -97,7 +114,10 @@ test('staging puts the host core and every server runtime where the build and th
     verifyPayload,
   });
   assert.equal(readFileSync(join(runtimeDir, 'core', 'mixdogd.exe'), 'utf8'), 'binary for x86_64-pc-windows-msvc');
-  assert.equal(readFileSync(join(runtimeDir, 'core', 'mixdog-askpass.exe'), 'utf8'), 'askpass for x86_64-pc-windows-msvc');
+  assert.equal(
+    readFileSync(join(runtimeDir, 'core', 'mixdog-askpass.exe'), 'utf8'),
+    'askpass for x86_64-pc-windows-msvc'
+  );
   // The core finds the app binary (interpreter, node mode) and the package as real files beside the archive:
   // plain fs cannot read inside runtime.asar.
   assert.deepEqual(JSON.parse(readFileSync(join(runtimeDir, 'core', 'js-runtime.json'), 'utf8')), {
@@ -110,23 +130,34 @@ test('staging puts the host core and every server runtime where the build and th
   // macOS x64 has no onnxruntime-node binding: its manifest names no library.
   assert.equal('ortLibrary' in jsRuntimeManifest('darwin', 'x64'), false);
   assert.deepEqual(Object.keys(manifest.binaries).sort(), ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']);
-  assert.deepEqual([...verified].sort(), ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'], 'every server payload is checked');
+  assert.deepEqual(
+    [...verified].sort(),
+    ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'],
+    'every server payload is checked'
+  );
   // The core's ssh install reads exactly what was staged: the manifest's build is the one value of its binaries.
   assert.equal(manifestBuild(manifest.binaries), manifest.build);
   // One upload per platform: the binary and its JS runtime, in one archive.
-  const listing = spawnSync('tar', ['-tzf', join(runtimeDir, 'server-cores', 'linux-x64', 'bundle.tgz')], { encoding: 'utf8' });
-  const entries = listing.stdout.split(/\r?\n/).filter(Boolean).map((line) => line.replace(/\/$/, ''));
-  for (const entry of ['mixdogd', 'payload/js-runtime.json', 'payload/js/node']) assert.ok(entries.includes(entry), entry);
-  // A rebuilt binary of any platform is a new build, and so is a changed JS runtime.
-  const build = (js) => stageCore({
-    targetDir,
-    runtimeDir,
-    version: '1.4.6',
-    host: { platform: 'win32', arch: 'x64' },
-    reportedVersion: () => '1.4.6',
-    buildPayload: fakePayload(js),
-    verifyPayload,
+  const listing = spawnSync('tar', ['-tzf', join(runtimeDir, 'server-cores', 'linux-x64', 'bundle.tgz')], {
+    encoding: 'utf8',
   });
+  const entries = listing.stdout
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => line.replace(/\/$/, ''));
+  for (const entry of ['mixdogd', 'payload/js-runtime.json', 'payload/js/node'])
+    assert.ok(entries.includes(entry), entry);
+  // A rebuilt binary of any platform is a new build, and so is a changed JS runtime.
+  const build = (js) =>
+    stageCore({
+      targetDir,
+      runtimeDir,
+      version: '1.4.6',
+      host: { platform: 'win32', arch: 'x64' },
+      reportedVersion: () => '1.4.6',
+      buildPayload: fakePayload(js),
+      verifyPayload,
+    });
   assert.equal((await build('node')).build, manifest.build, 'staging is reproducible');
   assert.notEqual((await build('node-next')).build, manifest.build);
   writeFileSync(join(targetDir, 'aarch64-apple-darwin', 'release', 'mixdogd'), 'rebuilt');
@@ -164,7 +195,7 @@ test('a missing target, or a host binary reporting another version, stops the st
       host: { platform: 'win32', arch: 'x64' },
       reportedVersion: () => '1.4.6',
       buildPayload: fakePayload(),
-    verifyPayload,
+      verifyPayload,
     }),
     /x86_64-unknown-linux-gnu is not built/
   );
@@ -172,7 +203,16 @@ test('a missing target, or a host binary reporting another version, stops the st
   // The host binary of the machine staging reports its own version.
   const host = { platform: 'win32', arch: 'x64' };
   await assert.rejects(
-    stageCore({ targetDir, runtimeDir, version: '1.4.6', host, hostRunnable: true, reportedVersion: () => '1.4.5', buildPayload: fakePayload(), verifyPayload }),
+    stageCore({
+      targetDir,
+      runtimeDir,
+      version: '1.4.6',
+      host,
+      hostRunnable: true,
+      reportedVersion: () => '1.4.5',
+      buildPayload: fakePayload(),
+      verifyPayload,
+    }),
     /reports version 1\.4\.5, but the release is 1\.4\.6/
   );
 });
@@ -180,34 +220,64 @@ test('a missing target, or a host binary reporting another version, stops the st
 test('the release version is the workspace package version', async () => {
   const dir = makeTempDirSync('stage-core-cargo');
   const manifest = join(dir, 'Cargo.toml');
-  writeFileSync(manifest, '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "1.4.6"\nedition = "2024"\n\n[dependencies]\nversion = "9"\n');
+  writeFileSync(
+    manifest,
+    '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "1.4.6"\nedition = "2024"\n\n[dependencies]\nversion = "9"\n'
+  );
   assert.equal(await workspaceVersion(manifest), '1.4.6');
 });
 
-test('server bundles built by another job are adopted only when they match this job\'s own staging', async () => {
+test("server bundles built by another job are adopted only when they match this job's own staging", async () => {
   const targetDir = makeTempDirSync('stage-core-adopt');
   const producerRuntime = makeTempDirSync('stage-core-adopt-producer');
   const packagerRuntime = makeTempDirSync('stage-core-adopt-packager');
   builtTargets(targetDir, Object.values(HOST_TARGETS));
   const host = { platform: 'win32', arch: 'x64' };
   // The producer stages the server half only: no host core, no host binary run.
-  const produced = await stageCore({ targetDir, runtimeDir: producerRuntime, version: '1.4.6', host, buildPayload: fakePayload(), verifyPayload, serversOnly: true });
+  const produced = await stageCore({
+    targetDir,
+    runtimeDir: producerRuntime,
+    version: '1.4.6',
+    host,
+    buildPayload: fakePayload(),
+    verifyPayload,
+    serversOnly: true,
+  });
   assert.equal(existsSync(join(producerRuntime, 'core')), false);
   const source = join(producerRuntime, 'server-cores');
   const adopt = (overrides = {}) =>
-    stageCore({ targetDir, runtimeDir: packagerRuntime, version: '1.4.6', host, reportedVersion: () => '1.4.6', buildPayload: async () => assert.fail('nothing is rebuilt'), verifyPayload: async () => assert.fail('nothing is rebuilt'), prebuiltServerCores: source, ...overrides });
+    stageCore({
+      targetDir,
+      runtimeDir: packagerRuntime,
+      version: '1.4.6',
+      host,
+      reportedVersion: () => '1.4.6',
+      buildPayload: async () => assert.fail('nothing is rebuilt'),
+      verifyPayload: async () => assert.fail('nothing is rebuilt'),
+      prebuiltServerCores: source,
+      ...overrides,
+    });
   const adopted = await adopt();
   assert.deepEqual(adopted, produced);
   assert.equal(readFileSync(join(packagerRuntime, 'core', 'mixdogd.exe'), 'utf8'), 'binary for x86_64-pc-windows-msvc');
-  assert.deepEqual(readFileSync(join(packagerRuntime, 'server-cores', 'linux-x64', 'bundle.tgz')), readFileSync(join(source, 'linux-x64', 'bundle.tgz')));
+  assert.deepEqual(
+    readFileSync(join(packagerRuntime, 'server-cores', 'linux-x64', 'bundle.tgz')),
+    readFileSync(join(source, 'linux-x64', 'bundle.tgz'))
+  );
   assert.deepEqual(JSON.parse(readFileSync(join(packagerRuntime, 'server-cores', 'servers.json'), 'utf8')), produced);
 
   // Another version, a changed bundle, a mixdogd of another build and a missing set are all refused, never rebuilt.
-  await assert.rejects(adopt({ version: '1.4.7', reportedVersion: () => '1.4.7' }), /are version 1\.4\.6, the release is 1\.4\.7/);
+  await assert.rejects(
+    adopt({ version: '1.4.7', reportedVersion: () => '1.4.7' }),
+    /are version 1\.4\.6, the release is 1\.4\.7/
+  );
   writeFileSync(join(targetDir, 'aarch64-apple-darwin', 'release', 'mixdogd'), 'rebuilt');
   await assert.rejects(adopt(), /darwin-arm64: the bundled mixdogd is not the mixdogd built for aarch64-apple-darwin/);
   writeFileSync(join(targetDir, 'aarch64-apple-darwin', 'release', 'mixdogd'), 'binary for aarch64-apple-darwin');
   writeFileSync(join(source, 'linux-arm64', 'bundle.tgz'), 'tampered');
   await assert.rejects(adopt(), /linux-arm64: .*bundle\.tgz (is \d+ bytes|does not match the manifest)/);
-  await assert.rejects(adopt({ prebuiltServerCores: join(producerRuntime, 'nowhere') }), /have no readable servers\.json/);
+  await assert.rejects(
+    adopt({ prebuiltServerCores: join(producerRuntime, 'nowhere') }),
+    /have no readable servers\.json/
+  );
 });

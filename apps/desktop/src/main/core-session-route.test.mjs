@@ -47,8 +47,20 @@ const settle = (promise) =>
 
 const OUTCOMES = [
   { name: 'a title the core accepts', refuse: false, title: 'Quarterly plan', sent: true, expect: { ok: true } },
-  { name: 'a title the core refuses', refuse: true, title: 'Mine', sent: true, expect: { error: 'Session is not available.', kind: 'Error' } },
-  { name: 'an empty title', refuse: false, title: '   ', sent: false, expect: { error: 'Session title is invalid.', kind: 'TypeError' } },
+  {
+    name: 'a title the core refuses',
+    refuse: true,
+    title: 'Mine',
+    sent: true,
+    expect: { error: 'Session is not available.', kind: 'Error' },
+  },
+  {
+    name: 'an empty title',
+    refuse: false,
+    title: '   ',
+    sent: false,
+    expect: { error: 'Session title is invalid.', kind: 'TypeError' },
+  },
 ];
 
 for (const outcome of OUTCOMES) {
@@ -92,7 +104,10 @@ test('stopShellJob and releaseShellJob answer as the host did, a failure include
     { method: 'thread/backgroundTerminals/release', params: { threadId: SESSION, taskId: 't1' } },
   ]);
   const empty = coreClient({ answer: async () => ({ stopped: false }) });
-  assert.deepEqual(await empty.client.stopShellJob(SESSION, 't1'), { stopped: false, error: 'The job was not stopped.' });
+  assert.deepEqual(await empty.client.stopShellJob(SESSION, 't1'), {
+    stopped: false,
+    error: 'The job was not stopped.',
+  });
   assert.deepEqual(await coreClient({ answer: async () => ({}) }).client.releaseShellJob(SESSION, 't1'), {
     released: false,
     error: 'The job was not released.',
@@ -153,7 +168,9 @@ test('continue, schedule and cancel on a session the core does not have raise wh
     });
   const missing = refusing('threadNotFound');
   for (const capability of ['continueSessionInModel', 'scheduleQuotaResume', 'cancelQuotaResume']) {
-    await assert.rejects(missing.invoke(capability, [SESSION, {}], SESSION), { message: 'session is not the active session' });
+    await assert.rejects(missing.invoke(capability, [SESSION, {}], SESSION), {
+      message: 'session is not the active session',
+    });
   }
   // Any other refusal keeps its own text.
   await assert.rejects(refusing('overloaded').invoke('scheduleQuotaResume', [SESSION], SESSION), { message: 'rpc' });

@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, realpathSync, lstatSync, symlinkSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  realpathSync,
+  lstatSync,
+  symlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative } from 'node:path';
 import test from 'node:test';
@@ -59,8 +68,14 @@ test('only the third-party dependencies stay, and the removed bytes are counted'
 });
 
 test('a target with nothing to remove, or no profile directory, is left alone', () => {
-  assert.deepEqual(pruneTarget({ target, cacheRoot: target, profile: 'debug', packages: ['mixdog-core'] }), { bytes: 0, entries: 0 });
-  assert.deepEqual(pruneTarget({ target, cacheRoot: target, profile: 'release', packages: ['mixdog-core'] }), { bytes: 0, entries: 0 });
+  assert.deepEqual(pruneTarget({ target, cacheRoot: target, profile: 'debug', packages: ['mixdog-core'] }), {
+    bytes: 0,
+    entries: 0,
+  });
+  assert.deepEqual(pruneTarget({ target, cacheRoot: target, profile: 'release', packages: ['mixdog-core'] }), {
+    bytes: 0,
+    entries: 0,
+  });
 });
 
 test('profile escape, unverified target, and junction descendants are rejected before deletion', () => {
@@ -72,11 +87,18 @@ test('profile escape, unverified target, and junction descendants are rejected b
   assert.throws(() => pruneTarget({ target, cacheRoot: target, profile: 'debug', packages: [] }), /link or junction/);
   assert.ok(existsSync(join(target, KEPT[0])));
   assert.ok(existsSync(join(target, 'debug/incremental/must-remain-until-plan-valid')));
-  assert.throws(() => pruneTarget({ target: linked, cacheRoot: linked, profile: 'debug', packages: [] }), /link or junction/);
+  assert.throws(
+    () => pruneTarget({ target: linked, cacheRoot: linked, profile: 'debug', packages: [] }),
+    /link or junction/
+  );
   // Remove only the junction itself; no recursive traversal of its target.
   rmSync(linked);
 });
 
 test('the CLI splits package names on whitespace, never on the letter s', () => {
-  assert.deepEqual(packageNames('mixdog-services  mixdog-spawn\nmixdog-core'), ['mixdog-services', 'mixdog-spawn', 'mixdog-core']);
+  assert.deepEqual(packageNames('mixdog-services  mixdog-spawn\nmixdog-core'), [
+    'mixdog-services',
+    'mixdog-spawn',
+    'mixdog-core',
+  ]);
 });

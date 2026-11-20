@@ -36,7 +36,10 @@ interface DisplayEvents {
  * Tells the core that a display was added, removed or rescaled, so it reads `host/computer/displays` again and every
  * phone screen session renews its geometry. Returns the function that stops reporting.
  */
-export function reportScreenDisplayChanges(connection: Pick<HostConnection, 'notify'>, screen: DisplayEvents): () => void {
+export function reportScreenDisplayChanges(
+  connection: Pick<HostConnection, 'notify'>,
+  screen: DisplayEvents
+): () => void {
   const report = () => connection.notify(HOST_SCREEN_DISPLAYS_CHANGED, {});
   for (const event of DISPLAY_EVENTS) screen.on(event, report);
   return () => {

@@ -71,7 +71,8 @@ export function tokenize(source) {
     const token = last();
     if (!token) return false;
     if (token.kind === 'str') return true;
-    if (token.kind === 'word') return !/^(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/.test(token.value);
+    if (token.kind === 'word')
+      return !/^(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/.test(token.value);
     return token.value === ')' || token.value === ']' || token.value === '}';
   };
   const scanTemplate = () => {
@@ -207,7 +208,9 @@ export function scan(path, source, named) {
     // `from 'x'`, `import 'x'`, `import('x')`, `require('x')`
     const isSpecifier =
       (before?.kind === 'word' && (before.value === 'from' || before.value === 'import')) ||
-      (before?.value === '(' && before2?.kind === 'word' && (before2.value === 'import' || before2.value === 'require'));
+      (before?.value === '(' &&
+        before2?.kind === 'word' &&
+        (before2.value === 'import' || before2.value === 'require'));
     if (isSpecifier && /^\.{1,2}\//.test(token.value)) specifiers.push(token.value);
     else if (token.value !== '' && !/[\s$]/.test(token.value)) literals.push(token.value);
   });
@@ -219,7 +222,8 @@ export function scan(path, source, named) {
 // `textOf` reads a package.json. The first match in the developer's tree wins, as it would there; when that file is one a clean
 // checkout lacks, the caller reports it.
 function resolveOn(base, known, textOf, withExtensions) {
-  for (const extension of withExtensions ? EXTENSIONS : ['']) if (known.has(`${base}${extension}`)) return `${base}${extension}`;
+  for (const extension of withExtensions ? EXTENSIONS : [''])
+    if (known.has(`${base}${extension}`)) return `${base}${extension}`;
   if (!withExtensions) return undefined;
   const manifest = `${base}/package.json`;
   if (known.has(manifest)) {
@@ -229,7 +233,12 @@ function resolveOn(base, known, textOf, withExtensions) {
     } catch {}
     if (typeof main === 'string') {
       const target = normalize(`${base}/${main}`);
-      const found = target === undefined ? undefined : [...EXTENSIONS, ...INDEXES.map((index) => `/${index}`)].map((suffix) => `${target}${suffix}`).find((file) => known.has(file));
+      const found =
+        target === undefined
+          ? undefined
+          : [...EXTENSIONS, ...INDEXES.map((index) => `/${index}`)]
+              .map((suffix) => `${target}${suffix}`)
+              .find((file) => known.has(file));
       if (found) return found;
     }
     // the manifest itself is a file the import reads
@@ -262,7 +271,12 @@ function targetsOf(path, { specifiers, literals }, known, textOf) {
 // that gets there through imports, requires or spawned paths, followed to a fixed point.
 export function findReaders(files, entries, gone = new Set()) {
   // Only the folders: a script that names a gated test file (scripts/rust-core/k1-lanes.mjs lists them) does not read it.
-  const named = new RegExp(entries.filter((entry) => entry.endsWith('/')).map(escape).join('|'));
+  const named = new RegExp(
+    entries
+      .filter((entry) => entry.endsWith('/'))
+      .map(escape)
+      .join('|')
+  );
   const scripts = new Map([...files].filter(([path]) => SCRIPT.test(path) && !gone.has(path)));
   const found = [];
   // path -> where the first read of material or of a missing file is
@@ -307,7 +321,9 @@ export function buildViolations({ localToml, env, present }) {
 }
 
 function git(root, ...args) {
-  return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 }).split('\n').filter(Boolean);
+  return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 })
+    .split('\n')
+    .filter(Boolean);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -319,11 +335,21 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     // Tracked and ignored at once: waiting to be untracked, so not part of a clean checkout of the change.
     const gone = new Set(git(root, 'ls-files', '-c', '-i', '--exclude-standard'));
     // Scripts and package manifests are read; every other tracked path is only a name a specifier can resolve to.
-    const files = new Map(git(root, 'ls-files').filter((path) => existsSync(join(root, path))).map((path) => [path, SCRIPT.test(path) || /(?:^|\/)package\.json$/.test(path) ? readFileSync(join(root, path), 'utf8') : '']));
+    const files = new Map(
+      git(root, 'ls-files')
+        .filter((path) => existsSync(join(root, path)))
+        .map((path) => [
+          path,
+          SCRIPT.test(path) || /(?:^|\/)package\.json$/.test(path) ? readFileSync(join(root, path), 'utf8') : '',
+        ])
+    );
     found = findReaders(files, entries, gone);
   } else if (mode === '--build') {
     const ignored = git(root, 'ls-files', '--others', '--ignored', '--exclude-standard', '--directory');
-    const named = (path) => entries.some((entry) => (entry.endsWith('/') ? path.startsWith(entry) || path.includes(`/${entry}`) : path === entry));
+    const named = (path) =>
+      entries.some((entry) =>
+        entry.endsWith('/') ? path.startsWith(entry) || path.includes(`/${entry}`) : path === entry
+      );
     found = buildViolations({
       localToml: existsSync(join(root, 'native/core/.cargo/local.toml')),
       env: process.env,
@@ -338,7 +364,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (mode === '--readers' && process.env.GITHUB_ACTIONS) console.log(`::warning::${line}`);
   }
   if (found.length > 0) {
-    console.error(`${found.length} reference(s) to material a clean checkout does not have (docs/testing.md, "local-only comparison material")`);
+    console.error(
+      `${found.length} reference(s) to material a clean checkout does not have (docs/testing.md, "local-only comparison material")`
+    );
     process.exit(1);
   }
   console.log(`clean checkout (${mode.slice(2)}): ok`);

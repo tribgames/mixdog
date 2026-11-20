@@ -28,7 +28,9 @@ const readers: { [K in StatusKey]: (api: StatusApi, refresh: boolean) => Promise
 };
 
 /** A write's own change, shown until the write ends: the fields it sets of the settings object, or the whole value. */
-export type OptimisticChange<K extends WritableKey> = K extends 'settings' ? Partial<DesktopSettings> : DesktopStatus[K];
+export type OptimisticChange<K extends WritableKey> = K extends 'settings'
+  ? Partial<DesktopSettings>
+  : DesktopStatus[K];
 type WritableKey = 'settings' | 'quotaAutoResume';
 
 // Per api and key, two things kept apart:
@@ -55,7 +57,13 @@ const nextStamp = (): number => ++lastStamp;
 function entry(api: object, key: StatusKey): Held {
   const keys = held.get(api) ?? new Map<StatusKey, Held>();
   held.set(api, keys);
-  const found = keys.get(key) ?? { confirmed: undefined, stamp: 0, quotaWriteStamp: 0, pending: [], visible: undefined };
+  const found = keys.get(key) ?? {
+    confirmed: undefined,
+    stamp: 0,
+    quotaWriteStamp: 0,
+    pending: [],
+    visible: undefined,
+  };
   keys.set(key, found);
   return found;
 }

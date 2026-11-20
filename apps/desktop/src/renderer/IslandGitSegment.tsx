@@ -104,9 +104,7 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
     event.preventDefault();
     items[(index + step + items.length) % items.length]?.focus();
   };
-  const meta = [status?.branch, t('Files {{count}}', { count: files })]
-    .filter(Boolean)
-    .join(' · ');
+  const meta = [status?.branch, t('Files {{count}}', { count: files })].filter(Boolean).join(' · ');
 
   return (
     <>

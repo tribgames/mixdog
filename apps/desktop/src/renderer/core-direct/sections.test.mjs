@@ -66,7 +66,10 @@ test('snapshot_and_store_change_push', async () => {
   client.put({ section: 'config', key: null, revision: 1, value: { a: 1 } });
   const snap = await sections.snapshot();
   assert.equal(snap.status, 'ready');
-  assert.deepEqual(snap.entries.map((e) => e.section), ['config']);
+  assert.deepEqual(
+    snap.entries.map((e) => e.section),
+    ['config']
+  );
   const pushes = [];
   sections.subscribe((p) => pushes.push(p));
   client.put({ section: 'config', key: null, revision: 2, value: { a: 2 } });
@@ -90,8 +93,18 @@ test('status_event_pushed', async () => {
   const { client, sections } = await setup();
   const pushes = [];
   sections.subscribe((p) => pushes.push(p));
-  client.emit({ type: 'status', status: { state: 'closed', reason: { kind: 'versionRefused', reason: 'serverOutdated', serverVersion: '1', clientVersion: '2' } } });
-  assert.deepEqual(pushes.at(-1), { kind: 'status', status: 'closed', link: { attempt: 0, closed: { cause: 'serverOutdated', message: '' } } });
+  client.emit({
+    type: 'status',
+    status: {
+      state: 'closed',
+      reason: { kind: 'versionRefused', reason: 'serverOutdated', serverVersion: '1', clientVersion: '2' },
+    },
+  });
+  assert.deepEqual(pushes.at(-1), {
+    kind: 'status',
+    status: 'closed',
+    link: { attempt: 0, closed: { cause: 'serverOutdated', message: '' } },
+  });
   client.emit({ type: 'status', status: { state: 'reconnecting', attempt: 2 } });
   assert.deepEqual(pushes.at(-1), { kind: 'status', status: 'reconnecting', link: { attempt: 2, closed: null } });
 });
@@ -131,7 +144,10 @@ test('fs_watch_and_changed', async () => {
   sections.subscribeFsChanged((c) => seen.push(c));
   await sections.call('fs/watch', { watchId: 'w1', path: '/x' });
   assert.deepEqual(client.calls.at(-1), { method: 'fs/watch', params: { watchId: 'w1', path: '/x' } });
-  client.emit({ type: 'notification', notification: { method: 'fs/changed', params: { watchId: 'w1', changedPaths: ['/x/a'] } } });
+  client.emit({
+    type: 'notification',
+    notification: { method: 'fs/changed', params: { watchId: 'w1', changedPaths: ['/x/a'] } },
+  });
   assert.deepEqual(seen, [{ watchId: 'w1', changedPaths: ['/x/a'] }]);
   await sections.call('fs/unwatch', { watchId: 'w1' });
   assert.equal(client.calls.at(-1).method, 'fs/unwatch');
@@ -151,7 +167,10 @@ test('login_feed_updates_and_unknown_flow_is_lost', async () => {
   const updates = [];
   sections.subscribeLoginUpdated((u) => updates.push(u));
   assert.deepEqual(await sections.loginFeed('nope'), { state: null, lost: true });
-  client.emit({ type: 'notification', notification: { method: 'login/updated', params: { flowId: 'f1', state: { state: 'pending' } } } });
+  client.emit({
+    type: 'notification',
+    notification: { method: 'login/updated', params: { flowId: 'f1', state: { state: 'pending' } } },
+  });
   assert.deepEqual(updates, [{ flowId: 'f1', state: { state: 'pending' } }]);
 });
 
@@ -213,7 +232,10 @@ test('a burst of store changes is one push of the changed pairs with their lates
   assert.equal(sent.length, 1);
   assert.deepEqual(
     sent[0].changes.map((c) => [c.section, c.key, c.entry.value]),
-    [['config', null, 'b'], ['config', 'desktop', 'c']]
+    [
+      ['config', null, 'b'],
+      ['config', 'desktop', 'c'],
+    ]
   );
 });
 
@@ -231,10 +253,19 @@ test('a reconnect that fails publishes the closed state with its reason: the win
   const { sections } = createSectionsApi(createDirectContext(connection));
   const pushes = [];
   sections.subscribe((p) => p.kind === 'status' && pushes.push(p));
-  client.emit({ type: 'status', status: { state: 'closed', reason: { kind: 'versionRefused', reason: 'clientOutdated', serverVersion: '2', clientVersion: '1' } } });
+  client.emit({
+    type: 'status',
+    status: {
+      state: 'closed',
+      reason: { kind: 'versionRefused', reason: 'clientOutdated', serverVersion: '2', clientVersion: '1' },
+    },
+  });
   pushes.length = 0;
   await assert.rejects(sections.reconnect(), /still down/);
-  assert.deepEqual(pushes.map((p) => p.status), ['reconnecting', 'closed']);
+  assert.deepEqual(
+    pushes.map((p) => p.status),
+    ['reconnecting', 'closed']
+  );
   assert.match(pushes.at(-1).link.closed.message, /still down/);
   assert.equal((await sections.snapshot()).status, 'closed');
 });

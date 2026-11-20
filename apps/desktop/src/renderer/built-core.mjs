@@ -7,9 +7,13 @@ import { resolve } from 'node:path';
 
 export function builtCoreBin(env = process.env) {
   const named = String(env.MIXDOGD_BIN ?? '').trim();
-  if (!named) throw new Error('core not built: set MIXDOGD_BIN to a built mixdogd (cargo build -p mixdog-cli --features dev-controls, in native/core)');
+  if (!named)
+    throw new Error(
+      'core not built: set MIXDOGD_BIN to a built mixdogd (cargo build -p mixdog-cli --features dev-controls, in native/core)'
+    );
   const absolute = resolve(named);
-  if (!existsSync(absolute)) throw new Error(`core not built: MIXDOGD_BIN names a file that does not exist: ${absolute}`);
+  if (!existsSync(absolute))
+    throw new Error(`core not built: MIXDOGD_BIN names a file that does not exist: ${absolute}`);
   // Started by its real path: the core finds its own processes by image path, which a path through a folder link is not.
   return realpathSync(absolute);
 }

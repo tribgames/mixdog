@@ -53,7 +53,11 @@ const reasonOf = (error: unknown): unknown =>
 export function nodeStartError(error: unknown): unknown {
   const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
   if (code === 'pathMissing' && typeof message === 'string') {
-    return Object.assign(new Error(`ENOENT: no such file or directory, realpath '${message}'`), { code: 'ENOENT', syscall: 'realpath', path: message });
+    return Object.assign(new Error(`ENOENT: no such file or directory, realpath '${message}'`), {
+      code: 'ENOENT',
+      syscall: 'realpath',
+      path: message,
+    });
   }
   if (code === 'notADirectory' && typeof message === 'string') return new TypeError(message);
   if (reasonOf(error) === 'permissionDenied') return new Error('Project is not available.');
@@ -74,7 +78,8 @@ export async function startFolder(
       throw nodeStartError(error);
     }
   };
-  const touch = (path: string): Promise<unknown> => send({ method: 'project/touch', params: { path } }).catch(() => undefined);
+  const touch = (path: string): Promise<unknown> =>
+    send({ method: 'project/touch', params: { path } }).catch(() => undefined);
   if (call === 'startTask') return { cwd: String((await ask('project/taskWorkspace', {})).path), projectPath: null };
   const path = String(projectPath);
   if (call === 'startProject') {

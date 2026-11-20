@@ -138,7 +138,11 @@ test('a local window provider invalidation re-reads references without forcing t
     globalThis.window.dispatchEvent(new Event('mixdog:remote-reconnected'));
     await tick();
     await loadSidebarReferences(api, ['providerSetup', 'quickProviderModels']);
-    assert.equal(readSidebarReference('providerSetup').oauth[0].authenticated, false, 'the re-read follows the section');
+    assert.equal(
+      readSidebarReference('providerSetup').oauth[0].authenticated,
+      false,
+      'the re-read follows the section'
+    );
     assert.equal(calls.filter((call) => call.models).length, 2, 'the models are read again');
     assert.ok(!calls.some((call) => call.capability === 'getProviderSetup'), 'the setup never goes over a request');
     assert.ok(!calls.some((call) => call.models?.force));

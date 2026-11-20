@@ -68,7 +68,8 @@ export function createRemoteHostWindows(
   const windows = new Map<string, BrowserWindow>();
 
   const saved = async (): Promise<RemoteHost[]> => (await core.call('remoteHosts/list', {})) as RemoteHost[];
-  const savedHost = async (id: string): Promise<RemoteHost | undefined> => (await saved()).find((host) => host.id === id);
+  const savedHost = async (id: string): Promise<RemoteHost | undefined> =>
+    (await saved()).find((host) => host.id === id);
   const asDesktopHost = (host: RemoteHost): DesktopRemoteHost => ({ ...host, open: windows.has(host.id) });
 
   const snapshot = async (): Promise<DesktopRemoteHost[]> => {
@@ -77,7 +78,9 @@ export function createRemoteHostWindows(
     let presence: RemoteHostPresenceResult | null = null;
     if (hosts.length > 0) {
       const params: RemoteHostPresenceParams = { ids: hosts.map((host) => host.id) };
-      presence = await (core.call('remoteHosts/presence', params) as Promise<RemoteHostPresenceResult>).catch(() => null);
+      presence = await (core.call('remoteHosts/presence', params) as Promise<RemoteHostPresenceResult>).catch(
+        () => null
+      );
     }
     return hosts.map((host) => {
       const online = presenceOf(host.id, presence);

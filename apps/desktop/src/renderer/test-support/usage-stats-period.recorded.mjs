@@ -8,7 +8,9 @@ export const USAGE_STATS_FIXTURE_NOW = Date.parse('2026-09-13T12:00:00+09:00');
 const table = JSON.parse(readFileSync(new URL('./usage-stats-period.recorded.json', import.meta.url), 'utf8'));
 const stable = (v) =>
   JSON.stringify(v, (_k, x) =>
-    x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x
+    x && typeof x === 'object' && !Array.isArray(x)
+      ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1)))
+      : x
   );
 
 export function resolveUsageStatsPeriod(input) {

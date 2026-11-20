@@ -103,11 +103,11 @@ test('a reclaim sends every live stream again, also after the connection closed,
   reporter.stop();
   pages.delete('s2');
   reporter.resend();
-  assert.deepEqual(
-    sent.slice(2),
-    [['host/browser/page', { tabId: 's1', documentId: 'd1', geometry: geometry(1) }]]
-  );
+  assert.deepEqual(sent.slice(2), [['host/browser/page', { tabId: 's1', documentId: 'd1', geometry: geometry(1) }]]);
   pages.get('s3').geometry = geometry(1);
   reporter.resend();
-  assert.deepEqual(sent.slice(3).map(([, params]) => params.tabId), ['s1', 's3']);
+  assert.deepEqual(
+    sent.slice(3).map(([, params]) => params.tabId),
+    ['s1', 's3']
+  );
 });

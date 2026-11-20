@@ -30,15 +30,20 @@ function fakeLane() {
   return {
     sent,
     lane: {
-      invoke: async (capability, args, sessionId) => (sent.push(['invoke', capability, args, sessionId]), { value: `lane:${capability}`, snapshot: 'held' }),
-      read: async (requests) => (sent.push(['read', requests.map((request) => request.capability)]), requests.map((request) => ({ ok: true, value: `lane:${request.capability}` }))),
+      invoke: async (capability, args, sessionId) => (
+        sent.push(['invoke', capability, args, sessionId]), { value: `lane:${capability}`, snapshot: 'held' }
+      ),
+      read: async (requests) => (
+        sent.push(['read', requests.map((request) => request.capability)]),
+        requests.map((request) => ({ ok: true, value: `lane:${request.capability}` }))
+      ),
     },
   };
 }
 
 const snapshot = () => 'held';
 
-test('the replaced capabilities are answered from the connection\'s sections', async () => {
+test("the replaced capabilities are answered from the connection's sections", async () => {
   const { protocol } = fakeProtocol([
     entry('agents', null, [{ id: 'worker' }]),
     entry('providerSetup', null, { providers: [] }),
@@ -72,7 +77,11 @@ test('an unknown provider and a closed connection are errors', async () => {
   const closed = fakeProtocol([]);
   closed.protocol.status = 'closed';
   await assert.rejects(
-    withSectionCapabilities({ lane: fakeLane().lane, protocol: closed.protocol, snapshot }).invoke('listWorkflows', [], undefined),
+    withSectionCapabilities({ lane: fakeLane().lane, protocol: closed.protocol, snapshot }).invoke(
+      'listWorkflows',
+      [],
+      undefined
+    ),
     /connection is closed/
   );
 });
@@ -90,9 +99,20 @@ test('other capabilities and mixed reads keep the lane and the order', async () 
   const { lane, sent } = fakeLane();
   const wrapped = withSectionCapabilities({ lane, protocol, snapshot });
   assert.deepEqual((await wrapped.invoke('getProfile', [], 's1')).value, 'lane:getProfile');
-  const results = await wrapped.read([{ capability: 'getTheme' }, { capability: 'listAgents' }, { capability: 'getProviderAccounts', args: ['x'] }, { capability: 'getProfile' }]);
-  assert.deepEqual(results.map((result) => (result.ok ? result.value : result.error)), ['lane:getTheme', [1], 'Unknown OAuth provider.', 'lane:getProfile']);
-  assert.deepEqual(sent, [['invoke', 'getProfile', [], 's1'], ['read', ['getTheme', 'getProfile']]]);
+  const results = await wrapped.read([
+    { capability: 'getTheme' },
+    { capability: 'listAgents' },
+    { capability: 'getProviderAccounts', args: ['x'] },
+    { capability: 'getProfile' },
+  ]);
+  assert.deepEqual(
+    results.map((result) => (result.ok ? result.value : result.error)),
+    ['lane:getTheme', [1], 'Unknown OAuth provider.', 'lane:getProfile']
+  );
+  assert.deepEqual(sent, [
+    ['invoke', 'getProfile', [], 's1'],
+    ['read', ['getTheme', 'getProfile']],
+  ]);
 });
 
 test('a lane method that is not a section capability reaches the wrapped lane', async () => {

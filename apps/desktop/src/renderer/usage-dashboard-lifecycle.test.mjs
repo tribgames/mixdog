@@ -336,7 +336,8 @@ function sectionsHost(extra = {}) {
     push(rows) {
       const entry = { section: 'usage', key: 'dashboard', revision: ++revision, value: { rows } };
       entries = [entry];
-      for (const listener of [...listeners]) listener({ kind: 'sections', changes: [{ section: 'usage', key: 'dashboard', entry }] });
+      for (const listener of [...listeners])
+        listener({ kind: 'sections', changes: [{ section: 'usage', key: 'dashboard', entry }] });
     },
     ...extra,
   };

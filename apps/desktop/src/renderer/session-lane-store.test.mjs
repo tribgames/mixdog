@@ -13,13 +13,25 @@ const decorator = {
 
 test("only a creating operation's answer seeds a lane, and never over its stream or after the session is gone", () => {
   const store = createSessionLaneStore({ decorator });
-  const rows = [{ id: 'q1', role: 'user', text: 'hi' }, { id: 'a1', role: 'assistant', text: 'hello' }];
+  const rows = [
+    { id: 'q1', role: 'user', text: 'hi' },
+    { id: 'a1', role: 'assistant', text: 'hello' },
+  ];
   const tail = { id: 'a2', kind: 'assistant', streaming: true, text: 'streaming\n' };
   // The stream already shows the newer value and the reply being streamed.
-  store.apply({ sessionId: 'reply', frameSource: 'live', snapshot: { sessionId: 'reply', items: rows, streamingTail: tail, orchestrationMode: 'swarm' } });
+  store.apply({
+    sessionId: 'reply',
+    frameSource: 'live',
+    snapshot: { sessionId: 'reply', items: rows, streamingTail: tail, orchestrationMode: 'swarm' },
+  });
   const streamed = store.get('reply');
   // A late, transcript-less answer carrying an older value changes nothing.
-  store.seedCreatedSession('reply', { sessionId: 'reply', items: [], streamingTail: null, orchestrationMode: 'balanced' });
+  store.seedCreatedSession('reply', {
+    sessionId: 'reply',
+    items: [],
+    streamingTail: null,
+    orchestrationMode: 'balanced',
+  });
   assert.equal(store.get('reply'), streamed);
   assert.equal(store.get('reply').streamingTail, tail);
   // A new task's or a fork's first state seeds its lane.
@@ -42,7 +54,12 @@ test('a received position is reached by a shown one at or past it, epochs ordere
   const off = store.subscribe('s', () => {});
   const position = (order, seq) => ({ epoch: `e${order}`, seq, order });
   const frame = async (order, seq) => {
-    store.apply({ sessionId: 's', frameSource: 'live', snapshot: { sessionId: 's', items: [{ id: `${order}:${seq}`, role: 'user', text: 'x' }] }, streamPosition: position(order, seq) });
+    store.apply({
+      sessionId: 's',
+      frameSource: 'live',
+      snapshot: { sessionId: 's', items: [{ id: `${order}:${seq}`, role: 'user', text: 'x' }] },
+      streamPosition: position(order, seq),
+    });
     await nextFrame();
   };
   await frame(1, 3);
@@ -50,12 +67,21 @@ test('a received position is reached by a shown one at or past it, epochs ordere
   assert.equal(store.streamReached('s', mark), false);
   await frame(1, 4);
   assert.equal(store.streamReached('s', mark), false);
-  store.apply({ sessionId: 's', frameSource: 'live', snapshot: { sessionId: 's', items: [{ id: 'late', role: 'user', text: 'x' }] }, streamPosition: position(1, 5) });
+  store.apply({
+    sessionId: 's',
+    frameSource: 'live',
+    snapshot: { sessionId: 's', items: [{ id: 'late', role: 'user', text: 'x' }] },
+    streamPosition: position(1, 5),
+  });
   assert.equal(store.streamReached('s', mark), false, 'a state is shown at its position only with its notification');
   await nextFrame();
   assert.equal(store.streamReached('s', mark), true);
   await frame(2, 1);
-  assert.equal(store.streamReached('s', position(1, 9)), true, 'a later epoch was received after the mark: its state includes it');
+  assert.equal(
+    store.streamReached('s', position(1, 9)),
+    true,
+    'a later epoch was received after the mark: its state includes it'
+  );
   assert.equal(store.streamReached('s', position(3, 2)), false, 'an epoch received but not yet shown is not reached');
   // The review's race: epoch B is shown while the call's position is still being read; the read then names B. Nothing of the
   // store's own history enters the comparison, so B's later frames reach it.
@@ -71,12 +97,21 @@ test("a pane leaving before its state's notification does not strand that state'
   const store = createSessionLaneStore({ decorator });
   const rows = [{ id: 'q1', role: 'user', text: 'hi' }];
   const leave = store.subscribe('s', () => {});
-  store.apply({ sessionId: 's', frameSource: 'live', snapshot: { sessionId: 's', items: rows, title: 'A' }, streamPosition: { epoch: 'e', seq: 39, order: 1 } });
+  store.apply({
+    sessionId: 's',
+    frameSource: 'live',
+    snapshot: { sessionId: 's', items: rows, title: 'A' },
+    streamPosition: { epoch: 'e', seq: 39, order: 1 },
+  });
   await nextFrame();
   // Accepted at 40 with its (non-urgent) notification scheduled; the last pane unsubscribes before it runs.
   const snapshot = { sessionId: 's', items: rows, title: 'B' };
   store.apply({ sessionId: 's', frameSource: 'live', snapshot, streamPosition: { epoch: 'e', seq: 40, order: 1 } });
-  assert.equal(store.streamReached('s', { epoch: 'e', seq: 40, order: 1 }), false, 'the position waits for its notification');
+  assert.equal(
+    store.streamReached('s', { epoch: 'e', seq: 40, order: 1 }),
+    false,
+    'the position waits for its notification'
+  );
   leave();
   // A trailing note that changes nothing hands the same state on at 41; the feed then goes quiet.
   store.apply({ sessionId: 's', frameSource: 'live', snapshot, streamPosition: { epoch: 'e', seq: 41, order: 1 } });
@@ -109,48 +144,85 @@ test('a state handed on unchanged moves only its position: nothing is decided ag
 });
 
 test('compaction history and live windows retain one activity, summary and boundary in source order', () => {
-  const tool = (id) => ({ type: 'toolCall', id, name: 'read', input: { path: 'src' }, run: { callId: id, result: 'ok' }, meta: { status: 'completed', ext: { archived: true } } });
+  const tool = (id) => ({
+    type: 'toolCall',
+    id,
+    name: 'read',
+    input: { path: 'src' },
+    run: { callId: id, result: 'ok' },
+    meta: { status: 'completed', ext: { archived: true } },
+  });
   const divider = { type: 'contextCompaction', id: 'divider:c1', meta: {} };
-  const summary = { type: 'agentMessage', id: 'summary', text: 'Investigation summary', meta: { ext: { archived: true, dividersAfter: [divider] } } };
+  const summary = {
+    type: 'agentMessage',
+    id: 'summary',
+    text: 'Investigation summary',
+    meta: { ext: { archived: true, dividersAfter: [divider] } },
+  };
   const prompt = { type: 'userMessage', id: 'prompt', content: [{ type: 'text', text: 'Continue' }], meta: {} };
   const history = [tool('read-1'), tool('read-2'), summary];
   const page = mergeToolRows(history.flatMap(rowsOf));
   const tail = mergeToolRows([divider, prompt].flatMap(rowsOf));
   const expected = ['read-1', 'summary', 'divider:c1', 'prompt'];
   const older = prependHistoryPage({ items: tail, hasOlder: true, hasNewer: false }, page, false);
-  assert.deepEqual(older.items.map((row) => row.id), expected, 'the page carries the same boundary as the live tail');
+  assert.deepEqual(
+    older.items.map((row) => row.id),
+    expected,
+    'the page carries the same boundary as the live tail'
+  );
   const newer = appendHistoryPage({ items: page, hasOlder: false, hasNewer: true }, tail, false);
-  assert.deepEqual(newer.items.map((row) => row.id), expected, 'paging forward crosses that same boundary');
+  assert.deepEqual(
+    newer.items.map((row) => row.id),
+    expected,
+    'paging forward crosses that same boundary'
+  );
 
   const snapshot = (items) => ({ thread: { id: 'compaction-merge' }, items, state: {} });
   const initial = sessionReducer.initial(snapshot([...history, prompt]));
-  assert.deepEqual(desktopSessionState(initial, []).items.map((row) => row.id), expected, 'initial and history projection share the boundary expansion');
+  assert.deepEqual(
+    desktopSessionState(initial, []).items.map((row) => row.id),
+    expected,
+    'initial and history projection share the boundary expansion'
+  );
   let live = sessionReducer.initial(snapshot([divider, prompt]));
   for (const item of history) live = sessionReducer.apply(live, { method: 'item/completed', params: { item } });
-  assert.deepEqual(desktopSessionState(live, []).items.map((row) => row.id), ['divider:c1', 'prompt'], 'unheld archived rows do not enter below the divider');
+  assert.deepEqual(
+    desktopSessionState(live, []).items.map((row) => row.id),
+    ['divider:c1', 'prompt'],
+    'unheld archived rows do not enter below the divider'
+  );
 
   const store = createSessionLaneStore({ decorator });
-  const apply = (items) => store.apply({ sessionId: 'compaction-merge', frameSource: 'live', snapshot: { sessionId: 'compaction-merge', items } });
+  const apply = (items) =>
+    store.apply({
+      sessionId: 'compaction-merge',
+      frameSource: 'live',
+      snapshot: { sessionId: 'compaction-merge', items },
+    });
   apply(older.items);
   apply(tail);
-  assert.deepEqual(store.get('compaction-merge').items.map((row) => row.id), expected);
+  assert.deepEqual(
+    store.get('compaction-merge').items.map((row) => row.id),
+    expected
+  );
   // A wider history source can start at an id already on screen while carrying
   // earlier rows under its restored ids. The full overlap, not the first id,
   // identifies which window owns the head.
-  apply([
-    { ...page[0], id: 'restored-activity' },
-    { ...page[1], id: 'restored-summary' },
-    ...tail,
-  ]);
-  assert.deepEqual(store.get('compaction-merge').items.map((row) => row.id), ['restored-activity', 'restored-summary', 'divider:c1', 'prompt']);
+  apply([{ ...page[0], id: 'restored-activity' }, { ...page[1], id: 'restored-summary' }, ...tail]);
+  assert.deepEqual(
+    store.get('compaction-merge').items.map((row) => row.id),
+    ['restored-activity', 'restored-summary', 'divider:c1', 'prompt']
+  );
   store.clear();
 
   const activity = page[0];
   const answer = page[1];
   apply([activity, answer, { ...activity, id: 'second-activity' }, { ...answer, id: 'second-summary' }]);
   const restored = [
-    { ...activity, id: 'second-activity' }, { ...answer, id: 'second-summary' },
-    { ...activity, id: 'restored-second-activity' }, { ...answer, id: 'restored-second-summary' },
+    { ...activity, id: 'second-activity' },
+    { ...answer, id: 'second-summary' },
+    { ...activity, id: 'restored-second-activity' },
+    { ...answer, id: 'restored-second-summary' },
     ...tail,
   ];
   apply(restored);
@@ -168,13 +240,19 @@ test('source ids retain repeated turns after the production identity cache evict
     { id: `u${n}`, kind: 'user', text: 'Continue' },
     { id: `a${n}`, kind: 'assistant', text: 'Done' },
   ];
-  const apply = (sessionId, items) => store.apply({
-    sessionId, frameSource: 'live', snapshot: { sessionId, items },
-  });
+  const apply = (sessionId, items) =>
+    store.apply({
+      sessionId,
+      frameSource: 'live',
+      snapshot: { sessionId, items },
+    });
   try {
     apply('identity-evicted', [...turn(1), ...turn(2)]);
     for (let n = 0; n < 12; n += 1) apply(`visited-${n}`, turn(n));
-    assert.deepEqual(store.get('identity-evicted').items.map((row) => row.id), ['u1', 'a1', 'u2', 'a2']);
+    assert.deepEqual(
+      store.get('identity-evicted').items.map((row) => row.id),
+      ['u1', 'a1', 'u2', 'a2']
+    );
     apply('identity-evicted', [...turn(2), ...turn(3)]);
     assert.deepEqual(
       store.get('identity-evicted').items.map((row) => row.id),
@@ -450,7 +528,12 @@ test('an older page that starts before the cached window replaces it as a prepen
 test('a snapshot that replaces the fold mid-turn keeps every unchanged row and the streamed reply', () => {
   const sessionId = 'snapshot-mid-turn';
   const thread = { id: sessionId };
-  const user = (id, text) => ({ type: 'userMessage', id, content: [{ type: 'text', text }], meta: { status: 'completed', at: 1 } });
+  const user = (id, text) => ({
+    type: 'userMessage',
+    id,
+    content: [{ type: 'text', text }],
+    meta: { status: 'completed', at: 1 },
+  });
   const reply = (id, text, status = 'completed') => ({ type: 'agentMessage', id, text, meta: { status, at: 2 } });
   const call = (id, live) => ({
     type: 'toolCall',
@@ -490,9 +573,14 @@ test('a snapshot that replaces the fold mid-turn keeps every unchanged row and t
   });
   publish();
   const grown = store.get(sessionId);
-  assert.deepEqual(grown.items.slice(0, 2).map((row) => row.id), ['u0', 'a0']);
+  assert.deepEqual(
+    grown.items.slice(0, 2).map((row) => row.id),
+    ['u0', 'a0']
+  );
   assert.deepEqual(grown.items.slice(2), before.items);
-  grown.items.slice(2).forEach((row, index) => assert.equal(row, before.items[index], `row ${row.id} kept its identity`));
+  grown.items
+    .slice(2)
+    .forEach((row, index) => assert.equal(row, before.items[index], `row ${row.id} kept its identity`));
   assert.equal(grown.streamingTail, before.streamingTail, 'the streamed reply is the same live row');
 
   apply('item/agentMessage/delta', { itemId: 'a3', delta: 'continues.\n' });
@@ -503,7 +591,12 @@ test('a snapshot that replaces the fold mid-turn keeps every unchanged row and t
   // The connection closes (a slow consumer) and the thread is followed again on the next one: a fresh fold of the core's
   // tail window, the reply grown meanwhile.
   const resumed = `${streamed}continues.\nMore.\n`;
-  fold = sessionReducer.initial({ thread, items: [...turn, reply('a3', resumed, 'inProgress')], state, hasOlder: true });
+  fold = sessionReducer.initial({
+    thread,
+    items: [...turn, reply('a3', resumed, 'inProgress')],
+    state,
+    hasOlder: true,
+  });
   publish();
   const reconnected = store.get(sessionId);
   assert.equal(reconnected.items, grown.items, 'the rows on screen are the rows held, the same objects');

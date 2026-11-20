@@ -15,7 +15,12 @@ const selection = { provider: 'anthropic', model: 'opus', effort: 'high', autoEf
 
 async function sentSelections(routeAutoEffort) {
   const answer = () => null;
-  const handlers = { setModelRoute: answer, inheritSession: answer, continueSessionInModel: answer, submitNewTask: answer };
+  const handlers = {
+    setModelRoute: answer,
+    inheritSession: answer,
+    continueSessionInModel: answer,
+    submitNewTask: answer,
+  };
   return withPhoneApi(handlers, async ({ ctx, api, calls }) => {
     ctx.peerRouteAutoEffort = routeAutoEffort;
     const sent = async (pending) => {

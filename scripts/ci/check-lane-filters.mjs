@@ -25,11 +25,14 @@ import { LANES } from '../rust-core/k1-lanes.mjs';
 
 /** The un-ignored test names of each package in a nextest list: Map<package, string[]>. */
 export function runnableTestsByPackage(list) {
-  if (!list || typeof list !== 'object' || typeof list['rust-suites'] !== 'object') throw new Error('not a nextest list: no "rust-suites"');
+  if (!list || typeof list !== 'object' || typeof list['rust-suites'] !== 'object')
+    throw new Error('not a nextest list: no "rust-suites"');
   const byPackage = new Map();
   for (const [id, suite] of Object.entries(list['rust-suites'])) {
     const pkg = suite['package-name'] ?? id.split('::')[0];
-    const names = Object.entries(suite.testcases ?? {}).filter(([, test]) => !test.ignored).map(([name]) => name);
+    const names = Object.entries(suite.testcases ?? {})
+      .filter(([, test]) => !test.ignored)
+      .map(([name]) => name);
     byPackage.set(pkg, [...(byPackage.get(pkg) ?? []), ...names]);
   }
   return byPackage;
@@ -64,7 +67,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(pathToFi
   const problems = checkLanes(list, { allowMissingPackages: flags.length > 0 });
   const tests = runnableTestsByPackage(list);
   for (const [lane, { pkg, filters }] of Object.entries(LANES)) {
-    if (tests.has(pkg)) console.log(`lane ${lane}: ${(filters.length ? filters : ['(all)']).join(', ')} over ${tests.get(pkg).length} runnable tests of ${pkg}`);
+    if (tests.has(pkg))
+      console.log(
+        `lane ${lane}: ${(filters.length ? filters : ['(all)']).join(', ')} over ${tests.get(pkg).length} runnable tests of ${pkg}`
+      );
     else console.log(`lane ${lane}: ${pkg} is not in the archive`);
   }
   for (const problem of problems) console.error(problem);

@@ -40,11 +40,19 @@ test('records out are numbered, frames in are delivered in order, and acks are c
   writer.send(JSON.stringify({ n: 1 }));
   writer.send(JSON.stringify({ n: 2 }));
   await world.advance(0);
-  assert.deepEqual(records(), [1, 2].map((n) => records()[n - 1]), 'two records reached the desktop');
+  assert.deepEqual(
+    records(),
+    [1, 2].map((n) => records()[n - 1]),
+    'two records reached the desktop'
+  );
   assert.equal(records().length, 2);
   assert.equal(records()[1], records()[0] + 1, 'consecutive sequence numbers');
 
-  const through = () => world.events.filter((e) => e.ev === 'xcontrol' && e.kind === 'ack').map((e) => Number(e.control.through)).at(-1) ?? 0;
+  const through = () =>
+    world.events
+      .filter((e) => e.ev === 'xcontrol' && e.kind === 'ack')
+      .map((e) => Number(e.control.through))
+      .at(-1) ?? 0;
   const unacked = [];
   // The desktop's records are acknowledged cumulatively: each record is covered by an ack within the ack delay.
   await world.legOf(socket).toPhone({ n: 'a' });
@@ -57,7 +65,16 @@ test('records out are numbered, frames in are delivered in order, and acks are c
     await world.advance(REMOTE_TRANSPORT_MAX_ACK_DELAY_MS);
     assert.equal(through(), base + unacked.length, `record ${n} is acknowledged, cumulatively, within the ack delay`);
   }
-  const heard = world.events.filter((e) => e.ev === 'xcontrol' && e.kind === 'ack').map((e) => Number(e.control.through));
-  assert.deepEqual(heard, [...heard].sort((a, b) => a - b), 'acks never go backwards');
-  assert.deepEqual(world.events.filter((e) => e.ev === 'deliver').map((e) => e.frame.n), ['a', 'b', 'c', 'd']);
+  const heard = world.events
+    .filter((e) => e.ev === 'xcontrol' && e.kind === 'ack')
+    .map((e) => Number(e.control.through));
+  assert.deepEqual(
+    heard,
+    [...heard].sort((a, b) => a - b),
+    'acks never go backwards'
+  );
+  assert.deepEqual(
+    world.events.filter((e) => e.ev === 'deliver').map((e) => e.frame.n),
+    ['a', 'b', 'c', 'd']
+  );
 });

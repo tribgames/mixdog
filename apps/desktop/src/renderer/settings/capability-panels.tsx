@@ -322,7 +322,15 @@ function updaterInstallLabel(state: PanelContext['updaterState']): string {
   }
 }
 
-function UpdatePanel({ api, data, pending, run, updaterState, checkDesktopUpdate, installDesktopUpdate }: PanelContext) {
+function UpdatePanel({
+  api,
+  data,
+  pending,
+  run,
+  updaterState,
+  checkDesktopUpdate,
+  installDesktopUpdate,
+}: PanelContext) {
   const update = record(data.update);
   const version = 'version' in updaterState ? updaterState.version : String(update.latestVersion || '');
   const busy =

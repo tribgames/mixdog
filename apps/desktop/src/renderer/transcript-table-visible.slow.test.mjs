@@ -219,7 +219,8 @@ const TABLE = [
   ),
 ].join('\n');
 
-const AFTER_TABLE = '이 표 아래 문단은 표가 끝난 뒤에 이어지는 설명입니다. The paragraph after the table closes the comparison.';
+const AFTER_TABLE =
+  '이 표 아래 문단은 표가 끝난 뒤에 이어지는 설명입니다. The paragraph after the table closes the comparison.';
 
 const REPLY = [
   filler(24, 1),

@@ -3,11 +3,7 @@
 import type { Rectangle, WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
-import {
-  FULL_PAGE_LAYOUT_PREPARE,
-  FULL_PAGE_LAYOUT_RESTORE,
-  measuredFullPageRect,
-} from './screenshot-policy';
+import { FULL_PAGE_LAYOUT_PREPARE, FULL_PAGE_LAYOUT_RESTORE, measuredFullPageRect } from './screenshot-policy';
 
 export async function anchorPinnedLayout(
   cdp: BrowserCdpPort,

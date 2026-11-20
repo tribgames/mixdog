@@ -97,7 +97,8 @@ export function createPartitionSignIns(
     },
     clearImportedData: () => profileImporter.clearImportedData(),
     withCookieMutation: (work) => profileImporter.withCookieMutation(() => sessionStore.withSnapshotInvalidated(work)),
-    withSiteSignOut: (site, work) => profileImporter.withSiteSignOut(site, () => sessionStore.withSnapshotInvalidated(work, site)),
+    withSiteSignOut: (site, work) =>
+      profileImporter.withSiteSignOut(site, () => sessionStore.withSnapshotInvalidated(work, site)),
     pauseAutoSignIn: (site) => vault.pauseOrigin(site),
   });
 }

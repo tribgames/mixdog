@@ -187,22 +187,25 @@ export function registerComputerScopes(connection: HostConnection, computerSwitc
     stopFollowing();
     revokeAll();
   });
-  connection.handleRequest(HOST_COMPUTER_REVOKE_SCOPES, async (params): Promise<{ revoked: number; reports: ScopeReport[] }> => {
-    const ids = (params as { scopes?: unknown } | null)?.scopes;
-    if (!Array.isArray(ids) || !ids.every((id) => Number.isSafeInteger(id))) {
-      throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_REVOKE_SCOPES} needs scopes, whole numbers.`);
+  connection.handleRequest(
+    HOST_COMPUTER_REVOKE_SCOPES,
+    async (params): Promise<{ revoked: number; reports: ScopeReport[] }> => {
+      const ids = (params as { scopes?: unknown } | null)?.scopes;
+      if (!Array.isArray(ids) || !ids.every((id) => Number.isSafeInteger(id))) {
+        throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_REVOKE_SCOPES} needs scopes, whole numbers.`);
+      }
+      const reports = (ids as number[]).flatMap((id): ScopeReport[] => {
+        const scope = scopeOf(id);
+        revokeScope(scope);
+        if (!scope.served) return [];
+        const { report, changed } = reportOf(id, scope);
+        // Pushed before the answer, on the same connection.
+        if (changed) connection.notify(HOST_COMPUTER_SCOPE_REPORT, { report });
+        return [report];
+      });
+      return { revoked: ids.length, reports };
     }
-    const reports = (ids as number[]).flatMap((id): ScopeReport[] => {
-      const scope = scopeOf(id);
-      revokeScope(scope);
-      if (!scope.served) return [];
-      const { report, changed } = reportOf(id, scope);
-      // Pushed before the answer, on the same connection.
-      if (changed) connection.notify(HOST_COMPUTER_SCOPE_REPORT, { report });
-      return [report];
-    });
-    return { revoked: ids.length, reports };
-  });
+  );
   return {
     admit(params, signal) {
       const id = (params as Record<string, unknown> | null)?.[SCOPE_FIELD];

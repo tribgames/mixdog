@@ -277,9 +277,7 @@ export function ServerPortsPanel({ active }: { active: boolean }) {
   const forwarded = new Set(view.forwards.map((forward) => forward.remotePort));
   const forward = (port: number) => {
     setError('');
-    void Promise.resolve(forwardServerPort(port)).catch((reason: unknown) =>
-      setError(serverPortErrorText(reason))
-    );
+    void Promise.resolve(forwardServerPort(port)).catch((reason: unknown) => setError(serverPortErrorText(reason)));
   };
   const dismiss = (port: number) => {
     void Promise.resolve(dismissServerPort(port)).catch(() => undefined);

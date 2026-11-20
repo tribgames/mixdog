@@ -3,12 +3,21 @@
 // window prefix, the section mirror is the client's own store, and nothing is relayed. Every call is mapped by
 // withDirectErrors. Nothing polls: state arrives as sections, liveness is the client library's own ticker.
 import type { ProtocolClient, SessionFold } from '../../../../../packages/protocol-client/src/index.ts';
-import type { DesktopProtocolStatus, DesktopSectionChange, DesktopSectionsSnapshot } from '../../shared/contract-sections.ts';
+import type {
+  DesktopProtocolStatus,
+  DesktopSectionChange,
+  DesktopSectionsSnapshot,
+} from '../../shared/contract-sections.ts';
 import { isScopedSectionFeed, SECTION_NAMES } from '../../shared/contract-sections.ts';
 import type { DesktopCoreLink } from '../../shared/contract-sections.ts';
 import { closedLink, linkOfStatus, UP } from './link-state.ts';
 import { scopedSectionChanges, type ScopedFeedRoute } from '../../shared/core-lanes/scoped-sections.ts';
-import { LOGIN_CANCEL_METHODS, LOGIN_START_METHODS, loginFeedId, loginUpdateOf } from '../../shared/core-lanes/login-feed.ts';
+import {
+  LOGIN_CANCEL_METHODS,
+  LOGIN_START_METHODS,
+  loginFeedId,
+  loginUpdateOf,
+} from '../../shared/core-lanes/login-feed.ts';
 import type {
   ConnectionClient,
   ConnectionClientEvent,
@@ -47,7 +56,8 @@ export type RendererWindow = Pick<ProtocolWindow, 'notification' | 'loginFeedLos
 /** A file call of the window asks for `nodeErrors`: a path beyond the project is refused with Node's plain `Error` text ("Path is outside
  *  the project."), as the window's IPC path showed it, not as the bare permission refusal the core's other callers get. */
 export function asNodeErrors(method: string, params: unknown): unknown {
-  if (!method.startsWith('projectFs/') || params === null || typeof params !== 'object' || Array.isArray(params)) return params;
+  if (!method.startsWith('projectFs/') || params === null || typeof params !== 'object' || Array.isArray(params))
+    return params;
   return { ...(params as Record<string, unknown>), nodeErrors: true };
 }
 
@@ -55,7 +65,9 @@ export function asNodeErrors(method: string, params: unknown): unknown {
 export const FILE_CHANGED = 'File changed on disk. Reload or keep your edits before saving.';
 export function staleSave(method: string, error: unknown): unknown {
   const data = (error as { detail?: { kind?: unknown; data?: { reason?: unknown } } } | null)?.detail;
-  return method.startsWith('projectFs/') && data?.kind === 'rpc' && data.data?.reason === 'preconditionFailed' ? new Error(FILE_CHANGED, { cause: error }) : error;
+  return method.startsWith('projectFs/') && data?.kind === 'rpc' && data.data?.reason === 'preconditionFailed'
+    ? new Error(FILE_CHANGED, { cause: error })
+    : error;
 }
 
 /** How one request leaves for the core. The default is the client call; the size-aware sender plugs in here. */
@@ -74,10 +86,31 @@ export interface RendererConnectionOptions {
 /** The lane Picks of ProtocolConnection, plus what the renderer files and ports feeds need. */
 export type RendererConnection = Pick<
   ProtocolConnection,
-  | 'start' | 'reopen' | 'ensureOpen' | 'onReplaced' | 'status' | 'snapshot' | 'whenSynced' | 'attach' | 'call' | 'client'
-  | 'resumeThread' | 'unsubscribeThread' | 'onStoreChange' | 'viewPorts' | 'watchFiles' | 'unwatchFiles' | 'watchFeed'
-  | 'unwatchFeed' | 'loginFeed'
-  | 'onEvent' | 'notify' | 'respond' | 'pendingServerRequests' | 'noteUserInput' | 'close'
+  | 'start'
+  | 'reopen'
+  | 'ensureOpen'
+  | 'onReplaced'
+  | 'status'
+  | 'snapshot'
+  | 'whenSynced'
+  | 'attach'
+  | 'call'
+  | 'client'
+  | 'resumeThread'
+  | 'unsubscribeThread'
+  | 'onStoreChange'
+  | 'viewPorts'
+  | 'watchFiles'
+  | 'unwatchFiles'
+  | 'watchFeed'
+  | 'unwatchFeed'
+  | 'loginFeed'
+  | 'onEvent'
+  | 'notify'
+  | 'respond'
+  | 'pendingServerRequests'
+  | 'noteUserInput'
+  | 'close'
 > & {
   /** The same client with the library types: what the size-aware sender and the blob calls take. */
   protocolClient(): ProtocolClient<SessionFold> | null;
@@ -92,7 +125,11 @@ export type RendererConnection = Pick<
   onState(listener: () => void): () => void;
 };
 
-export function createRendererConnection({ open, send: initialSend, log }: RendererConnectionOptions): RendererConnection {
+export function createRendererConnection({
+  open,
+  send: initialSend,
+  log,
+}: RendererConnectionOptions): RendererConnection {
   let sender: Sender = initialSend ?? plainSender;
   const note = createLinkLog(log);
   const windows = new Set<RendererWindow>();
@@ -105,7 +142,10 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
   const publishState = (): void => {
     for (const listener of [...stateListeners]) listener();
   };
-  const fsWatches = new Map<string, { window: RendererWindow; params: { watchId: string } & Record<string, unknown> }>();
+  const fsWatches = new Map<
+    string,
+    { window: RendererWindow; params: { watchId: string } & Record<string, unknown> }
+  >();
   const loginFeeds = new Map<string, LoginFeedState>();
   // Scoped feeds that carry sections (`media:<jobId>`), by feed id: who watches them and the sections each holds. The
   // client's store folds no scoped feed, so this connection folds them (scopedSectionChanges) and pushes the changes.
@@ -217,7 +257,12 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
       );
     }
     if (portViewers.size > 0) {
-      tally.push(restored.call('system/ports/subscribe', {}).then(() => void (settled.restored += 1), () => void (settled.failed += 1)));
+      tally.push(
+        restored.call('system/ports/subscribe', {}).then(
+          () => void (settled.restored += 1),
+          () => void (settled.failed += 1)
+        )
+      );
     }
     for (const feedId of [...feedWatches.keys()]) {
       tally.push(
@@ -228,12 +273,15 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
             if (isAbsentFeed(error)) return void ((settled.lost += 1), dropFeed(feedId));
             settled.failed += 1;
             const message = error instanceof Error ? error.message : String(error);
-            for (const window of [...(feedWatches.get(feedId)?.windows ?? [])]) window.push({ kind: 'feedError', feedId, message });
+            for (const window of [...(feedWatches.get(feedId)?.windows ?? [])])
+              window.push({ kind: 'feedError', feedId, message });
           }
         )
       );
     }
-    void Promise.allSettled(tally).then(() => note('core-scoped-feeds-restore-settled', { epoch: owner, attempted, ...settled }));
+    void Promise.allSettled(tally).then(() =>
+      note('core-scoped-feeds-restore-settled', { epoch: owner, attempted, ...settled })
+    );
   };
   /** Forgets a feed the core no longer has and removes the sections it held from its watchers. */
   const dropFeed = (feedId: string): void => {
@@ -427,7 +475,12 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
       // The store folds no scoped feed: what the watched feeds hold is part of the window's state, so a mirror replaced
       // from this snapshot keeps it (the main connection put it into the replace itself).
       const held = [...feedWatches.values()].flatMap((route) => [...route.held.values()]);
-      return { status, link, entries: [...SECTION_NAMES.flatMap((name) => store.sections(name)), ...held], epoch: store.appFeed()?.epoch };
+      return {
+        status,
+        link,
+        entries: [...SECTION_NAMES.flatMap((name) => store.sections(name)), ...held],
+        epoch: store.appFeed()?.epoch,
+      };
     },
     attach(window) {
       windows.add(window);
@@ -467,12 +520,16 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
         const feedId = (params as { feedId?: unknown } | null)?.feedId;
         const [window] = windows;
         if (!isScopedSectionFeed(feedId) || !window) throw new Error('This feed is not available to the window.');
-        return method === 'feed/subscribe' ? connection.watchFeed(window, feedId) : connection.unwatchFeed(window, feedId);
+        return method === 'feed/subscribe'
+          ? connection.watchFeed(window, feedId)
+          : connection.unwatchFeed(window, feedId);
       }
       const live = await connectedAfterFirstOpen();
-      const reply = await withDirectErrors(request(method, asNodeErrors(method, params)).catch((error: unknown) => {
-        throw staleSave(method, error);
-      }));
+      const reply = await withDirectErrors(
+        request(method, asNodeErrors(method, params)).catch((error: unknown) => {
+          throw staleSave(method, error);
+        })
+      );
       const flow = (LOGIN_START_METHODS.has(method) ? reply : params) as { flowId?: unknown } | null;
       if (typeof flow?.flowId === 'string' && flow.flowId) {
         if (LOGIN_START_METHODS.has(method)) await followLogin(live, flow.flowId);

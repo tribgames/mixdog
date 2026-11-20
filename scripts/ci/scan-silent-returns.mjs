@@ -20,7 +20,8 @@ import { tokenize } from './check-clean-checkout.mjs';
 const TEST_FILE = /\.test\.(?:mjs|ts)$/;
 const CALLS = new Set(['test', 'it']);
 const GUARDS = new Set(['existsSync', 'statSync', 'accessSync', 'lstatSync']);
-const isAssertion = (word) => /^(?:assert|expect|strictEqual|deepEqual|ok|equal|notEqual|throws|rejects|doesNotMatch|match)/.test(word);
+const isAssertion = (word) =>
+  /^(?:assert|expect|strictEqual|deepEqual|ok|equal|notEqual|throws|rejects|doesNotMatch|match)/.test(word);
 
 // The index of the token that closes the bracket opened at `open`.
 function closing(tokens, open) {
@@ -50,7 +51,10 @@ export function silentReturns(source) {
     // the body: the first `{` after the first `=>` or `function (...)` among the arguments
     let at = -1;
     for (let j = i + 2; j < end; j += 1) {
-      if ((tokens[j].value === '=' && tokens[j + 1]?.value === '>') || (tokens[j].kind === 'word' && tokens[j].value === 'function')) {
+      if (
+        (tokens[j].value === '=' && tokens[j + 1]?.value === '>') ||
+        (tokens[j].kind === 'word' && tokens[j].value === 'function')
+      ) {
         at = tokens.findIndex((candidate, index) => index > j && index < end && candidate.value === '{');
         break;
       }
@@ -76,13 +80,20 @@ export function silentReturns(source) {
         const open = tokens.findIndex((candidate, index) => index > j && index < bodyEnd && candidate.value === '{');
         const arrowExpression = t.value === '=' && tokens[j + 2]?.value !== '{';
         if (open >= 0 && !arrowExpression) {
-          for (let k = j; k < closing(tokens, open); k += 1) if (tokens[k].kind === 'word' && isAssertion(tokens[k].value) && tokens[k + 1]?.value === '(') asserted = true;
+          for (let k = j; k < closing(tokens, open); k += 1)
+            if (tokens[k].kind === 'word' && isAssertion(tokens[k].value) && tokens[k + 1]?.value === '(')
+              asserted = true;
           j = closing(tokens, open);
         }
         continue;
       }
       if (t.kind === 'word' && isAssertion(t.value) && tokens[j + 1]?.value === '(') asserted = true;
-      if (t.kind === 'word' && t.value === 'return' && ['', ';', '}'].includes(tokens[j + 1]?.value ?? '') && !asserted) {
+      if (
+        t.kind === 'word' &&
+        t.value === 'return' &&
+        ['', ';', '}'].includes(tokens[j + 1]?.value ?? '') &&
+        !asserted
+      ) {
         const reported = tokens.slice(Math.max(at + 1, j - 12), j).some((c) => c.kind === 'word' && c.value === 'skip');
         if (!reported && !hits.some((hit) => hit.line === t.line)) hits.push({ line: t.line, kind: 'early' });
       }
@@ -94,12 +105,20 @@ export function silentReturns(source) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
-  const files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 }).split('\n').filter((path) => TEST_FILE.test(path) && existsSync(join(root, path)));
+  const files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 })
+    .split('\n')
+    .filter((path) => TEST_FILE.test(path) && existsSync(join(root, path)));
   const found = [];
-  for (const path of files) for (const hit of silentReturns(readFileSync(join(root, path), 'utf8'))) found.push({ path, ...hit });
+  for (const path of files)
+    for (const hit of silentReturns(readFileSync(join(root, path), 'utf8'))) found.push({ path, ...hit });
   for (const { path, line, kind } of found) {
-    console.log(`${path}:${line}: ${kind === 'guard' ? 'returns when a file is absent' : 'returns before its first assertion'}`);
-    if (process.env.GITHUB_ACTIONS) console.log(`::warning file=${path},line=${line}::a test that returns early passes without testing (scripts/ci/scan-silent-returns.mjs)`);
+    console.log(
+      `${path}:${line}: ${kind === 'guard' ? 'returns when a file is absent' : 'returns before its first assertion'}`
+    );
+    if (process.env.GITHUB_ACTIONS)
+      console.log(
+        `::warning file=${path},line=${line}::a test that returns early passes without testing (scripts/ci/scan-silent-returns.mjs)`
+      );
   }
   console.log(`${found.length} advisory hit(s) in ${files.length} test files`);
   if (process.argv.includes('--fail') && found.length > 0) process.exit(1);

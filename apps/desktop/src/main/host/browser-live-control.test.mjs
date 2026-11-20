@@ -22,7 +22,10 @@ test('resize is forwarded', async () => {
   const fit = { mode: 'fit-client', cssWidth: 390, cssHeight: 800, deviceScaleFactor: 3 };
   assert.equal(await call({ sessionId: 's1', kind: 'resize', request: fit }), null);
   assert.equal(await call({ sessionId: 's1', kind: 'resize', request: { mode: 'page' } }), null);
-  assert.deepEqual(calls, [['resize', 's1', fit], ['resize', 's1', { mode: 'page' }]]);
+  assert.deepEqual(calls, [
+    ['resize', 's1', fit],
+    ['resize', 's1', { mode: 'page' }],
+  ]);
 });
 
 test('videoLimit is forwarded', async () => {
@@ -39,12 +42,17 @@ test('bad params are -32602', async () => {
     { kind: 'resize', request: good },
     { sessionId: '', kind: 'resize', request: good },
     { sessionId: 's1', kind: 'resize', request: { mode: 'other' } },
-    { sessionId: 's1', kind: 'resize', request: { mode: 'fit-client', cssWidth: 0, cssHeight: 1, deviceScaleFactor: 1 } },
+    {
+      sessionId: 's1',
+      kind: 'resize',
+      request: { mode: 'fit-client', cssWidth: 0, cssHeight: 1, deviceScaleFactor: 1 },
+    },
     { sessionId: 's1', kind: 'videoLimit', request: { maxWidth: -1, maxHeight: 10 } },
     { sessionId: 's1', kind: 'videoLimit', request: { maxWidth: Infinity, maxHeight: 10 } },
     { sessionId: 's1', kind: 'videoLimit', request: null },
     [],
     null,
-  ]) await assert.rejects(call(params), invalid, JSON.stringify(params));
+  ])
+    await assert.rejects(call(params), invalid, JSON.stringify(params));
   assert.deepEqual(calls, []);
 });

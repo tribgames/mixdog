@@ -16,7 +16,8 @@ export function browserApprovalDecision(choice: BrowserApprovalChoice, reason?: 
 type Obj = Record<string, unknown>;
 const isObj = (value: unknown): value is Obj => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
-const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []);
+const strings = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 
 function normalizeFiles(value: unknown): BrowserApprovalPrompt['files'] {
   if (!Array.isArray(value)) return undefined;
@@ -34,7 +35,9 @@ export function browserApprovalPrompt(
   params: { action: string; request: unknown; threadId: string; surfaceThreadId?: string | null }
 ): BrowserApprovalPrompt {
   const card: Obj = isObj(params.request) ? params.request : {};
-  const remember = isObj(card.remember) ? { kinds: strings(card.remember.kinds), ...(card.remember.session === true ? { session: true } : {}) } : null;
+  const remember = isObj(card.remember)
+    ? { kinds: strings(card.remember.kinds), ...(card.remember.session === true ? { session: true } : {}) }
+    : null;
   const files = normalizeFiles(card.files);
   const surface = text(card.surfaceSessionId) || params.surfaceThreadId || undefined;
   return {
@@ -73,7 +76,12 @@ export function subscribeBrowserApprovals(
   };
   const offer = (request: { id: unknown; method: string; params: unknown }): void => {
     if (request.method !== 'item/browser/requestApproval' || !isObj(request.params)) return;
-    const params = request.params as { action?: unknown; request?: unknown; threadId?: unknown; surfaceThreadId?: unknown };
+    const params = request.params as {
+      action?: unknown;
+      request?: unknown;
+      threadId?: unknown;
+      surfaceThreadId?: unknown;
+    };
     const requestId = String(request.id);
     const prompt = browserApprovalPrompt(requestId, {
       action: text(params.action),
@@ -96,7 +104,8 @@ export function subscribeBrowserApprovals(
   const stop = client.on((event) => {
     if (event.type === 'serverRequest') offer(event.request);
     else if (event.type === 'serverRequestResolved') close(String(event.params.requestId));
-    else if (event.type === 'status' && event.status.state !== 'ready') for (const requestId of [...prompts]) close(requestId);
+    else if (event.type === 'status' && event.status.state !== 'ready')
+      for (const requestId of [...prompts]) close(requestId);
   });
   return () => {
     stop();

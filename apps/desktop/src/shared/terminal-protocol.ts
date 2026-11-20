@@ -8,7 +8,11 @@ import type { TerminalSizeOwner, TerminalSizeOwnerEvent } from './terminal-size-
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined);
 
 /** Node's `termEnsure(id, cwd, shell)`: each value counts only as a non-empty string; with no id the core makes one. */
-export function terminalEnsureRequest(tabId: unknown, cwd: unknown, profile: unknown): { method: 'terminal/ensure'; params: Record<string, unknown> } {
+export function terminalEnsureRequest(
+  tabId: unknown,
+  cwd: unknown,
+  profile: unknown
+): { method: 'terminal/ensure'; params: Record<string, unknown> } {
   const options: Record<string, unknown> = {};
   if (text(cwd)) options.cwd = cwd;
   if (text(profile)) options.profile = profile;
@@ -20,22 +24,42 @@ export function terminalEnsureRequest(tabId: unknown, cwd: unknown, profile: unk
  *  released a claim that is not positive in both, or floored and clamped the size to 2..500 x 2..200, 0 and NaN standing for 80 x 24
  *  (terminal-manager.ts:429-436). The same is done here, so every size the phone sends is one the core takes, a release included
  *  (a claim of 0 x 0). Recorded: apps/mobile/fixtures/terminal-resize/golden.json. */
-export function terminalResizeRequest(tabId: unknown, cols: unknown, rows: unknown, phoneOwner: unknown): { tabId: string; cols: number; rows: number; claim?: true } {
+export function terminalResizeRequest(
+  tabId: unknown,
+  cols: unknown,
+  rows: unknown,
+  phoneOwner: unknown
+): { tabId: string; cols: number; rows: number; claim?: true } {
   const sent = JSON.parse(JSON.stringify([tabId ?? null, cols ?? null, rows ?? null])) as unknown[];
   const id = String(sent[0] || '');
   const [width, height] = [Number(sent[1]), Number(sent[2])];
   if (phoneOwner === true && !(width > 0 && height > 0)) return { tabId: id, cols: 0, rows: 0, claim: true };
-  const size = (value: number, fallback: number, max: number): number => Math.max(2, Math.min(max, Math.floor(value) || fallback));
-  return { tabId: id, cols: size(width, 80, 500), rows: size(height, 24, 200), ...(phoneOwner === true ? { claim: true as const } : {}) };
+  const size = (value: number, fallback: number, max: number): number =>
+    Math.max(2, Math.min(max, Math.floor(value) || fallback));
+  return {
+    tabId: id,
+    cols: size(width, 80, 500),
+    rows: size(height, 24, 200),
+    ...(phoneOwner === true ? { claim: true as const } : {}),
+  };
 }
 
 /** Node answered `{id, replay, sizeOwner?}` and left `sizeOwner` out when no phone owns the size, where the core writes null.
  *  `client` is the asking connection's key in the core's size-owner events; it is not part of Node's answer. `replayLeadUnit` is the lone
  *  low surrogate Node's replay starts with when its window cut a non-BMP character (the core's JSON cannot hold it): it goes back in front. */
-export function terminalReply(reply: unknown): { id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } } {
+export function terminalReply(reply: unknown): {
+  id: string;
+  replay: string;
+  sizeOwner?: { cols: number; rows: number; own: boolean };
+} {
   const { client: _client, sizeOwner, replayLeadUnit, ...rest } = (reply ?? {}) as Record<string, unknown>;
-  if (typeof replayLeadUnit === 'number' && typeof rest.replay === 'string') rest.replay = String.fromCharCode(replayLeadUnit) + rest.replay;
-  return { ...rest, ...(sizeOwner == null ? {} : { sizeOwner }) } as { id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } };
+  if (typeof replayLeadUnit === 'number' && typeof rest.replay === 'string')
+    rest.replay = String.fromCharCode(replayLeadUnit) + rest.replay;
+  return { ...rest, ...(sizeOwner == null ? {} : { sizeOwner }) } as {
+    id: string;
+    replay: string;
+    sizeOwner?: { cols: number; rows: number; own: boolean };
+  };
 }
 
 /** `termActivity`: Node answered `[{id, state}]` of the tabs with a known state, in creation order; the section is `{<tabId>: state}`. */
@@ -76,8 +100,15 @@ export function terminalSizeOwnerChanges(
         const before = held.get(id);
         return !before || before.cols !== owner.cols || before.rows !== owner.rows || before.owner !== owner.owner;
       })
-      .map(([id, owner]) => ({ id, cols: owner.cols, rows: owner.rows, own: owner.owner !== '' && owner.owner === client })),
-    ...[...held.keys()].filter((id) => !next.has(id) && listed.has(id)).map((id) => ({ id, cols: 0, rows: 0, own: false })),
+      .map(([id, owner]) => ({
+        id,
+        cols: owner.cols,
+        rows: owner.rows,
+        own: owner.owner !== '' && owner.owner === client,
+      })),
+    ...[...held.keys()]
+      .filter((id) => !next.has(id) && listed.has(id))
+      .map((id) => ({ id, cols: 0, rows: 0, own: false })),
   ];
   held.clear();
   for (const [id, owner] of next) held.set(id, owner);
@@ -91,7 +122,10 @@ export type TerminalReplayCut = { stream: string; offset: number };
 
 export function terminalReplayCut(reply: unknown): TerminalReplayCut | undefined {
   const cut = (reply as { replayCut?: Partial<TerminalReplayCut> } | null)?.replayCut;
-  return typeof cut?.stream === 'string' && typeof cut.offset === 'number' && Number.isSafeInteger(cut.offset) && cut.offset >= 0
+  return typeof cut?.stream === 'string' &&
+    typeof cut.offset === 'number' &&
+    Number.isSafeInteger(cut.offset) &&
+    cut.offset >= 0
     ? { stream: cut.stream, offset: cut.offset }
     : undefined;
 }
@@ -104,7 +138,10 @@ export function createTerminalOutputDecoder(): {
   const unit = (value: unknown): string => (typeof value === 'number' ? String.fromCharCode(value) : '');
   return {
     text(params, cut) {
-      const { processHandle, bytesB64, leadUnit, tailUnit, outputStream, outputOffset } = (params ?? {}) as Record<string, unknown>;
+      const { processHandle, bytesB64, leadUnit, tailUnit, outputStream, outputOffset } = (params ?? {}) as Record<
+        string,
+        unknown
+      >;
       const id = String(processHandle ?? '');
       if (cut && typeof outputOffset === 'number' && outputStream !== cut.stream) return { id, data: '' };
       const skip = cut && typeof outputOffset === 'number' ? Math.max(0, cut.offset - outputOffset) : 0;

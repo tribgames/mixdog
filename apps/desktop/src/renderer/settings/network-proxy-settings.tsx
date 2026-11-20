@@ -52,7 +52,8 @@ function systemName(route: NetworkProxyRoute): string {
 export function routeDescription(mode: NetworkProxyMode, route: NetworkProxyRoute): string {
   if (mode === 'manual') {
     if (route.error) return t('Enter a proxy address below to use it.');
-    if (route.via === 'direct') return t('The current destination matches an exception and connects without the proxy.');
+    if (route.via === 'direct')
+      return t('The current destination matches an exception and connects without the proxy.');
     return t('Using the proxy below for destinations that do not match an exception.');
   }
   if (mode === 'off') {
@@ -185,7 +186,9 @@ function saveError(reason: unknown, field: 'url' | 'exceptions'): string {
   const message = errorMessageText(reason);
   if (field === 'url') {
     if (/user name or password/.test(message)) {
-      return t('Manual addresses cannot contain credentials. To use HTTPS_PROXY with credentials, select Use system settings.');
+      return t(
+        'Manual addresses cannot contain credentials. To use HTTPS_PROXY with credentials, select Use system settings.'
+      );
     }
     if (/networkProxy\.url/.test(message)) {
       return t('The address is not valid. Example: http://proxy.company.com:8080');
@@ -336,7 +339,9 @@ export function NetworkProxyGroup({ active }: Pick<PanelContext, 'active'>) {
             modeError ||
             (loadFailed
               ? t('Could not refresh the proxy settings.')
-              : withCode(routeDescription(mode, draftManual ? { ...settings.route, error: 'no-address' } : settings.route)))
+              : withCode(
+                  routeDescription(mode, draftManual ? { ...settings.route, error: 'no-address' } : settings.route)
+                ))
           }
           error={Boolean(modeError) || loadFailed}
         >

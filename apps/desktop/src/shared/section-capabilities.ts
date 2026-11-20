@@ -38,9 +38,13 @@ export function sectionOf(capability: string, args: readonly unknown[] = []): Se
 }
 
 /** The recompute `getProviderSetup(options)` asks for (`account/refreshProviderSetup`), `undefined` for none. */
-export function providerSetupRefresh(capability: string, args: readonly unknown[] = []): Record<string, true> | undefined {
+export function providerSetupRefresh(
+  capability: string,
+  args: readonly unknown[] = []
+): Record<string, true> | undefined {
   if (capability !== 'getProviderSetup') return undefined;
-  const options = args[0] && typeof args[0] === 'object' && !Array.isArray(args[0]) ? (args[0] as Record<string, unknown>) : {};
+  const options =
+    args[0] && typeof args[0] === 'object' && !Array.isArray(args[0]) ? (args[0] as Record<string, unknown>) : {};
   const asked = SETUP_OPTIONS.filter((name) => options[name] === true);
   return asked.length > 0 ? Object.fromEntries(asked.map((name) => [name, true as const])) : undefined;
 }

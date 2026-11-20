@@ -48,12 +48,17 @@ export function createCoreUserControl(call: CallCore) {
 /** Whether the core's computer sessions are the ones the pill shows: it draws the core's `computer` section, so the core owns the
  *  computer while that section has a session, a hold of the user's or a cleanup pending. Otherwise the desktop's own computer host does. */
 export function coreOwnsComputer(snapshot: ComputerUseSnapshot): boolean {
-  return (snapshot.presentSessionIds ?? []).length > 0 || snapshot.userControlActive || snapshot.cleanupState !== 'ready';
+  return (
+    (snapshot.presentSessionIds ?? []).length > 0 || snapshot.userControlActive || snapshot.cleanupState !== 'ready'
+  );
 }
 
 /** Whether the core drives the computer now: the section names the core's helper as the backend (not the desktop's own host,
  *  whose in-process sessions the pill then shows) and the core owns the computer (`coreOwnsComputer`). */
-export function coreDrivesComputer(pill: { backend(): 'helper' | 'desktopHost'; snapshot(): ComputerUseSnapshot }): boolean {
+export function coreDrivesComputer(pill: {
+  backend(): 'helper' | 'desktopHost';
+  snapshot(): ComputerUseSnapshot;
+}): boolean {
   return pill.backend() === 'helper' && coreOwnsComputer(pill.snapshot());
 }
 
@@ -86,7 +91,9 @@ export function createComputerPillControls(options: ComputerPillControlsOptions)
     configureIdleResume: (seconds) => {
       host?.configureIdleResume?.(seconds);
       if (mirror.backend() !== 'helper') return;
-      core.configureIdleResume(seconds).catch(options.onError ?? ((error) => console.warn('[mixdog-computer] idle-resume report failed:', error)));
+      core
+        .configureIdleResume(seconds)
+        .catch(options.onError ?? ((error) => console.warn('[mixdog-computer] idle-resume report failed:', error)));
     },
     async stop(sessionIds) {
       if (!owned()) return host?.stop(sessionIds);

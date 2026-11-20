@@ -314,15 +314,8 @@ export async function verifyReleaseAssets({
   packagePath = PACKAGE_PATH,
   downloadOptions,
 } = {}) {
-  const [
-    patchSource,
-    cargoToml,
-    runtimeSource,
-    graphSource,
-    spawnSource,
-    spawnCargo,
-    packageSource,
-  ] = await Promise.all([
+  const [patchSource, cargoToml, runtimeSource, graphSource, spawnSource, spawnCargo, packageSource] =
+    await Promise.all([
       readFile(patchManifestPath, 'utf8'),
       readFile(cargoPath, 'utf8'),
       readFile(runtimeManifestPath, 'utf8'),

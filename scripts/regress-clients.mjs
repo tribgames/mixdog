@@ -22,7 +22,10 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
-const CORPUS = join(ROOT, 'native/core/crates/mixdog-app-protocol/src/boundary/validate/fixtures/clients-accepted.json');
+const CORPUS = join(
+  ROOT,
+  'native/core/crates/mixdog-app-protocol/src/boundary/validate/fixtures/clients-accepted.json'
+);
 const IMPORTS_DOC = join(ROOT, 'docs/internal/mobile-imports-of-desktop.md');
 const REFUSALS = new Set(['invalidParams', 'permissionDenied', 'methodNotFound']);
 const CALL_MS = 15_000;
@@ -37,13 +40,22 @@ class Blocked extends Error {}
 
 /** Runs `node args` in `cwd`; throws a message with the last lines of the output when it exits non-zero. */
 function node(cwd, args, label) {
-  const r = spawnSync(process.execPath, args, { cwd, encoding: 'utf8', timeout: COMMAND_MS, maxBuffer: 64 << 20, windowsHide: true });
+  const r = spawnSync(process.execPath, args, {
+    cwd,
+    encoding: 'utf8',
+    timeout: COMMAND_MS,
+    maxBuffer: 64 << 20,
+    windowsHide: true,
+  });
   const lines = `${r.stdout ?? ''}\n${r.stderr ?? ''}`.split(/\r?\n/).filter(Boolean);
   // Test runner output is reduced to the failed tests and the totals; anything else keeps its last lines.
   const totals = lines.filter((line) => /^# (tests|pass|fail) \d+$/.test(line));
   const failed = lines.filter((line) => /^\s*not ok /.test(line));
   if (r.error) throw new Error(`${label}: ${r.error.message}`);
-  if (r.status !== 0) throw new Error(`${label} exited ${r.status}:\n${(totals.length ? [...failed, ...totals] : lines.slice(-25)).slice(0, 40).join('\n')}`);
+  if (r.status !== 0)
+    throw new Error(
+      `${label} exited ${r.status}:\n${(totals.length ? [...failed, ...totals] : lines.slice(-25)).slice(0, 40).join('\n')}`
+    );
   return totals.map((line) => line.slice(2)).join(', ');
 }
 
@@ -56,14 +68,20 @@ function need(dir, specifier) {
       // try the next place
     }
   }
-  throw new Blocked(`${specifier} is not installed for ${relative(ROOT, dir) || '.'} (nothing is installed by this script)`);
+  throw new Blocked(
+    `${specifier} is not installed for ${relative(ROOT, dir) || '.'} (nothing is installed by this script)`
+  );
 }
 
 function protocolClient() {
   const dir = join(ROOT, 'packages/protocol-client');
   const tsc = need(dir, 'typescript/bin/tsc');
   node(dir, [tsc, '-p', '.'], 'protocol-client typecheck');
-  return node(dir, ['--import', pathToFileURL(need(dir, 'tsx/esm')).href, '--test', 'test/*.test.ts', 'test/rows/*.test.mjs'], 'protocol-client tests');
+  return node(
+    dir,
+    ['--import', pathToFileURL(need(dir, 'tsx/esm')).href, '--test', 'test/*.test.ts', 'test/rows/*.test.mjs'],
+    'protocol-client tests'
+  );
 }
 
 function mobile() {
@@ -72,7 +90,11 @@ function mobile() {
   need(dir, '@capacitor-mlkit/barcode-scanning');
   const tsc = need(dir, 'typescript/bin/tsc');
   node(dir, [tsc, '--noEmit'], 'mobile typecheck');
-  return node(dir, ['--import', pathToFileURL(need(dir, 'tsx/esm')).href, '--test', 'src/**/*.test.ts'], 'mobile tests');
+  return node(
+    dir,
+    ['--import', pathToFileURL(need(dir, 'tsx/esm')).href, '--test', 'src/**/*.test.ts'],
+    'mobile tests'
+  );
 }
 
 // ---- the files outside apps/mobile that the phone app imports ----------------------------------------------------------
@@ -133,7 +155,7 @@ function mobileImportsDoc() {
   const gone = [...listed].filter((f) => !existsSync(join(ROOT, f)));
   if (missing.length || gone.length) {
     throw new Error(
-      `${relative(ROOT, IMPORTS_DOC)} is out of date. Imported by the phone app but not listed: ${missing.join(', ') || 'none'}. Listed but not on disk: ${gone.join(', ') || 'none'}.`,
+      `${relative(ROOT, IMPORTS_DOC)} is out of date. Imported by the phone app but not listed: ${missing.join(', ') || 'none'}. Listed but not on disk: ${gone.join(', ') || 'none'}.`
     );
   }
   return `${listed.size} files listed`;
@@ -172,7 +194,9 @@ async function open(doc, kind, version, { handshake = true } = {}) {
   await new Promise((done, fail) => {
     socket.once('open', done);
     socket.once('error', fail);
-    socket.once('unexpected-response', (_request, response) => fail(new Error(`the core refused the connection (HTTP ${response.statusCode})`)));
+    socket.once('unexpected-response', (_request, response) =>
+      fail(new Error(`the core refused the connection (HTTP ${response.statusCode})`))
+    );
   });
   const request = (method, params) =>
     new Promise((resolveCall) => {
@@ -189,8 +213,12 @@ async function open(doc, kind, version, { handshake = true } = {}) {
       socket.send(JSON.stringify({ id, method, params }));
     });
   if (handshake) {
-    const hello = await request('initialize', { clientInfo: { name: `regress-${kind}`, version, kind }, capabilities: {} });
-    if (hello.error) throw new Error(`initialize as ${kind} was answered with ${JSON.stringify(hello.error).slice(0, 300)}`);
+    const hello = await request('initialize', {
+      clientInfo: { name: `regress-${kind}`, version, kind },
+      capabilities: {},
+    });
+    if (hello.error)
+      throw new Error(`initialize as ${kind} was answered with ${JSON.stringify(hello.error).slice(0, 300)}`);
     socket.send(JSON.stringify({ method: 'initialized' }));
   }
   return {
@@ -203,7 +231,9 @@ async function open(doc, kind, version, { handshake = true } = {}) {
 
 const refusalOf = (answer) => {
   const reason = answer.error?.data?.reason;
-  return REFUSALS.has(reason) || answer.error?.code === -32601 ? `${reason ?? answer.error.code}: ${String(answer.error.message).slice(0, 160)}` : null;
+  return REFUSALS.has(reason) || answer.error?.code === -32601
+    ? `${reason ?? answer.error.code}: ${String(answer.error.message).slice(0, 160)}`
+    : null;
 };
 
 /** The methods of the protocol's request table (the client notifications, a table of their own after it, get no answer). */
@@ -211,7 +241,9 @@ function requestMethods() {
   const text = readFileSync(join(ROOT, 'packages/protocol/src/index.ts'), 'utf8');
   const start = text.indexOf('"clientMethods": [');
   const end = text.indexOf('"clientNotifications": [', start);
-  return new Set([...text.slice(start, end < 0 ? undefined : end).matchAll(/^\s{6}"method": "([^"]+)"/gm)].map((m) => m[1]));
+  return new Set(
+    [...text.slice(start, end < 0 ? undefined : end).matchAll(/^\s{6}"method": "([^"]+)"/gm)].map((m) => m[1])
+  );
 }
 
 /** Sends every row of the corpus, by client kind, to the serving core; throws the refusals, returns a one-line summary. */
@@ -258,7 +290,9 @@ async function sendCorpus(doc, version) {
     counts.push(`${client}: ${tally.sent} sent, ${tally.answered} answered, ${tally.silent} without an answer`);
   }
   if (failures.length) {
-    throw new Error(`${failures.length} row(s) refused by the core:\n${failures.slice(0, 40).join('\n')}${failures.length > 40 ? `\n... ${failures.length - 40} more` : ''}`);
+    throw new Error(
+      `${failures.length} row(s) refused by the core:\n${failures.slice(0, 40).join('\n')}${failures.length > 40 ? `\n... ${failures.length - 40} more` : ''}`
+    );
   }
   return counts.join('; ');
 }
@@ -307,7 +341,8 @@ export async function main(argv) {
   }
   const only = arg('--only');
   const want = new Set(only ? only.split(',') : STEPS);
-  for (const step of want) if (!STEPS.includes(step)) throw new Error(`unknown step ${step} (steps: ${STEPS.join(', ')})`);
+  for (const step of want)
+    if (!STEPS.includes(step)) throw new Error(`unknown step ${step} (steps: ${STEPS.join(', ')})`);
   const given = arg('--mixdogd') ?? process.env.MIXDOGD_BIN;
   const bin = given ? resolve(given) : null;
   const withCore = (work) => async () => {
@@ -324,11 +359,16 @@ export async function main(argv) {
   };
   const results = {};
   for (const step of STEPS) if (want.has(step)) results[step] = await settle(steps[step]);
-  for (const [step, { status, detail }] of Object.entries(results)) console.log(`${status.toUpperCase().padEnd(8)} ${step}${detail ? `: ${detail}` : ''}`);
+  for (const [step, { status, detail }] of Object.entries(results))
+    console.log(`${status.toUpperCase().padEnd(8)} ${step}${detail ? `: ${detail}` : ''}`);
   const statuses = Object.values(results).map((r) => r.status);
   return statuses.includes('failed') ? 1 : statuses.includes('blocked') ? 2 : 0;
 }
 
-if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  existsSync(process.argv[1]) &&
+  realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)
+) {
   process.exit(await main(process.argv.slice(2)));
 }

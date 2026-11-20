@@ -18,7 +18,10 @@ const RUNNER = fileURLToPath(new URL('./coverage/py-runner.py', import.meta.url)
 
 /** The records of the runner's evidence file: JSON lines, the reason a JSON string whatever quotes it holds. */
 export function readEvidence(text) {
-  return text.split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  return text
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -35,7 +38,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const evidence = join(scratch, 'records.ndjson');
   env.MIXDOG_PY_EVIDENCE = evidence;
   if (receipt) beginReceipt(receipt, 'unittest');
-  const run = spawnSync(process.platform === 'win32' ? 'python' : 'python3', [RUNNER, '--start-dir', startDir, '--pattern', pattern], { stdio: 'inherit', env });
+  const run = spawnSync(
+    process.platform === 'win32' ? 'python' : 'python3',
+    [RUNNER, '--start-dir', startDir, '--pattern', pattern],
+    { stdio: 'inherit', env }
+  );
   const status = run.status ?? 1;
   if (receipt) {
     let text = '';

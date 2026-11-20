@@ -40,7 +40,7 @@ test('a coded refusal keeps the wire message, and a typed detail does not replac
   assert.deepEqual(shown.details, { name: 'Bench' });
 });
 
-test('a coded worktree refusal keeps no details beside its message, as Node\'s reached the app', () => {
+test("a coded worktree refusal keeps no details beside its message, as Node's reached the app", () => {
   const shown = coreErrorForWindow(
     rpcFailure({
       reason: 'domainError',
@@ -50,7 +50,10 @@ test('a coded worktree refusal keeps no details beside its message, as Node\'s r
       detail: { type: 'worktreeRevisionConflict', txId: 't-1' },
     })
   );
-  assert.equal(shown.message, 'WORKTREE_REVISION_CONFLICT: This transaction belongs to another session.\n[worktree-details] {"txId":"t-1"}');
+  assert.equal(
+    shown.message,
+    'WORKTREE_REVISION_CONFLICT: This transaction belongs to another session.\n[worktree-details] {"txId":"t-1"}'
+  );
   assert.equal(Object.hasOwn(shown, 'details'), false);
 });
 
@@ -63,8 +66,12 @@ test('an uncoded domain error without a text and other failures are left as they
   }
 });
 
-test('a refused argument reaches the window as the sentence Node\'s handler threw', () => {
-  const failure = rpcFailure({ reason: 'invalidParams', path: 'desktop.zoom', expected: 'Desktop zoom is fixed at 100%.' });
+test("a refused argument reaches the window as the sentence Node's handler threw", () => {
+  const failure = rpcFailure({
+    reason: 'invalidParams',
+    path: 'desktop.zoom',
+    expected: 'Desktop zoom is fixed at 100%.',
+  });
   const shown = coreErrorForWindow(failure);
   assert.equal(shown instanceof TypeError, true);
   assert.equal(shown.message, 'Desktop zoom is fixed at 100%.');
@@ -100,7 +107,10 @@ test('an unregistered Project reads on the Rust path as the Node desktop shows i
   // undefined, { projectPath })); the desktop session host frames it with worktreeErrorWithCode (session-host-lifecycle.ts).
   const projectPath = 'C:\\work\\app';
   const node = worktreeErrorWithCode(
-    Object.assign(new Error('Project is not available.'), { code: 'WORKTREE_PROJECT_UNKNOWN', details: { projectPath } })
+    Object.assign(new Error('Project is not available.'), {
+      code: 'WORKTREE_PROJECT_UNKNOWN',
+      details: { projectPath },
+    })
   );
   const shown = coreErrorForWindow(
     rpcFailure({

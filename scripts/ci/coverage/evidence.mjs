@@ -33,7 +33,8 @@ export function identityProblem(producer, record) {
   if (!rule) return `a ${record.kind} record is not something a ${producer} runner writes`;
   const id = record.id;
   if (id[0] !== rule.name) return `${JSON.stringify(id)} is not a ${rule.name} identity`;
-  if (rule.length !== undefined ? id.length !== rule.length : id.length < rule.min) return `${JSON.stringify(id)} does not carry the runner's case component`;
+  if (rule.length !== undefined ? id.length !== rule.length : id.length < rule.min)
+    return `${JSON.stringify(id)} does not carry the runner's case component`;
   return null;
 }
 
@@ -42,7 +43,10 @@ export function headSha(cwd = process.cwd()) {
   return execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
 }
 
-export function envelopeFromEnv(env = process.env, { kind, slot = 'root', parentSlot = null, parentInvocation = null } = {}) {
+export function envelopeFromEnv(
+  env = process.env,
+  { kind, slot = 'root', parentSlot = null, parentInvocation = null } = {}
+) {
   return {
     repository: env.GITHUB_REPOSITORY ?? null,
     sha: headSha(),
@@ -85,25 +89,32 @@ export function integrityProblems(receipt) {
   if (receipt.complete !== true) return [...problems, 'is not complete: the invocation did not finish'];
   if (receipt.exitCode !== 0) problems.push(`ended with exit status ${receipt.exitCode}`);
   if (!Array.isArray(receipt.records)) return [...problems, 'has no records'];
-  if (receipt.trailer?.recordCount !== receipt.records.length) problems.push(`trailer counts ${receipt.trailer?.recordCount} records, the file holds ${receipt.records.length}`);
-  if (receipt.trailer?.contentHash !== contentHash(receipt.records)) problems.push('trailer content hash does not match the records');
+  if (receipt.trailer?.recordCount !== receipt.records.length)
+    problems.push(`trailer counts ${receipt.trailer?.recordCount} records, the file holds ${receipt.records.length}`);
+  if (receipt.trailer?.contentHash !== contentHash(receipt.records))
+    problems.push('trailer content hash does not match the records');
   for (const [index, record] of receipt.records.entries()) {
     if (record.seq !== index) problems.push(`record ${index} has seq ${record.seq}`);
     if (!KINDS.has(record.kind)) problems.push(`record ${index} has unknown kind ${record.kind}`);
     if (!STATUSES.has(record.status)) problems.push(`record ${index} has unknown status ${record.status}`);
     try {
       idKey(record.id);
-      const wrong = KINDS.has(record.kind) && PRODUCERS.has(receipt.kind) ? identityProblem(receipt.kind, record) : null;
+      const wrong =
+        KINDS.has(record.kind) && PRODUCERS.has(receipt.kind) ? identityProblem(receipt.kind, record) : null;
       if (wrong) problems.push(`record ${index}: ${wrong}`);
     } catch {
       problems.push(`record ${index} has no identity`);
     }
   }
   const env = receipt.envelope;
-  for (const field of ['repository', 'sha', 'workflow', 'runId', 'attempt', 'leg', 'slot', 'producer']) if (!env?.[field]) problems.push(`envelope has no ${field}`);
+  for (const field of ['repository', 'sha', 'workflow', 'runId', 'attempt', 'leg', 'slot', 'producer'])
+    if (!env?.[field]) problems.push(`envelope has no ${field}`);
   if (env?.sha && !/^[0-9a-f]{40}$/.test(env.sha)) problems.push(`envelope sha ${env.sha} is not a full commit id`);
-  if (env?.producer && !PRODUCERS.has(env.producer)) problems.push(`envelope names the unknown producer ${env.producer}`);
-  if (env?.producer && receipt.kind !== env.producer) problems.push(`was written by a ${receipt.kind} runner but its envelope names the producer ${env.producer}`);
-  if (env && (env.parentSlot === null) !== (env.parentInvocation === null)) problems.push('envelope names a parent slot without its invocation, or an invocation without its slot');
+  if (env?.producer && !PRODUCERS.has(env.producer))
+    problems.push(`envelope names the unknown producer ${env.producer}`);
+  if (env?.producer && receipt.kind !== env.producer)
+    problems.push(`was written by a ${receipt.kind} runner but its envelope names the producer ${env.producer}`);
+  if (env && (env.parentSlot === null) !== (env.parentInvocation === null))
+    problems.push('envelope names a parent slot without its invocation, or an invocation without its slot');
   return problems;
 }

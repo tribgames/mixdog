@@ -18,7 +18,10 @@ export interface WakeWatch {
   setInterval?(run: () => void, ms: number): unknown;
   clearInterval?(timer: unknown): void;
   /** The target the `online` event comes from (the window). */
-  events?: { addEventListener(type: 'online', run: () => void): void; removeEventListener(type: 'online', run: () => void): void };
+  events?: {
+    addEventListener(type: 'online', run: () => void): void;
+    removeEventListener(type: 'online', run: () => void): void;
+  };
   pollMs?: number;
   gapMs?: number;
 }

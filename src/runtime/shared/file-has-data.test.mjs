@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-
 import { fileHasData, fileHasDataAsync } from './file-has-data.mjs';
 
 test('fileHasDataAsync gives the same verdict as fileHasData', async () => {
@@ -66,4 +65,3 @@ test('fileHasData never throws: only ENOENT and ENOTDIR are absent, any other fa
   assert.equal(fileHasData(`${dir}\0x`), true);
   assert.equal(await fileHasDataAsync(`${dir}\0x`), true);
 });
-

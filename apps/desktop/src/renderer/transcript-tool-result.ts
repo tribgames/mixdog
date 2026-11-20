@@ -267,11 +267,7 @@ const TOOL_ACTIVITY_MODEL_INSTRUCTION: Array<Array<string | RegExp>> = [
   // task-notification-envelope.mjs renderShellCompletionNotice (stored rows)
   ['Retrieve output with task read (task_id: ', GUIDANCE_ID, ') only if it has not already been received.'],
   // promotion-results.mjs resolveBackgrounded: backgroundMessage with BACKGROUND_GUIDANCE
-  [
-    GUIDANCE_PROMOTED,
-    '; still running. Its result is delivered automatically when it finishes; ',
-    GUIDANCE_WAIT_WHEN,
-  ],
+  [GUIDANCE_PROMOTED, '; still running. Its result is delivered automatically when it finishes; ', GUIDANCE_WAIT_WHEN],
   // ... the same, when a task notification ended the hold
   [
     'moved to background after ',

@@ -130,8 +130,11 @@ test('ready may state a video limit within the contract bound', () => {
 
 test('only screen viewer departures can omit the peer reference', () => {
   const leave = {
-    v: REMOTE_WEBRTC_VERSION, source: { kind: 'screen', screenId: '1' },
-    type: 'close', reason: 'viewer-left', viewerAttempt: 3,
+    v: REMOTE_WEBRTC_VERSION,
+    source: { kind: 'screen', screenId: '1' },
+    type: 'close',
+    reason: 'viewer-left',
+    viewerAttempt: 3,
   };
   assert.deepEqual(parseRemoteWebrtcClientSignal(leave), leave);
   assert.throws(() => parseRemoteWebrtcClientSignal({ ...leave, source }), /viewer attempt/);

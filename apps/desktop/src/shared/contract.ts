@@ -1083,7 +1083,13 @@ export interface DesktopApi {
   /** Runtime unload frees pixels but retains the session's dock selection. */
   onBrowserSessionReleased?(listener: (sessionId: string, reason?: 'unloaded' | 'gone') => void): () => void;
   /** Bind one persistent guest to its owning conversation session. */
-  browserSetActiveGuest?(sessionId: string, webContentsId: number, active: boolean, pixels?: boolean, pane?: string): Promise<void>;
+  browserSetActiveGuest?(
+    sessionId: string,
+    webContentsId: number,
+    active: boolean,
+    pixels?: boolean,
+    pane?: string
+  ): Promise<void>;
   /** Pane `pane` (unique per activation) started (`true`) or stopped reading
    *  the session's pages. */
   browserPanelShown?(sessionId: string, shown: boolean, pane: string): Promise<void>;

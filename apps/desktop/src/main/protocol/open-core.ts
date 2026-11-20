@@ -9,7 +9,7 @@ import {
   type SectionName,
 } from '../../../../../packages/protocol-client/src/index.ts';
 import type { InitializeResponse } from '../../../../../packages/protocol/src/index';
-import { SECTION_NAMES } from '../../shared/contract-sections';
+import type { SECTION_NAMES } from '../../shared/contract-sections';
 import type { ConnectionClient } from './connection';
 import { createWsConnector, type WsEndpoint } from './ws-connector';
 
@@ -30,13 +30,26 @@ export interface OpenCoreOptions {
   log?(event: string, fields?: Record<string, unknown>): void;
 }
 
-export function openCore({ resolve, version, build, capabilities, onInitialized, log }: OpenCoreOptions): () => Promise<ConnectionClient> {
+export function openCore({
+  resolve,
+  version,
+  build,
+  capabilities,
+  onInitialized,
+  log,
+}: OpenCoreOptions): () => Promise<ConnectionClient> {
   const connector = createWsConnector(resolve, log);
   return async () => {
     const client = await connect({
       target: { id: 'core' },
       connector,
-      clientInfo: { name: 'mixdog-desktop', title: 'Mixdog Desktop', version, kind: 'desktop', ...(build ? { build } : {}) },
+      clientInfo: {
+        name: 'mixdog-desktop',
+        title: 'Mixdog Desktop',
+        version,
+        kind: 'desktop',
+        ...(build ? { build } : {}),
+      },
       capabilities,
       threadReducer: sessionReducer,
       clock: { sleep: (ms) => new Promise((done) => setTimeout(done, ms)) },

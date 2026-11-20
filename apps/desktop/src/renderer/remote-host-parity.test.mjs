@@ -57,7 +57,10 @@ test('an old host (no remoteParity) keeps the inert members, and still sends wit
     // about unrelated calls, and the core dedupes a start by it, so the replay cannot double-submit.
     assert.equal(await api.submitToSession('s1', 'hello', {}), true);
     await settle();
-    assert.deepEqual(calls.map((call) => call.method), ['submitToSession', 'submitToSession']);
+    assert.deepEqual(
+      calls.map((call) => call.method),
+      ['submitToSession', 'submitToSession']
+    );
     assert.equal(submitted.length, 2);
     assert.ok(submitted[0][2].id, 'the first send names its submission');
     assert.equal(submitted[1][2].id, submitted[0][2].id, 'the replay is the same submission');
@@ -80,7 +83,10 @@ test('a new host (remoteParity) exposes the new members and retries submits with
       for (const key of GATED) assert.equal(typeof api[key], 'function', `${key} is present`);
       assert.equal((await api.getUpdaterState()).status, 'ready');
       await api.trashProjectEntry('/p', 'a.txt');
-      assert.deepEqual(calls.map((call) => call.method), ['getUpdaterState', 'trashProjectEntry']);
+      assert.deepEqual(
+        calls.map((call) => call.method),
+        ['getUpdaterState', 'trashProjectEntry']
+      );
       // :444-451 -- with parity submitToSession adds a stable id (:449) and recoverableCreation replays the call after a lost reply with the same one (:450-451).
       assert.equal(await api.submitToSession('s1', 'hello', {}), true);
       assert.equal(submitted.length, 2);

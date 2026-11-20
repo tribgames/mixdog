@@ -8,7 +8,13 @@ import type {
   DesktopSshHostKeyCheck,
   DesktopSshProgress,
 } from '../../shared/contract-ssh';
-import { sshCancel, sshConfigHosts, sshConnect, sshInspectHostKey, subscribeSshProgress } from '../connections-core-api';
+import {
+  sshCancel,
+  sshConfigHosts,
+  sshConnect,
+  sshInspectHostKey,
+  subscribeSshProgress,
+} from '../connections-core-api';
 import type { SshHostRequest } from './connection-intent';
 import { useSshAskpass } from './ssh-askpass-prompt';
 import { START_VIEW, type View, viewForFailure, viewForHostKey } from './ssh-connect-view';

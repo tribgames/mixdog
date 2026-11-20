@@ -127,9 +127,7 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
       const established = restorableSessionIds(catalog, pool);
       // An agent's home keeps its fixed id for good: emptied by a clear, the
       // catalog leaves it out, yet it is that agent's chat.
-      const rejected = new Set(
-        [...pending].filter((id) => !isAgentHomeSessionId(id) && !established.has(id))
-      );
+      const rejected = new Set([...pending].filter((id) => !isAgentHomeSessionId(id) && !established.has(id)));
       pending.clear();
       finish();
       if (!rejected.size) return;

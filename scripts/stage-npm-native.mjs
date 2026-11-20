@@ -85,12 +85,16 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
     const artifacts = resolve(one('--artifacts'));
     const out = one('--out');
     if (!out) {
-      process.stderr.write('usage: node scripts/stage-npm-native.mjs --artifacts <folder> --out <folder> [--version <v>]\n');
+      process.stderr.write(
+        'usage: node scripts/stage-npm-native.mjs --artifacts <folder> --out <folder> [--version <v>]\n'
+      );
       process.exit(2);
     }
     for (const { platform, arch, target } of PLATFORMS) {
       const from = [join(artifacts, `mixdogd-${target}`), join(artifacts, `mixdog-entry-${target}`)];
-      process.stdout.write(`${await stageNpmNative({ from, out: resolve(out), platform, arch, version: one('--version') })}\n`);
+      process.stdout.write(
+        `${await stageNpmNative({ from, out: resolve(out), platform, arch, version: one('--version') })}\n`
+      );
     }
   } else {
     const from = all('--from').map((dir) => resolve(dir));
@@ -102,7 +106,13 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
       );
       process.exit(2);
     }
-    const folder = await stageNpmNative({ from, out: resolve(out), platform: one('--platform'), arch: one('--arch'), version: one('--version') });
+    const folder = await stageNpmNative({
+      from,
+      out: resolve(out),
+      platform: one('--platform'),
+      arch: one('--arch'),
+      version: one('--version'),
+    });
     process.stdout.write(`${folder}\n`);
   }
 }

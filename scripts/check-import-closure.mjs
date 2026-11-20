@@ -19,7 +19,22 @@ import { fileURLToPath } from 'node:url';
 const SOURCE = /\.(?:[cm]?[jt]sx?|html)$/;
 const TEST_FILE = /\.test(?:-hook|-helper|-support)?\.[cm]?[jt]sx?$/;
 const SKIP_DIRS = new Set(['node_modules', '.git', 'out', 'dist', 'target', 'native', 'coverage', 'release']);
-const SUFFIXES = ['', '.ts', '.tsx', '.mts', '.cts', '.mjs', '.js', '.jsx', '.cjs', '/index.ts', '/index.tsx', '/index.mjs', '/index.js', '/index.cjs'];
+const SUFFIXES = [
+  '',
+  '.ts',
+  '.tsx',
+  '.mts',
+  '.cts',
+  '.mjs',
+  '.js',
+  '.jsx',
+  '.cjs',
+  '/index.ts',
+  '/index.tsx',
+  '/index.mjs',
+  '/index.js',
+  '/index.cjs',
+];
 const IMPORT_RE =
   /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\(\s*|\bcreateRequire\([^)]*\)\(\s*|new URL\(\s*)(['"`])([^'"`\n]+)\1|\b(?:src|href)=["']([^"']+)["']/g;
 
@@ -67,10 +82,15 @@ export function specifiersOf(text, file = '') {
   for (const match of source.matchAll(IMPORT_RE)) {
     const spec = match[2] ?? match[3];
     if (!spec || spec.includes('${') || /^(?:node:|https?:|data:|file:|#|\/\/)/.test(spec)) continue;
-    if (match[0].startsWith('new URL') && !/import\.meta\.url|__dirname/.test(source.slice(match.index, match.index + match[0].length + 80))) continue;
+    if (
+      match[0].startsWith('new URL') &&
+      !/import\.meta\.url|__dirname/.test(source.slice(match.index, match.index + match[0].length + 80))
+    )
+      continue;
     if (match[3] !== undefined && !html) continue;
     if (spec.startsWith('.') || (spec.startsWith('/') && html)) out.push({ spec, kind: 'relative' });
-    else if (!spec.startsWith('/') && /^(?:@[\w.-]+\/)?[\w.-]+(?:\/|$)/.test(spec) && !/\s/.test(spec)) out.push({ spec, kind: 'package' });
+    else if (!spec.startsWith('/') && /^(?:@[\w.-]+\/)?[\w.-]+(?:\/|$)/.test(spec) && !/\s/.test(spec))
+      out.push({ spec, kind: 'package' });
   }
   return out;
 }
@@ -78,8 +98,16 @@ export function specifiersOf(text, file = '') {
 function resolveRelative(from, spec) {
   const base = resolve(dirname(from), spec);
   const bases = [base];
-  if (/\.(?:m?js|cjs|jsx)$/.test(base)) bases.push(base.replace(/\.mjs$/, '.mts'), base.replace(/\.cjs$/, '.cts'), base.replace(/\.js$/, '.ts'), base.replace(/\.js$/, '.tsx'), base.replace(/\.jsx$/, '.tsx'));
-  for (const candidate of bases) for (const suffix of SUFFIXES) if (isFile(candidate + suffix)) return candidate + suffix;
+  if (/\.(?:m?js|cjs|jsx)$/.test(base))
+    bases.push(
+      base.replace(/\.mjs$/, '.mts'),
+      base.replace(/\.cjs$/, '.cts'),
+      base.replace(/\.js$/, '.ts'),
+      base.replace(/\.js$/, '.tsx'),
+      base.replace(/\.jsx$/, '.tsx')
+    );
+  for (const candidate of bases)
+    for (const suffix of SUFFIXES) if (isFile(candidate + suffix)) return candidate + suffix;
   return null;
 }
 
@@ -90,7 +118,9 @@ export function packageName(spec) {
 
 function safeDirs(dir) {
   try {
-    return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
   } catch {
     return [];
   }
@@ -103,9 +133,11 @@ export function entryPoints(tree) {
   const add = (set, file) => {
     if (SOURCE.test(file)) set.add(file);
   };
-  for (const dir of ['apps/desktop', 'apps/mobile', 'apps/relay', 'apps/mixdogd-npm', 'scripts', 'bin']) walk(join(tree, dir), (f) => add(production, f));
+  for (const dir of ['apps/desktop', 'apps/mobile', 'apps/relay', 'apps/mixdogd-npm', 'scripts', 'bin'])
+    walk(join(tree, dir), (f) => add(production, f));
   for (const pkg of safeDirs(join(tree, 'packages'))) walk(join(tree, 'packages', pkg), (f) => add(production, f));
-  for (const rel of ['src/skill-script-entry.mjs', 'src/runtime/office/authoring/pptx-script-entry.mjs']) if (existsSync(join(tree, rel))) production.add(join(tree, rel));
+  for (const rel of ['src/skill-script-entry.mjs', 'src/runtime/office/authoring/pptx-script-entry.mjs'])
+    if (existsSync(join(tree, rel))) production.add(join(tree, rel));
   walk(join(tree, 'src/defaults/skills'), (f) => add(production, f));
   walk(join(tree, 'src'), (f) => {
     if (TEST_FILE.test(f)) add(tests, f);
@@ -154,7 +186,8 @@ export function walkImports(tree, roots) {
   return { reached, missing, packages };
 }
 
-const matchesDelete = (rel, entry) => (entry.endsWith('/') ? rel.startsWith(entry) : rel === entry || rel.startsWith(`${entry}/`));
+const matchesDelete = (rel, entry) =>
+  entry.endsWith('/') ? rel.startsWith(entry) : rel === entry || rel.startsWith(`${entry}/`);
 
 export function check(tree, deletes = []) {
   const root = resolve(tree);
@@ -192,9 +225,13 @@ export function check(tree, deletes = []) {
         importersOf.get(key).add(posix(relative(root, file)));
       }
     }
-    for (const [file, importers] of [...importersOf].sort()) reachedDeletes.push({ file, importers: [...importers].sort() });
+    for (const [file, importers] of [...importersOf].sort())
+      reachedDeletes.push({ file, importers: [...importers].sort() });
   }
-  const everyMissing = [...prod.missing, ...all.missing.filter((m) => !prod.missing.some((p) => p.from === m.from && p.spec === m.spec))];
+  const everyMissing = [
+    ...prod.missing,
+    ...all.missing.filter((m) => !prod.missing.some((p) => p.from === m.from && p.spec === m.spec)),
+  ];
   // A remaining non-test file that imports a missing path of src/ is the failure this check exists for; the other unresolved
   // imports (generated outputs, fixture strings of tests, folders outside this checkout) are reported, not failed.
   const isBroken = (m) => m.resolved.startsWith('src/') && !TEST_FILE.test(m.from);
@@ -216,26 +253,35 @@ function main(argv) {
   const tree = value('--tree')[0] ?? resolve(dirname(fileURLToPath(import.meta.url)), '..');
   const deletes = value('--delete').map((d) => d.replace(/\\/g, '/'));
   for (const list of value('--delete-list')) {
-    for (const line of readFileSync(list, 'utf8').split(/\r?\n/)) if (line.trim() && !line.startsWith('#')) deletes.push(line.trim().replace(/\\/g, '/'));
+    for (const line of readFileSync(list, 'utf8').split(/\r?\n/))
+      if (line.trim() && !line.startsWith('#')) deletes.push(line.trim().replace(/\\/g, '/'));
   }
   const result = check(tree, deletes);
   // The two shipped pptx skill scripts are kept byte for byte (mixdog-skill-scripts shipped.rs pins their digests) and the
   // core runs their native versions on the Rust Office engine (mixdogd skill-run installs SkillOfficeEngine), so the Node
   // Office engine they import is gone on purpose. They are named, not failed; any other missing import fails.
-  const nativeScripts = new Set(['src/defaults/skills/pptx/scripts/source-extract.mjs', 'src/defaults/skills/pptx/scripts/qc-pages.mjs']);
-  const runNatively = result.missing.filter((m) => nativeScripts.has(m.from) && m.resolved.startsWith('src/runtime/office/'));
+  const nativeScripts = new Set([
+    'src/defaults/skills/pptx/scripts/source-extract.mjs',
+    'src/defaults/skills/pptx/scripts/qc-pages.mjs',
+  ]);
+  const runNatively = result.missing.filter(
+    (m) => nativeScripts.has(m.from) && m.resolved.startsWith('src/runtime/office/')
+  );
   result.missing = result.missing.filter((m) => !runNatively.includes(m));
   result.runNatively = runNatively;
   if (argv.includes('--json')) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   else {
     process.stdout.write(
-      `entry points reach ${result.productionCount} files; src/: ${result.srcReached.length} reached by the entries, ${result.srcTestsOnly.length} only by tests, ${result.srcNoImporter.length} by nothing\n`,
+      `entry points reach ${result.productionCount} files; src/: ${result.srcReached.length} reached by the entries, ${result.srcTestsOnly.length} only by tests, ${result.srcNoImporter.length} by nothing\n`
     );
-    for (const m of result.unresolved) process.stdout.write(`unresolved ${m.from} imports ${m.spec}
+    for (const m of result.unresolved)
+      process.stdout.write(`unresolved ${m.from} imports ${m.spec}
 `);
     for (const m of result.missing) process.stdout.write(`MISSING ${m.from} imports ${m.spec} (${m.resolved})\n`);
-    for (const m of result.runNatively) process.stdout.write(`native ${m.from} imports ${m.spec} (the core runs this script natively)\n`);
-    for (const h of result.reachedDeletes) process.stdout.write(`REACHED ${h.file} is imported by ${h.importers.join(', ')}\n`);
+    for (const m of result.runNatively)
+      process.stdout.write(`native ${m.from} imports ${m.spec} (the core runs this script natively)\n`);
+    for (const h of result.reachedDeletes)
+      process.stdout.write(`REACHED ${h.file} is imported by ${h.importers.join(', ')}\n`);
   }
   process.exitCode = result.missing.length || result.reachedDeletes.length ? 1 : 0;
 }

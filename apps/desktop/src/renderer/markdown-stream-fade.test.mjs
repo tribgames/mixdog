@@ -430,9 +430,7 @@ test('a table row fades whole with its first character; text of the row is not f
   show(timeline, 'Runtime JS TUI JS', 250);
   const grown = {
     type: 'root',
-    children: [
-      element('table', [element('tbody', [row(['Runtime', 0], ['JS', 8]), row(['TUI', 11], ['JS', 15])])]),
-    ],
+    children: [element('table', [element('tbody', [row(['Runtime', 0], ['JS', 8]), row(['TUI', 11], ['JS', 15])])])],
   };
   const rows = applyStreamFade(grown, 0, timeline, 250).root.children[0].children[0].children;
   assert.equal(rows[0].properties.dataFadeAt, 100, 'still fading');

@@ -13,11 +13,15 @@ import { scheduleErrorCode } from '../../shared/schedule-error-codes.ts';
 import { createCapabilityLane } from './capability-route.ts';
 import { createProtocolConnection } from './connection.ts';
 
-const options = JSON.parse(readFileSync(new URL('../../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8'));
+const options = JSON.parse(
+  readFileSync(new URL('../../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8')
+);
 const korean = JSON.parse(readFileSync(new URL('../../renderer/locales/ko.json', import.meta.url), 'utf8'));
 const CONTROL = 'thr_control';
-const TRANSLATION_KEY = 'The rename may or may not have applied because the scheduler did not answer. Check the schedule list.';
-const KOREAN_WARNING = '스케줄러가 응답하지 않아 이름 변경이 적용되었는지 확인할 수 없습니다. 스케줄 목록을 확인하세요.';
+const TRANSLATION_KEY =
+  'The rename may or may not have applied because the scheduler did not answer. Check the schedule list.';
+const KOREAN_WARNING =
+  '스케줄러가 응답하지 않아 이름 변경이 적용되었는지 확인할 수 없습니다. 스케줄 목록을 확인하세요.';
 /** How long a frame of the scripted core, or the call's settlement, may take. */
 const DEADLINE_MS = 10_000;
 
@@ -49,8 +53,15 @@ async function serve(conn, generation, seen) {
       case 'initialized':
         break;
       case 'app/subscribe':
-        conn.serverSend({ id: frame.id, result: { subscription: { id: 'as', mode: 'snapshot', epoch: `ae${generation}`, startSeq: 2 } } });
-        conn.serverSend({ method: 'app/snapshot', params: { sections: [] }, feed: { id: 'app', epoch: `ae${generation}`, seq: 1 } });
+        conn.serverSend({
+          id: frame.id,
+          result: { subscription: { id: 'as', mode: 'snapshot', epoch: `ae${generation}`, startSeq: 2 } },
+        });
+        conn.serverSend({
+          method: 'app/snapshot',
+          params: { sections: [] },
+          feed: { id: 'app', epoch: `ae${generation}`, seq: 1 },
+        });
         break;
       case 'thread/start':
       case 'thread/resume':
@@ -119,7 +130,11 @@ test('a rename whose op was cut after sending and could not be reconciled shows 
     assert.ok(refusal, 'the rename is refused');
     // What happened on the socket: the rename op was sent once, the socket dropped before its answer, and the reconnected
     // client asked for that op's outcome and was refused.
-    assert.equal(seen.saves.length, 1, `expected a sent rename before ${refusal.message}; frames: ${seen.frames.join(', ')}`);
+    assert.equal(
+      seen.saves.length,
+      1,
+      `expected a sent rename before ${refusal.message}; frames: ${seen.frames.join(', ')}`
+    );
     assert.deepEqual(seen.saves[0].entry, entry);
     assert.deepEqual(seen.statuses, [{ scope: `thread:${CONTROL}`, opIds: [seen.saves[0].opId], fence: true }]);
     await core;
@@ -141,7 +156,8 @@ test('a rename whose op was cut after sending and could not be reconciled shows 
       {
         sentToPage: {
           name: 'Error',
-          message: 'The rename may or may not have applied (the scheduler did not answer: opOutcomeUnknown). Check the schedule list.\n[worktree-details] {"code":"SCHEDULE_RENAME_UNCERTAIN"}',
+          message:
+            'The rename may or may not have applied (the scheduler did not answer: opOutcomeUnknown). Check the schedule list.\n[worktree-details] {"code":"SCHEDULE_RENAME_UNCERTAIN"}',
         },
         sentToPageOwnPropertyNames: ['stack', 'message'],
         code: 'SCHEDULE_RENAME_UNCERTAIN',

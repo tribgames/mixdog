@@ -50,7 +50,11 @@ function failureText({ code, message }: { code: string; message: string }): stri
 async function readBlob(call: CoreCall, digest: string, byteLength: number): Promise<string> {
   let base64 = '';
   for (let offset = 0; offset < byteLength; offset += BLOB_PAGE_BYTES) {
-    const page = (await call('blob/read', { digest, offset, length: Math.min(BLOB_PAGE_BYTES, byteLength - offset) })) as {
+    const page = (await call('blob/read', {
+      digest,
+      offset,
+      length: Math.min(BLOB_PAGE_BYTES, byteLength - offset),
+    })) as {
       bytesB64: string;
     };
     base64 += page.bytesB64;
@@ -70,7 +74,8 @@ export function createCommandTransport(call: CoreCall): CommandTransport {
           call('dev/computer/run', { sessionThreadId: sessionId, command, timeoutMs }),
           new Promise<never>((_, reject) => {
             timer = setTimeout(
-              () => reject(new Error(`timeout: dev/computer/run did not answer within ${timeoutMs + ANSWER_GRACE_MS} ms`)),
+              () =>
+                reject(new Error(`timeout: dev/computer/run did not answer within ${timeoutMs + ANSWER_GRACE_MS} ms`)),
               timeoutMs + ANSWER_GRACE_MS
             );
           }),
@@ -87,11 +92,14 @@ export function createCommandTransport(call: CoreCall): CommandTransport {
       }
       if (answer.helperPid === undefined) helperPids.delete(sessionId);
       else helperPids.set(sessionId, answer.helperPid);
-      if (!answer.ok) throw new Error(failureText(answer.error ?? { code: 'computer_failed', message: 'computer command failed' }));
+      if (!answer.ok)
+        throw new Error(failureText(answer.error ?? { code: 'computer_failed', message: 'computer command failed' }));
       const blob = answer.imageBlob;
       return {
         text: String(answer.text ?? ''),
-        ...(blob ? { image: { mimeType: blob.mimeType, data: await readBlob(call, blob.digest, blob.byteLength) } } : {}),
+        ...(blob
+          ? { image: { mimeType: blob.mimeType, data: await readBlob(call, blob.digest, blob.byteLength) } }
+          : {}),
       };
     },
   };
@@ -171,7 +179,9 @@ export async function openComputerCore(): Promise<ComputerCore> {
     });
     const created = createBrowserHost(window, { hostId, remoteSession: false, requestApproval: async () => true });
     browserHost = created;
-    await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent('<!doctype html><title>Harness shell</title>')}`);
+    await window.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent('<!doctype html><title>Harness shell</title>')}`
+    );
     const host = createDesktopHost({
       connection: createHostConnection(protocol),
       hostId,

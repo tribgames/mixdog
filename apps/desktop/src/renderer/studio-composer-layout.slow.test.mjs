@@ -77,59 +77,88 @@ test('Studio reserves the session dock frame and fade as the draft grows at any 
       }, theme);
       let singleLine;
       for (const lines of [1, 5]) {
-        const geometry = await page.evaluate(({ width, lines }) => {
-          for (const id of ['session', 'studio']) {
-            const root = document.getElementById(id);
-            root.style.width = `${width}px`;
-            root.style.left = id === 'session' ? '0px' : `${width + 16}px`;
-            root.querySelector('textarea').value = Array(lines).fill('A draft line').join('\n');
-          }
-          const measure = (id, shellSelector, scrollSelector, dockSelector, cardSelector, controlsSelector) => {
-            const root = document.getElementById(id);
-            const shell = root.querySelector(shellSelector);
-            const scroll = root.querySelector(scrollSelector);
-            const dock = root.querySelector(dockSelector);
-            const card = root.querySelector(cardSelector);
-            const controls = root.querySelector(controlsSelector);
-            scroll.scrollTop = scroll.scrollHeight;
-            const bounds = (node) => node.getBoundingClientRect();
-            const fade = getComputedStyle(shell, '::after');
-            return {
-              viewportBottom: bounds(scroll).bottom,
-              viewportHeight: bounds(scroll).height,
-              dockTop: bounds(dock).top,
-              dockBottom: bounds(dock).bottom,
-              paneBottom: bounds(root).bottom,
-              cardTopGap: bounds(card).top - bounds(dock).top,
-              cardLeft: bounds(card).left - bounds(root).left,
-              cardWidth: bounds(card).width,
-              cardHeight: bounds(card).height,
-              controlsGap: bounds(controls).top - bounds(card).bottom,
-              floorGap: bounds(root).bottom - bounds(controls).bottom,
-              radius: getComputedStyle(card).borderRadius,
-              bottomBorder: getComputedStyle(card).borderBottom,
-              shadow: getComputedStyle(card).boxShadow,
-              background: getComputedStyle(card).backgroundColor,
-              fadeBottom: parseFloat(fade.bottom),
-              fadeHeight: parseFloat(fade.height),
-              fadeBackground: fade.backgroundImage,
-              fadeZ: Number(fade.zIndex),
-              dockZ: Number(getComputedStyle(dock).zIndex),
-              tailGap: id === 'studio' ? bounds(dock).top - bounds(root.querySelector('.last-tile')).bottom : null,
+        const geometry = await page.evaluate(
+          ({ width, lines }) => {
+            for (const id of ['session', 'studio']) {
+              const root = document.getElementById(id);
+              root.style.width = `${width}px`;
+              root.style.left = id === 'session' ? '0px' : `${width + 16}px`;
+              root.querySelector('textarea').value = Array(lines).fill('A draft line').join('\n');
+            }
+            const measure = (id, shellSelector, scrollSelector, dockSelector, cardSelector, controlsSelector) => {
+              const root = document.getElementById(id);
+              const shell = root.querySelector(shellSelector);
+              const scroll = root.querySelector(scrollSelector);
+              const dock = root.querySelector(dockSelector);
+              const card = root.querySelector(cardSelector);
+              const controls = root.querySelector(controlsSelector);
+              scroll.scrollTop = scroll.scrollHeight;
+              const bounds = (node) => node.getBoundingClientRect();
+              const fade = getComputedStyle(shell, '::after');
+              return {
+                viewportBottom: bounds(scroll).bottom,
+                viewportHeight: bounds(scroll).height,
+                dockTop: bounds(dock).top,
+                dockBottom: bounds(dock).bottom,
+                paneBottom: bounds(root).bottom,
+                cardTopGap: bounds(card).top - bounds(dock).top,
+                cardLeft: bounds(card).left - bounds(root).left,
+                cardWidth: bounds(card).width,
+                cardHeight: bounds(card).height,
+                controlsGap: bounds(controls).top - bounds(card).bottom,
+                floorGap: bounds(root).bottom - bounds(controls).bottom,
+                radius: getComputedStyle(card).borderRadius,
+                bottomBorder: getComputedStyle(card).borderBottom,
+                shadow: getComputedStyle(card).boxShadow,
+                background: getComputedStyle(card).backgroundColor,
+                fadeBottom: parseFloat(fade.bottom),
+                fadeHeight: parseFloat(fade.height),
+                fadeBackground: fade.backgroundImage,
+                fadeZ: Number(fade.zIndex),
+                dockZ: Number(getComputedStyle(dock).zIndex),
+                tailGap: id === 'studio' ? bounds(dock).top - bounds(root.querySelector('.last-tile')).bottom : null,
+              };
             };
-          };
-          return {
-            session: measure('session', '.transcript-shell', '.transcript', '.composer-region', '.composer', '.composer-model-line'),
-            studio: measure('studio', '.studio-stage-host', '.studio-results', '.studio-dock', '.studio-composer', '.studio-composer-controls'),
-          };
-        }, { width, lines });
+            return {
+              session: measure(
+                'session',
+                '.transcript-shell',
+                '.transcript',
+                '.composer-region',
+                '.composer',
+                '.composer-model-line'
+              ),
+              studio: measure(
+                'studio',
+                '.studio-stage-host',
+                '.studio-results',
+                '.studio-dock',
+                '.studio-composer',
+                '.studio-composer-controls'
+              ),
+            };
+          },
+          { width, lines }
+        );
         const { session, studio } = geometry;
         const label = `${theme} / ${width}px / ${lines} lines`;
         assert.equal(studio.viewportBottom, studio.dockTop, `${label}: gallery ends above the dock, not behind it`);
         assert.equal(studio.dockBottom, studio.paneBottom, `${label}: dock stays inside the pane`);
         for (const key of [
-          'cardTopGap', 'cardLeft', 'cardWidth', 'cardHeight', 'controlsGap', 'floorGap',
-          'radius', 'bottomBorder', 'shadow', 'background', 'fadeBottom', 'fadeHeight', 'fadeBackground', 'dockZ',
+          'cardTopGap',
+          'cardLeft',
+          'cardWidth',
+          'cardHeight',
+          'controlsGap',
+          'floorGap',
+          'radius',
+          'bottomBorder',
+          'shadow',
+          'background',
+          'fadeBottom',
+          'fadeHeight',
+          'fadeBackground',
+          'dockZ',
         ]) {
           assert.equal(studio[key], session[key], `${label}: ${key} matches the session`);
         }

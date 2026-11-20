@@ -403,7 +403,9 @@ export function remoteCallQueueKey(method: string, statName: string): string {
   if (method === 'invokeCapability' || method === 'readCapabilities') {
     const capabilities = statName.slice(method.length + 1).split('+');
     if (capabilities.every((name) => READ_CAPABILITIES.has(name))) {
-      return capabilities.some((name) => SLOW_READ_CAPABILITIES.has(name)) ? SLOW_CAPABILITY_READ_CALL : 'readCapabilities';
+      return capabilities.some((name) => SLOW_READ_CAPABILITIES.has(name))
+        ? SLOW_CAPABILITY_READ_CALL
+        : 'readCapabilities';
     }
   }
   return method;
@@ -413,7 +415,9 @@ export function remoteCallQueueKey(method: string, statName: string): string {
 function searchLatestKey(method: string, params: unknown[]): string | undefined {
   if (method !== 'searchProjectFiles') return undefined;
   const [root, , limit, includeIgnored, includeDirectories] = params;
-  return typeof root === 'string' ? JSON.stringify([root, limit ?? null, includeIgnored === true, includeDirectories === true]) : undefined;
+  return typeof root === 'string'
+    ? JSON.stringify([root, limit ?? null, includeIgnored === true, includeDirectories === true])
+    : undefined;
 }
 
 /**
@@ -423,7 +427,12 @@ function searchLatestKey(method: string, params: unknown[]): string | undefined 
  * as Node read them; `task` is the whole handler, its argument checks included, which run in the call's slot as Node's did.
  * A search or side question a newer one replaced before it started rejects with Node's text.
  */
-export function runQueued<T>(connection: object, method: string, params: unknown[], task: () => T | Promise<T>): Promise<T> {
+export function runQueued<T>(
+  connection: object,
+  method: string,
+  params: unknown[],
+  task: () => T | Promise<T>
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const run = async (): Promise<void> => {
       try {
@@ -440,6 +449,8 @@ export function runQueued<T>(connection: object, method: string, params: unknown
         : latest === undefined
           ? undefined
           : { latest, superseded: async () => reject(new Error(SEARCH_SUPERSEDED)) };
-    callQueueFor(connection).run(remoteCallQueueKey(method, remoteCallStatName(method, params)), run, call).catch(reject);
+    callQueueFor(connection)
+      .run(remoteCallQueueKey(method, remoteCallStatName(method, params)), run, call)
+      .catch(reject);
   });
 }

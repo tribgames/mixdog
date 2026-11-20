@@ -34,11 +34,20 @@ function runCoreSuite(name, engine, env) {
   const runner = fileURLToPath(new URL('./run-browser-core-integration.mjs', import.meta.url));
   const suite = fileURLToPath(new URL(`../src/main/browser/${name}.integration.ts`, import.meta.url));
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [runner, '--suite', suite, '--engine', engine], { env, stdio: 'inherit', windowsHide: true });
+    const child = spawn(process.execPath, [runner, '--suite', suite, '--engine', engine], {
+      env,
+      stdio: 'inherit',
+      windowsHide: true,
+    });
     child.once('error', reject);
     child.once('exit', (code, signal) => {
       if (code === 0) resolve();
-      else reject(new Error(`browser ${name} integration (${engine} mode) failed: ${signal ? `terminated by ${signal}` : `exit ${code}`}`));
+      else
+        reject(
+          new Error(
+            `browser ${name} integration (${engine} mode) failed: ${signal ? `terminated by ${signal}` : `exit ${code}`}`
+          )
+        );
     });
   });
 }
@@ -55,41 +64,42 @@ if (CORE_SUITES[entryName]) {
     ...(presentationRun ? { MIXDOG_BROWSER_NATIVE_VIEW: nativeView } : {}),
   };
   for (const engine of CORE_SUITES[entryName]) await runCoreSuite(entryName, engine, env);
-} else await withTempWorkspace('mixdog-browser-host-integration-', async (staging) => {
-  const output = join(staging, 'browser-host-integration.mjs');
-  const progressPath = join(staging, 'progress.log');
-  let progressPrinted = false;
-  try {
-    await bundleElectronEntry({
-      entry: new URL(`../src/main/browser/${entryName}.integration.ts`, import.meta.url),
-      outfile: output,
-      plugins: [computerSourceEsbuildPlugin()],
-      external: ['electron', 'ws'],
-      sourcemap: 'inline',
-    });
+} else
+  await withTempWorkspace('mixdog-browser-host-integration-', async (staging) => {
+    const output = join(staging, 'browser-host-integration.mjs');
+    const progressPath = join(staging, 'progress.log');
+    let progressPrinted = false;
+    try {
+      await bundleElectronEntry({
+        entry: new URL(`../src/main/browser/${entryName}.integration.ts`, import.meta.url),
+        outfile: output,
+        plugins: [computerSourceEsbuildPlugin()],
+        external: ['electron', 'ws'],
+        sourcemap: 'inline',
+      });
 
-    const env = electronProcessEnv({
-      MIXDOG_BROWSER_INTEGRATION_LOG: progressPath,
-      MIXDOG_BROWSER_CONTINUATION_ONLY: process.argv.includes('--action-continuation') ? '1' : '0',
-    });
-    const child = spawnElectron(output, { env });
-    const exitCode = await waitForChildExit(child, {
-      timeoutMs: 90_000,
-      timeoutMessage: 'browser host integration exceeded 90 seconds',
-      signalMessage: (signal) => `browser host integration was terminated by ${signal}`,
-    });
-    const progress = await readFile(progressPath, 'utf8').catch(() => '');
-    if (progress) {
-      process.stdout.write(progress);
-      progressPrinted = true;
+      const env = electronProcessEnv({
+        MIXDOG_BROWSER_INTEGRATION_LOG: progressPath,
+        MIXDOG_BROWSER_CONTINUATION_ONLY: process.argv.includes('--action-continuation') ? '1' : '0',
+      });
+      const child = spawnElectron(output, { env });
+      const exitCode = await waitForChildExit(child, {
+        timeoutMs: 90_000,
+        timeoutMessage: 'browser host integration exceeded 90 seconds',
+        signalMessage: (signal) => `browser host integration was terminated by ${signal}`,
+      });
+      const progress = await readFile(progressPath, 'utf8').catch(() => '');
+      if (progress) {
+        process.stdout.write(progress);
+        progressPrinted = true;
+      }
+      if (exitCode !== 0 || !progress.includes('integration passed')) {
+        throw new Error(`browser host integration failed before its success marker (exit ${exitCode})`);
+      }
+    } finally {
+      const progress = await readFile(progressPath, 'utf8').catch(() => '');
+      if (progress && !progressPrinted) {
+        process.stderr.write(progress);
+      }
     }
-    if (exitCode !== 0 || !progress.includes('integration passed')) {
-      throw new Error(`browser host integration failed before its success marker (exit ${exitCode})`);
-    }
-  } finally {
-    const progress = await readFile(progressPath, 'utf8').catch(() => '');
-    if (progress && !progressPrinted) {
-      process.stderr.write(progress);
-    }
-  }
-});
+  });

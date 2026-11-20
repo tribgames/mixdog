@@ -25,7 +25,9 @@ export function observeSocketProgress(
   if (!raw) {
     if (!missingLogged) {
       missingLogged = true;
-      console.error('[mixdog] core socket progress unavailable: the ws library no longer exposes its raw socket; a large response may be taken for silence');
+      console.error(
+        '[mixdog] core socket progress unavailable: the ws library no longer exposes its raw socket; a large response may be taken for silence'
+      );
     }
     return;
   }

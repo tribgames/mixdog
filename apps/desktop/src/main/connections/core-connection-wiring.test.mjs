@@ -14,7 +14,14 @@ function sshConnection() {
   const connection = createDesktopConnection(
     { id: 'srv', kind: 'ssh', name: 'Box' },
     {
-      sessionOptions: () => ({ userDataPath: 'profile', packaged: false, resourcesPath: '', appPath: '', appVersion: '0.0.0', rendererDir: '' }),
+      sessionOptions: () => ({
+        userDataPath: 'profile',
+        packaged: false,
+        resourcesPath: '',
+        appPath: '',
+        appVersion: '0.0.0',
+        rendererDir: '',
+      }),
       appVersion: '0.0.0',
       createProtocol: () => server,
       operationHost: () => ({
@@ -44,21 +51,37 @@ test('the lane gets the facts only this process knows', async () => {
     server.calls[1].resolve({});
     assert.equal(await done, undefined);
     assert.deepEqual(events, []);
-    server.emit({ type: 'notification', notification: { method: 'ui/settings/changed', params: { scope: 'desktop' } } });
+    server.emit({
+      type: 'notification',
+      notification: { method: 'ui/settings/changed', params: { scope: 'desktop' } },
+    });
     assert.deepEqual(events, [{ name: 'settings-changed', value: { scope: 'desktop' } }]);
     const announced = connection.client.invokeDesktopOperation('notifyProviderModelsChanged', ['win-1']);
     await settle();
-    assert.deepEqual([server.calls[2].method, server.calls[2].params], ['ui/providerModels/announce', { origin: 'win-1' }]);
+    assert.deepEqual(
+      [server.calls[2].method, server.calls[2].params],
+      ['ui/providerModels/announce', { origin: 'win-1' }]
+    );
     server.calls[2].resolve({});
     await announced;
-    server.emit({ type: 'notification', notification: { method: 'ui/providerModels/changed', params: { origin: 'win-1' } } });
+    server.emit({
+      type: 'notification',
+      notification: { method: 'ui/providerModels/changed', params: { origin: 'win-1' } },
+    });
     assert.deepEqual(events.at(-1), { name: 'provider-models-changed', value: { origin: 'win-1' } });
     const git = connection.client.invokeDesktopOperation('notifySettingsChanged', ['git']);
     await settle();
-    assert.deepEqual([server.calls[3].method, server.calls[3].params], ['ui/settings/announce', { scope: 'git' }], 'only a desktop-scope change carries the display preferences');
+    assert.deepEqual(
+      [server.calls[3].method, server.calls[3].params],
+      ['ui/settings/announce', { scope: 'git' }],
+      'only a desktop-scope change carries the display preferences'
+    );
     server.calls[3].resolve({});
     await git;
-    await assert.rejects(connection.client.invokeDesktopOperation('notifySettingsChanged', ['nope']), /scope is invalid/);
+    await assert.rejects(
+      connection.client.invokeDesktopOperation('notifySettingsChanged', ['nope']),
+      /scope is invalid/
+    );
   } finally {
     await connection.dispose();
   }

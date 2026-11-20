@@ -83,7 +83,11 @@ function useConnectionInfo(api: CapabilityApi) {
     let generation = 0;
     let activated = false;
     let activation: Promise<void> | null = null;
-    const acceptState = async (next: DesktopRemoteConnectionState, request: number, signal?: AbortSignal): Promise<void> => {
+    const acceptState = async (
+      next: DesktopRemoteConnectionState,
+      request: number,
+      signal?: AbortSignal
+    ): Promise<void> => {
       if (!live || signal?.aborted || generation !== request) return;
       setRemote(next);
       const value = await remoteAccessInfoFromDescriptor(remoteDescriptor({ ...next }));
@@ -504,7 +508,9 @@ function ConnectionDialogs({
               sshForgetHost(dialog.host.id).then((result) => {
                 if (!result.ok) {
                   // The server stays saved: the reason by code, then what to do.
-                  throw new Error(`${sshMessageText(result.notice, result.message)} ${t('The server is still in the list. Click Forget to try again.')}`);
+                  throw new Error(
+                    `${sshMessageText(result.notice, result.message)} ${t('The server is still in the list. Click Forget to try again.')}`
+                  );
                 }
                 refreshSshHosts();
               })
@@ -567,10 +573,15 @@ function ConnectionDialogs({
             if (!api.rotateRemoteAccess) return;
             setRotating(true);
             setRemoteError('');
-            applyConnectionResult(api.rotateRemoteAccess(), applyInfo, () => setRotating(false), (reason) => {
-              setRemoteError(errorMessage(reason));
-              refreshConnection();
-            });
+            applyConnectionResult(
+              api.rotateRemoteAccess(),
+              applyInfo,
+              () => setRotating(false),
+              (reason) => {
+                setRemoteError(errorMessage(reason));
+                refreshConnection();
+              }
+            );
           }}
           onClose={closeDialog}
         />
@@ -616,7 +627,7 @@ function ActiveConnectionPanel({ api }: { api: ConnectionPanelApi }) {
   const { hosts, refresh: refreshHosts } = useRemoteHosts(api);
   const { hosts: sshHosts, refresh: refreshSshHosts } = useSshHosts(Boolean(api.sshConnect));
   const settings = remote?.settings ?? readSettings;
-  const explicitlyOff = remote?.disabled ?? (info?.enabled === false);
+  const explicitlyOff = remote?.disabled ?? info?.enabled === false;
   const enabled = !explicitlyOff && (settings?.enabled ?? true);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
@@ -699,10 +710,15 @@ function ActiveConnectionPanel({ api }: { api: ConnectionPanelApi }) {
     setConfirmClient('');
     setRevokingClient(id);
     setRemoteError('');
-    applyConnectionResult(api.revokeRemoteAccessClient(id), applyInfo, () => setRevokingClient(''), (reason) => {
-      setRemoteError(errorMessage(reason));
-      refreshConnection();
-    });
+    applyConnectionResult(
+      api.revokeRemoteAccessClient(id),
+      applyInfo,
+      () => setRevokingClient(''),
+      (reason) => {
+        setRemoteError(errorMessage(reason));
+        refreshConnection();
+      }
+    );
   };
 
   // Until the host answers, the card's two 56px rows are held empty so the

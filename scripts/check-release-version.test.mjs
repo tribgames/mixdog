@@ -14,7 +14,10 @@ async function tree({ root, desktop, cargo, relay = root }) {
   await mkdir(join(dir, 'native/core'), { recursive: true });
   await writeFile(join(dir, 'package.json'), JSON.stringify({ version: root }));
   await writeFile(join(dir, 'apps/desktop/package.json'), JSON.stringify({ version: desktop }));
-  await writeFile(join(dir, 'native/core/Cargo.toml'), `[workspace]\n\n[workspace.package]\nversion = "${cargo}"\nedition = "2024"\n`);
+  await writeFile(
+    join(dir, 'native/core/Cargo.toml'),
+    `[workspace]\n\n[workspace.package]\nversion = "${cargo}"\nedition = "2024"\n`
+  );
   return dir;
 }
 
@@ -25,14 +28,14 @@ test('equal versions pass and return the release version', async () => {
 test('a diverged desktop or crate version names where it differs', async () => {
   await assert.rejects(
     checkReleaseVersion(await tree({ root: '1.4.6', desktop: '1.4.5', cargo: '0.0.0' })),
-    /apps\/desktop\/package\.json is 1\.4\.5; native\/core\/Cargo\.toml \[workspace\.package\] is 0\.0\.0/,
+    /apps\/desktop\/package\.json is 1\.4\.5; native\/core\/Cargo\.toml \[workspace\.package\] is 0\.0\.0/
   );
 });
 
 test('a stale relay package version is named', async () => {
   await assert.rejects(
     checkReleaseVersion(await tree({ root: '1.5.0', desktop: '1.5.0', cargo: '1.5.0', relay: '1.4.5' })),
-    /apps\/relay\/package\.json is 1\.4\.5/,
+    /apps\/relay\/package\.json is 1\.4\.5/
   );
 });
 

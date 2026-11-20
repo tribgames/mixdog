@@ -27,4 +27,3 @@ test('a code this window does not know shows the English the sender attached', (
   assert.equal(sshMessageText({ code: 'from-a-newer-core' }, 'The English.'), 'The English.');
   assert.equal(sshMessageText(undefined, 'Plain.'), 'Plain.');
 });
-

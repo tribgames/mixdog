@@ -1307,7 +1307,10 @@ function requiredStarterGuideState(value: unknown): void {
 /** Whether a path is absolute on the host: the host's own check on the desktop, either syntax on the phone. */
 export type AbsolutePathCheck = (path: string) => boolean;
 
-export function requiredCapabilityRequestUsing(value: unknown, isAbsolutePath: AbsolutePathCheck): DesktopCapabilityRequest {
+export function requiredCapabilityRequestUsing(
+  value: unknown,
+  isAbsolutePath: AbsolutePathCheck
+): DesktopCapabilityRequest {
   return requiredCapabilityRequest(value, {
     known: (name): name is DesktopCapability => CAPABILITY_SET.has(name),
     arity: (capability) => CAPABILITY_ARITY[capability],
@@ -1316,7 +1319,12 @@ export function requiredCapabilityRequestUsing(value: unknown, isAbsolutePath: A
   });
 }
 
-function validateCapabilityArgs(capability: DesktopCapability, args: unknown[], input: Record<string, unknown>, isAbsolutePath: AbsolutePathCheck): void {
+function validateCapabilityArgs(
+  capability: DesktopCapability,
+  args: unknown[],
+  input: Record<string, unknown>,
+  isAbsolutePath: AbsolutePathCheck
+): void {
   if (capability === 'retryFailedTurn') {
     const target = requiredSessionId(args[0]);
     requiredString(args[1], 'turn key', 512);
@@ -1629,7 +1637,10 @@ function validateCredentialCapabilityArgs(capability: DesktopCapability, args: r
   }
 }
 
-export function requiredCapabilityReadRequestsUsing(value: unknown, isAbsolutePath: AbsolutePathCheck): DesktopCapabilityReadRequest[] {
+export function requiredCapabilityReadRequestsUsing(
+  value: unknown,
+  isAbsolutePath: AbsolutePathCheck
+): DesktopCapabilityReadRequest[] {
   if (!Array.isArray(value) || value.length > 32) {
     throw new TypeError('capability read batch is invalid.');
   }
@@ -1823,7 +1834,7 @@ export function requiredExternalUrl(value: unknown): string {
 // The images a transcript can hold are the ones every model provider takes: the generated table's `providerTakes`
 // types, each by the extension a file of it is written with.
 const ATTACHMENT_IMAGE_EXTENSIONS = new Map<string, string>(
-  IMAGE_TYPES.filter((type) => type.providerTakes && type.primary).map((type) => [type.mime, type.extension]),
+  IMAGE_TYPES.filter((type) => type.providerTakes && type.primary).map((type) => [type.mime, type.extension])
 );
 const ATTACHMENT_IMAGE_DATA_URL_RE = /^data:([a-z]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i;
 const MAX_ATTACHMENT_IMAGE_BYTES = 64 * 1024 * 1024;
@@ -1872,7 +1883,7 @@ const MIME_EXTENSIONS = new Map<string, string>([
   ['text/csv', 'csv'],
   // The raster types a provider takes and BMP, each by its written extension.
   ...IMAGE_TYPES.filter((type) => (type.providerTakes || type.extension === 'bmp') && type.primary).map(
-    (type): [string, string] => [type.mime, type.extension],
+    (type): [string, string] => [type.mime, type.extension]
   ),
   ['audio/mpeg', 'mp3'],
   ['video/mp4', 'mp4'],
@@ -2101,7 +2112,6 @@ export function requiredWorkspaceSearchOptions(value: unknown): DesktopWorkspace
     maxResults: requiredWorkspaceSearchLimit(input.maxResults),
   };
 }
-
 
 // ---- Desktop pet (main/desktop-pet-window.ts) --------------------------------
 

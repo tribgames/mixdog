@@ -97,9 +97,7 @@ export function useConversationQuotaCard({
     if (!exhaustedProvider) return undefined;
     let current = true;
     void Promise.resolve()
-      .then(() =>
-        invokeOrHeld(window.mixdogDesktop, { capability: 'getProviderAccounts', args: [exhaustedProvider] })
-      )
+      .then(() => invokeOrHeld(window.mixdogDesktop, { capability: 'getProviderAccounts', args: [exhaustedProvider] }))
       .then(
         (response) => {
           if (current)

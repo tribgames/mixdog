@@ -16,7 +16,14 @@ export function nodeTestArgs(args, env = process.env) {
   if (!out) return ['--test', ...args];
   const reporter = pathToFileURL(resolve(import.meta.dirname, 'skip-reporter.mjs'));
   reporter.searchParams.set('out', resolve(out));
-  return ['--test-reporter=spec', '--test-reporter-destination=stdout', `--test-reporter=${reporter.href}`, '--test-reporter-destination=stdout', '--test', ...args];
+  return [
+    '--test-reporter=spec',
+    '--test-reporter-destination=stdout',
+    `--test-reporter=${reporter.href}`,
+    '--test-reporter-destination=stdout',
+    '--test',
+    ...args,
+  ];
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -35,7 +42,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const files = process.argv
       .slice(2)
       .filter((arg, index, all) => /\.(?:mjs|cjs|js|ts|tsx)$/.test(arg) && all[index - 1] !== '--import')
-      .map((arg) => relative(resolve(import.meta.dirname, '..', '..'), resolve(arg)).split(sep).join('/'));
+      .map((arg) =>
+        relative(resolve(import.meta.dirname, '..', '..'), resolve(arg))
+          .split(sep)
+          .join('/')
+      );
     beginReceipt(receipt, 'node', child ? { slot: `child:${files.sort().join(' ')}`, parent } : {});
     env.MIXDOG_RECEIPT = receipt;
   }

@@ -4,7 +4,16 @@
 // importer's sealed-envelope protocol. Fixture Local State and fake keys only.
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -435,7 +444,9 @@ test('a manual import runs even when the Cookies database has not changed', { sk
   assert.equal(w.set.length, written + 1, 'and the cookie was written');
 });
 
-test('a failed automatic run is not remembered as imported: the next one tries again', { skip: !isWindows }, async (t) => {
+test('a failed automatic run is not remembered as imported: the next one tries again', {
+  skip: !isWindows,
+}, async (t) => {
   const w = world(t);
   w.writeCookies('first', 1_700_000_000);
   await w.manual();
@@ -465,7 +476,9 @@ test('a failed automatic import is recorded without secrets and does not claim "
   assert.equal(w.calls().length, 0, 'the importer is not run for an unknown profile');
 });
 
-test('an automatic run waits for a manual cookie import in progress, then runs after it', { skip: !isWindows }, async (t) => {
+test('an automatic run waits for a manual cookie import in progress, then runs after it', {
+  skip: !isWindows,
+}, async (t) => {
   const w = world(t);
   const running = w.manual();
   const automatic = w.service.runAutomaticCookieImport('Default');

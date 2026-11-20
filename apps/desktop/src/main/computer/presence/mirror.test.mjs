@@ -24,7 +24,11 @@ const move = (x = 10, y = 20, extra = {}) => ({ x, y, held: false, mode: 'backgr
 
 function rig(options = {}) {
   const released = [];
-  const presence = createComputerPresence({ now: () => 7, notifyPointerReleased: (id) => released.push(id), ...options });
+  const presence = createComputerPresence({
+    now: () => 7,
+    notifyPointerReleased: (id) => released.push(id),
+    ...options,
+  });
   return { presence, released };
 }
 
@@ -116,7 +120,10 @@ test('a pointer event after the section said no command runs is an active comman
   presence.pointerProgress('a', move(1, 2, { mode: 'foreground' }));
   presence.applySection(section([session('a', { mode: null, phase: null }), session('b', { windowIds: ['w'] })]));
   const snapshot = presence.snapshot();
-  assert.deepEqual(snapshot.cursors.map((c) => c.sessionId), ['a']);
+  assert.deepEqual(
+    snapshot.cursors.map((c) => c.sessionId),
+    ['a']
+  );
   const active = snapshot.activities.find((a) => a.sessionId === 'a');
   assert.deepEqual([active.mode, active.phase], ['foreground', 'active_foreground']);
 });
@@ -180,7 +187,10 @@ test('a yield offers Resume only for a manual one, and the section idle seconds 
   const { presence } = rig();
   const yielded = (resumeMode, idleResumeSeconds) =>
     presence.applySection(
-      section([session('a')], { idleResumeSeconds, userControl: { active: false, reason: 'user_input_active', resumeMode } })
+      section([session('a')], {
+        idleResumeSeconds,
+        userControl: { active: false, reason: 'user_input_active', resumeMode },
+      })
     );
   yielded('idle', 5);
   assert.deepEqual([presence.snapshot().yieldedSessionIds, presence.snapshot().idleResumeSeconds], [['a'], 5]);

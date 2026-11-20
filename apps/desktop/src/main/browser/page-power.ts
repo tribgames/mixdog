@@ -104,7 +104,8 @@ export function reclaimIdleUserSessions<T extends PowerGuest>(host: {
     const idleMs = sessions.turnLive(sessionId) ? BACKGROUND_PAGE_IDLE_MS : FINISHED_TURN_PAGE_IDLE_MS;
     if (
       pages.some(
-        (guest) => power.isActive(guest) || host.holdsPage(guest) || !backgroundPageIdle(power.lastActiveAt(guest), now, idleMs)
+        (guest) =>
+          power.isActive(guest) || host.holdsPage(guest) || !backgroundPageIdle(power.lastActiveAt(guest), now, idleMs)
       )
     ) {
       continue;

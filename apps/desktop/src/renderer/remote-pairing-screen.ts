@@ -548,8 +548,7 @@ export const createRemotePairingScreen = (
             url.pathname = index;
             location.replace(url.href);
           }
-        }
-        else if (role === 'back') location.assign('/connect');
+        } else if (role === 'back') location.assign('/connect');
         else cancel();
       }
 

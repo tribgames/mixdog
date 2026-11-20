@@ -99,15 +99,7 @@ function copiedMessage(copied: string): string {
  * clipboard. `reference` is the server's id or address; a server window passes
  * '' (main answers with that window's own server).
  */
-export function SshLogDialog({
-  reference,
-  name,
-  onClose,
-}: {
-  reference: string;
-  name: string;
-  onClose(): void;
-}) {
+export function SshLogDialog({ reference, name, onClose }: { reference: string; name: string; onClose(): void }) {
   const [mode, setMode] = useState<Mode>('connection');
   const { loaded, copied, copy } = useSshLog(reference, mode);
 

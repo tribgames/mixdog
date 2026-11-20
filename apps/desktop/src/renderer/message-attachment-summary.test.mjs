@@ -7,7 +7,9 @@ const { attachmentSummary, textWithoutAttachmentTokens } = await import('./messa
 
 // What Node b6f10295a's session rewind (`rewindSessionMessagesTo` through the TUI/desktop `rewindToItem` action) answered for the
 // three submitted prompts below, recorded by running it over a real session store: the record the composer restores its chips from.
-const REWOUND = JSON.parse(readFileSync(new URL('./test-support/message-attachment-rewound.recorded.json', import.meta.url), 'utf8'));
+const REWOUND = JSON.parse(
+  readFileSync(new URL('./test-support/message-attachment-rewound.recorded.json', import.meta.url), 'utf8')
+);
 const b64 = (text) => Buffer.from(text).toString('base64');
 
 /** The record Node's rewind gave for the prompt of sessionId (the prompt itself is what the recording was made from). */
@@ -41,8 +43,7 @@ test('a PDF token before a folded paste still restores both chips', async () => 
 test('a reference-backed pasted text restores its chip with the text', async () => {
   const body = 'stored line\n'.repeat(50);
   const rowText = 'check [Pasted text #1 +50 lines]';
-  const record = await rewindSubmitted('sess_restore_ref', rowText, rowText, {
-  });
+  const record = await rewindSubmitted('sess_restore_ref', rowText, rowText, {});
   const restored = chipsOf(record, record.text);
   assert.equal(restored.attachments.length, 1);
   assert.equal(restored.attachments[0].token, '[Pasted text #1 +50 lines]');

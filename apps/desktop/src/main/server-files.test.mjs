@@ -141,7 +141,11 @@ test("a download is this PC's core's: the window's server id and this PC's downl
     'transfer/serverDownload/finish': () => ({ path: '/dl/a.bin' }),
     'transfer/serverDownload/abort': () => true,
   });
-  const downloads = createServerDownloads({ core: serverCoreInvoke(core), serverId: 'srv-1', downloadsDir: () => '/dl' });
+  const downloads = createServerDownloads({
+    core: serverCoreInvoke(core),
+    serverId: 'srv-1',
+    downloadsDir: () => '/dl',
+  });
   assert.deepEqual(await downloads.begin('/srv', 'x/a.bin'), { downloadId: 'd1', name: 'a.bin', size: 10 });
   assert.deepEqual(await downloads.step('d1'), { received: 10, size: 10, done: true });
   assert.deepEqual(await downloads.finish('d1'), { path: '/dl/a.bin' });
@@ -160,17 +164,31 @@ test('a download the core refuses, or answers wrongly, is an error and holds not
       throw new Error('This SSH server is not connected. Connect it from the SSH server dialog.');
     },
   });
-  const downloads = createServerDownloads({ core: serverCoreInvoke(refused.core), serverId: 'srv-1', downloadsDir: () => '/dl' });
+  const downloads = createServerDownloads({
+    core: serverCoreInvoke(refused.core),
+    serverId: 'srv-1',
+    downloadsDir: () => '/dl',
+  });
   await assert.rejects(downloads.begin('/srv', 'a'), /not connected/);
   for (const answer of [null, 'x', { downloadId: 1, name: 'a', size: 1 }, { downloadId: 'd', name: 'a' }]) {
     const wrong = fakeCore({ 'transfer/serverDownload/begin': () => answer });
-    const guarded = createServerDownloads({ core: serverCoreInvoke(wrong.core), serverId: 's', downloadsDir: () => '/dl' });
+    const guarded = createServerDownloads({
+      core: serverCoreInvoke(wrong.core),
+      serverId: 's',
+      downloadsDir: () => '/dl',
+    });
     await assert.rejects(guarded.begin('/srv', 'a'), TypeError, JSON.stringify(answer));
     await guarded.dispose();
-    assert.deepEqual(wrong.calls.map(([method]) => method), ['transfer/serverDownload/begin']);
+    assert.deepEqual(
+      wrong.calls.map(([method]) => method),
+      ['transfer/serverDownload/begin']
+    );
   }
   await assert.rejects(
-    createServerDownloads({ core: serverCoreInvoke(null), serverId: 's', downloadsDir: () => '/dl' }).begin('/srv', 'a'),
+    createServerDownloads({ core: serverCoreInvoke(null), serverId: 's', downloadsDir: () => '/dl' }).begin(
+      '/srv',
+      'a'
+    ),
     /not available/
   );
 });
@@ -238,7 +256,10 @@ test('a converted server preview whose file the cache evicted is converted again
   assert.equal(before.status, 200);
   present.delete('/cache/a.pdf');
   const replies = await Promise.all([head(), head(), head()]);
-  assert.deepEqual(replies.map((reply) => reply.status), [200, 200, 200]);
+  assert.deepEqual(
+    replies.map((reply) => reply.status),
+    [200, 200, 200]
+  );
   assert.equal(conversions, 1);
   // The regenerated file is another representation: its validator differs, so the old one is neither continued nor revalidated.
   const etag = replies[0].headers.get('etag');
@@ -388,7 +409,7 @@ test('a slow reader follows any number of regenerations by others and is never a
   const answer = await slow;
   assert.equal(answer.status, 200);
   assert.match(answer.headers.get('etag'), /\.4-server-7"$/);
-  assert.equal(conversions, 4, 'following others\' regenerations converts nothing itself');
+  assert.equal(conversions, 4, "following others' regenerations converts nothing itself");
   previews.dispose();
 });
 

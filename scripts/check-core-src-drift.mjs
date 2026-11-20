@@ -44,7 +44,8 @@ function resolveSpecifier(fromFile, specifier, known) {
   const base = path.resolve(path.dirname(fromFile), specifier);
   const candidates = [base];
   if (/\.[cm]?js$/.test(base)) candidates.push(base.replace(/\.js$/, '.ts'), base.replace(/\.js$/, '.tsx'));
-  for (const suffix of ['.mjs', '.js', '.ts', '.tsx', '.d.mts', '/index.mjs', '/index.js', '/index.ts']) candidates.push(base + suffix);
+  for (const suffix of ['.mjs', '.js', '.ts', '.tsx', '.d.mts', '/index.mjs', '/index.js', '/index.ts'])
+    candidates.push(base + suffix);
   return candidates.find((candidate) => known.has(candidate)) ?? null;
 }
 
@@ -80,9 +81,7 @@ export function analyzeCoreSrc({ desktopRoot, runtimeRoot }) {
   }
 
   const unreferenced = coreFiles.filter((file) => !reached.has(file) && !file.endsWith('.d.mts'));
-  const unreferencedDeclarations = coreFiles.filter(
-    (file) => file.endsWith('.d.mts') && !reached.has(file)
-  );
+  const unreferencedDeclarations = coreFiles.filter((file) => file.endsWith('.d.mts') && !reached.has(file));
   const drift = [];
   const noCounterpart = [];
   for (const file of coreFiles) {

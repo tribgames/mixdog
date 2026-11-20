@@ -161,7 +161,8 @@ test('a reply carries its image; a refusal keeps the status the core gave it', a
   const image = { data: 'AAAA', mimeType: 'image/png' };
   const core = fakeCore(async ({ command: sent }) => {
     if (sent.action === 'capture') return { ok: true, value: { text: 'frame', image } };
-    if (sent.action === 'list_windows') return { ok: false, error: 'computer_capacity_exhausted: too many active requests', status: 429 };
+    if (sent.action === 'list_windows')
+      return { ok: false, error: 'computer_capacity_exhausted: too many active requests', status: 429 };
     if (sent.action === 'execution_end') return { ok: false, error: 'invalid request: nope', status: 400 };
     return { ok: false, error: 'worker gone' };
   });
@@ -211,7 +212,16 @@ test('the commands the runtime alone sends run in the core like any other', asyn
   }
   assert.deepEqual(
     core.runs().map((run) => run.command.action),
-    ['secret_bind', 'secret_input', 'fill_saved_login', 'turn_settle', 'session_abort', 'execution_end', 'session_release', 'wait_for_user']
+    [
+      'secret_bind',
+      'secret_input',
+      'fill_saved_login',
+      'turn_settle',
+      'session_abort',
+      'execution_end',
+      'session_release',
+      'wait_for_user',
+    ]
   );
 });
 
@@ -249,16 +259,27 @@ test('the saved-login owner is attached with its process and detached once when 
   await settle();
   assert.equal(response.opened, 200);
   assert.equal(response.written, '{"ok":true}\n');
-  assert.deepEqual(core.runs().map((run) => run.command), [{ action: 'owner_attach', runtime_id: 'owner-1', pid: 4242 }]);
+  assert.deepEqual(
+    core.runs().map((run) => run.command),
+    [{ action: 'owner_attach', runtime_id: 'owner-1', pid: 4242 }]
+  );
   response.emit('close');
   response.emit('close');
   await settle();
-  assert.deepEqual(core.runs().map((run) => run.command).slice(1), [{ action: 'owner_detach', runtime_id: 'owner-1' }]);
+  assert.deepEqual(
+    core
+      .runs()
+      .map((run) => run.command)
+      .slice(1),
+    [{ action: 'owner_detach', runtime_id: 'owner-1' }]
+  );
 
   const refusing = fakeCore(async () => ({ ok: false, error: 'invalid request: unknown or ended runtime owner' }));
   const refused = { status: 400, body: { ok: false, error: 'invalid request: unknown or ended runtime owner' } };
   assert.deepEqual(
-    await bridge({ core: refusing }).send(requestOf({ url: '/owner', body: JSON.stringify({ runtime_id: 'o', pid: 1 }) })),
+    await bridge({ core: refusing }).send(
+      requestOf({ url: '/owner', body: JSON.stringify({ runtime_id: 'o', pid: 1 }) })
+    ),
     refused
   );
   // No process to bind: refused without asking the core.
@@ -284,7 +305,10 @@ test('a connection that closes while its owner is being attached detaches at onc
   release();
   await settle();
   assert.equal(response.opened, undefined);
-  assert.deepEqual(core.runs().map((run) => run.command.action), ['owner_attach', 'owner_detach']);
+  assert.deepEqual(
+    core.runs().map((run) => run.command.action),
+    ['owner_attach', 'owner_detach']
+  );
 });
 
 test('the published bridge forwards over loopback and a stop ends every session that used it in the core', async () => {
@@ -333,7 +357,10 @@ test('the published bridge forwards over loopback and a stop ends every session 
     enabled = false;
     await server.stopBridge();
     assert.deepEqual(
-      core.aborts().map((abort) => abort.sessionKey).sort(),
+      core
+        .aborts()
+        .map((abort) => abort.sessionKey)
+        .sort(),
       ['a', 'b']
     );
     assert.ok(core.aborts().every((abort) => abort.signalId === undefined));

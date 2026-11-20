@@ -26,10 +26,31 @@ function barrier() {
   return { open, opened };
 }
 
-const image = { getSize: () => ({ width: 10, height: 10 }), isEmpty: () => false, toJPEG: () => Buffer.from('jpeg'), toPNG: () => Buffer.from('png'), resize: () => image };
-const display = { id: '1', index: 0, primary: true, geometry: { x: 0, y: 0, width: 10, height: 10 }, scaleFactor: 1, pixelSize: { width: 10, height: 10 } };
-const ask = { target: { kind: 'display' }, backend: 'screen', maxWidth: 10, format: 'jpeg', quality: 60, automationScope: 7 };
-const refused = (error) => error instanceof HostRpcError && error.code === -32000 && /computer use is unavailable/.test(error.message);
+const image = {
+  getSize: () => ({ width: 10, height: 10 }),
+  isEmpty: () => false,
+  toJPEG: () => Buffer.from('jpeg'),
+  toPNG: () => Buffer.from('png'),
+  resize: () => image,
+};
+const display = {
+  id: '1',
+  index: 0,
+  primary: true,
+  geometry: { x: 0, y: 0, width: 10, height: 10 },
+  scaleFactor: 1,
+  pixelSize: { width: 10, height: 10 },
+};
+const ask = {
+  target: { kind: 'display' },
+  backend: 'screen',
+  maxWidth: 10,
+  format: 'jpeg',
+  quality: 60,
+  automationScope: 7,
+};
+const refused = (error) =>
+  error instanceof HostRpcError && error.code === -32000 && /computer use is unavailable/.test(error.message);
 
 /** Pixels whose capture holds until the test opens it; each capture is counted. */
 function heldPixels() {
@@ -61,7 +82,9 @@ test('a capture whose scope is revoked while it is taken returns no pixels', asy
   await entered.opened;
   assert.deepEqual(await wire.serve('host/computer/revokeScopes', { scopes: [7] }), {
     revoked: 1,
-    reports: [{ scope: 7, revision: 1, admission: 'closed', unfinished_at_closure: 0, unfinished: 0, cleanup: 'complete' }],
+    reports: [
+      { scope: 7, revision: 1, admission: 'closed', unfinished_at_closure: 0, unfinished: 0, cleanup: 'complete' },
+    ],
   });
   release.open();
   await assert.rejects(capture, refused);
@@ -93,8 +116,14 @@ test('a scope first named by its revocation never runs, and a closed connection 
   // complete is said of work this connection cannot have seen.
   const served = scopes.admit({ automationScope: 8 });
   const answer = await wire.serve('host/computer/revokeScopes', { scopes: [8, 9] });
-  assert.deepEqual(answer.reports.map((report) => report.scope), [8]);
-  assert.deepEqual(wire.pushed.map(([, report]) => report.scope), [8]);
+  assert.deepEqual(
+    answer.reports.map((report) => report.scope),
+    [8]
+  );
+  assert.deepEqual(
+    wire.pushed.map(([, report]) => report.scope),
+    [8]
+  );
   assert.throws(() => served.commit(), refused);
   assert.throws(() => scopes.admit({ automationScope: 9 }), refused);
   const held = scopes.admit({ automationScope: 10 });
@@ -110,13 +139,27 @@ test('each revocation reports its scope: the first closure snapshot of the calls
   const reply = barrier();
   context.track(reply.opened);
   const [first] = (await wire.serve('host/computer/revokeScopes', { scopes: [4] })).reports;
-  assert.deepEqual(first, { scope: 4, revision: 1, admission: 'closed', unfinished_at_closure: 1, unfinished: 1, cleanup: 'pending' });
+  assert.deepEqual(first, {
+    scope: 4,
+    revision: 1,
+    admission: 'closed',
+    unfinished_at_closure: 1,
+    unfinished: 1,
+    cleanup: 'pending',
+  });
   assert.throws(() => context.commit(), refused, 'admission closed while the call is still out');
   reply.open();
   await reply.opened;
   await new Promise((resolve) => setImmediate(resolve));
   const [second] = (await wire.serve('host/computer/revokeScopes', { scopes: [4] })).reports;
-  assert.deepEqual(second, { scope: 4, revision: 2, admission: 'closed', unfinished_at_closure: 1, unfinished: 0, cleanup: 'complete' });
+  assert.deepEqual(second, {
+    scope: 4,
+    revision: 2,
+    admission: 'closed',
+    unfinished_at_closure: 1,
+    unfinished: 0,
+    cleanup: 'complete',
+  });
 });
 
 test('a revoked scope pushes each change of its report, in revision order, and nothing after its connection closed', async () => {
@@ -128,12 +171,23 @@ test('a revoked scope pushes each change of its report, in revision order, and n
   context.track(first.opened);
   context.track(second.opened);
   const [snapshot] = (await wire.serve('host/computer/revokeScopes', { scopes: [11] })).reports;
-  assert.deepEqual(wire.pushed, [['host/computer/scopeReport', snapshot]], 'the snapshot is pushed before it is answered');
+  assert.deepEqual(
+    wire.pushed,
+    [['host/computer/scopeReport', snapshot]],
+    'the snapshot is pushed before it is answered'
+  );
   first.open();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(wire.pushed.at(-1), ['host/computer/scopeReport', { scope: 11, revision: 2, admission: 'closed', unfinished_at_closure: 2, unfinished: 1, cleanup: 'pending' }]);
+  assert.deepEqual(wire.pushed.at(-1), [
+    'host/computer/scopeReport',
+    { scope: 11, revision: 2, admission: 'closed', unfinished_at_closure: 2, unfinished: 1, cleanup: 'pending' },
+  ]);
   wire.close();
   second.open();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(wire.pushed.length, 2, 'a closed connection reports nothing more: the core reads its end as unconfirmed');
+  assert.equal(
+    wire.pushed.length,
+    2,
+    'a closed connection reports nothing more: the core reads its end as unconfirmed'
+  );
 });

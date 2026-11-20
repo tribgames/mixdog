@@ -27,7 +27,8 @@ export function isAllowAllActionsEnable(capability: string, args: readonly unkno
  *  calls to a relay connection (mixdog-core-agents agents/service.rs, mixdog-core-config config/service.rs); this is the page's
  *  answer without a round trip. */
 export function assertRemoteCapabilityCall(capability: string, args: readonly unknown[] = []): void {
-  if (remoteCapabilityBlocked(capability)) throw new TypeError(`capability ${capability} is not available over remote access.`);
+  if (remoteCapabilityBlocked(capability))
+    throw new TypeError(`capability ${capability} is not available over remote access.`);
   if (capability === 'setAgentPermission' && args[2] === 'allow') {
     throw new TypeError(`${capability} cannot create a standing allow over remote access; use the desktop.`);
   }

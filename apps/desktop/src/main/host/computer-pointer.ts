@@ -20,7 +20,10 @@ export function registerComputerPointer(
   publish: PointerProgressListener = publishPointerProgress
 ): void {
   connection.handleRequest(HOST_COMPUTER_POINTER_FEEDBACK, async (params): Promise<null> => {
-    const { sessionId, events } = objectParams<HostComputerPointerFeedbackParams>(params, HOST_COMPUTER_POINTER_FEEDBACK);
+    const { sessionId, events } = objectParams<HostComputerPointerFeedbackParams>(
+      params,
+      HOST_COMPUTER_POINTER_FEEDBACK
+    );
     if (typeof sessionId !== 'string' || !Array.isArray(events)) {
       throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_POINTER_FEEDBACK} needs sessionId and events.`);
     }

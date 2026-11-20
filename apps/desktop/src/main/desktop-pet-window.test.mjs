@@ -15,7 +15,10 @@ import {
 } from '../shared/desktop-pet.ts';
 import { DESKTOP_PET_WINDOW_IPC } from '../shared/desktop-pet-bridge.ts';
 import { createDesktopPet } from './desktop-pet-window.ts';
-import { agentHomeSessionId, MIXY_AGENT_ID } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import {
+  agentHomeSessionId,
+  MIXY_AGENT_ID,
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import {
   requiredDesktopPetCommand,
   requiredDesktopPetComposer,
@@ -413,7 +416,10 @@ test('the settings and every placement come from the core: no window while the f
   const failing = await started({ readError: new Error('core down') });
   assert.equal(failing.windows.length, 0, 'off: the settings could not be read');
   assert.equal(failing.pet.config().enabled, false);
-  assert.deepEqual(failing.calls.errors.map(([what]) => what), ['desktopPet/state/read']);
+  assert.deepEqual(
+    failing.calls.errors.map(([what]) => what),
+    ['desktopPet/state/read']
+  );
   failing.pet.dispose();
   const working = await started();
   assert.equal(working.calls.core[0], 'desktopPet/state/read', 'read first');
@@ -427,7 +433,8 @@ test('drag moves that a newer one overtook are not resolved: the last move and t
   const start = { ...window.bounds };
   await window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 0, screenY: 0 });
   const before = calls.core.length;
-  for (let at = 1; at <= 40; at += 1) window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'move', screenX: -at, screenY: 0 });
+  for (let at = 1; at <= 40; at += 1)
+    window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'move', screenX: -at, screenY: 0 });
   await tick();
   assert.ok(calls.core.length - before < 40 * 2, 'a burst costs one placement, not one per move');
   assert.deepEqual([window.bounds.x, window.bounds.y], [start.x - 40, start.y]);
@@ -529,7 +536,12 @@ test('the pet appears with the composer, not before: first shown already at its 
   await app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
   assert.equal(window.shown, true);
   assert.equal(window.shows.length, 1);
-  const pinned = placementRules.pinned({ content: APP_CONTENT, composer: { rect: BOOT_COMPOSER, island: null }, zoom: 1, scale: 100 });
+  const pinned = placementRules.pinned({
+    content: APP_CONTENT,
+    composer: { rect: BOOT_COMPOSER, island: null },
+    zoom: 1,
+    scale: 100,
+  });
   assert.deepEqual(
     [window.shows[0].x, window.shows[0].y],
     [pinned.x, pinned.y],
@@ -978,7 +990,15 @@ test("pinned by default: the bot's feet on the island's bottom line, its right j
     "no island: feet where the pill's bottom would be"
   );
   assert.equal(box.right, APP_CONTENT.x + COMPOSER.x + COMPOSER.width - DESKTOP_PET_PIN_INSET, 'right inside the card');
-  assert.deepEqual(placementRules.pinned({ content: APP_CONTENT, composer: { rect: COMPOSER, island: COMPOSER.island ?? null }, zoom: 1, scale: 100 }), pinnedAt());
+  assert.deepEqual(
+    placementRules.pinned({
+      content: APP_CONTENT,
+      composer: { rect: COMPOSER, island: COMPOSER.island ?? null },
+      zoom: 1,
+      scale: 100,
+    }),
+    pinnedAt()
+  );
 });
 
 test("pinned: the bot's visible feet sit on the island pill's bottom edge, from the pill's real rect, at every scale", async () => {
@@ -1169,7 +1189,12 @@ test("pinned at the app window's right edge, the bubble's span ends at the app's
   for (const scale of [50, 100, 200]) {
     const { window, app } = await started({ prefs: { scale } });
     // The card runs to the window's right edge: the pet window extends past it.
-    await app.webContents.emit(DESKTOP_PET_IPC.composer, { x: 300, y: 600, width: APP_CONTENT.width - 300, height: 120 });
+    await app.webContents.emit(DESKTOP_PET_IPC.composer, {
+      x: 300,
+      y: 600,
+      width: APP_CONTENT.width - 300,
+      height: 120,
+    });
     const width = desktopPetGeometry(scale).window.width;
     assert.ok(window.bounds.x + width > appRight, `${scale}%: the pet window passes the app's right edge`);
     const span = window.webContents.lastView().bubbleSpan;
@@ -1528,7 +1553,10 @@ test("the island reserve: the pinned bot's visible art at its scale, look and zo
   const count = reserves().length;
   await app.fire('minimize', { minimized: true });
   await app.fire('restore', { minimized: false });
-  await app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: false, rects: [{ x: 0, y: 0, width: 1400, height: 900 }] });
+  await app.webContents.emit(DESKTOP_PET_IPC.layers, {
+    backdrop: false,
+    rects: [{ x: 0, y: 0, width: 1400, height: 900 }],
+  });
   assert.equal(window.shown, true, 'a menu over it cuts it, never hides it');
   assert.equal(window.webContents.lastView().cutouts.length, 1);
   await app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: true, rects: [] });

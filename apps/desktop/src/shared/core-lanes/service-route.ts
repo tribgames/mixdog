@@ -29,11 +29,13 @@ interface Route {
 
 /** `project/list` as the contract's project rows (the core's rows also carry `hidden` and `lastUsedAt`). */
 export const projectSummaries = (reply: unknown): Array<{ name: string; path: string; alias: string | null }> =>
-  ((reply as { projects: Array<{ name: string; path: string; alias: string | null }> }).projects).map(({ name, path, alias }) => ({
-    name,
-    path,
-    alias,
-  }));
+  (reply as { projects: Array<{ name: string; path: string; alias: string | null }> }).projects.map(
+    ({ name, path, alias }) => ({
+      name,
+      path,
+      alias,
+    })
+  );
 
 /** The folder a project method answers: the core answers `{ path }`, the contract a string. */
 const pathOf = (reply: { path: string }): string => reply.path;
@@ -87,7 +89,10 @@ type Single = (args: readonly any[]) => Route;
 
 const SINGLE: Readonly<Record<string, Single>> = {
   submitNewTask: ([prompt, options, draft]) =>
-    one('thread/start', given({ kind: 'task', projectPath: draft?.projectPath, draft, initialInput: turnInput(prompt, options) })),
+    one(
+      'thread/start',
+      given({ kind: 'task', projectPath: draft?.projectPath, draft, initialInput: turnInput(prompt, options) })
+    ),
   listProjects: () => shaped('project/list', {}, projectSummaries),
   addProject: ([path]) => one('project/create', { path }),
   projectDirectory: ([path]) => shaped('project/directory', { path }, pathOf),
@@ -140,8 +145,13 @@ const SINGLE: Readonly<Record<string, Single>> = {
       ? one('room/send', { input: { threadId, ...turnInput(prompt, options) } })
       : one('turn/start', { threadId, input: turnInput(prompt, options) }, 'accepted'),
   abortSession: ([threadId, options]) =>
-    one('turn/interrupt', given({ threadId, restorePrompt: options?.restorePrompt, submissionId: options?.submissionId }), 'interrupt'),
-  listProviderModels: ([options]) => one('model/list', given({ force: options?.force, refresh: options?.refresh, quick: options?.quick })),
+    one(
+      'turn/interrupt',
+      given({ threadId, restorePrompt: options?.restorePrompt, submissionId: options?.submissionId }),
+      'interrupt'
+    ),
+  listProviderModels: ([options]) =>
+    one('model/list', given({ force: options?.force, refresh: options?.refresh, quick: options?.quick })),
 };
 
 // `agentRoomAction(action, args)`: Node's `AgentRooms` methods take positional arguments, the core's `input` is one
@@ -317,9 +327,16 @@ export type ServiceProtocolEvent =
   | { readonly type: 'status'; readonly status: { readonly state: string } }
   | {
       readonly type: 'notification';
-      readonly notification: { readonly method: string; readonly params?: unknown; readonly feed?: { readonly id: string } };
+      readonly notification: {
+        readonly method: string;
+        readonly params?: unknown;
+        readonly feed?: { readonly id: string };
+      };
     }
-  | { readonly type: 'serverRequest'; readonly request: { readonly id: string | number; readonly method: string; readonly params: unknown } }
+  | {
+      readonly type: 'serverRequest';
+      readonly request: { readonly id: string | number; readonly method: string; readonly params: unknown };
+    }
   | { readonly type: 'serverRequestResolved'; readonly params: { readonly requestId?: string | number } }
   | { readonly type: string };
 
@@ -350,7 +367,8 @@ export function createServiceLane({
       }
       throw coreErrorForWindow(error);
     });
-  const send = ({ method, params }: ServiceRequest): Promise<unknown> => answered(protocol.call(method, params), params.threadId);
+  const send = ({ method, params }: ServiceRequest): Promise<unknown> =>
+    answered(protocol.call(method, params), params.threadId);
   const searching = new Map<string, string>();
   const searchTransitions = new Map<string, Promise<void>>();
   // The newest request of each consumer's session: an older one that is retried late must not take the session from it.
@@ -372,9 +390,12 @@ export function createServiceLane({
     const off = protocol.onEvent((event) => {
       if (event.type !== 'notification') return;
       const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
-      const update = params as { sessionId?: string; query?: string; files?: Array<{ path: string; matchType: string }> } | undefined;
+      const update = params as
+        | { sessionId?: string; query?: string; files?: Array<{ path: string; matchType: string }> }
+        | undefined;
       if (update?.sessionId !== sessionId || update.query !== echoed) return;
-      if (method === 'search/updated') files = (update.files ?? []).map((row) => (row.matchType === 'directory' ? `${row.path}/` : row.path));
+      if (method === 'search/updated')
+        files = (update.files ?? []).map((row) => (row.matchType === 'directory' ? `${row.path}/` : row.path));
       else if (method === 'search/completed') finish();
     });
     try {
@@ -396,7 +417,11 @@ export function createServiceLane({
     for (;;) {
       let page: string;
       try {
-        page = ((await protocol.call('blob/read', { digest: `sha256:${ref}`, offset: size, length: BLOB_PAGE_BYTES })) as { bytesB64: string }).bytesB64;
+        page = (
+          (await protocol.call('blob/read', { digest: `sha256:${ref}`, offset: size, length: BLOB_PAGE_BYTES })) as {
+            bytesB64: string;
+          }
+        ).bytesB64;
       } catch (error) {
         const reason = (error as { detail?: { data?: { reason?: unknown } } } | null)?.detail?.data?.reason;
         if (reason === 'blobNotFound' || reason === 'blobCorrupt') return null;
@@ -427,10 +452,15 @@ export function createServiceLane({
     const client = protocol.client?.() ?? null;
     return { replaced: replacements, client, connection: client?.threadSubscription?.(threadId).connection };
   };
-  const owes = (follow: Follow, now: Generation): boolean => follow.owed !== undefined && sameGeneration(follow.owed, now);
+  const owes = (follow: Follow, now: Generation): boolean =>
+    follow.owed !== undefined && sameGeneration(follow.owed, now);
   /** Whether the core feeds the thread to the open client: `restoring` while the client's own resume of it after a reconnect
    *  is in flight (the core may attach it after any unsubscribe answered meanwhile), `unknown` while cleanup is owed. */
-  const observed = (threadId: string, follow: Follow, now: Generation): 'attached' | 'absent' | 'unknown' | 'restoring' => {
+  const observed = (
+    threadId: string,
+    follow: Follow,
+    now: Generation
+  ): 'attached' | 'absent' | 'unknown' | 'restoring' => {
     const told = now.client?.threadSubscription?.(threadId);
     if (told?.restoring) return 'restoring';
     if (owes(follow, now)) return 'unknown';
@@ -461,7 +491,10 @@ export function createServiceLane({
         return;
       }
       // Not wanted, and neither the lane's subscription nor its owed cleanup is on this client: nothing here is the lane's.
-      if (!wanted && (seen === 'absent' || !((follow.mine !== undefined && sameClient(follow.mine, now)) || owes(follow, now)))) {
+      if (
+        !wanted &&
+        (seen === 'absent' || !((follow.mine !== undefined && sameClient(follow.mine, now)) || owes(follow, now)))
+      ) {
         follows.delete(threadId);
         return;
       }
@@ -543,7 +576,12 @@ export function createServiceLane({
     }
     // Waiting out a backoff: the same request on the same generation waits for its deadline; a changed need acts now.
     const { backoff } = follow;
-    if (backoff && desired.has(threadId) === backoff.wanted && sameGeneration(backoff.generation, generationNow(threadId))) return;
+    if (
+      backoff &&
+      desired.has(threadId) === backoff.wanted &&
+      sameGeneration(backoff.generation, generationNow(threadId))
+    )
+      return;
     follow.cancelRetry?.();
     follow.cancelRetry = undefined;
     follow.backoff = undefined;
@@ -653,7 +691,12 @@ export function createServiceLane({
       if (method === 'searchProjectFiles') {
         // One search session per consumer, started on its root and re-queried: `search/start` once, `search/update` after.
         const [root, query, limit, includeIgnored, includeDirectories, consumer] = args as [
-          string, string, number, boolean, boolean, string | undefined,
+          string,
+          string,
+          number,
+          boolean,
+          boolean,
+          string | undefined,
         ];
         const sessionId = `search:${consumer ?? 'default'}`;
         // The core refuses a second start of an id in use, so a session of another root is stopped first. The stop and the start
@@ -692,7 +735,8 @@ export function createServiceLane({
           if (searchLatest.get(sessionId) !== mine) return [] as T;
           return (await searchAnswer(sessionId, query)) as T;
         }
-      }      if (START_CALLS.has(method)) {
+      }
+      if (START_CALLS.has(method)) {
         // No thread: Node's blank snapshot, composed from the project methods (shared/blank-snapshot.ts).
         const { cwd, projectPath } = await startFolder(send, method as StartCall, args[0] as string | undefined);
         const held = snapshot() as { remoteSessionId?: unknown } | null;
@@ -700,7 +744,9 @@ export function createServiceLane({
       }
       if (ROOTED_SERVICE_METHODS.has(method)) {
         const [project, ...rest] = args;
-        const folder = (await send({ method: 'project/directory', params: { path: project } })) as { path?: unknown } | null;
+        const folder = (await send({ method: 'project/directory', params: { path: project } })) as {
+          path?: unknown;
+        } | null;
         if (typeof folder?.path !== 'string') throw new TypeError('project/directory did not answer a folder.');
         args = [folder.path, ...rest];
       }
@@ -714,7 +760,9 @@ export function createServiceLane({
         return answer as T;
       }
       // `accepted`: the contract's `true` of a submission the core took (a refusal is the request's error).
-      return (result === 'snapshot' ? snapshot() : result === 'none' ? undefined : result === 'accepted' ? true : reply) as T;
+      return (
+        result === 'snapshot' ? snapshot() : result === 'none' ? undefined : result === 'accepted' ? true : reply
+      ) as T;
     },
   };
 }

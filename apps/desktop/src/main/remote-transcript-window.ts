@@ -74,7 +74,11 @@ export function requestPhoneTranscriptPage(key: object | undefined, limit: numbe
 
 /** Rows above the first one the phone holds (`held[0]`) that its window asks for and `items` would have to give: what a
  *  page still has to bring when `items` lacks them. 0 before a first page. */
-export function phoneTranscriptWanted(key: object, items: readonly unknown[], held: readonly unknown[] | undefined): number {
+export function phoneTranscriptWanted(
+  key: object,
+  items: readonly unknown[],
+  held: readonly unknown[] | undefined
+): number {
   const window = phoneWindows.get(key);
   const start = window && held?.length ? indexOfId(items, idOf(held[0])) : -1;
   if (!window || start < 0) return 0;
@@ -114,6 +118,8 @@ export function phoneTranscriptView(key: object, snapshot: unknown, held: readon
 export function encodePhoneSessionState(encoder: SnapshotDeltaEncoder, snapshot: unknown, paging: boolean): unknown {
   const held = (encoder.resumePoint()?.held as { items?: unknown } | undefined)?.items;
   return encoder.encode(
-    paging ? phoneTranscriptView(encoder, snapshot, Array.isArray(held) ? held : undefined) : remoteTranscriptSnapshot(snapshot)
+    paging
+      ? phoneTranscriptView(encoder, snapshot, Array.isArray(held) ? held : undefined)
+      : remoteTranscriptSnapshot(snapshot)
   );
 }

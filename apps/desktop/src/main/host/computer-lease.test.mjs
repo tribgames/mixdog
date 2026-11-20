@@ -23,12 +23,26 @@ function fakeModule() {
       next += 1;
       held.set(next, request);
       const facts = { lease: next, answer: 'locked', host_pid: process.pid, worker_pid: request.pid };
-      return { holding: true, lease: next, answer: 'locked', deadlineAt: now() + request.holdMs, facts: JSON.stringify(facts) };
+      return {
+        holding: true,
+        lease: next,
+        answer: 'locked',
+        deadlineAt: now() + request.holdMs,
+        facts: JSON.stringify(facts),
+      };
     },
     leaseEnd(end) {
       fake.calls.push('end');
       const outcome = held.delete(end.lease) ? 'released' : 'none';
-      const event = { holding: false, instance: end.instance, action: end.action, seq: end.seq, lease: end.lease, outcome, reply: true };
+      const event = {
+        holding: false,
+        instance: end.instance,
+        action: end.action,
+        seq: end.seq,
+        lease: end.lease,
+        outcome,
+        reply: true,
+      };
       const facts = { lease: end.lease, answer: 'locked', host_pid: process.pid, release: outcome };
       queueMicrotask(() => onEvent?.(JSON.stringify({ ...event, facts })));
     },
@@ -113,8 +127,19 @@ test('a release with nothing leased is answered none, and a gone is accepted', a
 
 test('without a lock to lease the answer is unavailable', async () => {
   const handlers = new Map();
-  registerComputerLease({ handleRequest: (m, h) => handlers.set(m, h), onClose() {} }, { admit: () => ({ signal: new AbortController().signal, commit() {}, track() {}, trackUnfenced() {} }) }, null);
-  const answer = await handlers.get('host/computer/foregroundLease')({ op: 'acquire', instance: 'a', action: 1, seq: 1, holdMs: 200, answerBy: 1 });
+  registerComputerLease(
+    { handleRequest: (m, h) => handlers.set(m, h), onClose() {} },
+    { admit: () => ({ signal: new AbortController().signal, commit() {}, track() {}, trackUnfenced() {} }) },
+    null
+  );
+  const answer = await handlers.get('host/computer/foregroundLease')({
+    op: 'acquire',
+    instance: 'a',
+    action: 1,
+    seq: 1,
+    holdMs: 200,
+    answerBy: 1,
+  });
   assert.equal(answer.kind, 'unavailable');
   assert.equal(answer.answer, 'unavailable');
 });

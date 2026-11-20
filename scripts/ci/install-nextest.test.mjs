@@ -8,7 +8,8 @@ import { parse } from 'yaml';
 
 const action = new URL('../../.github/actions/install-nextest/action.yml', import.meta.url);
 const [{ run }] = parse(readFileSync(action, 'utf8')).runs.steps;
-const bash = process.platform === 'win32' ? `${process.env.ProgramFiles || 'C:/Program Files'}/Git/bin/bash.exe` : 'bash';
+const bash =
+  process.platform === 'win32' ? `${process.env.ProgramFiles || 'C:/Program Files'}/Git/bin/bash.exe` : 'bash';
 
 test('install-nextest creates a fresh Cargo bin on macOS and only extracts a verified download', (t) => {
   const install = (download) => {

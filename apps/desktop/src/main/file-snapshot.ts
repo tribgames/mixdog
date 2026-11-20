@@ -199,7 +199,10 @@ export async function renderFileSnapshot({ fileUrl, root, onlyFile, signal }: Sn
   if (!snapshotRendering) {
     // No `persist:` prefix and no HTTP cache: nothing outlives the app.
     const shared = session.fromPartition('file-snapshot', { cache: false });
-    snapshotRendering = { session: shared, origins: offscreenOrigins(shared, () => new Response(null, { status: 404 })) };
+    snapshotRendering = {
+      session: shared,
+      origins: offscreenOrigins(shared, () => new Response(null, { status: 404 })),
+    };
   }
   const rel = relative(root, fileURLToPath(fileUrl));
   if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('The snapshot target is outside its folder.');
@@ -231,7 +234,9 @@ export async function renderFileSnapshot({ fileUrl, root, onlyFile, signal }: Sn
     contents.session.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) =>
       // Only this window's own requests (its dedicated workers' included): a
       // service or shared worker's carry no window and are refused.
-      callback({ cancel: details.webContentsId !== contents.id || !snapshotPageRequestAllowed(own.origin, details.url) })
+      callback({
+        cancel: details.webContentsId !== contents.id || !snapshotPageRequestAllowed(own.origin, details.url),
+      })
     );
     contents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));

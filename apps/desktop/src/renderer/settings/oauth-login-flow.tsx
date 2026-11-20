@@ -131,14 +131,11 @@ export function useOAuthLoginFlow(options: OAuthLoginFlowOptions) {
     });
     if (sections) {
       // What the feed delivered, or lost, before the listeners above existed.
-      sections.loginFeed(flowId).then(
-        (held) => {
-          const next = record(held.state);
-          if (terminal(next.state) || (!held.lost && !receivedUpdate && !recovering)) adopt(next);
-          if (held.lost) recover();
-        },
-        recover
-      );
+      sections.loginFeed(flowId).then((held) => {
+        const next = record(held.state);
+        if (terminal(next.state) || (!held.lost && !receivedUpdate && !recovering)) adopt(next);
+        if (held.lost) recover();
+      }, recover);
     } else {
       recover();
     }

@@ -25,7 +25,8 @@ function* mutations(value, path = []) {
   else if (typeof value === 'boolean') yield [path, !value];
   else if (value === null) yield [path, 'wrong'];
   else if (Array.isArray(value)) for (const [i, child] of value.entries()) yield* mutations(child, [...path, i]);
-  else if (value && typeof value === 'object') for (const [key, child] of Object.entries(value)) yield* mutations(child, [...path, key]);
+  else if (value && typeof value === 'object')
+    for (const [key, child] of Object.entries(value)) yield* mutations(child, [...path, key]);
 }
 
 function withLeaf(root, path, leaf) {
@@ -39,7 +40,11 @@ function withLeaf(root, path, leaf) {
 const thrown = (call) => {
   try {
     const result = call();
-    if (result && typeof result.then === 'function') return result.then(() => false, (error) => /was not recorded/.test(error.message));
+    if (result && typeof result.then === 'function')
+      return result.then(
+        () => false,
+        (error) => /was not recorded/.test(error.message)
+      );
     return false;
   } catch (error) {
     return /was not recorded/.test(error.message);
@@ -60,10 +65,18 @@ test('a recorded call replays with its own arguments, and any other argument is 
       // (An argument list that is itself another recorded call of the function is that call.)
       const recorded = (list) => table.calls[callKey(table, name, list)];
       if (!recorded([...args, 'extra'])) {
-        assert.equal(await thrown(() => replay(table, name)(...args, 'extra')), true, `${file}: ${name} accepted an extra argument`);
+        assert.equal(
+          await thrown(() => replay(table, name)(...args, 'extra')),
+          true,
+          `${file}: ${name} accepted an extra argument`
+        );
       }
       if (args.length && !recorded(args.slice(0, -1))) {
-        assert.equal(await thrown(() => replay(table, name)(...args.slice(0, -1))), true, `${file}: ${name} accepted a missing argument`);
+        assert.equal(
+          await thrown(() => replay(table, name)(...args.slice(0, -1))),
+          true,
+          `${file}: ${name} accepted a missing argument`
+        );
       }
       for (const [path, leaf] of mutations(args)) {
         const wrong = withLeaf(args, path, leaf);
@@ -73,7 +86,11 @@ test('a recorded call replays with its own arguments, and any other argument is 
         }
         // A change that lands on another recorded call of the same function is that call.
         if (table.calls[callKey(table, name, wrong)]) continue;
-        assert.equal(await thrown(() => replay(table, name)(...wrong)), true, `${file}: ${name} accepted a wrong argument at ${path.join('.')}`);
+        assert.equal(
+          await thrown(() => replay(table, name)(...wrong)),
+          true,
+          `${file}: ${name} accepted a wrong argument at ${path.join('.')}`
+        );
         refused += 1;
       }
     }
@@ -96,9 +113,14 @@ test('only the parts a rule names are ignored: a wrong session id or transcript 
   assert.doesNotThrow(() => snapshot('C:\\any\\run\\mixdog-preview-worker-AbCdEf', ...rest));
   assert.throws(() => snapshot('C:\\any\\run\\other-dir-AbCdEf', ...rest), /was not recorded/);
   const quota = replay(find('quota-continue.test.0.recorded.json'), 'transcriptTurnKeys');
-  const [quotaKey] = Object.keys(find('quota-continue.test.0.recorded.json').calls).filter((key) => key.startsWith('transcriptTurnKeys'));
+  const [quotaKey] = Object.keys(find('quota-continue.test.0.recorded.json').calls).filter((key) =>
+    key.startsWith('transcriptTurnKeys')
+  );
   const [items] = JSON.parse(quotaKey.slice(quotaKey.indexOf('\0') + 1));
-  assert.throws(() => quota(items.map((item) => (item.kind === 'user' ? { ...item, text: `${item.text}!` } : item))), /was not recorded/);
+  assert.throws(
+    () => quota(items.map((item) => (item.kind === 'user' ? { ...item, text: `${item.text}!` } : item))),
+    /was not recorded/
+  );
   assert.equal(normalizeArgs({ timings_ms: 5, other: 1 }, [{ field: 'timings_ms' }]).other, 1);
 });
 
@@ -110,7 +132,10 @@ test('every recording names the full Node commit it was taken from, in the table
     assert.equal(table.source?.commit, NODE_COMMIT, `${file} was not recorded from ${NODE_COMMIT}`);
     assert.equal(table.source?.tree, NODE_TREE, `${file} names another tree`);
     const module = readFileSync(new URL(file.replace(/\.json$/, '.mjs'), import.meta.url), 'utf8');
-    assert.ok(module.startsWith(`// Node ${NODE_COMMIT} (tree ${NODE_TREE}) ${table.source.module},`), `${file}: the replaying module does not name the commit, tree and module`);
+    assert.ok(
+      module.startsWith(`// Node ${NODE_COMMIT} (tree ${NODE_TREE}) ${table.source.module},`),
+      `${file}: the replaying module does not name the commit, tree and module`
+    );
   }
 });
 test('a service factory is found by its arguments, like any call', () => {
@@ -121,11 +146,20 @@ test('a service factory is found by its arguments, like any call', () => {
         factories += 1;
         const args = JSON.parse(key.slice(key.indexOf('\0') + 1));
         assert.doesNotThrow(() => replay(table, name)(...args), `${file}: ${name} refuses its recorded arguments`);
-        assert.throws(() => replay(table, name)(...args, 'unrecorded'), /was not recorded/, `${file}: ${name} accepted an extra argument`);
-        assert.throws(() => replay(table, name)('unrecorded', ...args.slice(1)), /was not recorded/, `${file}: ${name} accepted a wrong argument`);
+        assert.throws(
+          () => replay(table, name)(...args, 'unrecorded'),
+          /was not recorded/,
+          `${file}: ${name} accepted an extra argument`
+        );
+        assert.throws(
+          () => replay(table, name)('unrecorded', ...args.slice(1)),
+          /was not recorded/,
+          `${file}: ${name} accepted a wrong argument`
+        );
       }
     }
-    for (const name of Object.keys(table.services)) assert.ok(table.factories?.[name], `${file}: ${name} has no recorded factory arguments`);
+    for (const name of Object.keys(table.services))
+      assert.ok(table.factories?.[name], `${file}: ${name} has no recorded factory arguments`);
   }
   assert.ok(factories > 0);
 });

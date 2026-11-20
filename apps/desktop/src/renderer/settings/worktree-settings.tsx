@@ -183,7 +183,11 @@ export function WorktreeAdvancedSettings({ active = true }: { active?: boolean }
             saveWorktreeSettings({ sizeWarnBytes: bytes });
           }}
         />
-        {sizeError && <p className="settings-error" role="alert">{t('Enter a valid non-negative size in GiB.')}</p>}
+        {sizeError && (
+          <p className="settings-error" role="alert">
+            {t('Enter a valid non-negative size in GiB.')}
+          </p>
+        )}
       </Group>
     </details>
   );

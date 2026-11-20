@@ -43,7 +43,11 @@ const within = (promise, what, ms = 60_000) => {
   });
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 };
-const closeOf = (child) => within(new Promise((resolveClose) => child.once('close', (code, signal) => resolveClose({ code, signal }))), `the close of helper ${child.pid}`);
+const closeOf = (child) =>
+  within(
+    new Promise((resolveClose) => child.once('close', (code, signal) => resolveClose({ code, signal }))),
+    `the close of helper ${child.pid}`
+  );
 const firstData = (stream, what) => within(new Promise((resolveData) => stream.once('data', resolveData)), what);
 
 // The program: starts a grandchild that depends on nothing (stdio ignored, no pipe), records both with their start times, runs
@@ -57,29 +61,41 @@ writeFileSync(${JSON.stringify(join(dir, 'pids.json'))}, JSON.stringify(await Pr
 ${after}
 `;
 
-for (const [name, number] of [['SIGTERM', 15], ['SIGINT', 2], ['SIGHUP', 1]]) {
-  test(`${name} sent to the helper ends the program and its grandchild, exits ${128 + number} and writes no report`, { skip: WINDOWS && 'POSIX signals' }, () =>
-    withDir(async (dir, members) => {
-      const script = join(dir, 'tree.mjs');
-      writeFileSync(script, programScript(dir, "console.log('ready'); setInterval(() => {}, 1000);"));
-      const child = spawnTree(process.execPath, [script], { stdio: ['ignore', 'pipe', 'ignore'] });
-      child.on('error', () => {});
-      const closed = closeOf(child);
-      await firstData(child.stdout, 'the program reporting that it started');
-      assert.equal(members().length, 2);
-      child.kill(name);
-      assert.deepEqual(await closed, { code: 128 + number, signal: null });
-      assert.equal(child.treeOutcome(), null, 'no completion record: the run did not finish');
-      await assertTreeEnded(dir, members());
-    }));
+for (const [name, number] of [
+  ['SIGTERM', 15],
+  ['SIGINT', 2],
+  ['SIGHUP', 1],
+]) {
+  test(
+    `${name} sent to the helper ends the program and its grandchild, exits ${128 + number} and writes no report`,
+    { skip: WINDOWS && 'POSIX signals' },
+    () =>
+      withDir(async (dir, members) => {
+        const script = join(dir, 'tree.mjs');
+        writeFileSync(script, programScript(dir, "console.log('ready'); setInterval(() => {}, 1000);"));
+        const child = spawnTree(process.execPath, [script], { stdio: ['ignore', 'pipe', 'ignore'] });
+        child.on('error', () => {});
+        const closed = closeOf(child);
+        await firstData(child.stdout, 'the program reporting that it started');
+        assert.equal(members().length, 2);
+        child.kill(name);
+        assert.deepEqual(await closed, { code: 128 + number, signal: null });
+        assert.equal(child.treeOutcome(), null, 'no completion record: the run did not finish');
+        await assertTreeEnded(dir, members());
+      })
+  );
 }
 
 // The program signals its helper and exits at once: whichever of the two the helper sees first, the signal reached it before
 // it published, so there is no record and the exit is 143. (Which one comes first is not controlled here; the order in which
 // the exit is seen first and the signal is caught during the end of the tree is the unit test
 // a_signal_caught_before_publication_withholds_the_record.)
-test('a SIGTERM that reaches the helper as its program exits withholds the report: exit 143', { skip: WINDOWS && 'POSIX signals' }, async () => {
-  const child = spawnTree(process.execPath, ['-e', 'process.kill(process.ppid, "SIGTERM"); process.exit(0)'], { stdio: 'ignore' });
+test('a SIGTERM that reaches the helper as its program exits withholds the report: exit 143', {
+  skip: WINDOWS && 'POSIX signals',
+}, async () => {
+  const child = spawnTree(process.execPath, ['-e', 'process.kill(process.ppid, "SIGTERM"); process.exit(0)'], {
+    stdio: 'ignore',
+  });
   child.on('error', () => {});
   assert.deepEqual(await closeOf(child), { code: 143, signal: null });
   assert.equal(child.treeOutcome(), null);
@@ -99,9 +115,14 @@ import { startTimeOf } from ${JSON.stringify(PROBE)};
 const escaped = spawn(process.execPath, ['-e', ${JSON.stringify(NODE_HOLD(dir, life, 'process.on("SIGHUP", () => {}); '))}], { stdio: 'ignore', detached: true, windowsHide: true });
 writeFileSync(${JSON.stringify(join(dir, 'pids.json'))}, JSON.stringify(await Promise.all([process.pid, escaped.pid].map(async (pid) => ({ pid, start: await startTimeOf(pid) })))));
 process.exit(0);
-`,
+`
     );
-    const done = await runTree(process.execPath, [script], { label: 'escaped lane', cwd: dir, deadlineMs: 60_000, onSpawn: track });
+    const done = await runTree(process.execPath, [script], {
+      label: 'escaped lane',
+      cwd: dir,
+      deadlineMs: 60_000,
+      onSpawn: track,
+    });
     assert.equal(done.status, 0);
     const [, escaped] = members();
     if (DARWIN) {
@@ -110,7 +131,8 @@ process.exit(0);
       return;
     }
     assert.equal(done.escapes, 'checked');
-    if (process.platform === 'linux') assert.deepEqual(done.escapedEnded, [escaped.pid], 'adopted through the subreaper and ended by the helper');
+    if (process.platform === 'linux')
+      assert.deepEqual(done.escapedEnded, [escaped.pid], 'adopted through the subreaper and ended by the helper');
     await assertTreeEnded(dir, members());
   }));
 
@@ -129,9 +151,14 @@ import { startTimeOf } from ${JSON.stringify(PROBE)};
 const kids = Array.from({ length: 8 }, () => spawn(process.execPath, ['-e', ${JSON.stringify(NODE_HOLD(dir, LIFE_MS))}], { stdio: 'ignore', detached: ${WINDOWS}, windowsHide: true }));
 writeFileSync(${JSON.stringify(join(dir, 'pids.json'))}, JSON.stringify(await Promise.all([process.pid, ...kids.map((k) => k.pid)].map(async (pid) => ({ pid, start: await startTimeOf(pid) })))));
 process.exit(0);
-`,
+`
     );
-    const done = await runTree(process.execPath, [script], { label: 'eight members lane', cwd: dir, deadlineMs: 60_000, onSpawn: track });
+    const done = await runTree(process.execPath, [script], {
+      label: 'eight members lane',
+      cwd: dir,
+      deadlineMs: 60_000,
+      onSpawn: track,
+    });
     assert.equal(done.status, 0);
     assert.equal(members().length, 9);
     await assertTreeEnded(dir, members());
@@ -152,7 +179,7 @@ process.stdin.on('end', () => {
   console.log(JSON.stringify({ g: process.pid, h: h.pid }));
 });
 ${leakGuard(dir, LIFE_MS)}
-`,
+`
     );
     const parent = join(dir, 'p.mjs');
     writeFileSync(
@@ -160,7 +187,7 @@ ${leakGuard(dir, LIFE_MS)}
       `import { spawn } from 'node:child_process';
 spawn(process.execPath, [${JSON.stringify(grandchild)}], { stdio: ['pipe', 'inherit', 'inherit'], detached: ${WINDOWS}, windowsHide: true });
 process.exit(0);
-`,
+`
     );
     const program = join(dir, 's.mjs');
     writeFileSync(
@@ -179,9 +206,14 @@ for await (const chunk of p.stdout) {
   break;
 }
 process.exit(0);
-`,
+`
     );
-    const done = await runTree(process.execPath, [program], { label: 'late grandchild lane', cwd: dir, deadlineMs: 60_000, onSpawn: track });
+    const done = await runTree(process.execPath, [program], {
+      label: 'late grandchild lane',
+      cwd: dir,
+      deadlineMs: 60_000,
+      onSpawn: track,
+    });
     assert.equal(done.status, 0);
     assert.equal(members().length, 3);
     await assertTreeEnded(dir, members());
@@ -211,7 +243,9 @@ test('a program that is not there is a launch failure in the record (ENOENT, hel
   assert.equal(run.errors[0]?.code, 'ENOENT');
 });
 
-test('a file that cannot be executed is a launch failure in the record (EACCES)', { skip: WINDOWS && 'POSIX modes' }, async () => {
+test('a file that cannot be executed is a launch failure in the record (EACCES)', {
+  skip: WINDOWS && 'POSIX modes',
+}, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'tree-helper-eacces-'));
   try {
     const file = join(dir, 'not-executable');
@@ -235,7 +269,9 @@ for (const code of [125, 126, 127]) {
   });
 }
 
-test('an NTSTATUS exit arrives as it is, with no signal and no launch failure in the record', { skip: !WINDOWS && 'Windows status codes' }, async () => {
+test('an NTSTATUS exit arrives as it is, with no signal and no launch failure in the record', {
+  skip: !WINDOWS && 'Windows status codes',
+}, async () => {
   const run = await within(runOnce(process.execPath, ['-e', 'process.exit(0xC0000005)']), 'the helper finishing');
   assert.equal(run.code, 0xc0000005);
   assert.equal(run.outcome.launch, null);
@@ -248,5 +284,9 @@ test('a partial record, or one without its completion member, is an error for th
   assert.equal(outcomeOf(''), null);
   assert.throws(() => outcomeOf('{"launch":null,"sig'), /incomplete/);
   assert.throws(() => outcomeOf('{"launch":null,"signal":null}'), /no completion member/);
-  assert.equal(outcomeOf('{"launch":null,"signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}').launch, null);
+  assert.equal(
+    outcomeOf('{"launch":null,"signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}')
+      .launch,
+    null
+  );
 });

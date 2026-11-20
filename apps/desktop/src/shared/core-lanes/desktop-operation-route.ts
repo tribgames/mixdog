@@ -12,7 +12,14 @@ import { readSettingsChange } from '../settings-changed';
 import { notificationWriteMode } from '../notification-state';
 import { storedPinsState } from '../activity-rail-pins';
 import { createProjectWatchRegistry } from '../project-watch-registry';
-import { defined, positional, SCM_OPERATION_ROUTES, SCM_REPLIES, type OperationMapper, type OperationRoute } from '../scm-operation-route';
+import {
+  defined,
+  positional,
+  SCM_OPERATION_ROUTES,
+  SCM_REPLIES,
+  type OperationMapper,
+  type OperationRoute,
+} from '../scm-operation-route';
 import { terminalEnsureRequest, terminalReply } from '../terminal-protocol';
 import type { ProtocolConnection, ProtocolWindow } from '../../main/protocol/connection';
 import { coreErrorForWindow } from './core-error';
@@ -56,10 +63,12 @@ const configWrite = (
 /** A settings write the window's handler announced as `desktop` after Node's store saved it: the core announces it once saved. */
 const desktopWrite = (path: string, value: unknown): OperationRoute => configWrite(path, value, undefined, 'desktop');
 
-const hostState = (key: 'browserTabs' | 'browserImport' | 'visualize'): Mapper => (args) => ({
-  method: 'host/state/set',
-  params: { key, value: args[0] },
-});
+const hostState =
+  (key: 'browserTabs' | 'browserImport' | 'visualize'): Mapper =>
+  (args) => ({
+    method: 'host/state/set',
+    params: { key, value: args[0] },
+  });
 
 const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   ...SCM_OPERATION_ROUTES,
@@ -139,7 +148,11 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
     if (initializeIfMissing !== undefined && typeof initializeIfMissing !== 'boolean') {
       throw new TypeError('initializeIfMissing must be a boolean.');
     }
-    return configWrite('desktop.activityRailPins', pins, initializeIfMissing === true ? 'initializeIfMissing' : undefined);
+    return configWrite(
+      'desktop.activityRailPins',
+      pins,
+      initializeIfMissing === true ? 'initializeIfMissing' : undefined
+    );
   },
   // `autoClear` and `autoCompact` live in the agent config, every other key under `desktop` (settings-store.ts `update`).
   updateSetting: ([key, enabled]) => desktopWrite(desktopSettingPath(key as DesktopSettingKey), enabled === true),
@@ -156,7 +169,11 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   // Node: setPreferences(currentDeviceId, pcCanNotify, deviceId, patch). The fifth value is the merge mode the lane
   // decides from the device's pairing (PREPARERS); the patch is merged in the core, in one write.
   setNotificationPreferences: ([, , deviceId, patch, mode]) =>
-    configWrite(`notifications.devices.${String(deviceId)}`, patch, mode === 'mergePatchBots' ? 'mergePatchBots' : 'mergePatch'),
+    configWrite(
+      `notifications.devices.${String(deviceId)}`,
+      patch,
+      mode === 'mergePatchBots' ? 'mergePatchBots' : 'mergePatch'
+    ),
   setConversationNotification: ([target, setting]) =>
     configWrite('notifications.overrides', { target, setting }, 'setConversation'),
 
@@ -278,10 +295,7 @@ export interface ReplyContext {
 type Reply = (reply: unknown, context: ReplyContext) => unknown;
 
 /** What an operation needs decided before its request is built. */
-type Prepare = (
-  args: readonly unknown[],
-  context: { entries(): readonly SectionEntry[] }
-) => Promise<unknown[]>;
+type Prepare = (args: readonly unknown[], context: { entries(): readonly SectionEntry[] }) => Promise<unknown[]>;
 
 const PREPARERS: Readonly<Record<string, Prepare>> = {
   // A phone app paired at or after the store was first written starts from bot chats only (Node's devicePreferencesIn):
@@ -303,7 +317,8 @@ const record = (value: unknown): Record<string, unknown> =>
 /** Operations the spec removes from the wire, with what replaces each. A call is an error here (never an empty
  *  answer): the caller is a Node-path call site that the core connection does not make (desktop-ops-new-b-r.md). */
 const RETIRED_OPERATIONS: Readonly<Record<string, string>> = {
-  remoteAccessStart: 'the relay starts at core boot from config (DS 7.2); the explicit activation is remoteAccess/activate',
+  remoteAccessStart:
+    'the relay starts at core boot from config (DS 7.2); the explicit activation is remoteAccess/activate',
   remoteTransportPeerAttach: 'the carrier peer connection runs in mixdog-remote (SPEC R36); there is no peer window',
   remoteTransportPeerDetach: 'the carrier peer connection runs in mixdog-remote (SPEC R36); there is no peer window',
   remoteTransportPeerReport: 'the carrier peer connection runs in mixdog-remote (SPEC R36); there is no peer window',
@@ -331,28 +346,70 @@ const savedSettings: Reply = async (_reply, { call }) =>
 /** Replies that are Node's return value as the core sends it (the parity contract of DS-SCM-1, DS-WS-1, DS-REM-1:
  *  the JSON equals what the Node implementation returned). */
 const SAME_REPLY: readonly string[] = [
-  'documentPreviewIn', 'documentPreviewPagesIn', 'readEditorBackup', 'writeEditorBackup', 'readLocalFileAbs',
-  'readProjectTextFileIn', 'readProjectTextFileAuthorized', 'writeProjectTextFileIn', 'writeProjectTextFileAuthorized',
-  'writeProjectTextFilesIn', 'writeProjectTextFilesAuthorized', 'readScopedEditorSettings', 'readWorkspaceFile',
-  'writeWorkspaceFile', 'searchWorkspaceTextIn', 'statProjectFileIn', 'listHostDirectories', 'listServerDirectories',
-  'sendTestNotification', 'termProfiles', 'remoteAccessSetEnabled', 'remoteAccessSetName',
-  'remoteAccessRotate', 'remoteAccessRevokeClient', 'serverUploadCommit', 'serverTrashInfo',
-  'replaceWorkspaceTextIn', 'projectRecoveryIn', 'lspDocument', 'lspRequest', 'remoteAccessResolveClaim',
-  'remoteAccessPairCode', 'serverFileReadRange', 'serverTrashEntry',
-  'serverDownloadBegin', 'serverDownloadStep', 'serverDownloadFinish',
-  'grantDescribe', 'grantRedeem', 'listProjectDirIn', 'createProjectEntryIn', 'renameProjectEntryIn',
-  'moveProjectEntryIn', 'copyProjectEntryIn', 'localPageUrlIn', 'localPageOrigin', 'pcAccessReadiness',
+  'documentPreviewIn',
+  'documentPreviewPagesIn',
+  'readEditorBackup',
+  'writeEditorBackup',
+  'readLocalFileAbs',
+  'readProjectTextFileIn',
+  'readProjectTextFileAuthorized',
+  'writeProjectTextFileIn',
+  'writeProjectTextFileAuthorized',
+  'writeProjectTextFilesIn',
+  'writeProjectTextFilesAuthorized',
+  'readScopedEditorSettings',
+  'readWorkspaceFile',
+  'writeWorkspaceFile',
+  'searchWorkspaceTextIn',
+  'statProjectFileIn',
+  'listHostDirectories',
+  'listServerDirectories',
+  'sendTestNotification',
+  'termProfiles',
+  'remoteAccessSetEnabled',
+  'remoteAccessSetName',
+  'remoteAccessRotate',
+  'remoteAccessRevokeClient',
+  'serverUploadCommit',
+  'serverTrashInfo',
+  'replaceWorkspaceTextIn',
+  'projectRecoveryIn',
+  'lspDocument',
+  'lspRequest',
+  'remoteAccessResolveClaim',
+  'remoteAccessPairCode',
+  'serverFileReadRange',
+  'serverTrashEntry',
+  'serverDownloadBegin',
+  'serverDownloadStep',
+  'serverDownloadFinish',
+  'grantDescribe',
+  'grantRedeem',
+  'listProjectDirIn',
+  'createProjectEntryIn',
+  'renameProjectEntryIn',
+  'moveProjectEntryIn',
+  'copyProjectEntryIn',
+  'localPageUrlIn',
+  'localPageOrigin',
+  'pcAccessReadiness',
   'pcAccessApprove',
 ];
 /** Node returned nothing. */
-const VOID_REPLY: readonly string[] = [
-  'deleteEditorBackup',
-];
+const VOID_REPLY: readonly string[] = ['deleteEditorBackup'];
 /** Node returned null. */
 const NULL_REPLY: readonly string[] = [
-  'termFocus', 'termPause', 'termResume', 'termDispose', 'remoteAccessSetClientAlias',
-  'remoteAccessSettleOwedControllerKeys', 'browserRemoteTabs', 'browserRemoteImportProgress', 'visualizeRemotePublish',
-  'trashProjectEntryIn', 'localPageRevokeOwner',
+  'termFocus',
+  'termPause',
+  'termResume',
+  'termDispose',
+  'remoteAccessSetClientAlias',
+  'remoteAccessSettleOwedControllerKeys',
+  'browserRemoteTabs',
+  'browserRemoteImportProgress',
+  'visualizeRemotePublish',
+  'trashProjectEntryIn',
+  'localPageRevokeOwner',
 ];
 
 const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
@@ -392,8 +449,7 @@ const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
     return { uploadId, chunkBytes, maxBytes };
   },
   // Node answered the whole state after the write; the core answers the merged record of the one device.
-  setNotificationPreferences: (_reply, { args, invoke }) =>
-    invoke('notificationPreferencesState', [args[0], args[1]]),
+  setNotificationPreferences: (_reply, { args, invoke }) => invoke('notificationPreferencesState', [args[0], args[1]]),
   // Node answered the overrides in force: the stored list.
   setConversationNotification: (reply) => written(reply),
   updateSetting: savedSettings,
@@ -453,7 +509,7 @@ export const IGNORED_DESKTOP_OPERATIONS: readonly string[] = ['publishBrowserApp
 export const DELETED_DESKTOP_OPERATIONS: Readonly<Record<string, string>> = {
   browserRemoteFrame:
     'the host role sends it: host/browser/frame, then the picture as an X17 media frame on the host connection (host/browser-view.ts)',
-  browserRemoteResolve: 'the host role answers the core\'s host/* requests itself (host/connection.ts)',
+  browserRemoteResolve: "the host role answers the core's host/* requests itself (host/connection.ts)",
   browserRemoteWebrtcSignal: 'WebRTC runs in mixdog-remote (SPEC R36)',
   gitPathspecChanges: 'no caller (DS 17.2)',
   lspDisposeUnder: 'project/delete and worktree removal dispose the servers inside the core (DS 4.1)',
@@ -473,9 +529,12 @@ export function routeDesktopOperation(name: string, args: readonly unknown[] = [
   const route = Object.hasOwn(OPERATION_ROUTES, name) ? OPERATION_ROUTES[name] : undefined;
   if (route) return route(args);
   const reason = Object.hasOwn(NEEDS_RULING, name) ? NEEDS_RULING[name] : undefined;
-  if (reason) throw Object.assign(new Error(`desktop operation ${name} is not mapped: ${reason}`), { code: 'unmappedOperation' });
+  if (reason)
+    throw Object.assign(new Error(`desktop operation ${name} is not mapped: ${reason}`), { code: 'unmappedOperation' });
   const deleted = Object.hasOwn(DELETED_DESKTOP_OPERATIONS, name) ? `: ${DELETED_DESKTOP_OPERATIONS[name]}` : '';
-  throw Object.assign(new Error(`desktop operation ${name} has no protocol method${deleted}`), { code: 'unknownMethod' });
+  throw Object.assign(new Error(`desktop operation ${name} has no protocol method${deleted}`), {
+    code: 'unknownMethod',
+  });
 }
 
 export interface OperationLane {
@@ -589,7 +648,12 @@ export function createOperationLane({
       };
       if (Object.hasOwn(SECTION_READS, name)) {
         const snapshot = await heldSections();
-        return SECTION_READS[name](await withPagedConfig(snapshot(), call, SECTION_READ_CONFIG[name] ?? []), args, host, call);
+        return SECTION_READS[name](
+          await withPagedConfig(snapshot(), call, SECTION_READ_CONFIG[name] ?? []),
+          args,
+          host,
+          call
+        );
       }
       if (name === 'notifySettingsChanged') {
         const change = readSettingsChange({ scope: args[0] });
@@ -619,7 +683,9 @@ export function createOperationLane({
       const prepare = Object.hasOwn(PREPARERS, name) ? PREPARERS[name] : undefined;
       const held = prepare ? await heldSections() : null;
       // The preparer reads the notifications subtree: only that one is paged when held as a stub.
-      const paged = held ? await withPagedConfig(held(), call, name === 'setNotificationPreferences' ? ['notifications'] : []) : null;
+      const paged = held
+        ? await withPagedConfig(held(), call, name === 'setNotificationPreferences' ? ['notifications'] : [])
+        : null;
       const routed = prepare ? await prepare(args, { entries: () => paged!.entries }) : args;
       const { method, params } = routeDesktopOperation(name, routed);
       return REPLIES[name](await call(method, params), { args, params, call, invoke: lane.invoke });

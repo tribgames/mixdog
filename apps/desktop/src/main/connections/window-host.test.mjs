@@ -41,9 +41,15 @@ test('an open for a window still being created joins it: one creation, one answe
 });
 
 test('a window that cannot be made answers opened false; bad params are invalid params', async () => {
-  const { host } = build({ open: async () => { throw new Error('boom'); } });
+  const { host } = build({
+    open: async () => {
+      throw new Error('boom');
+    },
+  });
   assert.deepEqual(await host.handlers['host/window/open'](open), { opened: false });
-  await assert.rejects(host.handlers['host/window/open']({ connectionId: 'c', kind: 'x', name: 'n' }), { code: -32602 });
+  await assert.rejects(host.handlers['host/window/open']({ connectionId: 'c', kind: 'x', name: 'n' }), {
+    code: -32602,
+  });
   await assert.rejects(host.handlers['host/window/close']({}), { code: -32602 });
 });
 
@@ -53,7 +59,10 @@ test('close and focus reach the window layer; focus carries the session', async 
   await host.handlers['host/window/focus']({ connectionId: 'local', sessionId: 's1' });
   await host.handlers['host/window/focus']({ connectionId: 'c1' });
   assert.deepEqual(calls.close, ['c1']);
-  assert.deepEqual(calls.focus, [['local', 's1'], ['c1', undefined]]);
+  assert.deepEqual(calls.focus, [
+    ['local', 's1'],
+    ['c1', undefined],
+  ]);
 });
 
 test('closed is reported only for a window the core opened, byUser for a user close and false for a quit', async () => {
@@ -90,7 +99,9 @@ test('a late close from a retired window cannot consume the current window lease
   await host.handlers['host/window/open']({ ...open, windowToken: 'current' });
   host.windowClosed('c1', true, 'old');
   host.windowClosed('c1', true, 'current');
-  assert.deepEqual(calls.report, [['host/window/closed', { connectionId: 'c1', byUser: true, windowToken: 'current' }]]);
+  assert.deepEqual(calls.report, [
+    ['host/window/closed', { connectionId: 'c1', byUser: true, windowToken: 'current' }],
+  ]);
 });
 
 test('a burst of focus changes is one windowFocus report, and an unchanged state is not re-sent', async () => {
@@ -115,7 +126,13 @@ test('registerWindowHost serves the three requests and forgets what was reported
   const closers = [];
   const connection = { handleRequest: (m, h) => served.set(m, h), onClose: (l) => closers.push(l) };
   const calls = [];
-  const host = registerWindowHost(connection, { open: async () => true, close() {}, focus() {}, report: (m, p) => calls.push([m, p]), debounceMs: 5 });
+  const host = registerWindowHost(connection, {
+    open: async () => true,
+    close() {},
+    focus() {},
+    report: (m, p) => calls.push([m, p]),
+    debounceMs: 5,
+  });
   assert.deepEqual([...served.keys()].sort(), ['host/window/close', 'host/window/focus', 'host/window/open']);
   const windows = [{ connectionId: 'local', visible: true, focused: true }];
   host.publishFocus(windows);
@@ -128,14 +145,20 @@ test('registerWindowHost serves the three requests and forgets what was reported
 
 test('a click on a server notification focuses that server window and reports the connection', () => {
   const notifications = new Map();
-  const connection = { handleRequest() {}, handleNotification: (m, h) => notifications.set(m, h), notify: (m, p) => sent.push([m, p]) };
+  const connection = {
+    handleRequest() {},
+    handleNotification: (m, h) => notifications.set(m, h),
+    notify: (m, p) => sent.push([m, p]),
+  };
   const sent = [];
   const clicks = [];
   const focused = [];
   let activations = 0;
   registerNotificationHost(connection, {
     createNotification: () => ({ on: (_e, fn) => clicks.push(fn), show() {} }),
-    activate: () => { activations += 1; },
+    activate: () => {
+      activations += 1;
+    },
     focusConnection: (id, thread) => focused.push([id, thread]),
     isSupported: () => true,
     idleSeconds: () => 0,

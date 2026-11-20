@@ -35,9 +35,8 @@ export function QuotaAutoResumeToggle() {
           const report = (saved: boolean | undefined) => {
             if (write === latestWrite.current) setFailed(saved !== next);
           };
-          void writeDesktopStatus(api, 'quotaAutoResume', () => api.setQuotaAutoResume?.(next), next).then(
-            report,
-            () => report(undefined)
+          void writeDesktopStatus(api, 'quotaAutoResume', () => api.setQuotaAutoResume?.(next), next).then(report, () =>
+            report(undefined)
           );
         }}
       />

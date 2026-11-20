@@ -18,13 +18,16 @@ test('automatic import does not remove a manually restored domain cookie when a 
     set: async (details) => writes.push(['set', details.domain, details.value]),
     flushStore: async () => {},
   };
-  assert.equal(await importBrowserCookies(
-    { cookies },
-    [{ ...restored, domain: 'example.test', value: 'fixture-automatic' }],
-    async () => {},
-    failures,
-    () => true,
-  ), 1);
+  assert.equal(
+    await importBrowserCookies(
+      { cookies },
+      [{ ...restored, domain: 'example.test', value: 'fixture-automatic' }],
+      async () => {},
+      failures,
+      () => true
+    ),
+    1
+  );
   assert.deepEqual(writes, [['set', undefined, 'fixture-automatic']]);
 });
 
@@ -47,7 +50,7 @@ test('changing the automatic source during backup leaves the jar untouched', asy
       await release.promise;
     },
     failures,
-    () => selected,
+    () => selected
   );
   await backingUp.promise;
   selected = false;

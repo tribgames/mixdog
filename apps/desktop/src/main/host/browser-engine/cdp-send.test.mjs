@@ -74,12 +74,18 @@ test('every method that is not on the list is -32015 and nothing is sent', async
   }
   assert.equal(h.sent.length, 0);
   assert.equal(cdpSendRefusal('Runtime.evaluate') !== undefined, true);
-  assert.equal([...CDP_SEND_ALLOWED].every((method) => cdpSendRefusal(method) === undefined), true);
+  assert.equal(
+    [...CDP_SEND_ALLOWED].every((method) => cdpSendRefusal(method) === undefined),
+    true
+  );
 });
 
 test('the list holds no method that evaluates script, reads a cookie or the markup; the bodies are for the network detail', () => {
   for (const method of CDP_SEND_ALLOWED) {
-    assert.doesNotMatch(method, /^(Runtime\.(evaluate|callFunctionOn|compileScript|runScript)|Input\.|Fetch\.|Target\.|Debugger\.|Browser\.|Emulation\.|Tracing\.|DOMSnapshot\.)/);
+    assert.doesNotMatch(
+      method,
+      /^(Runtime\.(evaluate|callFunctionOn|compileScript|runScript)|Input\.|Fetch\.|Target\.|Debugger\.|Browser\.|Emulation\.|Tracing\.|DOMSnapshot\.)/
+    );
     assert.doesNotMatch(method, /(Cookies|getOuterHTML|getAllCookies)/);
   }
   // `network <requestId>` shows a request's bodies (network-report.ts read them the same way); the registry masks every string.
@@ -89,7 +95,10 @@ test('the list holds no method that evaluates script, reads a cookie or the mark
 
 test('a session that is not attached, a stale expect and a blocking dialog are refused before the send', async () => {
   const h = harness();
-  await assert.rejects(h.call({ pageId: 'p1', method: 'Page.getFrameTree', sessionId: 'zz' }), (e) => e.code === -32000);
+  await assert.rejects(
+    h.call({ pageId: 'p1', method: 'Page.getFrameTree', sessionId: 'zz' }),
+    (e) => e.code === -32000
+  );
   await assert.rejects(
     h.call({ pageId: 'p1', method: 'Page.getFrameTree', expect: { documentId: 'p1:0' } }),
     (e) => e.code === -32010

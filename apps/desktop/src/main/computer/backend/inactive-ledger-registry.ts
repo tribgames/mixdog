@@ -25,7 +25,10 @@ export function readProcessStartTicks(pid: number, spawnProcess: typeof spawn = 
     let output = '';
     child.stdout.on('data', (chunk: Buffer) => {
       output += chunk.toString('utf8');
-      if (output.length > 128) { child.kill(); reject(new Error('process identity query returned an oversized answer')); }
+      if (output.length > 128) {
+        child.kill();
+        reject(new Error('process identity query returned an oversized answer'));
+      }
     });
     const timer = setTimeout(() => {
       child.kill();

@@ -66,7 +66,9 @@ const key = (sessionId: string, turn: number): string => `${sessionId}\u0000${tu
 /** The core's runtime id on the computer host's fill command (the host only needs one to scope the fill). */
 const CORE_RUNTIME = 'core';
 const unscoped = (): Error =>
-  new Error('saved_login_unavailable: the request names no session and agent turn to scope its fill to; no input was sent');
+  new Error(
+    'saved_login_unavailable: the request names no session and agent turn to scope its fill to; no input was sent'
+  );
 
 export function createSavedLoginHost(deps: SavedLoginHostDeps) {
   const admitted = new Set<string>();
@@ -91,7 +93,9 @@ export function createSavedLoginHost(deps: SavedLoginHostDeps) {
       const turn = turnOf(input);
       if (!sessionId || !turn) throw unscoped();
       if (!admitted.has(key(sessionId, turn))) {
-        throw new Error('saved_login_unavailable: the fill was not admitted for its session and turn; no input was sent');
+        throw new Error(
+          'saved_login_unavailable: the fill was not admitted for its session and turn; no input was sent'
+        );
       }
       const field = String(input.field || '');
       if (field !== 'username' && field !== 'password') {
@@ -119,7 +123,11 @@ export function createSavedLoginHost(deps: SavedLoginHostDeps) {
         command.saved_login_text = input.text;
         command.saved_login_expected = input.expected;
         // The page check and the dispatch below are one synchronous step: no await sits between them.
-        fillGuard(deps.engine, pageOfDocument((input.expect as { documentId?: unknown } | undefined)?.documentId), input.expect)?.();
+        fillGuard(
+          deps.engine,
+          pageOfDocument((input.expect as { documentId?: unknown } | undefined)?.documentId),
+          input.expect
+        )?.();
       }
       const reply = await deps.worker.run(command);
       if (!reply || typeof reply.saved_login_response !== 'object' || !reply.saved_login_response) {
@@ -137,7 +145,9 @@ export function createSavedLoginHost(deps: SavedLoginHostDeps) {
       const turn = turnOf(input);
       if (!sessionId || !turn) throw unscoped();
       if (!admitted.has(key(sessionId, turn))) {
-        throw new Error('saved_login_unavailable: the fill was not admitted for its session and turn; no input was sent');
+        throw new Error(
+          'saved_login_unavailable: the fill was not admitted for its session and turn; no input was sent'
+        );
       }
       if (!deps.autoSignIn()) {
         throw new Error('saved_login_unavailable: Auto login is off in Settings (인증 관리); no input was sent');
@@ -150,7 +160,8 @@ export function createSavedLoginHost(deps: SavedLoginHostDeps) {
       if (!account) throw new Error('invalid_input: account must name a saved login');
       const { secureOrigin, maskedCredentialLabel } = await deps.text();
       const origin = secureOrigin(String(input.origin || ''));
-      if (!origin) throw new Error('saved_login_unavailable: the page origin is not a secure origin; no input was sent');
+      if (!origin)
+        throw new Error('saved_login_unavailable: the page origin is not a secure origin; no input was sent');
       const login = await deps.credentials.useCredentialByAccount(origin, account, async (credential) => ({
         username: credential.username,
         password: field === 'password' ? credential.password : '',

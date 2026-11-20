@@ -85,7 +85,8 @@ export class BootReports implements BootReportSource {
           // A boot another one has superseded stays superseded: its late readings are dropped.
           if (!held || boot === this.bootNow) {
             // A reading behind what the boot has already come to (another attempt read an older file) is not shown.
-            if (!held || progress.done >= held.done) this.highs.set(boot, { done: progress.done, total: progress.total, boot });
+            if (!held || progress.done >= held.done)
+              this.highs.set(boot, { done: progress.done, total: progress.total, boot });
             this.bootNow = boot;
             this.reporting.add(attempt);
           }
@@ -151,7 +152,11 @@ export class BootReports implements BootReportSource {
       const again = this.lastExit === signature;
       this.lastExit = signature;
       this.failure = again
-        ? { message: error instanceof Error ? error.message : String(error), exitCode: exit.code ?? null, stderrPath: path }
+        ? {
+            message: error instanceof Error ? error.message : String(error),
+            exitCode: exit.code ?? null,
+            stderrPath: path,
+          }
         : null;
     }
     this.emit();
@@ -162,7 +167,13 @@ export class BootReports implements BootReportSource {
   private emit(): void {
     const report = this.current();
     const told = this.told;
-    if (told.failure === report.failure && told.progress?.done === report.progress?.done && told.progress?.total === report.progress?.total && told.progress?.boot === report.progress?.boot) return;
+    if (
+      told.failure === report.failure &&
+      told.progress?.done === report.progress?.done &&
+      told.progress?.total === report.progress?.total &&
+      told.progress?.boot === report.progress?.boot
+    )
+      return;
     this.told = report;
     for (const listener of [...this.listeners]) listener(report);
   }

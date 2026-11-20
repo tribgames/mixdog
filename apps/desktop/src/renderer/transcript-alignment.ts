@@ -87,13 +87,21 @@ export function joinTranscriptWindows<T extends RowIdentity>(
   for (let start = 0; start < older.length; start += 1) {
     const length = older.length - start;
     if (length > newer.length) continue;
-    if (!older.slice(start).every((row, index) => {
-      const next = newer[index]!;
-      const position = historyPositionOf(row);
-      const nextPosition = historyPositionOf(next);
-      return sameRowId(row, next) && (position === undefined && nextPosition === undefined ||
-        position !== undefined && position === nextPosition && historyPositionOf(row, 'after') === historyPositionOf(next, 'after'));
-    })) continue;
+    if (
+      !older.slice(start).every((row, index) => {
+        const next = newer[index]!;
+        const position = historyPositionOf(row);
+        const nextPosition = historyPositionOf(next);
+        return (
+          sameRowId(row, next) &&
+          ((position === undefined && nextPosition === undefined) ||
+            (position !== undefined &&
+              position === nextPosition &&
+              historyPositionOf(row, 'after') === historyPositionOf(next, 'after')))
+        );
+      })
+    )
+      continue;
     overlap = length;
     break;
   }
@@ -122,7 +130,9 @@ export function alignedRow(a: TranscriptItem, b: TranscriptItem): boolean {
 
 function transcriptSourceAlignment(previous: readonly TranscriptItem[], incoming: readonly TranscriptItem[]) {
   const previousIds = new Set(previous.filter(hasOwnId).map((row) => String(row.id)));
-  const sharedIds = new Set(incoming.filter((row) => hasOwnId(row) && previousIds.has(String(row.id))).map((row) => String(row.id)));
+  const sharedIds = new Set(
+    incoming.filter((row) => hasOwnId(row) && previousIds.has(String(row.id))).map((row) => String(row.id))
+  );
   return {
     hasSharedIds: sharedIds.size > 0,
     aligned(a: TranscriptItem, b: TranscriptItem): boolean {
@@ -135,7 +145,10 @@ function transcriptSourceAlignment(previous: readonly TranscriptItem[], incoming
   };
 }
 
-function compareAlignment(a: { idMatches: number; overlap: number }, b: { idMatches: number; overlap: number }): number {
+function compareAlignment(
+  a: { idMatches: number; overlap: number },
+  b: { idMatches: number; overlap: number }
+): number {
   return a.idMatches - b.idMatches || a.overlap - b.overlap;
 }
 

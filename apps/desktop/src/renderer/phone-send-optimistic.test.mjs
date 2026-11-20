@@ -94,11 +94,17 @@ test('phone send: a refused or failed submit removes the row and keeps the text 
       const state = { send: null, prompts: [], versions: 0, actions: null };
       const stale = 'This conversation changed on another device. Review the latest messages, then send again.';
       const submitHost = () =>
-        outcome === 'refused' ? Promise.resolve(false) : Promise.reject(new Error(outcome === 'stale' ? stale : 'PC offline'));
+        outcome === 'refused'
+          ? Promise.resolve(false)
+          : Promise.reject(new Error(outcome === 'stale' ? stale : 'PC offline'));
       function Harness() {
         const [prompts, setPrompts] = useState([]);
         const { invokeResult } = useAppInvocation({
-          error: '', connected: true, setError: (message) => { if (message) errors.push(message); },
+          error: '',
+          connected: true,
+          setError: (message) => {
+            if (message) errors.push(message);
+          },
         });
         state.prompts = prompts;
         const actions = useConversationComposerActions({
@@ -160,7 +166,11 @@ test('phone send: a refused or failed submit removes the row and keeps the text 
       assert.equal(errors.length, 1, `${outcome}: the failure is surfaced as an error`);
       assert.equal(
         errors[0],
-        outcome === 'refused' ? 'The message was not sent. It has been kept for retry.' : outcome === 'stale' ? stale : 'PC offline'
+        outcome === 'refused'
+          ? 'The message was not sent. It has been kept for retry.'
+          : outcome === 'stale'
+            ? stale
+            : 'PC offline'
       );
       const recovered = takeRejectedComposerSubmissionRecoveries(`scope-${outcome}`);
       assert.deepEqual(

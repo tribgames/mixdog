@@ -168,7 +168,10 @@ test('the relay links the newest release whose APK downloads, else the releases 
 // Inspect the checked-in workflow graph without publishing an APK or uploading to TestFlight.
 const workflow = (name) => parseYaml(readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8'));
 
-function testFlightRuns(condition, { cancelled = false, prepared = 'success', release = 'success', planned = true } = {}) {
+function testFlightRuns(
+  condition,
+  { cancelled = false, prepared = 'success', release = 'success', planned = true } = {}
+) {
   const expression = /^\$\{\{([\s\S]+)\}\}$/.exec(condition);
   assert.ok(expression, 'TestFlight needs an explicit workflow condition');
   const clauses = new Map([
@@ -180,10 +183,13 @@ function testFlightRuns(condition, { cancelled = false, prepared = 'success', re
   // Interpret the supported boolean clauses, not arbitrary workflow expressions.
   const alternatives = expression[1].split('||').map((alternative) =>
     alternative.split('&&').map((part) => {
-      const clause = part.trim().replace(/\s+/g, ' ').replace(/\s*==\s*/g, ' == ');
+      const clause = part
+        .trim()
+        .replace(/\s+/g, ' ')
+        .replace(/\s*==\s*/g, ' == ');
       assert.ok(clauses.has(clause), `Unhandled TestFlight condition: ${clause}`);
       return clauses.get(clause);
-    }),
+    })
   );
   return alternatives.some((parts) => parts.every(Boolean));
 }
@@ -208,7 +214,11 @@ test('Deploy gates Android and TestFlight publishing and gives the relay the res
   assert.equal(iosJob.uses, './.github/workflows/mobile-ios.yml');
   for (const job of ['plan', 'prepare-app', 'release']) assert.ok(iosJob.needs.includes(job));
   assert.equal(testFlightRuns(iosJob.if), true, 'upload when mobile is planned and the release succeeds');
-  assert.equal(testFlightRuns(iosJob.if, { release: 'failure' }), false, 'skip TestFlight after a failed release even when mobile was planned');
+  assert.equal(
+    testFlightRuns(iosJob.if, { release: 'failure' }),
+    false,
+    'skip TestFlight after a failed release even when mobile was planned'
+  );
   assert.equal(testFlightRuns(iosJob.if, { planned: false }), false, 'skip TestFlight when mobile was not planned');
   assert.equal(testFlightRuns(iosJob.if, { prepared: 'failure' }), false, 'skip TestFlight without a prepared app');
   assert.equal(testFlightRuns(iosJob.if, { cancelled: true }), false, 'skip TestFlight on cancellation');

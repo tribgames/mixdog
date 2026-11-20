@@ -160,7 +160,13 @@ function call(discovery: DaemonDiscovery, method: 'GET' | 'POST', path: string, 
           const status = response.statusCode ?? 0;
           if (status >= 200 && status < 300) return resolve(json);
           const refusal = (json as { error?: { code?: string; message?: string } } | null)?.error;
-          reject(new CoreControlError(status, refusal?.code ?? 'http', refusal?.message ?? `control listener answered ${status}`));
+          reject(
+            new CoreControlError(
+              status,
+              refusal?.code ?? 'http',
+              refusal?.message ?? `control listener answered ${status}`
+            )
+          );
         });
       }
     );
@@ -170,7 +176,10 @@ function call(discovery: DaemonDiscovery, method: 'GET' | 'POST', path: string, 
 }
 
 function statusOf(value: unknown): CoreStatus {
-  const raw = (value ?? {}) as Partial<CoreStatus> & { running?: Partial<CoreRunningWork>[]; drain?: Partial<CoreStatus['drain']> | null };
+  const raw = (value ?? {}) as Partial<CoreStatus> & {
+    running?: Partial<CoreRunningWork>[];
+    drain?: Partial<CoreStatus['drain']> | null;
+  };
   const drain = raw.drain;
   return {
     state: String(raw.state ?? ''),
@@ -197,7 +206,12 @@ export function createCoreControl(deps: CoreControlDeps = {}): CoreControl {
       if (found) return found;
       // A record without a control listener is a 1.4.5 daemon's: no core when its process is gone. Anything else that cannot be
       // read is a core that cannot be asked, not an idle one.
-      let legacy: { pid?: unknown; protocol?: unknown; core?: unknown; endpoints?: { session?: { port?: unknown; token?: unknown } } } | null = null;
+      let legacy: {
+        pid?: unknown;
+        protocol?: unknown;
+        core?: unknown;
+        endpoints?: { session?: { port?: unknown; token?: unknown } };
+      } | null = null;
       try {
         legacy = JSON.parse(raw);
       } catch {
@@ -276,8 +290,11 @@ export interface CoreUpdateGateDeps {
 export function ctlWaitExit(mixdogd: string): CoreUpdateGateDeps['waitExit'] {
   return ({ pid, processStartTime }) =>
     new Promise((resolve, reject) => {
-      execFile(mixdogd, ['ctl', 'wait-exit', '--pid', String(pid), '--start-time', processStartTime], (error, _out, stderr) =>
-        error ? reject(new Error(`mixdogd ctl wait-exit failed: ${stderr.trim() || error.message}`)) : resolve()
+      execFile(
+        mixdogd,
+        ['ctl', 'wait-exit', '--pid', String(pid), '--start-time', processStartTime],
+        (error, _out, stderr) =>
+          error ? reject(new Error(`mixdogd ctl wait-exit failed: ${stderr.trim() || error.message}`)) : resolve()
       );
     });
 }

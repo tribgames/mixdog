@@ -106,8 +106,6 @@ export interface MixdogSessionStoreModule {
 const SHELL_JOBS_ACTIVE_POLL_INTERVAL_MS = 1_000;
 const SHELL_JOBS_IDLE_POLL_INTERVAL_MS = 5_000;
 
-
-
 export function normalizedProjectKey(projectPath: string): string {
   const absolute = resolve(projectPath).replace(/[\\/]+$/, '');
   return process.platform === 'win32' ? absolute.toLowerCase() : absolute;

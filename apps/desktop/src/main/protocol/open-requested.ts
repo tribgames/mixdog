@@ -58,11 +58,9 @@ export function createOpenRequestedHandler(targets: OpenRequestedTargets): (even
         // Watch before asking the pane. The report goes out at most once, and only when the tab arrives: a request
         // that gets no tab sends nothing.
         if (id && request.openUrl) {
-          void targets
-            .watchNewTab(sessionId, id)
-            ?.page.then((pageId) => {
-              if (pageId) targets.notify(UI_NEW_TAB_CREATED, { sessionId, openRequestId: id, pageId });
-            });
+          void targets.watchNewTab(sessionId, id)?.page.then((pageId) => {
+            if (pageId) targets.notify(UI_NEW_TAB_CREATED, { sessionId, openRequestId: id, pageId });
+          });
         }
         targets.visualize(request);
         return;

@@ -49,7 +49,13 @@ export function registerComputerHost(connection: HostConnection, wiring: Compute
     appInput: {
       // The arrow follows the native physical point. A click is the phase the mirror paints as one; the other actions are its own words.
       showCursor: (sessionId, x, y, action) =>
-        mirror.pointerProgress(sessionId, { x, y, held: false, mode: 'background', phase: action === 'click' ? 'release' : action }),
+        mirror.pointerProgress(sessionId, {
+          x,
+          y,
+          held: false,
+          mode: 'background',
+          phase: action === 'click' ? 'release' : action,
+        }),
     },
     pixels: wiring.pixels,
     scopes,

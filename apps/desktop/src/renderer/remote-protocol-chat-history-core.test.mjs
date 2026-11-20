@@ -17,11 +17,26 @@ test('the recorded approval frame is followed by exactly its step', () => {
 
 test('a step that appends no row, two rows, or jumps the revision is a difference', () => {
   const { before, after } = recordedStep();
-  assert.equal(onlyTheStepFollows(before, changed(after, { items: before.items, structureRevision: before.structureRevision })), false, 'zero rows');
+  assert.equal(
+    onlyTheStepFollows(before, changed(after, { items: before.items, structureRevision: before.structureRevision })),
+    false,
+    'zero rows'
+  );
   assert.equal(onlyTheStepFollows(before, changed(after, { items: before.items })), false, 'no row, revision moved');
   const row = after.items[after.items.length - 1];
-  assert.equal(onlyTheStepFollows(before, changed(after, { items: [...after.items, row], structureRevision: after.structureRevision + 1 })), false, 'two rows');
-  assert.equal(onlyTheStepFollows(before, changed(after, { structureRevision: before.structureRevision + 7 })), false, 'revision jump');
+  assert.equal(
+    onlyTheStepFollows(
+      before,
+      changed(after, { items: [...after.items, row], structureRevision: after.structureRevision + 1 })
+    ),
+    false,
+    'two rows'
+  );
+  assert.equal(
+    onlyTheStepFollows(before, changed(after, { structureRevision: before.structureRevision + 7 })),
+    false,
+    'revision jump'
+  );
 });
 
 test('a step that also changes an unrelated field is a difference', () => {

@@ -101,14 +101,17 @@ test('every channel the preload names is served by main in the way the preload u
     if (kind === null) continue;
     if (kind === 'invoke' && !mainHandles(name)) wrong.push(`${name}: the preload invokes it and main has no handler`);
     if (kind === 'send' && !mainListens(name)) wrong.push(`${name}: the preload sends it and main has no listener`);
-    if (kind === 'listen' && (mainHandles(name) || !mainNames(name))) wrong.push(`${name}: the preload listens and main never sends it`);
+    if (kind === 'listen' && (mainHandles(name) || !mainNames(name)))
+      wrong.push(`${name}: the preload listens and main never sends it`);
     if (kind === 'other' && !mainNames(name)) wrong.push(`${name}: the preload names it and main does not`);
   }
   assert.deepEqual(wrong, []);
 });
 
 test('a channel the preload does not name belongs to the direct half of DesktopApi', () => {
-  const stray = KEYS.filter((name) => preloadKind(name) === null && !DIRECT.has(name) && !DIRECT_EVENT_CHANNELS.has(name));
+  const stray = KEYS.filter(
+    (name) => preloadKind(name) === null && !DIRECT.has(name) && !DIRECT_EVENT_CHANNELS.has(name)
+  );
   assert.deepEqual(stray, [], 'a channel that neither the preload nor the direct API reaches');
   const stale = [...DIRECT_EVENT_CHANNELS].filter((name) => !(name in DESKTOP_IPC) || preloadKind(name) !== null);
   assert.deepEqual(stale, [], 'a listed event channel is gone, or the preload names it now: delete it');

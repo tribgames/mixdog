@@ -45,7 +45,9 @@ export function restoreAlreadyApplied(
   applied?: Parameters<typeof replyRestoreApplied>[2]
 ): boolean {
   const id = typeof result.restoreId === 'string' ? result.restoreId : '';
-  const ids = Array.isArray(result.restoredSubmissionIds) ? result.restoredSubmissionIds.map(String).filter(Boolean) : [];
+  const ids = Array.isArray(result.restoredSubmissionIds)
+    ? result.restoredSubmissionIds.map(String).filter(Boolean)
+    : [];
   if (!id || !ids.some(wasSubmittedHere)) return false;
   return replyRestoreApplied(id, sessionId, applied);
 }
@@ -518,7 +520,8 @@ export function useComposerSubmission({
         showNotice(t('The turn could not be stopped.'), 'error');
         return;
       }
-      const restoredSubmissions = Array.isArray(result?.restoredSubmissionIds) && result.restoredSubmissionIds.length > 0;
+      const restoredSubmissions =
+        Array.isArray(result?.restoredSubmissionIds) && result.restoredSubmissionIds.length > 0;
       const reason = typeof result?.reason === 'string' ? result.reason : '';
       const stopOutcome =
         result?.aborted === true ? 'stopped' : result?.restoreText || restoredSubmissions ? 'restored' : 'nothing';

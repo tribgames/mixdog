@@ -15,7 +15,12 @@ export async function withPhoneApi(handlers, run, { synced } = {}) {
   const saved = GLOBALS.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
   const define = (key, value) => Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   define('window', Object.assign(new EventTarget(), { setTimeout, clearTimeout, Event, CustomEvent }));
-  define('document', { visibilityState: 'visible', cookie: '', documentElement: { dataset: {} }, getElementById: () => null });
+  define('document', {
+    visibilityState: 'visible',
+    cookie: '',
+    documentElement: { dataset: {} },
+    getElementById: () => null,
+  });
   define('localStorage', { getItem: () => null, setItem() {}, removeItem() {} });
   define('location', { origin: 'https://relay.test', pathname: '/', href: 'https://relay.test/' });
   try {
@@ -32,13 +37,19 @@ export async function withPhoneApi(handlers, run, { synced } = {}) {
     };
     const ready = Promise.resolve();
     const router = createProtocolRouter([adapter], {
-      host: { ctx, client: () => { throw new Error('the test adapter does not reach a core'); }, declareLane() {} },
+      host: {
+        ctx,
+        client: () => {
+          throw new Error('the test adapter does not reach a core');
+        },
+        declareLane() {},
+      },
       started: () => ready,
       synced: synced ?? (() => ready),
       appSynced: synced ?? (() => ready),
       probe() {},
       silentSince: () => false,
-          });
+    });
     const fanOut = (listeners, value) => {
       for (const listener of [...listeners]) listener(value);
     };

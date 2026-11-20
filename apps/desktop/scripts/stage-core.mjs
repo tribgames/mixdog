@@ -30,7 +30,13 @@ import {
   SERVER_PLATFORM_TARGETS,
 } from '../src/main/ssh/server-manifest.mjs';
 
-import { desktopJsRuntimeManifest, desktopOrtLibraryPath, JS_RUNTIME_MANIFEST, stageOfficeTemplates, verifyRemotePayload } from './core-layout.mjs';
+import {
+  desktopJsRuntimeManifest,
+  desktopOrtLibraryPath,
+  JS_RUNTIME_MANIFEST,
+  stageOfficeTemplates,
+  verifyRemotePayload,
+} from './core-layout.mjs';
 import { buildJsPayload, createBundleArchive } from './stage-js-bundle.mjs';
 
 const BUNDLE_FILE = 'bundle.tgz';
@@ -106,7 +112,10 @@ export async function stageHostCore({
   await mkdir(coreDir, { recursive: true });
   await copyFile(binary, join(coreDir, binaryName(host.platform)));
   await copyFile(askpass, join(coreDir, askpassName(host.platform)));
-  await writeFile(join(coreDir, JS_RUNTIME_MANIFEST), `${JSON.stringify(jsRuntimeManifest(host.platform, host.arch), null, 2)}\n`);
+  await writeFile(
+    join(coreDir, JS_RUNTIME_MANIFEST),
+    `${JSON.stringify(jsRuntimeManifest(host.platform, host.arch), null, 2)}\n`
+  );
   await stageOfficeTemplates(coreDir);
 }
 
@@ -166,7 +175,11 @@ export async function stageCore({
     await mkdir(join(serversDir, key), { recursive: true });
     // One upload per platform: the core and its JS runtime, installed together under one version directory.
     const bundle = await createBundleArchive({ binary: source, payloadDir, out: join(serversDir, key, BUNDLE_FILE) });
-    binaries[key] = { sha256: await sha256Of(source), size: (await readFile(source)).length, bundle: { file: BUNDLE_FILE, ...bundle } };
+    binaries[key] = {
+      sha256: await sha256Of(source),
+      size: (await readFile(source)).length,
+      bundle: { file: BUNDLE_FILE, ...bundle },
+    };
   }
   const manifest = { version, build: manifestBuild(binaries), binaries };
   await writeFile(join(serversDir, SERVER_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -186,12 +199,15 @@ export async function adoptServerCores({ source, serversDir, targetDir, version 
   try {
     manifest = JSON.parse(await readFile(join(source, SERVER_MANIFEST_FILE), 'utf8'));
   } catch (error) {
-    throw new Error(`the prebuilt server cores in ${source} have no readable ${SERVER_MANIFEST_FILE}: ${error.code ?? error.message}`);
+    throw new Error(
+      `the prebuilt server cores in ${source} have no readable ${SERVER_MANIFEST_FILE}: ${error.code ?? error.message}`
+    );
   }
   if (manifest.version !== version) problems.push(`they are version ${manifest.version}, the release is ${version}`);
   const keys = Object.keys(manifest.binaries ?? {}).sort();
   const wanted = Object.keys(SERVER_PLATFORM_TARGETS).sort();
-  if (keys.join() !== wanted.join()) problems.push(`they list ${keys.join(', ') || 'no platform'}, not ${wanted.join(', ')}`);
+  if (keys.join() !== wanted.join())
+    problems.push(`they list ${keys.join(', ') || 'no platform'}, not ${wanted.join(', ')}`);
   for (const [key, entry] of Object.entries(manifest.binaries ?? {})) {
     const target = SERVER_PLATFORM_TARGETS[key];
     if (!target) continue;
@@ -202,19 +218,23 @@ export async function adoptServerCores({ source, serversDir, targetDir, version 
     const bundle = join(source, key, BUNDLE_FILE);
     try {
       const bytes = await readFile(bundle);
-      if (bytes.length !== entry.bundle.size) problems.push(`${key}: ${bundle} is ${bytes.length} bytes, the manifest says ${entry.bundle.size}`);
-      if (createHash('sha256').update(bytes).digest('hex') !== entry.bundle.sha256) problems.push(`${key}: ${bundle} does not match the manifest`);
+      if (bytes.length !== entry.bundle.size)
+        problems.push(`${key}: ${bundle} is ${bytes.length} bytes, the manifest says ${entry.bundle.size}`);
+      if (createHash('sha256').update(bytes).digest('hex') !== entry.bundle.sha256)
+        problems.push(`${key}: ${bundle} does not match the manifest`);
     } catch (error) {
       problems.push(`${key}: ${bundle} is not readable (${error.code ?? error.message})`);
     }
     try {
       const local = await builtBinary(targetDir, target, key.split('-')[0]);
-      if ((await sha256Of(local)) !== entry.sha256) problems.push(`${key}: the bundled mixdogd is not the mixdogd built for ${target}`);
+      if ((await sha256Of(local)) !== entry.sha256)
+        problems.push(`${key}: the bundled mixdogd is not the mixdogd built for ${target}`);
     } catch (error) {
       problems.push(error.message);
     }
   }
-  if (manifest.binaries && manifestBuild(manifest.binaries) !== manifest.build) problems.push('the recorded build is not the build of the listed binaries');
+  if (manifest.binaries && manifestBuild(manifest.binaries) !== manifest.build)
+    problems.push('the recorded build is not the build of the listed binaries');
   if (problems.length) throw new Error(`prebuilt server cores ${source} are refused:\n- ${problems.join('\n- ')}`);
   await cp(source, serversDir, { recursive: true });
   return manifest;

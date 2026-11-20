@@ -32,7 +32,14 @@ function harness({ size = 1000, withheld = false, snapshotId = 'p1-s2', partialC
     accessibilityRefs: { snapshotId, refs: new Map() },
   };
   const calls = [];
-  const shot = (extra) => ({ bytes: jpegOf(size), width: 800, height: 600, mimeType: 'image/jpeg', fullPage: false, ...extra });
+  const shot = (extra) => ({
+    bytes: jpegOf(size),
+    width: 800,
+    height: 600,
+    mimeType: 'image/jpeg',
+    fullPage: false,
+    ...extra,
+  });
   const host = {
     screenshots: {
       capture: async (_guest, background, options) => {
@@ -60,7 +67,8 @@ function harness({ size = 1000, withheld = false, snapshotId = 'p1-s2', partialC
     isEngineMode: () => true,
   };
   registerScreenshot(connection, ctx, host);
-  const call = (params) => handlers.get('host/browser/screenshot')({ pageId: 'p1', ...params }, new AbortController().signal);
+  const call = (params) =>
+    handlers.get('host/browser/screenshot')({ pageId: 'p1', ...params }, new AbortController().signal);
   return { call, calls, puts };
 }
 
@@ -77,7 +85,10 @@ test('a picture of 128 KiB or less travels inline, one byte more goes to the blo
   const big = await large.call({ format: 'jpeg' });
   const bytes = jpegOf(MAX_INLINE_SCREENSHOT_BYTES + 1);
   assert.equal(big.data, undefined);
-  assert.deepEqual(big.blob, { digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`, size: bytes.length });
+  assert.deepEqual(big.blob, {
+    digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+    size: bytes.length,
+  });
   assert.equal(large.puts.length, 2);
   assert.equal(Buffer.concat(large.puts.map((put) => Buffer.from(put.bytesB64, 'base64'))).equals(bytes), true);
 });
@@ -114,9 +125,15 @@ test('a rectangle clip is cropped from the viewport capture with the page geomet
 });
 
 test('an element crop the page clipped says so; one that fit and a whole-page capture say nothing', async () => {
-  const clipped = await harness({ partialCrop: true }).call({ format: 'jpeg', clip: { x: 1, y: 2, width: 3, height: 4 } });
+  const clipped = await harness({ partialCrop: true }).call({
+    format: 'jpeg',
+    clip: { x: 1, y: 2, width: 3, height: 4 },
+  });
   assert.equal(clipped.partial, true);
-  const whole = await harness({ partialCrop: false }).call({ format: 'jpeg', clip: { x: 1, y: 2, width: 3, height: 4 } });
+  const whole = await harness({ partialCrop: false }).call({
+    format: 'jpeg',
+    clip: { x: 1, y: 2, width: 3, height: 4 },
+  });
   assert.equal(whole.partial, undefined);
   assert.equal((await harness({ partialCrop: true }).call({ format: 'jpeg' })).partial, undefined);
 });

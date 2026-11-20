@@ -7,7 +7,9 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { terminalReply } from '../shared/terminal-protocol.ts';
 
-const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/golden.json', import.meta.url), 'utf8'));
+const golden = JSON.parse(
+  readFileSync(new URL('../../../mobile/fixtures/phone-terminal/golden.json', import.meta.url), 'utf8')
+);
 
 /** The core's answer for a window of `units` (an array of UTF-16 units). */
 function coreReply(units) {

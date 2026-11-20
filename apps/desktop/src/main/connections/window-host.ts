@@ -108,7 +108,12 @@ export function createWindowHost(deps: WindowHostDeps): WindowHost {
       return request;
     },
     [WINDOW_HOST_METHOD.close]: async (params) => {
-      deps.close(requireId(objectParams<HostWindowCloseParams>(params, WINDOW_HOST_METHOD.close).connectionId, WINDOW_HOST_METHOD.close));
+      deps.close(
+        requireId(
+          objectParams<HostWindowCloseParams>(params, WINDOW_HOST_METHOD.close).connectionId,
+          WINDOW_HOST_METHOD.close
+        )
+      );
       return {};
     },
     [WINDOW_HOST_METHOD.focus]: async (params) => {

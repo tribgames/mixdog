@@ -6,7 +6,13 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { OutsideRecordedRootError, OutsideWorkingDirectoryError, resolveProjectOutput, resolveTargetWithin, resolveVisualizeTarget } from './targets.ts';
+import {
+  OutsideRecordedRootError,
+  OutsideWorkingDirectoryError,
+  resolveProjectOutput,
+  resolveTargetWithin,
+  resolveVisualizeTarget,
+} from './targets.ts';
 
 function tree() {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'visualize-targets-')));
@@ -29,12 +35,16 @@ test('an agent open takes a supported file inside the project, rooted in the pro
   }
 });
 
-test('an agent open takes a supported file outside the project too, rooted in the file\'s own folder only', async () => {
+test("an agent open takes a supported file outside the project too, rooted in the file's own folder only", async () => {
   const { base, cwd } = tree();
   try {
     const target = await resolveVisualizeTarget(cwd, '../elsewhere/page.html');
     assert.equal(target.path, join(base, 'elsewhere', 'page.html'));
-    assert.equal(target.root, join(base, 'elsewhere'), 'assets are served from that folder, never from the project or a parent');
+    assert.equal(
+      target.root,
+      join(base, 'elsewhere'),
+      'assets are served from that folder, never from the project or a parent'
+    );
     await assert.rejects(resolveVisualizeTarget(cwd, '../elsewhere/notes.xyz'), /unsupported file type/);
     await assert.rejects(resolveVisualizeTarget(cwd, '../elsewhere/missing.html'), { name: 'TargetNotFoundError' });
     await assert.rejects(resolveVisualizeTarget(cwd, '../elsewhere'), /target is not a file/);
@@ -51,7 +61,10 @@ test('a reload, restore or reopen resolves only inside the roots recorded for th
     const inside = await resolveTargetWithin(cwd, 'site/index.html', [cwd]);
     assert.equal(inside.root, cwd);
     await assert.rejects(resolveTargetWithin(cwd, '../elsewhere/page.html', [cwd]), OutsideRecordedRootError);
-    assert.equal((await resolveTargetWithin(cwd, '../elsewhere/page.html', [cwd, join(base, 'elsewhere')])).root, join(base, 'elsewhere'));
+    assert.equal(
+      (await resolveTargetWithin(cwd, '../elsewhere/page.html', [cwd, join(base, 'elsewhere')])).root,
+      join(base, 'elsewhere')
+    );
   } finally {
     rmSync(base, { recursive: true, force: true });
   }

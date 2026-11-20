@@ -17,7 +17,10 @@ export function recordOf(data, type, ancestors, root = ROOT) {
   const suite = details?.type === 'suite';
   const reason = skip || todo;
   const reasonText = typeof reason === 'string' ? reason : '';
-  const record = { kind: suite ? 'suite' : 'case', id: [suite ? 'node-suite' : 'node', relativeFile, ...ancestors, name] };
+  const record = {
+    kind: suite ? 'suite' : 'case',
+    id: [suite ? 'node-suite' : 'node', relativeFile, ...ancestors, name],
+  };
   if (type === 'test:fail') record.status = details?.error?.failureType === 'cancelledByParent' ? 'cancelled' : 'fail';
   else if (skip) record.status = 'skip';
   else if (todo) record.status = 'todo';

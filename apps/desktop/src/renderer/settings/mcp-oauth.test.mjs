@@ -271,7 +271,8 @@ test('after a lost feed the wait dialog follows the host until the actual sign-i
     },
     async run(capability, args) {
       if (capability === 'getMcpServerConfig') return { name: 'cloudflare', config: server().config };
-      if (capability === 'beginMcpOAuthLogin') return { flowId: 'recover', state: 'pending', url: 'https://auth.test/x' };
+      if (capability === 'beginMcpOAuthLogin')
+        return { flowId: 'recover', state: 'pending', url: 'https://auth.test/x' };
       if (capability === 'getMcpOAuthLoginStatus') {
         assert.deepEqual(args, ['recover']);
         reads += 1;
@@ -368,7 +369,8 @@ for (const [name, failure] of Object.entries(feedFailures)) {
       servers: [server({ authRequired: true })],
       async run(capability) {
         if (capability === 'getMcpServerConfig') return { name: 'cloudflare', config: server().config };
-        if (capability === 'beginMcpOAuthLogin') return { flowId: failure.flowId, state: 'pending', url: 'https://auth.test/x' };
+        if (capability === 'beginMcpOAuthLogin')
+          return { flowId: failure.flowId, state: 'pending', url: 'https://auth.test/x' };
       },
     });
     try {

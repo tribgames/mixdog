@@ -88,7 +88,7 @@ export function createSectionStore(source: SectionsSource): SectionStore {
   // reviewDiff never leaves an entry out of (a clear is published as a tell too), so an entry the whole store lacks is no tell.
   const tellRevisions = new Map<string, number>();
   let epoch: string | undefined;
-  const tellAt = (section: string, key: string | null): string => `${section}\u0000${keyOf(key)}`;  // The chunks of a replace between its begin and its commit.
+  const tellAt = (section: string, key: string | null): string => `${section}\u0000${keyOf(key)}`; // The chunks of a replace between its begin and its commit.
   let staged: DesktopSectionEntry[] | null = null;
 
   const notify = (touched: ReadonlySet<string>): void => {
@@ -104,7 +104,8 @@ export function createSectionStore(source: SectionsSource): SectionStore {
     } else {
       if (current && current.revision >= change.entry.revision) return;
       bucket.set(k, change.entry);
-      if (EVENT_SECTIONS.includes(change.section)) tellRevisions.set(tellAt(change.section, change.key), change.entry.revision);
+      if (EVENT_SECTIONS.includes(change.section))
+        tellRevisions.set(tellAt(change.section, change.key), change.entry.revision);
     }
     lists.delete(change.section);
     touched.add(change.section);

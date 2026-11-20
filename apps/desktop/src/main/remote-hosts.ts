@@ -26,7 +26,10 @@ export function remoteWindowUserAgent(defaultUserAgent: string, appName: string)
 
 /** A host's reachability from the core's presence answer: a host in neither list could not be asked (its relay did not answer),
  *  so its state is unknown (`undefined`), never offline. */
-export function presenceOf(id: string, presence: { online: readonly string[]; offline: readonly string[] } | null): boolean | undefined {
+export function presenceOf(
+  id: string,
+  presence: { online: readonly string[]; offline: readonly string[] } | null
+): boolean | undefined {
   if (!presence) return undefined;
   if (presence.online.includes(id)) return true;
   return presence.offline.includes(id) ? false : undefined;
@@ -74,16 +77,23 @@ export function touchesHostLists(notification: unknown): boolean {
       : note.method === 'connections/updated'
         ? [params]
         : [];
-  return Array.isArray(updates) && updates.some((update) => {
-    const row = asRecord(update);
-    return row.section === 'connections' && row.key === 'hosts';
-  });
+  return (
+    Array.isArray(updates) &&
+    updates.some((update) => {
+      const row = asRecord(update);
+      return row.section === 'connections' && row.key === 'hosts';
+    })
+  );
 }
 
 /** Follows the core's `connections` feed and calls `notify` when the saved hosts change (a rename, a forget or a code
  *  redeemed from another window), so every window reads its lists again; subscribes again after the link comes back.
  *  Returns the stop. A refused subscription is reported through `log` and leaves the lists to the changes main makes. */
-export function watchHostListsFeed(source: HostListsFeedSource, notify: () => void, log: (message: string) => void): () => void {
+export function watchHostListsFeed(
+  source: HostListsFeedSource,
+  notify: () => void,
+  log: (message: string) => void
+): () => void {
   let subscription: string | null = null;
   let ready = true;
   let stopped = false;
@@ -115,7 +125,8 @@ export function watchHostListsFeed(source: HostListsFeedSource, notify: () => vo
   return () => {
     stopped = true;
     detach();
-    if (subscription !== null) void source.call('connections/unsubscribe', { subscriptionId: subscription }).catch(() => undefined);
+    if (subscription !== null)
+      void source.call('connections/unsubscribe', { subscriptionId: subscription }).catch(() => undefined);
     subscription = null;
   };
 }

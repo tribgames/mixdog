@@ -14,7 +14,11 @@ export interface CoreObserversOptions {
 }
 
 /** Returns the removal of both observers. */
-export function observeCoreForMain({ connection, applyDesktopSettings, releaseBrowserSession }: CoreObserversOptions): () => void {
+export function observeCoreForMain({
+  connection,
+  applyDesktopSettings,
+  releaseBrowserSession,
+}: CoreObserversOptions): () => void {
   // Each settings change supersedes the paged read still in flight, which would otherwise overwrite newer values.
   let latest = 0;
   let closed = false;
@@ -24,7 +28,9 @@ export function observeCoreForMain({ connection, applyDesktopSettings, releaseBr
     const held = connection.snapshot();
     if (!hasConfigStub(held, [...SETTINGS_SUBTREES] as string[])) return applyDesktopSettings(readSettings(held));
     // A subtree over the inline limit arrives as a stub: it is read in full before the settings are applied.
-    void withPagedConfig(held, (method, params) => connection.call(method, params), [...SETTINGS_SUBTREES] as string[]).then(
+    void withPagedConfig(held, (method, params) => connection.call(method, params), [
+      ...SETTINGS_SUBTREES,
+    ] as string[]).then(
       (snapshot) => {
         if (!closed && mine === latest) applyDesktopSettings(readSettings(snapshot));
       },

@@ -10,7 +10,8 @@ const rpc = (data) =>
     name: 'ClientError',
     detail: { kind: 'rpc', code: -32600, reason: data.reason, message: data.reason, data },
   });
-const domain = (code, message, detail) => rpc({ reason: 'domainError', domain: 'x', code, message, ...(detail ? { detail } : {}) });
+const domain = (code, message, detail) =>
+  rpc({ reason: 'domainError', domain: 'x', code, message, ...(detail ? { detail } : {}) });
 
 const samples = {
   invalidParams: rpc({ reason: 'invalidParams', expected: 'name must be a string' }),
@@ -61,5 +62,8 @@ test('a worktree code keeps its details in the message and an invalid argument i
 
 test('withDirectErrors maps a rejection and passes a value through', async () => {
   assert.equal(await withDirectErrors(Promise.resolve(7)), 7);
-  await assert.rejects(withDirectErrors(Promise.reject(samples.scheduleTaken)), (e) => e.code === 'SCHEDULE_NAME_TAKEN' && e.details.name === 'nightly');
+  await assert.rejects(
+    withDirectErrors(Promise.reject(samples.scheduleTaken)),
+    (e) => e.code === 'SCHEDULE_NAME_TAKEN' && e.details.name === 'nightly'
+  );
 });

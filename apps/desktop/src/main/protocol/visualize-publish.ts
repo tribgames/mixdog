@@ -7,6 +7,8 @@ export function createVisualizePublisher<E>(targets: {
   onFailure(target: 'host', error: unknown): void;
 }): (event: E) => void {
   return (event) => {
-    void targets.host()?.(event).catch((error: unknown) => targets.onFailure('host', error));
+    void targets
+      .host()?.(event)
+      .catch((error: unknown) => targets.onFailure('host', error));
   };
 }

@@ -25,7 +25,13 @@ function wellFormedTail(row) {
   const wanted = /^sess_(home|room)_/.test(String(row.id));
   if (!wanted) return !('incomingTail' in row);
   const tail = row.incomingTail;
-  return Array.isArray(tail) && tail.every((place, at) => Number.isSafeInteger(place) && place >= 1 && place <= row.messageCount && (at === 0 || place > tail[at - 1]));
+  return (
+    Array.isArray(tail) &&
+    tail.every(
+      (place, at) =>
+        Number.isSafeInteger(place) && place >= 1 && place <= row.messageCount && (at === 0 || place > tail[at - 1])
+    )
+  );
 }
 
 /** The phone's row as compared with Node's: a well-formed `incomingTail` left out (the departure); an ill-formed one kept, and a
@@ -40,9 +46,18 @@ export function createParity({ live, node, project }) {
   // Node's and the core's runs each made the same named threads (sess_N, agents, the room) under ids of their own.
   const idOf = new Map(Object.entries(node.made).map(([name, id]) => [id, live.made[name]]));
   // A task has no project: Node's run and the core's each keep it in their own task workspace (the core names it itself, project/taskWorkspace).
-  const nodeTaskWorkspaces = new Set(node.states.flatMap((state) => state.roster).filter((row) => row.classification === 'task').map((row) => row.cwd));
+  const nodeTaskWorkspaces = new Set(
+    node.states
+      .flatMap((state) => state.roster)
+      .filter((row) => row.classification === 'task')
+      .map((row) => row.cwd)
+  );
   assert.equal(nodeTaskWorkspaces.size, 1, 'Node keeps every task in one task workspace');
-  const folders = { [node.projects.a]: live.projects.a, [node.projects.b]: live.projects.b, [[...nodeTaskWorkspaces][0]]: live.manifest.taskWorkspace };
+  const folders = {
+    [node.projects.a]: live.projects.a,
+    [node.projects.b]: live.projects.b,
+    [[...nodeTaskWorkspaces][0]]: live.manifest.taskWorkspace,
+  };
   // Rows are paired by position, never through a field that can repeat (two threads may share a title): Node's i-th row is the phone's i-th.
   const times = new Map();
   const firstAt = new Map();
@@ -59,7 +74,9 @@ export function createParity({ live, node, project }) {
     }
   });
   const sorted = [...times].sort((a, b) => a[0] - b[0]);
-  const unordered = sorted.filter(([, liveTime], at) => at && liveTime <= sorted[at - 1][1]).map(([nodeTime]) => firstAt.get(nodeTime));
+  const unordered = sorted
+    .filter(([, liveTime], at) => at && liveTime <= sorted[at - 1][1])
+    .map(([nodeTime]) => firstAt.get(nodeTime));
 
   const mapped = (key, value) => {
     if (key === 'id' || key === 'inheritedFromSessionId') return idOf.get(value);
@@ -73,11 +90,25 @@ export function createParity({ live, node, project }) {
   const kindOf = (want, got) => (got === undefined ? 'missing' : want === undefined ? 'extra' : 'value');
 
   /** A roster's content with its times kept by type only: a publication between two actions carries times no settled roster maps. */
-  const timeless = (row) => Object.fromEntries(Object.entries(row).sort(([a], [b]) => (a < b ? -1 : 1)).map(([key, value]) => [key, TIME_FIELDS.includes(key) ? typeof value : value]));
+  const timeless = (row) =>
+    Object.fromEntries(
+      Object.entries(row)
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(([key, value]) => [key, TIME_FIELDS.includes(key) ? typeof value : value])
+    );
 
   return {
     /** Node's roster `rows` (ids and folders mapped to the live run's) as content, its times by type. */
-    nodeContent: (rows) => JSON.stringify(rows.map((row) => timeless(Object.fromEntries(Object.entries(row).map(([key, value]) => [key, TIME_FIELDS.includes(key) ? value : mapped(key, value)]))))),
+    nodeContent: (rows) =>
+      JSON.stringify(
+        rows.map((row) =>
+          timeless(
+            Object.fromEntries(
+              Object.entries(row).map(([key, value]) => [key, TIME_FIELDS.includes(key) ? value : mapped(key, value)])
+            )
+          )
+        )
+      ),
     /** The phone's roster `rows` as content, its times by type. */
     phoneContent: (rows) => JSON.stringify(rows.map((row) => timeless(withoutDeparture(row)))),
     /** The Node times whose live time breaks Node's order of times. */
@@ -90,9 +121,13 @@ export function createParity({ live, node, project }) {
       for (let index = 0; index < Math.max(want.length, phoneRows.length); index++) {
         const a = want[index];
         const b = phoneRows[index] && withoutDeparture(phoneRows[index]);
-        if (!a || !b) { differences.push(`${index}:${(a ?? b).title}.row`); continue; }
+        if (!a || !b) {
+          differences.push(`${index}:${(a ?? b).title}.row`);
+          continue;
+        }
         for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
-          if (!same(a[key], b[key])) differences.push(`${index}:${a.title}.${key}: ${JSON.stringify(a[key])} != ${JSON.stringify(b[key])}`);
+          if (!same(a[key], b[key]))
+            differences.push(`${index}:${a.title}.${key}: ${JSON.stringify(a[key])} != ${JSON.stringify(b[key])}`);
         }
       }
       return differences;

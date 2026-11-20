@@ -29,7 +29,12 @@ async function alreadyPublished({ name, integrity }) {
   if (!response.ok) throw new Error(`Cannot check ${name}@${version}: HTTP ${response.status}`);
   const metadata = await response.json();
   const sri = metadata.dist?.integrity;
-  const matches = typeof sri === 'string' && sri.trim().split(/\s+/).some((token) => token.split('?')[0] === integrity);
+  const matches =
+    typeof sri === 'string' &&
+    sri
+      .trim()
+      .split(/\s+/)
+      .some((token) => token.split('?')[0] === integrity);
   if (metadata.name !== name || metadata.version !== version || !matches) {
     throw new Error(`${name}@${version} is occupied without the verified tarball's SHA-512 integrity`);
   }
@@ -43,7 +48,10 @@ for (const pkg of packages) {
     console.log(`${pkg.name}@${version} already contains the verified bytes`);
     continue;
   }
-  execFileSync('npm', ['publish', `./${pkg.file}`, '--provenance', '--access', 'public',
-    '--ignore-scripts', '--registry', registry], { stdio: 'inherit' });
+  execFileSync(
+    'npm',
+    ['publish', `./${pkg.file}`, '--provenance', '--access', 'public', '--ignore-scripts', '--registry', registry],
+    { stdio: 'inherit' }
+  );
   if (!(await alreadyPublished(pkg))) throw new Error(`Cannot confirm publication of ${pkg.name}@${version}`);
 }

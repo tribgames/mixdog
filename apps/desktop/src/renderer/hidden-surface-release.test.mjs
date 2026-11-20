@@ -65,8 +65,15 @@ test('editor disk watch is the core file watch: it owns no timer, checks on its 
   stop();
   stop();
   assert.equal(listeners, 0);
-  assert.deepEqual(calls.map((call) => call[0]), ['fs/watch', 'fs/unwatch']);
-  assert.equal(startEditorDiskWatch(undefined, 'C:/p', 'a', () => {})(), undefined, 'a host without sections watches nothing');
+  assert.deepEqual(
+    calls.map((call) => call[0]),
+    ['fs/watch', 'fs/unwatch']
+  );
+  assert.equal(
+    startEditorDiskWatch(undefined, 'C:/p', 'a', () => {})(),
+    undefined,
+    'a host without sections watches nothing'
+  );
 });
 
 function domHarness(t) {

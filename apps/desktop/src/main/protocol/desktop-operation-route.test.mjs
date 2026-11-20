@@ -57,12 +57,7 @@ const CASES = [
   ['gitLog', [R, 'q', 5, 40], 'git/log', { cwd: R, query: 'q', skip: 5, limit: 40 }],
   ['gitPull', [R], 'git/pull', { cwd: R }],
   ['gitPush', [R], 'git/push', { cwd: R }],
-  [
-    'gitRenameBranch',
-    [R, 'old', 'new'],
-    'git/renameBranch',
-    { cwd: R, input: { branch: 'old', nextBranch: 'new' } },
-  ],
+  ['gitRenameBranch', [R, 'old', 'new'], 'git/renameBranch', { cwd: R, input: { branch: 'old', nextBranch: 'new' } }],
   [
     'gitResetToCommit',
     [R, 'abc', 'hard', true],
@@ -203,13 +198,48 @@ const CASES = [
     { path: 'desktop.activityRailPins', value: ['a'], mode: 'initializeIfMissing' },
   ],
   ['updateActivityRailPins', [['a']], 'config/value/write', { path: 'desktop.activityRailPins', value: ['a'] }],
-  ['updateSetting', ['reduceMotion', true], 'config/value/write', { path: 'desktop.reduceMotion', value: true, announce: 'desktop' }],
-  ['updateSetting', ['autoClear', false], 'config/value/write', { path: 'agent.autoClear.enabled', value: false, announce: 'desktop' }],
-  ['updateSetting', ['autoCompact', true], 'config/value/write', { path: 'agent.compaction.auto', value: true, announce: 'desktop' }],
-  ['updateSetting', ['computerControl', true], 'config/value/write', { path: 'desktop.computerControl', value: true, announce: 'desktop' }],
-  ['updateNotificationVolume', [0.5], 'config/value/write', { path: 'desktop.notificationVolume', value: 0.5, announce: 'desktop' }],
-  ['updateBotHandoffLimit', [7], 'config/value/write', { path: 'desktop.botHandoffLimit', value: 7, announce: 'desktop' }],
-  ['updateBrowserPermissions', [POLICY], 'config/value/write', { path: 'desktop.browserPermissions', value: POLICY, announce: 'desktop' }],
+  [
+    'updateSetting',
+    ['reduceMotion', true],
+    'config/value/write',
+    { path: 'desktop.reduceMotion', value: true, announce: 'desktop' },
+  ],
+  [
+    'updateSetting',
+    ['autoClear', false],
+    'config/value/write',
+    { path: 'agent.autoClear.enabled', value: false, announce: 'desktop' },
+  ],
+  [
+    'updateSetting',
+    ['autoCompact', true],
+    'config/value/write',
+    { path: 'agent.compaction.auto', value: true, announce: 'desktop' },
+  ],
+  [
+    'updateSetting',
+    ['computerControl', true],
+    'config/value/write',
+    { path: 'desktop.computerControl', value: true, announce: 'desktop' },
+  ],
+  [
+    'updateNotificationVolume',
+    [0.5],
+    'config/value/write',
+    { path: 'desktop.notificationVolume', value: 0.5, announce: 'desktop' },
+  ],
+  [
+    'updateBotHandoffLimit',
+    [7],
+    'config/value/write',
+    { path: 'desktop.botHandoffLimit', value: 7, announce: 'desktop' },
+  ],
+  [
+    'updateBrowserPermissions',
+    [POLICY],
+    'config/value/write',
+    { path: 'desktop.browserPermissions', value: POLICY, announce: 'desktop' },
+  ],
   [
     'updateSessionRetention',
     ['sessionAutoDeleteDays', 30],
@@ -219,12 +249,7 @@ const CASES = [
   ['updateZoom', [1], 'config/value/write', { path: 'desktop.zoom', value: 1 }],
   ['sendTestNotification', ['dev1'], 'notify/test', { target: 'dev1' }],
 
-  [
-    'termEnsure',
-    ['t1', R, 'bash'],
-    'terminal/ensure',
-    { tabId: 't1', options: { cwd: R, profile: 'bash' } },
-  ],
+  ['termEnsure', ['t1', R, 'bash'], 'terminal/ensure', { tabId: 't1', options: { cwd: R, profile: 'bash' } }],
   ['termAttach', ['t1'], 'terminal/attach', { tabId: 't1' }],
   ['termProfiles', [], 'terminal/profiles', {}],
   ['termFocus', ['t1', true, 'client'], 'terminal/focus', { tabId: 't1', focused: true }],
@@ -247,12 +272,7 @@ const CASES = [
 
   ['browserRemoteTabs', [[{ id: 1 }]], 'host/state/set', { key: 'browserTabs', value: [{ id: 1 }] }],
   ['browserRemoteImportProgress', [{ done: 1 }], 'host/state/set', { key: 'browserImport', value: { done: 1 } }],
-  [
-    'visualizeRemotePublish',
-    [{ sessionId: 's' }],
-    'host/state/set',
-    { key: 'visualize', value: { sessionId: 's' } },
-  ],
+  ['visualizeRemotePublish', [{ sessionId: 's' }], 'host/state/set', { key: 'visualize', value: { sessionId: 's' } }],
 
   [
     'serverUploadChunk',
@@ -262,7 +282,12 @@ const CASES = [
   ],
   ['serverUploadCommit', ['tr1'], 'transfer/commit', { transferId: 'tr1' }],
   ['serverUploadAbort', ['tr1'], 'transfer/abort', { transferId: 'tr1' }],
-  ['serverDownloadBegin', ['s1', '/dl', '/srv/p', 'a.bin'], 'transfer/serverDownload/begin', { serverId: 's1', downloadsDir: '/dl', root: '/srv/p', rel: 'a.bin' }],
+  [
+    'serverDownloadBegin',
+    ['s1', '/dl', '/srv/p', 'a.bin'],
+    'transfer/serverDownload/begin',
+    { serverId: 's1', downloadsDir: '/dl', root: '/srv/p', rel: 'a.bin' },
+  ],
   ['serverDownloadStep', ['d1'], 'transfer/serverDownload/step', { downloadId: 'd1' }],
   ['serverDownloadFinish', ['d1'], 'transfer/serverDownload/finish', { downloadId: 'd1' }],
   ['serverDownloadAbort', ['d1'], 'transfer/serverDownload/abort', { downloadId: 'd1' }],
@@ -284,7 +309,12 @@ const CASES = [
     { root: R, options: { query: 'a' }, replacement: 'b' },
   ],
   ['projectRecoveryIn', [R, { action: 'list' }], 'projectFs/recovery', { root: R, action: 'list' }],
-  ['projectRecoveryIn', [R, { action: 'inspect', id: 'i1' }], 'projectFs/recovery', { root: R, action: 'inspect', id: 'i1' }],
+  [
+    'projectRecoveryIn',
+    [R, { action: 'inspect', id: 'i1' }],
+    'projectFs/recovery',
+    { root: R, action: 'inspect', id: 'i1' },
+  ],
   [
     'projectRecoveryIn',
     [R, { action: 'restore', id: 'i1', revision: 'r1' }],
@@ -304,7 +334,12 @@ const CASES = [
     {
       projectPath: '/proj',
       root: R,
-      request: { relPath: 'a.ts', languageId: 'typescript', method: 'textDocument/hover', params: { position: { line: 0, character: 1 } } },
+      request: {
+        relPath: 'a.ts',
+        languageId: 'typescript',
+        method: 'textDocument/hover',
+        params: { position: { line: 0, character: 1 } },
+      },
     },
   ],
   ['remoteAccessResolveClaim', ['c1', true], 'remoteAccess/resolveClaim', { claimId: 'c1', approve: true }],
@@ -335,7 +370,10 @@ const CASES = [
   ],
   [
     'setConversationNotification',
-    [{ kind: 'session', id: 's1' }, { mode: 'muted', until: null }],
+    [
+      { kind: 'session', id: 's1' },
+      { mode: 'muted', until: null },
+    ],
     'config/value/write',
     {
       path: 'notifications.overrides',
@@ -356,20 +394,40 @@ const ANNOUNCEMENTS = [
 
 /** The operations of the grant, standalone-folder, local-page and terminal-resume routes: not rows of the spec map yet. */
 const ROOTED = [
-  ['termAttach', ['t1', { epoch: 'e1', seq: 7 }], 'terminal/attach', { tabId: 't1', resumeFrom: { epoch: 'e1', seq: 7 } }],
+  [
+    'termAttach',
+    ['t1', { epoch: 'e1', seq: 7 }],
+    'terminal/attach',
+    { tabId: 't1', resumeFrom: { epoch: 'e1', seq: 7 } },
+  ],
   ['grantDescribe', [['/a', '/b']], 'projectFs/grant/describe', { paths: ['/a', '/b'], mint: true }],
   ['grantDescribe', [['/a'], false], 'projectFs/grant/describe', { paths: ['/a'], mint: false }],
   ['grantDescribe', [['/a'], true], 'projectFs/grant/describe', { paths: ['/a'], mint: true }],
-  ['grantRedeem', ['tok', '/p', 'a.txt'], 'projectFs/grant/redeem', { accessToken: 'tok', projectPath: '/p', relPath: 'a.txt' }],
+  [
+    'grantRedeem',
+    ['tok', '/p', 'a.txt'],
+    'projectFs/grant/redeem',
+    { accessToken: 'tok', projectPath: '/p', relPath: 'a.txt' },
+  ],
   ['standaloneRoot', ['/folder'], 'project/directory', { path: '/folder', standalone: true }],
   ['listProjectDirIn', [R, 'src'], 'projectFs/listDir', { root: R, rel: 'src' }],
-  ['createProjectEntryIn', [R, 'src', 'n.txt', false], 'projectFs/create', { root: R, relDir: 'src', name: 'n.txt', directory: false }],
+  [
+    'createProjectEntryIn',
+    [R, 'src', 'n.txt', false],
+    'projectFs/create',
+    { root: R, relDir: 'src', name: 'n.txt', directory: false },
+  ],
   ['renameProjectEntryIn', [R, 'a', 'b'], 'projectFs/rename', { root: R, rel: 'a', newName: 'b' }],
   ['moveProjectEntryIn', [R, 'a', 'd'], 'projectFs/move', { root: R, rel: 'a', targetDirRel: 'd' }],
   ['copyProjectEntryIn', [R, 'a', 'd'], 'projectFs/copy', { root: R, rel: 'a', targetDirRel: 'd' }],
   ['trashProjectEntryIn', [R, 'a'], 'projectFs/trash', { root: R, rel: 'a', viaHost: true }],
   ['projectEntryPathIn', [R, 'a'], 'projectFs/entryPath', { root: R, rel: 'a' }],
-  ['localPageUrlIn', [R, 'p.html', 'tok', 'owner1'], 'projectFs/localPageUrl', { root: R, rel: 'p.html', accessToken: 'tok', ownerId: 'owner1' }],
+  [
+    'localPageUrlIn',
+    [R, 'p.html', 'tok', 'owner1'],
+    'projectFs/localPageUrl',
+    { root: R, rel: 'p.html', accessToken: 'tok', ownerId: 'owner1' },
+  ],
   ['localPageUrlIn', [R, 'p.html'], 'projectFs/localPageUrl', { root: R, rel: 'p.html' }],
   ['localPageRevokeOwner', ['owner1'], 'projectFs/localPage/revokeOwner', { ownerId: 'owner1' }],
   ['localPageOrigin', [], 'projectFs/localPage/origin', {}],
@@ -379,7 +437,12 @@ const ROOTED = [
     'projectFs/localPage/virtual',
     { files: [{ path: 'index.html', text: '<p>', type: 'text/html' }], ownerId: 'owner1' },
   ],
-  ['localPageAssetType', [R, `${R}/a.css`, R], 'projectFs/localPage/assetType', { root: R, file: `${R}/a.css`, dataRoot: R }],
+  [
+    'localPageAssetType',
+    [R, `${R}/a.css`, R],
+    'projectFs/localPage/assetType',
+    { root: R, file: `${R}/a.css`, dataRoot: R },
+  ],
 ];
 const ROOTED_NAMES = new Set(ROOTED.map(([name]) => name).filter((name) => name !== 'termAttach'));
 
@@ -437,7 +500,10 @@ test('an argument the core has no param for is refused, not dropped', () => {
   assert.throws(() => routeDesktopOperation('updateSessionRetention', ['nope', 1]), /retention setting is invalid/);
   // Node's operation refused a flag that is no boolean before it wrote anything (desktop-operations.ts `updateActivityRailPins`).
   for (const flag of ['yes', 1, null]) {
-    assert.throws(() => routeDesktopOperation('updateActivityRailPins', [['a'], flag]), /initializeIfMissing must be a boolean/);
+    assert.throws(
+      () => routeDesktopOperation('updateActivityRailPins', [['a'], flag]),
+      /initializeIfMissing must be a boolean/
+    );
   }
   assert.equal(routeDesktopOperation('updateActivityRailPins', [['a'], true]).params.mode, 'initializeIfMissing');
 });
@@ -456,7 +522,10 @@ test('the routed operations are the spec map targets with params the Rust schema
   // `browser/webrtcSignal` to the core itself, on a relay connection, the only origin the method allows. The two announcements are
   // sent by the lane itself (a settings change publishes the display preferences first); the next test holds them to the map.
   assert.deepEqual(
-    [...wantedMethods].filter(([, methods]) => methods).map(([name]) => name).sort(),
+    [...wantedMethods]
+      .filter(([, methods]) => methods)
+      .map(([name]) => name)
+      .sort(),
     [
       ...ROUTED_DESKTOP_OPERATIONS.filter((name) => !ROOTED_NAMES.has(name)),
       ...UNROUTED_DESKTOP_OPERATIONS,
@@ -467,7 +536,10 @@ test('the routed operations are the spec map targets with params the Rust schema
   );
   assert.throws(() => routeDesktopOperation('browserRemoteWebrtcSignal', ['client-1', {}]), { code: 'unknownMethod' });
   const covered = new Set(CASES.map(([name]) => name));
-  assert.deepEqual(ROUTED_DESKTOP_OPERATIONS.filter((name) => !covered.has(name) && !ROOTED_NAMES.has(name)), []);
+  assert.deepEqual(
+    ROUTED_DESKTOP_OPERATIONS.filter((name) => !covered.has(name) && !ROOTED_NAMES.has(name)),
+    []
+  );
   for (const [name, args, method, params] of CASES) {
     assert.ok(wantedMethods.get(name).includes(method), `${name} -> ${method}`);
     const schema = paramsSchema(method);
@@ -599,7 +671,10 @@ test('folderUnwatch ends the watch whatever case the path is spelled in on a cas
 });
 test('a domain error of the core reaches the window as the error Node raised', async () => {
   const failure = Object.assign(new Error('rpc'), {
-    detail: { kind: 'rpc', data: { reason: 'domainError', message: 'Not a git repository', code: 'GIT_NOT_REPO', detail: {} } },
+    detail: {
+      kind: 'rpc',
+      data: { reason: 'domainError', message: 'Not a git repository', code: 'GIT_NOT_REPO', detail: {} },
+    },
   });
   const lane = createOperationLane({
     protocol: {
@@ -679,7 +754,16 @@ test('termEnsure answers with the id the core gave the terminal', async () => {
 test("termAttach answers a running tab as termEnsure does (the replay's lead unit put back) and null for one that is not", async () => {
   const { lane } = laneWith({
     'terminal/attach': ({ tabId }) =>
-      tabId === 't1' ? { id: 't1', replay: 'x', replayLeadUnit: 0xdc00, sizeOwner: null, client: 'c1', subscription: { mode: 'snapshot' } } : null,
+      tabId === 't1'
+        ? {
+            id: 't1',
+            replay: 'x',
+            replayLeadUnit: 0xdc00,
+            sizeOwner: null,
+            client: 'c1',
+            subscription: { mode: 'snapshot' },
+          }
+        : null,
   });
   const answer = await lane.invoke('termAttach', ['t1']);
   assert.equal(answer.replay, '\udc00x');
@@ -745,42 +829,58 @@ test('upload chunks answer the bytes received; abort answers what the core said,
   const { lane } = laneWith({ 'transfer/writeChunk': {}, 'transfer/abort': { aborted: true } });
   assert.deepEqual(await lane.invoke('serverUploadChunk', ['tr1', 8, 'AAAA']), { received: 11 });
   assert.equal(await lane.invoke('serverUploadAbort', ['tr1']), true);
-  assert.equal(await laneWith({ 'transfer/abort': { aborted: false } }).lane.invoke('serverUploadAbort', ['gone']), false);
+  assert.equal(
+    await laneWith({ 'transfer/abort': { aborted: false } }).lane.invoke('serverUploadAbort', ['gone']),
+    false
+  );
 });
 
 test('githubCliLoginOpenBrowser answers a boolean', async () => {
-  assert.equal(await laneWith({ 'github/login/openBrowser': true }).lane.invoke('githubCliLoginOpenBrowser', ['f']), true);
-  assert.equal(await laneWith({ 'github/login/openBrowser': {} }).lane.invoke('githubCliLoginOpenBrowser', ['f']), false);
+  assert.equal(
+    await laneWith({ 'github/login/openBrowser': true }).lane.invoke('githubCliLoginOpenBrowser', ['f']),
+    true
+  );
+  assert.equal(
+    await laneWith({ 'github/login/openBrowser': {} }).lane.invoke('githubCliLoginOpenBrowser', ['f']),
+    false
+  );
 });
 
 test('termFocus sends focused as given, so a view can leave a tab', () => {
   assert.deepEqual(routeDesktopOperation('termFocus', ['t1', true, 'desktop']).params, { tabId: 't1', focused: true });
-  assert.deepEqual(routeDesktopOperation('termFocus', ['t1', false, 'desktop']).params, { tabId: 't1', focused: false });
-  assert.deepEqual(routeDesktopOperation('termFocus', ['t1', undefined, 'desktop']).params, { tabId: 't1', focused: false });
+  assert.deepEqual(routeDesktopOperation('termFocus', ['t1', false, 'desktop']).params, {
+    tabId: 't1',
+    focused: false,
+  });
+  assert.deepEqual(routeDesktopOperation('termFocus', ['t1', undefined, 'desktop']).params, {
+    tabId: 't1',
+    focused: false,
+  });
 });
 
-test('gitStatus passes Node\'s scan hint to the core', async () => {
+test("gitStatus passes Node's scan hint to the core", async () => {
   const { lane, calls } = laneWith({ 'git/status': { repository: true } });
   await lane.invoke('gitStatus', [R, { skipLineStats: true }]);
   await lane.invoke('gitStatus', [R, { reuseLineStats: true }]);
   await lane.invoke('gitStatus', [R]);
-  assert.deepEqual(calls.map((call) => call.params), [
-    { cwd: R, skipLineStats: true },
-    { cwd: R, reuseLineStats: true },
-    { cwd: R },
-  ]);
+  assert.deepEqual(
+    calls.map((call) => call.params),
+    [{ cwd: R, skipLineStats: true }, { cwd: R, reuseLineStats: true }, { cwd: R }]
+  );
   assert.throws(() => routeDesktopOperation('gitStatus', [R, {}, 'extra']), /at most 2 arguments/);
 });
 
 test('statLocalEntryAbs throws the stat error of an {error} slot, as Node did', async () => {
-  const { lane } = laneWith({ 'projectFs/statLocal': [{ error: "ENOENT: no such file or directory, stat '/x/gone'" }] });
+  const { lane } = laneWith({
+    'projectFs/statLocal': [{ error: "ENOENT: no such file or directory, stat '/x/gone'" }],
+  });
   await assert.rejects(lane.invoke('statLocalEntryAbs', ['/x/gone']), (error) => {
     assert.equal(error.message, "ENOENT: no such file or directory, stat '/x/gone'");
     return true;
   });
 });
 
-test('serverUploadBegin answers { uploadId, chunkBytes, maxBytes } and nothing of the core\'s own fields', async () => {
+test("serverUploadBegin answers { uploadId, chunkBytes, maxBytes } and nothing of the core's own fields", async () => {
   const { lane } = laneWith({
     'transfer/beginWrite': { transferId: 'u1', uploadId: 'u1', chunkBytes: 2097152, maxBytes: 536870912 },
   });
@@ -794,7 +894,12 @@ test('serverUploadBegin answers { uploadId, chunkBytes, maxBytes } and nothing o
 test('the extended operations answer what the core sent', async () => {
   const same = [
     ['githubRequest', [R, {}], 'github/request', { data: 1 }],
-    ['replaceWorkspaceTextIn', [R, {}, 'x'], 'projectFs/replaceText', { filesChanged: 1, replacements: 2, paths: ['a'] }],
+    [
+      'replaceWorkspaceTextIn',
+      [R, {}, 'x'],
+      'projectFs/replaceText',
+      { filesChanged: 1, replacements: 2, paths: ['a'] },
+    ],
     ['projectRecoveryIn', [R, { action: 'list' }], 'projectFs/recovery', { records: [] }],
     ['lspDocument', ['/p', R, {}], 'lsp/document', { state: 'running' }],
     ['lspRequest', ['/p', R, 'a', 'ts', 'm', {}], 'lsp/request', { result: null }],
@@ -811,13 +916,23 @@ test('the extended operations answer what the core sent', async () => {
 test('setConversationNotification answers the stored overrides', async () => {
   const stored = [{ target: { kind: 'session', id: 's1' }, setting: { mode: 'always' } }];
   const { lane } = laneWith({ 'config/value/write': { revision: 3, values: [stored] } });
-  assert.deepEqual(await lane.invoke('setConversationNotification', [{ kind: 'session', id: 's1' }, { mode: 'always' }]), stored);
+  assert.deepEqual(
+    await lane.invoke('setConversationNotification', [{ kind: 'session', id: 's1' }, { mode: 'always' }]),
+    stored
+  );
 });
 
 // Rows as mixdog-remote's `ClientInfo` serializes them into the `remote` section (roster.rs): camelCase, `pendingRemoval` only
 // while an unpair is queued.
 const client = (id, browser, createdAt, extra = {}) => ({
-  id, name: id, platform: 'Android', browser, createdAt, lastSeenAt: createdAt, online: true, ...extra,
+  id,
+  name: id,
+  platform: 'Android',
+  browser,
+  createdAt,
+  lastSeenAt: createdAt,
+  online: true,
+  ...extra,
 });
 const REMOTE = {
   section: 'remote',
@@ -832,7 +947,12 @@ const REMOTE = {
     ],
   },
 };
-const notificationsEntry = (migratedAt) => ({ section: 'config', key: 'notifications', revision: 1, value: { migratedAt } });
+const notificationsEntry = (migratedAt) => ({
+  section: 'config',
+  key: 'notifications',
+  revision: 1,
+  value: { migratedAt },
+});
 
 test('setNotificationPreferences chooses the default the core merges onto by the pairing of the device', async () => {
   const run = async (deviceId, entries) => {
@@ -843,10 +963,17 @@ test('setNotificationPreferences chooses the default the core merges onto by the
   };
   // a phone app paired at or after the store was first written starts from bot chats only
   assert.deepEqual(await run('dev1', [REMOTE, notificationsEntry(1_000)]), [
-    { method: 'config/value/write', params: { path: 'notifications.devices.dev1', value: { scope: 'off' }, mode: 'mergePatchBots' } },
+    {
+      method: 'config/value/write',
+      params: { path: 'notifications.devices.dev1', value: { scope: 'off' }, mode: 'mergePatchBots' },
+    },
   ]);
   // paired before it, a browser, and this PC: the plain default
-  for (const [id, migratedAt] of [['old', 1_000], ['web', 1_000], ['pc', 1_000]]) {
+  for (const [id, migratedAt] of [
+    ['old', 1_000],
+    ['web', 1_000],
+    ['pc', 1_000],
+  ]) {
     const [write] = await run(id, [REMOTE, notificationsEntry(migratedAt)]);
     assert.equal(write.params.mode, 'mergePatch', id);
     assert.equal(write.params.path, `notifications.devices.${id}`);
@@ -854,20 +981,31 @@ test('setNotificationPreferences chooses the default the core merges onto by the
   // no notifications subtree yet is a store Node stamps `now` on its first load: a device paired before now is plain,
   // a document that exists without a stamp reads 0, so every paired phone app is "after" it
   assert.equal((await run('dev1', [REMOTE]))[0].params.mode, 'mergePatch');
-  assert.equal((await run('old', [REMOTE, { section: 'config', key: 'notifications', revision: 1, value: { devices: {} } }]))[0].params.mode, 'mergePatchBots');
+  assert.equal(
+    (await run('old', [REMOTE, { section: 'config', key: 'notifications', revision: 1, value: { devices: {} } }]))[0]
+      .params.mode,
+    'mergePatchBots'
+  );
 });
 
 test('setNotificationPreferences refuses a device that is not paired before writing anything', async () => {
   const { lane, calls } = laneWith({}, [], [REMOTE]);
   for (const id of ['nobody', 'gone']) {
-    await assert.rejects(lane.invoke('setNotificationPreferences', ['pc', true, id, {}]), /That device is not paired with this PC/);
+    await assert.rejects(
+      lane.invoke('setNotificationPreferences', ['pc', true, id, {}]),
+      /That device is not paired with this PC/
+    );
   }
   assert.deepEqual(calls, []);
 });
 
 test('visualizeRemoteViewing reads the hostState remoteViewing section and sends nothing', async () => {
   const viewing = { section: 'hostState', key: 'remoteViewing', revision: 2, value: { sessionIds: ['s1', 's2'] } };
-  const { lane, calls } = laneWith({}, [], [viewing, { section: 'hostState', key: 'visualize', revision: 1, value: {} }]);
+  const { lane, calls } = laneWith(
+    {},
+    [],
+    [viewing, { section: 'hostState', key: 'visualize', revision: 1, value: {} }]
+  );
   assert.equal(await lane.invoke('visualizeRemoteViewing', ['s2']), true);
   assert.equal(await lane.invoke('visualizeRemoteViewing', ['s3']), false);
   assert.equal(await laneWith({}).lane.invoke('visualizeRemoteViewing', ['s1']), false);
@@ -899,19 +1037,22 @@ test('the notification operations are the spec map clientNotification rows', () 
   // `browserRemoteFrame` (`host/browser/frame`) is sent by the host role, whose X17 picture must follow it on the host connection
   // (host/browser-view.ts; host.test.mjs holds the frames it sends); the lane refuses it.
   assert.deepEqual([...NOTIFICATION_DESKTOP_OPERATIONS, 'browserRemoteFrame'].sort(), wanted.sort());
-  assert.equal(
-    operations.find((row) => row.name === 'browserRemoteFrame').target.target,
-    'host/browser/frame'
-  );
+  assert.equal(operations.find((row) => row.name === 'browserRemoteFrame').target.target, 'host/browser/frame');
   assert.throws(() => routeDesktopOperation('browserRemoteFrame', [{}]), { code: 'unknownMethod' });
 });
 
 test('termEnsure leaves sizeOwner out when the core says null and keeps an owner', async () => {
   const owner = { cols: 80, rows: 24, owner: 'phone-1' };
-  const none = await laneWith({ 'terminal/ensure': { id: 't1', replay: 'r', sizeOwner: null } }).lane.invoke('termEnsure', ['t1', R, null]);
+  const none = await laneWith({ 'terminal/ensure': { id: 't1', replay: 'r', sizeOwner: null } }).lane.invoke(
+    'termEnsure',
+    ['t1', R, null]
+  );
   assert.deepEqual(none, { id: 't1', replay: 'r' });
   assert.equal('sizeOwner' in none, false);
-  const owned = await laneWith({ 'terminal/ensure': { id: 't1', replay: 'r', sizeOwner: owner } }).lane.invoke('termEnsure', ['t1', R, null]);
+  const owned = await laneWith({ 'terminal/ensure': { id: 't1', replay: 'r', sizeOwner: owner } }).lane.invoke(
+    'termEnsure',
+    ['t1', R, null]
+  );
   assert.deepEqual(owned.sizeOwner, owner);
 });
 
@@ -969,7 +1110,10 @@ test('termActivity answers the [{id, state}] list Node read through readTerminal
   const { readTerminalActivityEvent } = await import('../../shared/terminal-activity.ts');
   const { lane } = sectionLane({ terminalActivity: { t1: 'running', t2: 'finished' } });
   const events = await lane.invoke('termActivity', []);
-  assert.deepEqual(events, [{ id: 't1', state: 'running' }, { id: 't2', state: 'finished' }]);
+  assert.deepEqual(events, [
+    { id: 't1', state: 'running' },
+    { id: 't2', state: 'finished' },
+  ]);
   assert.deepEqual(events.map(readTerminalActivityEvent), events);
   assert.deepEqual(await sectionLane({ terminalActivity: {} }).lane.invoke('termActivity', []), []);
 });
@@ -1002,7 +1146,11 @@ test('remoteAccess/state and remoteAccess/activate are protocol methods of the R
 // fake relay (fixtures/remote-info-node-states.json). `before` is the `remote` section the Rust core holds in that
 // state; `after` the value `remoteAccess/activate` answers (the state once `start(true)` ran).
 const NOT_RUNNING = { relay: { clientUrl: '', token: '', clients: [] }, enabled: false };
-const LIVE = (connected) => ({ relay: { clientUrl: '<url>', token: '<token>', clients: [] }, enabled: true, connected });
+const LIVE = (connected) => ({
+  relay: { clientUrl: '<url>', token: '<token>', clients: [] },
+  enabled: true,
+  connected,
+});
 const held = (info, disabled) => ({ ...REMOTE_SECTION, info, disabled });
 const NODE_STATES = {
   'fresh-no-relay-url': { before: held(NOT_RUNNING, false), after: held(NOT_RUNNING, false) },
@@ -1041,9 +1189,17 @@ for (const [name, state] of Object.entries(recorded.states)) {
     });
     for (const step of state.steps) {
       const sent = calls.length;
-      assert.deepEqual(await lane.invoke('remoteAccessInfo', [step.activate]), step.result, `${name} activate=${step.activate}`);
+      assert.deepEqual(
+        await lane.invoke('remoteAccessInfo', [step.activate]),
+        step.result,
+        `${name} activate=${step.activate}`
+      );
       // Node's start(true) ran for every explicit read, except while the user had switched access off.
-      assert.equal(calls.length - sent, step.activate && !before.disabled ? 1 : 0, `${name} activate=${step.activate}: activating op`);
+      assert.equal(
+        calls.length - sent,
+        step.activate && !before.disabled ? 1 : 0,
+        `${name} activate=${step.activate}: activating op`
+      );
     }
   });
 }
@@ -1055,7 +1211,10 @@ test('a window asking while the leg is up but has not answered a listing makes t
   const lane = createOperationLane({
     protocol: {
       notify: () => {},
-      snapshot: () => ({ status: 'ready', entries: [{ section: 'remote', key: null, revision: 1, value: unanswered }] }),
+      snapshot: () => ({
+        status: 'ready',
+        entries: [{ section: 'remote', key: null, revision: 1, value: unanswered }],
+      }),
       call: async (method) => (calls.push(method), answered),
     },
   });
@@ -1083,7 +1242,14 @@ test('retired operations are spec map rows with no request of their own, and the
 
 test('the section operations are spec map section rows of their section', () => {
   const targets = new Map(operations.map((row) => [row.name, row.target]));
-  for (const name of ['remoteAccessInfo', 'remoteAccessSettings', 'remoteAccessListClaims', 'remoteAccessControllerKeys', 'remoteAccessOwedControllerKeys', 'termActivity']) {
+  for (const name of [
+    'remoteAccessInfo',
+    'remoteAccessSettings',
+    'remoteAccessListClaims',
+    'remoteAccessControllerKeys',
+    'remoteAccessOwedControllerKeys',
+    'termActivity',
+  ]) {
     assert.equal(targets.get(name).kind, 'section', name);
     assert.ok(['remote', 'terminalActivity'].includes(targets.get(name).target), name);
   }
@@ -1094,7 +1260,11 @@ test('readSettings pages a config subtree the core published as a stub instead o
     { section: 'config', key: 'desktop', revision: 1, value: null },
     { section: 'config', key: 'agent', revision: 1, value: { autoClear: { enabled: true } } },
   ];
-  const { lane, calls } = laneWith({ 'config/read': { config: { desktop: { keepAwake: false, notificationVolume: 40 } } } }, [], entries);
+  const { lane, calls } = laneWith(
+    { 'config/read': { config: { desktop: { keepAwake: false, notificationVolume: 40 } } } },
+    [],
+    entries
+  );
   const settings = await lane.invoke('readSettings', []);
   assert.equal(settings.keepAwake, false);
   assert.equal(settings.notificationVolume, 40);

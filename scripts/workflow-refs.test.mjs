@@ -10,7 +10,11 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (file) => readFileSync(join(ROOT, file), 'utf8');
 const scriptsOf = (dir) => Object.keys(JSON.parse(read(`${dir}package.json`)).scripts ?? {});
-const NPM_SCRIPTS = { '': scriptsOf(''), 'apps/desktop': scriptsOf('apps/desktop/'), 'apps/relay': scriptsOf('apps/relay/') };
+const NPM_SCRIPTS = {
+  '': scriptsOf(''),
+  'apps/desktop': scriptsOf('apps/desktop/'),
+  'apps/relay': scriptsOf('apps/relay/'),
+};
 
 function workflowFiles() {
   const files = readdirSync(join(ROOT, '.github/workflows'))
@@ -20,15 +24,19 @@ function workflowFiles() {
   return files;
 }
 
-const PATH = /(?<![\w./-])((?:scripts|\.github\/(?:workflows|actions|scripts)|apps\/[\w-]+\/scripts|native\/[\w-]+(?:\/crates\/[\w-]+)?)\/[\w./@-]+\.(?:mjs|cjs|sh|ps1|py|json|yml|toml|rs))(?![\w/-])/g;
+const PATH =
+  /(?<![\w./-])((?:scripts|\.github\/(?:workflows|actions|scripts)|apps\/[\w-]+\/scripts|native\/[\w-]+(?:\/crates\/[\w-]+)?)\/[\w./@-]+\.(?:mjs|cjs|sh|ps1|py|json|yml|toml|rs))(?![\w/-])/g;
 const NPM = /\bnpm\s+(?:--prefix\s+(\S+)\s+)?(?:run\s+(?:-s\s+)?([\w:.-]+)|(test|start))(?:[^\n]*?--prefix[ =](\S+))?/g;
 const PREFIXED_TEST = /\bnpm\s+(?:test|run\s+(?:-s\s+)?test:[\w-]+)\s+--prefix\s+(apps\/[\w-]+)\s+--\s+([^;&|#]+)/g;
 const FILE_SELECTOR = /^(?:[\w@.-]+\/)+[\w@.-]+\.[\w-]+$/;
 
-function missingPathReferences(line, {
-  exists = (path) => existsSync(join(ROOT, path)),
-  isFile = (path) => statSync(join(ROOT, path), { throwIfNoEntry: false })?.isFile(),
-} = {}) {
+function missingPathReferences(
+  line,
+  {
+    exists = (path) => existsSync(join(ROOT, path)),
+    isFile = (path) => statSync(join(ROOT, path), { throwIfNoEntry: false })?.isFile(),
+  } = {}
+) {
   const missing = [];
   // npm runs tests from the package. Consume these arguments here so the
   // repository-root scan doesn't check them again using the wrong directory.
@@ -66,7 +74,10 @@ test('one missing desktop test file fails validation even if the other selector 
   const line = 'npm test --prefix apps/desktop -- scripts/first.test.mjs src/main/second.test.mjs src/renderer/';
   const paths = ['apps/desktop/scripts/first.test.mjs', 'apps/desktop/src/main/second.test.mjs'];
   for (const path of paths) {
-    assert.deepEqual(missingPathReferences(line, { isFile: (candidate) => candidate === path }), paths.filter((other) => other !== path));
+    assert.deepEqual(
+      missingPathReferences(line, { isFile: (candidate) => candidate === path }),
+      paths.filter((other) => other !== path)
+    );
   }
 });
 
@@ -82,7 +93,8 @@ test('every npm script a workflow runs exists in the package it runs it in', () 
           if (prefix && !(prefix in NPM_SCRIPTS)) continue;
           // `working-directory:` is not part of the line: a name that exists in the root or the desktop package passes.
           const known = prefix ? NPM_SCRIPTS[prefix] : [...NPM_SCRIPTS[''], ...NPM_SCRIPTS['apps/desktop']];
-          if (!known.includes(name)) missing.push(`${file}:${index + 1} npm run ${name}${prefix ? ` --prefix ${prefix}` : ''}`);
+          if (!known.includes(name))
+            missing.push(`${file}:${index + 1} npm run ${name}${prefix ? ` --prefix ${prefix}` : ''}`);
         }
       });
   }
@@ -95,7 +107,7 @@ test('no workflow names the deleted Node core pieces', () => {
     read(file)
       .split('\n')
       .map((line, index) => (REMOVED.test(line) ? `${file}:${index + 1} ${line.trim()}` : null))
-      .filter(Boolean),
+      .filter(Boolean)
   );
   assert.deepEqual(found, []);
 });

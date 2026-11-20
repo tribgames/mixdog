@@ -19,7 +19,8 @@ export function canonical(value) {
 export const digestOf = (value) => createHash('sha256').update(canonical(value)).digest('hex');
 
 export function assertId(id) {
-  if (!Array.isArray(id) || id.length < 2 || !id.every((part) => typeof part === 'string')) throw new Error(`not a case identity: ${JSON.stringify(id)}`);
+  if (!Array.isArray(id) || id.length < 2 || !id.every((part) => typeof part === 'string'))
+    throw new Error(`not a case identity: ${JSON.stringify(id)}`);
   return id;
 }
 

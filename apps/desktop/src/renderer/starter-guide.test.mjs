@@ -29,7 +29,9 @@ test.after(() => dom.window.close());
 let clockSkew = 0;
 const realNow = performance.now.bind(performance);
 performance.now = () => realNow() + clockSkew;
-test.after(() => { performance.now = realNow; });
+test.after(() => {
+  performance.now = realNow;
+});
 test.afterEach(() => {
   clockSkew = 0;
 });
@@ -332,7 +334,9 @@ function fakeWindowTimers(t) {
     act(async () => {
       const end = now + ms;
       for (;;) {
-        const [due] = [...queue].filter(([, timer]) => timer.at <= end).sort((a, b) => a[1].at - b[1].at || a[0] - b[0]);
+        const [due] = [...queue]
+          .filter(([, timer]) => timer.at <= end)
+          .sort((a, b) => a[1].at - b[1].at || a[0] - b[0]);
         if (!due) break;
         queue.delete(due[0]);
         now = due[1].at;

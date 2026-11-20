@@ -144,7 +144,9 @@ function bridgedFixture(t) {
     },
     bridge,
     receive,
-    setInvoke(fn) { invoke = fn; },
+    setInvoke(fn) {
+      invoke = fn;
+    },
     document: dom.window.document,
   };
 }
@@ -156,9 +158,18 @@ test('same-session canvases release only their own pending and received texture 
   const read = (pane) => f.bridge.browserPageFrame('s', undefined, pane);
   const hide = (pane) => f.bridge.browserDiscardTexture('s', pane);
   const deliver = async (id) => {
-    const handle = { releases: 0, release() { this.releases++; }, getVideoFrame: () => ({
-      id, displayWidth: 600, displayHeight: 400, close() {},
-    }) };
+    const handle = {
+      releases: 0,
+      release() {
+        this.releases++;
+      },
+      getVideoFrame: () => ({
+        id,
+        displayWidth: 600,
+        displayHeight: 400,
+        close() {},
+      }),
+    };
     await f.receive({ importedSharedTexture: handle }, 's', id);
     return handle;
   };

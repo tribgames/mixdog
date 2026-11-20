@@ -124,9 +124,19 @@ test('host/visualize/command equals the loopback bridge on every step', async ()
     // path-shaped session id are refused.
     assert.deepEqual(
       recorded.map((r) => [r.name, r.ok]),
-      [['open-page', true], ['open-outside-cwd', true], ['open-missing', false], ['open-too-many', false], ['unknown-action', false], ['bad-session', false]]
+      [
+        ['open-page', true],
+        ['open-outside-cwd', true],
+        ['open-missing', false],
+        ['open-too-many', false],
+        ['unknown-action', false],
+        ['bad-session', false],
+      ]
     );
-    assert.deepEqual(hostSide.published.map((e) => e.sessionId), nodeSide.published.map((e) => e.sessionId));
+    assert.deepEqual(
+      hostSide.published.map((e) => e.sessionId),
+      nodeSide.published.map((e) => e.sessionId)
+    );
   } finally {
     await bridge.stop();
     nodeSide.service.dispose();

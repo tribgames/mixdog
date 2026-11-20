@@ -99,15 +99,11 @@ test('desktop tool activity summary translates to natural verb phrases in Korean
 });
 
 test('imported tool use reads as one native activity line with per-kind counts, from either source', async () => {
-  const { convertConversationText } = await import(
-    '../shared/test-recorded/transcript-tool-i18n.test.0.recorded.mjs'
-  );
+  const { convertConversationText } = await import('../shared/test-recorded/transcript-tool-i18n.test.0.recorded.mjs');
   const { importedTranscriptMessages } = await import(
     '../shared/test-recorded/transcript-tool-i18n.test.1.recorded.mjs'
   );
-  const { restoreTranscriptItems } = await import(
-    '../shared/test-recorded/transcript-tool-i18n.test.2.recorded.mjs'
-  );
+  const { restoreTranscriptItems } = await import('../shared/test-recorded/transcript-tool-i18n.test.2.recorded.mjs');
   const lines = (records) => records.map((record) => JSON.stringify(record)).join('\n');
   const codexCall = (name) => ({ type: 'response_item', payload: { type: 'function_call', name, arguments: '{}' } });
   const codexText = (role, text) => ({

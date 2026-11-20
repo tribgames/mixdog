@@ -180,35 +180,43 @@ export function registerBrowserIpc({ handle, browserHost, browserLogin }: Browse
   const watched = new WeakSet<Electron.WebContents>();
   const report = (owner: string, guest: number) => {
     const panes = [...consumers.values()].filter((entry) => entry.owner === owner && entry.guest === guest);
-    browserHost?.setGuestActive(owner, guest, panes.length > 0, panes.some((entry) => entry.pixels));
+    browserHost?.setGuestActive(
+      owner,
+      guest,
+      panes.length > 0,
+      panes.some((entry) => entry.pixels)
+    );
   };
-  handle(DESKTOP_IPC.browserSetActiveGuest, (event, sessionId, webContentsId, active, pixels = active, pane = 'default') => {
-    if (!browserHost) throw new Error('Browser Use is unavailable in this app surface.');
-    const ownerSessionId = requiredSessionId(sessionId);
-    const guestId = requiredGuestId(webContentsId);
-    if (typeof active !== 'boolean') throw new TypeError('Browser guest activity is invalid.');
-    if (typeof pixels !== 'boolean' || typeof pane !== 'string' || !pane || pane.length > 64)
-      throw new TypeError('Browser pane visibility is invalid.');
-    const sender = event.sender;
-    const senderId = sender.id;
-    if (!watched.has(sender)) {
-      watched.add(sender);
-      const forget = () => {
-        for (const [key, entry] of consumers) {
-          if (entry.sender !== senderId) continue;
-          consumers.delete(key);
-          report(entry.owner, entry.guest);
-        }
-      };
-      sender.on('did-navigate', forget);
-      sender.on('render-process-gone', forget);
-      sender.once('destroyed', forget);
+  handle(
+    DESKTOP_IPC.browserSetActiveGuest,
+    (event, sessionId, webContentsId, active, pixels = active, pane = 'default') => {
+      if (!browserHost) throw new Error('Browser Use is unavailable in this app surface.');
+      const ownerSessionId = requiredSessionId(sessionId);
+      const guestId = requiredGuestId(webContentsId);
+      if (typeof active !== 'boolean') throw new TypeError('Browser guest activity is invalid.');
+      if (typeof pixels !== 'boolean' || typeof pane !== 'string' || !pane || pane.length > 64)
+        throw new TypeError('Browser pane visibility is invalid.');
+      const sender = event.sender;
+      const senderId = sender.id;
+      if (!watched.has(sender)) {
+        watched.add(sender);
+        const forget = () => {
+          for (const [key, entry] of consumers) {
+            if (entry.sender !== senderId) continue;
+            consumers.delete(key);
+            report(entry.owner, entry.guest);
+          }
+        };
+        sender.on('did-navigate', forget);
+        sender.on('render-process-gone', forget);
+        sender.once('destroyed', forget);
+      }
+      const key = JSON.stringify([sender.id, pane, ownerSessionId, guestId]);
+      if (active) consumers.set(key, { owner: ownerSessionId, guest: guestId, pixels, sender: sender.id });
+      else consumers.delete(key);
+      report(ownerSessionId, guestId);
     }
-    const key = JSON.stringify([sender.id, pane, ownerSessionId, guestId]);
-    if (active) consumers.set(key, { owner: ownerSessionId, guest: guestId, pixels, sender: sender.id });
-    else consumers.delete(key);
-    report(ownerSessionId, guestId);
-  });
+  );
   handle(DESKTOP_IPC.browserPanelShown, (event, sessionId, shown, pane) => {
     if (!browserHost) return;
     if (typeof shown !== 'boolean') throw new TypeError('Browser panel visibility is invalid.');

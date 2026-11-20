@@ -61,7 +61,12 @@ class Core {
         const text = await conn.nextSent();
         const frame = JSON.parse(text);
         if (frame.id === undefined) continue;
-        this.frames.push({ method: frame.method, params: frame.params, bytes: text.length, generation: this.generations });
+        this.frames.push({
+          method: frame.method,
+          params: frame.params,
+          bytes: text.length,
+          generation: this.generations,
+        });
         this.answer(conn, state, instance, frame);
       }
     })();
@@ -75,10 +80,19 @@ class Core {
         return reply({ ...options.initializeResult, serverInstanceId: instance, limits: this.limits });
       case 'app/subscribe':
         reply({ subscription: { id: 'as', mode: 'snapshot', epoch: `ae-${instance}`, startSeq: 2 } });
-        return conn.serverSend({ method: 'app/snapshot', params: { sections: [] }, feed: { id: 'app', epoch: `ae-${instance}`, seq: 1 } });
+        return conn.serverSend({
+          method: 'app/snapshot',
+          params: { sections: [] },
+          feed: { id: 'app', epoch: `ae-${instance}`, seq: 1 },
+        });
       case 'transfer/beginWrite': {
         const id = `t${(state.counter += 1)}`;
-        this.uploads.set(`${this.generations}:${id}`, { name: frame.params.name, size: frame.params.size, data: [], written: 0 });
+        this.uploads.set(`${this.generations}:${id}`, {
+          name: frame.params.name,
+          size: frame.params.size,
+          data: [],
+          written: 0,
+        });
         const answer = () => reply({ transferId: id, uploadId: id, maxBytes: 536_870_912 });
         if (!this.holdBegin) return answer();
         answer.kind = 'begin';
@@ -119,7 +133,9 @@ class Core {
   }
 
   writes(generation) {
-    return this.frames.filter((f) => f.method === 'transfer/writeChunk' && (generation === undefined || f.generation === generation));
+    return this.frames.filter(
+      (f) => f.method === 'transfer/writeChunk' && (generation === undefined || f.generation === generation)
+    );
   }
 
   count(method) {
@@ -171,7 +187,10 @@ function windowOn(connection) {
   const uploads = serverUploadCoordinatorFor(connection);
   const dispose = registerServerFileIpc({
     handle: (channel, run) => handlers.set(channel, run),
-    server: { grants: { entry: (absolutePath, uploaded) => ({ ...uploaded, absolutePath, granted: true }) }, downloads: {} },
+    server: {
+      grants: { entry: (absolutePath, uploaded) => ({ ...uploaded, absolutePath, granted: true }) },
+      downloads: {},
+    },
     uploads,
     invokeDesktopOperation: async () => ({}),
     fileTarget: async () => ({}),
@@ -188,15 +207,19 @@ function windowOn(connection) {
   return { api, call, dispose, uploads };
 }
 
-const upload = (win, length, name = 'a.bin', extra = {}) => uploadFileToServer(win.api, new File([file(length)], name), 'draft', extra);
+const upload = (win, length, name = 'a.bin', extra = {}) =>
+  uploadFileToServer(win.api, new File([file(length)], name), 'draft', extra);
 
-test('with the core\'s normal limits exactly twelve full chunks are on the wire before the first reply, then it refills', async () => {
+test("with the core's normal limits exactly twelve full chunks are on the wire before the first reply, then it refills", async () => {
   const { core, connection } = await target({ setup: (c) => (c.hold = true) });
   const win = windowOn(connection);
   const done = upload(win, CHUNK * 20 + 7);
   await turns();
   assert.equal(core.writes().length, 12, 'twelve requests go out, no thirteenth');
-  assert.ok(core.writes().every((f) => f.bytes <= MAX_FRAME), 'every request fits the frame bound');
+  assert.ok(
+    core.writes().every((f) => f.bytes <= MAX_FRAME),
+    'every request fits the frame bound'
+  );
   await core.release({ count: 1 });
   assert.equal(core.writes().length, 13, 'one reply refills one place');
   core.hold = false;
@@ -227,7 +250,10 @@ test('a file just above the old failure size round-trips through the real frame 
     const entry = await upload(win, length, `f${length}.bin`);
     assert.equal(entry.size, length);
   }
-  assert.ok(core.writes().every((f) => f.bytes <= MAX_FRAME), 'no frame over maxInboundFrameBytes, final padding included');
+  assert.ok(
+    core.writes().every((f) => f.bytes <= MAX_FRAME),
+    'no frame over maxInboundFrameBytes, final padding included'
+  );
   await connection.close();
 });
 
@@ -300,8 +326,12 @@ test('two windows and the staging share one allowance on a target, a second targ
   }
   await Promise.all(runs);
   const perTransfer = new Map();
-  for (const f of first.core.writes()) perTransfer.set(f.params.transferId, (perTransfer.get(f.params.transferId) ?? 0) + 1);
-  assert.ok([...perTransfer.values()].every((n) => n === 14), 'every upload completed');
+  for (const f of first.core.writes())
+    perTransfer.set(f.params.transferId, (perTransfer.get(f.params.transferId) ?? 0) + 1);
+  assert.ok(
+    [...perTransfer.values()].every((n) => n === 14),
+    'every upload completed'
+  );
   await first.connection.close();
   await second.connection.close();
 });
@@ -319,7 +349,7 @@ test('a core that does not state its upload limits is refused at setup, nothing 
   }
 });
 
-test('an unusable window is refused at setup, and one above this PC\'s ceiling is clamped', async () => {
+test("an unusable window is refused at setup, and one above this PC's ceiling is clamped", async () => {
   const bad = await target({ limits: { maxUploadInFlightBytes: 'lots' } });
   await assert.rejects(upload(windowOn(bad.connection), 10), /valid upload window/);
   await bad.connection.close();
@@ -328,7 +358,11 @@ test('an unusable window is refused at setup, and one above this PC\'s ceiling i
   await small.connection.close();
   const huge = await target({ limits: { maxUploadInFlightBytes: 10 ** 12 } });
   const { inFlightChunks } = await windowOn(huge.connection).api.serverUploadBegin('a.bin', CHUNK * 100, 'draft');
-  assert.equal(inFlightChunks, Math.floor(SERVER_UPLOAD_ALLOWANCE_MAX_BYTES / ENCODED), 'never a window as large as the file');
+  assert.equal(
+    inFlightChunks,
+    Math.floor(SERVER_UPLOAD_ALLOWANCE_MAX_BYTES / ENCODED),
+    'never a window as large as the file'
+  );
   await huge.connection.close();
 });
 
@@ -339,7 +373,10 @@ test('the chunk size is what the core advertises, cut to what the frame bound ad
   const larger = await target({ limits: { maxBlobPutChunkBytes: 2 * 1024 * 1024 } });
   const entry = await upload(windowOn(larger.connection), 600_000);
   assert.equal(entry.size, 600_000);
-  assert.ok(larger.core.writes().every((f) => f.bytes <= MAX_FRAME), 'no oversized frame');
+  assert.ok(
+    larger.core.writes().every((f) => f.bytes <= MAX_FRAME),
+    'no oversized frame'
+  );
   assert.equal((await windowOn(larger.connection).api.serverUploadBegin('b.bin', 10, 'draft')).chunkBytes, CHUNK);
   await larger.connection.close();
 });
@@ -351,7 +388,10 @@ test('closing the connection retires the generation at once: held chunks are rej
   const { uploadId } = await uploads.begin(mine, 'a.bin', CHUNK * 30, 'draft');
   const settled = [];
   for (let n = 0; n < 5; n += 1) {
-    uploads.write(mine, uploadId, n * CHUNK, new Uint8Array(CHUNK)).then(() => settled.push('ok'), (e) => settled.push(e.message));
+    uploads.write(mine, uploadId, n * CHUNK, new Uint8Array(CHUNK)).then(
+      () => settled.push('ok'),
+      (e) => settled.push(e.message)
+    );
   }
   await turns();
   assert.equal(uploads.outstandingBytes, 5 * ENCODED);
@@ -375,12 +415,20 @@ test('delayed and reordered replies give exact contents and monotone progress', 
   await core.release();
   await run;
   assert.ok(Buffer.from(file(CHUNK * 30 + 5)).equals(core.content('t1')));
-  assert.deepEqual(progress, [...progress].sort((x, y) => x - y), 'progress never goes back');
+  assert.deepEqual(
+    progress,
+    [...progress].sort((x, y) => x - y),
+    'progress never goes back'
+  );
   assert.equal(progress.at(-1), CHUNK * 30 + 5);
   await connection.close();
 });
 
-for (const [name, failAt] of [['first', 0], ['a middle', CHUNK * 5], ['the last', CHUNK * 9]]) {
+for (const [name, failAt] of [
+  ['first', 0],
+  ['a middle', CHUNK * 5],
+  ['the last', CHUNK * 9],
+]) {
   test(`a failure of ${name} chunk gives no commit, one cleanup, and the core's own error`, async () => {
     const { core, connection } = await target({ setup: (c) => c.failAt.add(failAt) });
     await assert.rejects(upload(windowOn(connection), CHUNK * 9 + 11), /disk full/);
@@ -391,18 +439,26 @@ for (const [name, failAt] of [['first', 0], ['a middle', CHUNK * 5], ['the last'
   });
 }
 
-test('main rejects an early commit, gaps, invalid sizes and another owner\'s handle', async () => {
+test("main rejects an early commit, gaps, invalid sizes and another owner's handle", async () => {
   const { core, connection } = await target();
   const uploads = serverUploadCoordinatorFor(connection);
   const mine = {};
   const { uploadId } = await uploads.begin(mine, 'a.bin', CHUNK * 2, 'draft');
   await assert.rejects(uploads.commit(mine, uploadId), /not complete/, 'an early commit');
   await assert.rejects(uploads.write(mine, uploadId, CHUNK, new Uint8Array(10)), /offset is invalid/, 'a gap');
-  await assert.rejects(uploads.write(mine, uploadId, 0, new Uint8Array(CHUNK + 1)), /chunk is invalid/, 'a chunk over the size');
+  await assert.rejects(
+    uploads.write(mine, uploadId, 0, new Uint8Array(CHUNK + 1)),
+    /chunk is invalid/,
+    'a chunk over the size'
+  );
   await assert.rejects(uploads.write(mine, uploadId, 0, new Uint8Array(0)), /chunk is invalid/);
   await uploads.write(mine, uploadId, 0, new Uint8Array(CHUNK));
   await uploads.write(mine, uploadId, CHUNK, new Uint8Array(CHUNK));
-  await assert.rejects(uploads.write(mine, uploadId, 2 * CHUNK, new Uint8Array(1)), /offset is invalid/, 'past the declared size');
+  await assert.rejects(
+    uploads.write(mine, uploadId, 2 * CHUNK, new Uint8Array(1)),
+    /offset is invalid/,
+    'past the declared size'
+  );
   await assert.rejects(uploads.commit({}, uploadId), /gone/, 'another owner');
   await assert.rejects(uploads.write({}, uploadId, 0, new Uint8Array(1)), /gone/);
   assert.equal(uploads.abort({}, uploadId), false, 'a foreign abort does nothing');
@@ -420,7 +476,10 @@ test('a cancel drops unsent work at once, returns without waiting on a held repl
   const { uploadId, inFlightChunks } = await uploads.begin(mine, 'a.bin', CHUNK * 40, 'draft');
   const settled = [];
   for (let n = 0; n < inFlightChunks; n += 1) {
-    uploads.write(mine, uploadId, n * CHUNK, new Uint8Array(CHUNK)).then(() => settled.push('ok'), (e) => settled.push(e.message));
+    uploads.write(mine, uploadId, n * CHUNK, new Uint8Array(CHUNK)).then(
+      () => settled.push('ok'),
+      (e) => settled.push(e.message)
+    );
   }
   await turns();
   assert.equal(uploads.outstandingBytes, 12 * ENCODED);
@@ -446,7 +505,10 @@ test('a cancel drops unsent work at once, returns without waiting on a held repl
 test('an abort barrier that never answers retires the link at the deadline, and later uploads proceed on the reopened one', async () => {
   const { core, connection } = await target({ setup: (c) => (c.hold = true) });
   const timers = [];
-  const clock = { setTimeout: (run, ms) => (timers.push({ run, ms }), timers.length), clearTimeout: (h) => void (timers[h - 1] = null) };
+  const clock = {
+    setTimeout: (run, ms) => (timers.push({ run, ms }), timers.length),
+    clearTimeout: (h) => void (timers[h - 1] = null),
+  };
   let reopened = 0;
   const link = {
     get status() {
@@ -454,7 +516,7 @@ test('an abort barrier that never answers retires the link at the deadline, and 
     },
     client: () => connection.client(),
     onEvent: (listener) => connection.onEvent(listener),
-    reopen: () => (reopened += 1, connection.reopen()),
+    reopen: () => ((reopened += 1), connection.reopen()),
   };
   const uploads = new ServerUploadCoordinator(link, { clock, deadlineMs: 30_000 });
   const mine = {};
@@ -486,7 +548,10 @@ test('a lost connection rejects held chunks, and a reconnect starts a fresh gene
   const uploads = serverUploadCoordinatorFor(connection);
   const mine = {};
   const first = await uploads.begin(mine, 'a.bin', CHUNK * 5, 'draft');
-  const held = uploads.write(mine, first.uploadId, 0, new Uint8Array(CHUNK)).then(() => 'ok', (e) => e.message);
+  const held = uploads.write(mine, first.uploadId, 0, new Uint8Array(CHUNK)).then(
+    () => 'ok',
+    (e) => e.message
+  );
   await turns();
   const writesBefore = core.writes().length;
   core.limits = { ...core.limits, maxUploadInFlightBytes: 2 * ENCODED };
@@ -510,13 +575,16 @@ test('a window closing cancels its own uploads only, and disposing the coordinat
   const { core, connection } = await target({ setup: (c) => (c.hold = true) });
   const a = windowOn(connection);
   const b = windowOn(connection);
-  const ra = upload(a, CHUNK * 20, 'a.bin').then(() => 'ok', (e) => e.message);
+  const ra = upload(a, CHUNK * 20, 'a.bin').then(
+    () => 'ok',
+    (e) => e.message
+  );
   const rb = upload(b, CHUNK * 20, 'b.bin');
   await turns(40);
   a.dispose();
   assert.match(await ra, /cancelled|gone/i);
   await turns();
-  assert.equal(core.count('transfer/abort'), 1, 'only a\'s upload was aborted');
+  assert.equal(core.count('transfer/abort'), 1, "only a's upload was aborted");
   rb.catch(() => undefined);
   serverUploadCoordinatorFor(connection).dispose();
   await assert.rejects(rb);
@@ -537,15 +605,20 @@ const coordinatorOn = (connection, extra = {}) => {
   return new ServerUploadCoordinator(link, extra);
 };
 
-test('a settled write\'s credit comes back once: an abort answered later cannot release it again and the window is never exceeded', async () => {
+test("a settled write's credit comes back once: an abort answered later cannot release it again and the window is never exceeded", async () => {
   const window = 2 * ENCODED;
-  const { core, connection } = await target({ limits: { maxUploadInFlightBytes: window }, setup: (c) => ((c.hold = true), (c.holdAbort = true)) });
+  const { core, connection } = await target({
+    limits: { maxUploadInFlightBytes: window },
+    setup: (c) => ((c.hold = true), (c.holdAbort = true)),
+  });
   const uploads = coordinatorOn(connection);
   const a = {};
   const b = {};
   const c = {};
   const up = await uploads.begin(a, 'a.bin', CHUNK * 4, 'draft');
-  const waitingA = [0, 1].map((n) => uploads.write(a, up.uploadId, n * CHUNK, new Uint8Array(CHUNK)).catch(() => 'cancelled'));
+  const waitingA = [0, 1].map((n) =>
+    uploads.write(a, up.uploadId, n * CHUNK, new Uint8Array(CHUNK)).catch(() => 'cancelled')
+  );
   await turns();
   assert.equal(uploads.outstandingBytes, window);
   uploads.abort(a, up.uploadId);
@@ -558,7 +631,11 @@ test('a settled write\'s credit comes back once: an abort answered later cannot 
   assert.equal(uploads.outstandingBytes, window);
   assert.ok(uploads.outstandingBytes <= window);
   await core.release({ kind: 'abort' });
-  assert.equal(uploads.outstandingBytes, ENCODED, 'only the write the barrier proved drained was released, not the one already settled');
+  assert.equal(
+    uploads.outstandingBytes,
+    ENCODED,
+    'only the write the barrier proved drained was released, not the one already settled'
+  );
   // The credit that is free is exactly one chunk: a second upload's chunks fill it and no more.
   uploads.write(b, upB.uploadId, CHUNK, new Uint8Array(CHUNK)).catch(() => undefined);
   const upC = await uploads.begin(c, 'c.bin', CHUNK * 4, 'draft');
@@ -574,18 +651,26 @@ test('a settled write\'s credit comes back once: an abort answered later cannot 
 test('an answered abort barrier retires the deadlines of the writes it drained; an unanswered one keeps the reopen', async () => {
   const { core, connection } = await target({ setup: (c) => ((c.hold = true), (c.holdAbort = true)) });
   const timers = [];
-  const clock = { setTimeout: (run, ms) => (timers.push({ run, ms }), timers.length), clearTimeout: (h) => void (timers[h - 1] = null) };
+  const clock = {
+    setTimeout: (run, ms) => (timers.push({ run, ms }), timers.length),
+    clearTimeout: (h) => void (timers[h - 1] = null),
+  };
   const reopened = { count: 0 };
   const uploads = coordinatorOn(connection, { clock, reopened });
   const owner = {};
   const { uploadId } = await uploads.begin(owner, 'a.bin', CHUNK * 4, 'draft');
-  for (let n = 0; n < 3; n += 1) uploads.write(owner, uploadId, n * CHUNK, new Uint8Array(CHUNK)).catch(() => undefined);
+  for (let n = 0; n < 3; n += 1)
+    uploads.write(owner, uploadId, n * CHUNK, new Uint8Array(CHUNK)).catch(() => undefined);
   await turns();
   uploads.abort(owner, uploadId);
   await turns();
   assert.ok(timers.filter(Boolean).length >= 4, 'three writes and the barrier each hold a deadline');
   await core.release({ kind: 'abort' });
-  assert.equal(timers.filter(Boolean).length, 0, 'the answered barrier released every deadline of the writes it drained');
+  assert.equal(
+    timers.filter(Boolean).length,
+    0,
+    'the answered barrier released every deadline of the writes it drained'
+  );
   assert.equal(uploads.outstandingBytes, 0);
   assert.equal(reopened.count, 0, 'no later reopen interrupts anything');
   // Unanswered: the barrier keeps its deadline and the reopen.
@@ -608,18 +693,29 @@ test('a chunk failure retires the handle, detaches every producer and issues one
   const { uploadId } = await uploads.begin(owner, 'a.bin', CHUNK * 6, 'draft');
   const settled = [];
   for (let n = 0; n < 4; n += 1) {
-    uploads.write(owner, uploadId, n * CHUNK, new Uint8Array(CHUNK)).then(() => settled.push('ok'), (e) => settled.push(/disk full/.test(e.message) ? 'disk full' : e.message));
+    uploads.write(owner, uploadId, n * CHUNK, new Uint8Array(CHUNK)).then(
+      () => settled.push('ok'),
+      (e) => settled.push(/disk full/.test(e.message) ? 'disk full' : e.message)
+    );
   }
   await turns();
   await core.release({ count: 2, kind: 'write' });
-  assert.deepEqual(settled, ['ok', 'disk full', 'disk full', 'disk full'], 'every producer got the first error, at once');
+  assert.deepEqual(
+    settled,
+    ['ok', 'disk full', 'disk full', 'disk full'],
+    'every producer got the first error, at once'
+  );
   assert.equal(core.count('transfer/abort'), 1, 'one keyed abort, issued by the coordinator');
-  await assert.rejects(uploads.write(owner, uploadId, 4 * CHUNK, new Uint8Array(CHUNK)), /gone/, 'the handle is retired');
+  await assert.rejects(
+    uploads.write(owner, uploadId, 4 * CHUNK, new Uint8Array(CHUNK)),
+    /gone/,
+    'the handle is retired'
+  );
   await assert.rejects(uploads.commit(owner, uploadId), /gone/);
-  assert.equal(uploads.abort(owner, uploadId), false, 'the caller\'s own abort finds nothing left to do');
+  assert.equal(uploads.abort(owner, uploadId), false, "the caller's own abort finds nothing left to do");
   core.hold = false;
   await core.release();
-  assert.equal(uploads.outstandingBytes, 0, 'the barrier\'s answer released the writes left');
+  assert.equal(uploads.outstandingBytes, 0, "the barrier's answer released the writes left");
   assert.equal(core.count('transfer/abort'), 1);
   uploads.dispose();
   await connection.close();
@@ -633,7 +729,10 @@ test('staging ends at the first chunk failure without waiting for the other writ
   await turns();
   await core.release({ count: 1, kind: 'write' });
   await assert.rejects(staged, /disk full/);
-  assert.ok(core.held.some((answer) => answer.kind === 'write'), 'other writes of the staging are still unanswered');
+  assert.ok(
+    core.held.some((answer) => answer.kind === 'write'),
+    'other writes of the staging are still unanswered'
+  );
   assert.equal(core.count('transfer/abort'), 1);
   await connection.close();
 });
@@ -659,7 +758,12 @@ test('concurrent begins share the capacity: only 64 reach the server', async () 
   const { core, connection } = await target({ setup: (c) => (c.holdBegin = true) });
   const uploads = serverUploadCoordinatorFor(connection);
   const owners = Array.from({ length: 70 }, () => ({}));
-  const results = owners.map((owner) => uploads.begin(owner, 'a.bin', 10, 'draft').then(() => 'ok', (e) => e.message));
+  const results = owners.map((owner) =>
+    uploads.begin(owner, 'a.bin', 10, 'draft').then(
+      () => 'ok',
+      (e) => e.message
+    )
+  );
   await turns(60);
   assert.equal(core.count('transfer/beginWrite'), 64);
   core.holdBegin = false;
@@ -677,11 +781,17 @@ test('an owner released between the begin reply and its continuation leaves no l
     const uploads = serverUploadCoordinatorFor(connection);
     const owner = {};
     let begun = null;
-    const outcome = uploads.begin(owner, 'a.bin', CHUNK * 2, 'draft').then((value) => ((begun = value), 'begun'), (e) => e.message);
+    const outcome = uploads.begin(owner, 'a.bin', CHUNK * 2, 'draft').then(
+      (value) => ((begun = value), 'begun'),
+      (e) => e.message
+    );
     await turns();
     // The reply arrives, and the owner is released `hops` microtask turns later: before, between or after the library's own
     // reactions and the coordinator's.
-    const answer = core.held.splice(core.held.findIndex((a) => a.kind === 'begin'), 1)[0];
+    const answer = core.held.splice(
+      core.held.findIndex((a) => a.kind === 'begin'),
+      1
+    )[0];
     answer();
     let turn = Promise.resolve();
     for (let n = 0; n < hops; n += 1) turn = turn.then(() => undefined);
@@ -690,13 +800,31 @@ test('an owner released between the begin reply and its continuation leaves no l
     await outcome;
     await turns();
     const aborts = core.frames.filter((f) => f.method === 'transfer/abort');
-    assert.equal(aborts.length, 1, `hops=${hops}: the transfer is aborted exactly once, by the release or as a late answer`);
+    assert.equal(
+      aborts.length,
+      1,
+      `hops=${hops}: the transfer is aborted exactly once, by the release or as a late answer`
+    );
     assert.equal(aborts[0].params.transferId, 't1');
-    if (begun) await assert.rejects(uploads.write(owner, begun.uploadId, 0, new Uint8Array(1)), /gone|cancelled/, `hops=${hops}: no live handle`);
+    if (begun)
+      await assert.rejects(
+        uploads.write(owner, begun.uploadId, 0, new Uint8Array(1)),
+        /gone|cancelled/,
+        `hops=${hops}: no live handle`
+      );
     // No capacity slot leaked: a full set of begins still passes.
     core.holdBegin = false;
-    const others = Array.from({ length: 64 }, () => uploads.begin({}, 'b.bin', 10, 'draft').then(() => 'ok', (e) => e.message));
-    assert.equal((await Promise.all(others)).filter((m) => m === 'ok').length, 64, `hops=${hops}: all 64 slots are free`);
+    const others = Array.from({ length: 64 }, () =>
+      uploads.begin({}, 'b.bin', 10, 'draft').then(
+        () => 'ok',
+        (e) => e.message
+      )
+    );
+    assert.equal(
+      (await Promise.all(others)).filter((m) => m === 'ok').length,
+      64,
+      `hops=${hops}: all 64 slots are free`
+    );
     uploads.dispose();
     await connection.close();
   }

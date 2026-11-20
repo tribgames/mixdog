@@ -1,4 +1,9 @@
-import type { Connector, Target, TransportSink, TransportWriter } from '../../../../../packages/protocol-client/src/api';
+import type {
+  Connector,
+  Target,
+  TransportSink,
+  TransportWriter,
+} from '../../../../../packages/protocol-client/src/api';
 
 export type PortSlot = 'primary' | 'pc';
 /** What main reports of the wait for the core (main/core-port/boot-progress.ts `BootReport`). */
@@ -51,7 +56,7 @@ function failureCleared(bridge: CorePortBridge): Promise<void> {
 export function createPortConnector(
   bridge: CorePortBridge,
   host: PortMessageHost = window,
-  timeoutMs: number = PORT_TAKE_TIMEOUT_MS,
+  timeoutMs: number = PORT_TAKE_TIMEOUT_MS
 ): Connector {
   const held = new Map<string, PortLike>();
   const waiting = new Map<string, (port: PortLike) => void>();

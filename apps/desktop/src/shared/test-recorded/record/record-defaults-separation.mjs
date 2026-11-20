@@ -24,7 +24,8 @@ import { NODE_COMMIT, NODE_TREE } from './node-source.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const flag = process.argv.indexOf('--node-repo');
-if (flag < 0 || !process.argv[flag + 1]) throw new Error('usage: node record-defaults-separation.mjs --node-repo <repository with ' + NODE_COMMIT + '>');
+if (flag < 0 || !process.argv[flag + 1])
+  throw new Error('usage: node record-defaults-separation.mjs --node-repo <repository with ' + NODE_COMMIT + '>');
 const nodeRepo = resolve(process.argv[flag + 1]);
 
 const git = (...args) => {
@@ -38,20 +39,39 @@ if (treeId !== NODE_TREE) throw new Error(`${NODE_COMMIT} has tree ${treeId}, ex
 
 const INDEX = 'apps/desktop/src/main/index.ts';
 const WRITER = 'apps/desktop/src/main/desktop-diagnostics.ts';
-const files = Object.fromEntries([INDEX, WRITER].map((path) => {
-  const bytes = git('show', `${NODE_COMMIT}:${path}`);
-  return [path, { path, blob: git('rev-parse', `${NODE_COMMIT}:${path}`).toString().trim(), sha256: sha256(bytes), text: bytes.toString('utf8') }];
-}));
+const files = Object.fromEntries(
+  [INDEX, WRITER].map((path) => {
+    const bytes = git('show', `${NODE_COMMIT}:${path}`);
+    return [
+      path,
+      {
+        path,
+        blob: git('rev-parse', `${NODE_COMMIT}:${path}`).toString().trim(),
+        sha256: sha256(bytes),
+        text: bytes.toString('utf8'),
+      },
+    ];
+  })
+);
 
 const sourceFile = ts.createSourceFile(INDEX, files[INDEX].text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
-const transpile = (text) => ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+const transpile = (text) =>
+  ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } })
+    .outputText;
 const extract = (name) => {
   const found = sourceFile.statements.filter((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
-  if (found.length !== 1) throw new Error(`${INDEX} has ${found.length} top-level function declarations named ${name}, expected exactly 1`);
+  if (found.length !== 1)
+    throw new Error(`${INDEX} has ${found.length} top-level function declarations named ${name}, expected exactly 1`);
   const [node] = found;
   const slice = sourceFile.text.slice(node.getStart(sourceFile), node.end);
   const line = (pos) => sourceFile.getLineAndCharacterOfPosition(pos).line + 1;
-  return { name, file: INDEX, lines: [line(node.getStart(sourceFile)), line(node.end)], sha256: sha256(slice), js: transpile(slice) };
+  return {
+    name,
+    file: INDEX,
+    lines: [line(node.getStart(sourceFile)), line(node.end)],
+    sha256: sha256(slice),
+    js: transpile(slice),
+  };
 };
 const functions = [extract('reportDaemonServiceStart'), extract('startDesktopDiagnostics')];
 
@@ -76,7 +96,11 @@ const inputs = {
     pid: process.pid,
     platform: process.platform,
     arch: process.arch,
-    versions: { node: process.versions.node, electron: process.versions.electron ?? null, chrome: process.versions.chrome ?? null },
+    versions: {
+      node: process.versions.node,
+      electron: process.versions.electron ?? null,
+      chrome: process.versions.chrome ?? null,
+    },
   },
 };
 
@@ -84,9 +108,23 @@ const work = mkdtempSync(join(tmpdir(), 'record-defaults-'));
 try {
   writeFileSync(join(work, 'desktop-diagnostics.mjs'), transpile(files[WRITER].text));
   const names = [
-    'createDesktopDiagnostics', 'join', 'app', 'earlyDiagnostics', 'desktopBootId', 'desktopBootScenario', 'desktopProcessStartedAt',
-    'setTranscriptReadDiagnosticSink', 'setPageFaultDiagnosticSink', 'settingsStore', 'mixdogDataDirectory', 'softwareRenderingThisLaunch',
-    'crashReporterStatus', 'crashReporterErrorName', 'gpuFallbackMarker', 'startCrashHandlerWatch', 'startDiagnosticsEventLoopMonitor',
+    'createDesktopDiagnostics',
+    'join',
+    'app',
+    'earlyDiagnostics',
+    'desktopBootId',
+    'desktopBootScenario',
+    'desktopProcessStartedAt',
+    'setTranscriptReadDiagnosticSink',
+    'setPageFaultDiagnosticSink',
+    'settingsStore',
+    'mixdogDataDirectory',
+    'softwareRenderingThisLaunch',
+    'crashReporterStatus',
+    'crashReporterErrorName',
+    'gpuFallbackMarker',
+    'startCrashHandlerWatch',
+    'startDiagnosticsEventLoopMonitor',
     'initialDaemonServiceStartedAt',
   ];
   writeFileSync(

@@ -9,7 +9,12 @@ import type {
   DesktopSshModelLogin,
   DesktopSshServerLogins,
 } from '../../shared/contract-ssh';
-import { sshCleanupHost, sshCleanupTarget, sshUpdateHostSettings, subscribeSshCleanupProgress } from '../connections-core-api';
+import {
+  sshCleanupHost,
+  sshCleanupTarget,
+  sshUpdateHostSettings,
+  subscribeSshCleanupProgress,
+} from '../connections-core-api';
 import { t } from '../i18n';
 import { record } from '../record-utils';
 import { providerLabel, rows, type CapabilityApi } from './capability-data';
@@ -445,7 +450,9 @@ function forgetNote(forget: boolean, local: DesktopSshLocalForget | undefined): 
   if (!forget) return { description: t('The server is still in the list.'), note: '' };
   if (local && !local.ok) {
     return {
-      description: t('The server was cleaned up, but it could not be removed from this PC’s list. Click Forget to try again.'),
+      description: t(
+        'The server was cleaned up, but it could not be removed from this PC’s list. Click Forget to try again.'
+      ),
       note: sshMessageText(local.notice, local.error ?? ''),
     };
   }
@@ -610,6 +617,7 @@ export function SshCleanupDialog({
     }
     return <CleanupRunningDialog host={host} step={step} />;
   }
-  if (phase === 'done') return <CleanupDoneDialog host={host} forget={forget} local={local} detail={detail} onClose={onClose} />;
+  if (phase === 'done')
+    return <CleanupDoneDialog host={host} forget={forget} local={local} detail={detail} onClose={onClose} />;
   return <CleanupFailedDialog failure={phase.failure} name={host.name} onRetry={start} onClose={onClose} />;
 }

@@ -14,10 +14,7 @@
  */
 import type { WebContents } from 'electron';
 
-import type {
-  BrowserUploadReceiver,
-  Precondition,
-} from '../../../../../../packages/protocol/src/index.ts';
+import type { BrowserUploadReceiver, Precondition } from '../../../../../../packages/protocol/src/index.ts';
 import type { PendingFileChooser } from '../../browser/host-types';
 import { createRefUpload } from '../../browser/ref-upload';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
@@ -169,7 +166,8 @@ function registerUploadReceiver(connection: HostConnection, ctx: EngineContext, 
   registerEngineMethod(connection, ctx, 'host/browser/upload/receiver', async (params, signal, page) => {
     const ref = typeof params.ref === 'string' && params.ref ? params.ref : undefined;
     if (ref) {
-      if (typeof params.snapshotId !== 'string' || !params.snapshotId) throw invalid('upload/receiver needs a snapshotId');
+      if (typeof params.snapshotId !== 'string' || !params.snapshotId)
+        throw invalid('upload/receiver needs a snapshotId');
       requireCurrentSnapshot(page.state, params.snapshotId);
     }
     const expect = (params.expect ?? undefined) as Precondition | undefined;
@@ -259,7 +257,8 @@ export function registerUpload(connection: HostConnection, ctx: EngineContext, d
     check();
     if (route !== 'chooser' && target) {
       const fileInput = await isFileInputRef(host, page.guest, target, signal);
-      if (fileInput !== undefined && fileInput !== (route === 'fileInput')) throw preconditionFailed('receiver', page.facts());
+      if (fileInput !== undefined && fileInput !== (route === 'fileInput'))
+        throw preconditionFailed('receiver', page.facts());
     }
     check();
     await createRefUpload(guarded).uploadRef(

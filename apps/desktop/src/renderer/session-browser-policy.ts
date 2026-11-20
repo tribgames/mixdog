@@ -1,5 +1,8 @@
 import { agentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { roomMemberOfSession, roomSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
+import {
+  roomMemberOfSession,
+  roomSessionId,
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopAgentPoolRow, DesktopBrowserOpenRequest, DesktopSessionSummary } from '../shared/contract';
 
 export type SessionBrowserPaneOwner = {

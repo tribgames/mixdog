@@ -42,7 +42,9 @@ export function createLocalCoreLinkStore(bridge: unknown): LocalCoreLinkStore {
 
 let shared: LocalCoreLinkStore | undefined;
 function store(): LocalCoreLinkStore {
-  shared ??= createLocalCoreLinkStore(typeof window === 'undefined' ? undefined : (window as { mixdogCorePort?: CorePortBridge }).mixdogCorePort);
+  shared ??= createLocalCoreLinkStore(
+    typeof window === 'undefined' ? undefined : (window as { mixdogCorePort?: CorePortBridge }).mixdogCorePort
+  );
   return shared;
 }
 
@@ -54,5 +56,9 @@ export function watchLocalCoreLink(connection: Parameters<LocalCoreLinkStore['wa
 export function useLocalCoreLink(): LocalCoreLink {
   const remote = isRemoteHostRenderer();
   const current = store();
-  return useSyncExternalStore(current.subscribe, () => (remote ? 'none' : current.get()), () => 'none');
+  return useSyncExternalStore(
+    current.subscribe,
+    () => (remote ? 'none' : current.get()),
+    () => 'none'
+  );
 }

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { IN_TREE_DAEMON_STOP_GRACE_MS, PG_FORCED_STOP_AT_MS } from '../shared/core-src/standalone/daemon-stop-budget.mjs';
+import {
+  IN_TREE_DAEMON_STOP_GRACE_MS,
+  PG_FORCED_STOP_AT_MS,
+} from '../shared/core-src/standalone/daemon-stop-budget.mjs';
 import { createDesktopQuitSequence, DESKTOP_DAEMON_STOP_TIMEOUT_MS, stopCoreForQuit } from './quit-sequence.ts';
 
 function harness({ teardown } = {}) {
@@ -112,9 +115,22 @@ test('a quit asks the core to stop, waits for its exit within the remaining time
     relaunch: () => {},
   });
   await sequence.begin();
-  assert.deepEqual(events, [`teardown`, `request:${DESKTOP_DAEMON_STOP_TIMEOUT_MS}`, `exit-wait:${DESKTOP_DAEMON_STOP_TIMEOUT_MS - 40}`, 'record', 'exit']);
+  assert.deepEqual(events, [
+    `teardown`,
+    `request:${DESKTOP_DAEMON_STOP_TIMEOUT_MS}`,
+    `exit-wait:${DESKTOP_DAEMON_STOP_TIMEOUT_MS - 40}`,
+    'record',
+    'exit',
+  ]);
   assert.deepEqual(stop.outcomes, [
-    { request: 'sent', error: null, requestMs: 40, exited: true, elapsedMs: 340, timeoutMs: DESKTOP_DAEMON_STOP_TIMEOUT_MS },
+    {
+      request: 'sent',
+      error: null,
+      requestMs: 40,
+      exited: true,
+      elapsedMs: 340,
+      timeoutMs: DESKTOP_DAEMON_STOP_TIMEOUT_MS,
+    },
   ]);
 });
 
@@ -124,7 +140,11 @@ test('a core that does not leave within the wait is recorded as not exited, with
   assert.equal(outcome.exited, false);
   assert.equal(outcome.request, 'refused');
   assert.equal(outcome.error, 'mixdogd: the core refused');
-  assert.equal(outcome.elapsedMs, DESKTOP_DAEMON_STOP_TIMEOUT_MS, 'the wait ends at the limit, the request counted in it');
+  assert.equal(
+    outcome.elapsedMs,
+    DESKTOP_DAEMON_STOP_TIMEOUT_MS,
+    'the wait ends at the limit, the request counted in it'
+  );
   assert.equal(stop.outcomes.length, 1);
 });
 

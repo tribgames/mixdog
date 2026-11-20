@@ -43,9 +43,7 @@ const MAIN_NODES = [
   },
   { nodeId: '6', parentId: '1', role: { value: 'button' }, name: { value: 'Footer help' }, backendDOMNodeId: 6 },
 ];
-const FRAME_NODES = [
-  { nodeId: 'f1', role: { value: 'button' }, name: { value: 'Pay now' }, backendDOMNodeId: 90 },
-];
+const FRAME_NODES = [{ nodeId: 'f1', role: { value: 'button' }, name: { value: 'Pay now' }, backendDOMNodeId: 90 }];
 const DOM_SNAPSHOT = {
   strings: ['INPUT', 'type', 'password', '#document'],
   documents: [
@@ -62,7 +60,12 @@ const DOM_SNAPSHOT = {
   ],
 };
 
-function harness({ cdpFails = false, destroyed = false, answer = () => ({ ok: true, value: 'from-dom' }), call: callResponse } = {}) {
+function harness({
+  cdpFails = false,
+  destroyed = false,
+  answer = () => ({ ok: true, value: 'from-dom' }),
+  call: callResponse,
+} = {}) {
   const handlers = new Map();
   const connection = { request: async () => ({}), handleRequest: (method, handler) => handlers.set(method, handler) };
   const guest = { getURL: () => PAGE_INFO.url, isDestroyed: () => destroyed };
@@ -85,7 +88,8 @@ function harness({ cdpFails = false, destroyed = false, answer = () => ({ ok: tr
       if (method === 'DOM.getFrameOwner') return { backendNodeId: 7 };
       if (method === 'DOM.getBoxModel') return { model: { content: [300, 200.5, 400, 200.5, 400, 250, 300, 250] } };
       if (method === 'DOM.resolveNode') return { object: { objectId: `obj-${params.backendNodeId}` } };
-      if (method === 'Runtime.callFunctionOn') return callResponse ? callResponse(params) : { result: { value: 'clicked' } };
+      if (method === 'Runtime.callFunctionOn')
+        return callResponse ? callResponse(params) : { result: { value: 'clicked' } };
       throw new Error(`unexpected ${method}`);
     },
     releaseObject: (_guest, objectId, sessionId) => cdpCalls.push({ method: 'release', objectId, sessionId }),
@@ -211,14 +215,21 @@ test('bad params are -32602 and a bad query pattern is named', async () => {
   const h = harness();
   const code = (params) => (error) => error.code === -32602 && (params === undefined || error.message.includes(params));
   await assert.rejects(h.call('host/browser/snapshot', { pageId: 'p1', mode: 'all' }), code('mode'));
-  await assert.rejects(h.call('host/browser/snapshot', { pageId: 'p1', mode: 'full', maxElements: 0 }), code('maxElements'));
+  await assert.rejects(
+    h.call('host/browser/snapshot', { pageId: 'p1', mode: 'full', maxElements: 0 }),
+    code('maxElements')
+  );
   await assert.rejects(h.call('host/browser/snapshot', { pageId: 'p1', mode: 'query', query: '/(/' }), code('invalid'));
   await assert.rejects(h.call('host/browser/snapshot', { pageId: 'p1', mode: 'full', frame: 'x' }), code('frame'));
 });
 
 test('a frame session narrows the list to that frame, and a frameId alone says it cannot', async () => {
   const h = harness();
-  const narrowed = await h.call('host/browser/snapshot', { pageId: 'p1', mode: 'full', frame: { sessionId: 'S-frame' } });
+  const narrowed = await h.call('host/browser/snapshot', {
+    pageId: 'p1',
+    mode: 'full',
+    frame: { sessionId: 'S-frame' },
+  });
   assert.deepEqual(
     narrowed.payload.elements.map((element) => element.name),
     ['Pay now']
@@ -251,7 +262,10 @@ test('with no accessibility tree the DOM fallback payload is returned with its w
   const h = harness({ cdpFails: true, answer: () => structuredClone(fallback) });
   const result = await h.call('host/browser/snapshot', { pageId: 'p1', mode: 'full' });
   assert.equal(result.payload.elements[0].name, 'Pay');
-  assert.match(result.warnings[0], /^CDP accessibility unavailable; using DOM fallback: CDP accessibility tree is unavailable/);
+  assert.match(
+    result.warnings[0],
+    /^CDP accessibility unavailable; using DOM fallback: CDP accessibility tree is unavailable/
+  );
   assert.equal(h.state.accessibilityRefs, undefined);
   assert.equal(h.state.refSet.snapshotId, 'p1-s2');
 });
@@ -324,7 +338,8 @@ test('a refused expect is -32010 before anything is sent', async () => {
 
 test('bad ref/call params are -32602', async () => {
   const h = harness();
-  const bad = (params) => assert.rejects(h.call('host/browser/ref/call', { pageId: 'p1', ...params }), (e) => e.code === -32602);
+  const bad = (params) =>
+    assert.rejects(h.call('host/browser/ref/call', { pageId: 'p1', ...params }), (e) => e.code === -32602);
   await bad({ ref: 'r', functionDeclaration: 'function(){}' });
   await bad({ snapshotId: 's', functionDeclaration: 'function(){}' });
   await bad({ snapshotId: 's', ref: 'r' });
@@ -334,7 +349,12 @@ test('bad ref/call params are -32602', async () => {
 test('a page exception of an accessibility ref is returned as data with its position, secrets masked', async () => {
   const h = harness({
     call: () => ({
-      exceptionDetails: { text: 'Uncaught', lineNumber: 2, columnNumber: 5, exception: { description: `Error: bad ${SECRET}` } },
+      exceptionDetails: {
+        text: 'Uncaught',
+        lineNumber: 2,
+        columnNumber: 5,
+        exception: { description: `Error: bad ${SECRET}` },
+      },
     }),
   });
   const snap = await h.call('host/browser/snapshot', { pageId: 'p1', mode: 'full' });

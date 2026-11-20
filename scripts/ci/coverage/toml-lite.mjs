@@ -35,7 +35,11 @@ function readString(text, at) {
 }
 
 function unescape(raw) {
-  return raw.replace(/\\(?:u([0-9a-fA-F]{4})|(.))/gs, (_, hex, char) => (hex ? String.fromCharCode(Number.parseInt(hex, 16)) : { n: '\n', t: '\t', r: '\r', '"': '"', '\\': '\\' }[char] ?? char));
+  return raw.replace(/\\(?:u([0-9a-fA-F]{4})|(.))/gs, (_, hex, char) =>
+    hex
+      ? String.fromCharCode(Number.parseInt(hex, 16))
+      : ({ n: '\n', t: '\t', r: '\r', '"': '"', '\\': '\\' }[char] ?? char)
+  );
 }
 
 function readValue(text, at) {
@@ -137,7 +141,7 @@ export function parseToml(text) {
       i = j;
     } else {
       const [path, next] = readKey(text, i);
-      let j = skipSpace(text, next);
+      const j = skipSpace(text, next);
       if (text[j] !== '=') throw new Error(`expected = near ${JSON.stringify(text.slice(i, i + 30))}`);
       const [value, after] = readValue(text, j + 1);
       assign(table, path, value);
@@ -147,7 +151,8 @@ export function parseToml(text) {
     if (text[rest] === '#') {
       i = rest;
       while (i < text.length && text[i] !== '\n') i += 1;
-    } else if (text[rest] !== '\n' && rest < text.length) throw new Error(`trailing text near ${JSON.stringify(text.slice(rest, rest + 20))}`);
+    } else if (text[rest] !== '\n' && rest < text.length)
+      throw new Error(`trailing text near ${JSON.stringify(text.slice(rest, rest + 20))}`);
     else i = rest;
   }
   return root;

@@ -181,7 +181,8 @@ test('a rejected API-key save keeps the draft in the open form for retry', async
   await click(connect);
   const input = row.querySelector('input[type="password"]');
   input.value = 'sk-test-draft';
-  const submit = () => act(async () => input.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+  const submit = () =>
+    act(async () => input.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
   await submit();
   assert.equal(row.querySelector('input[type="password"]')?.value, 'sk-test-draft');
   const alert = row.querySelector('[role="alert"]');

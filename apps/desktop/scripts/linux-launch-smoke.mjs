@@ -60,7 +60,9 @@ const child = spawn(
 let exited = null;
 let output = '';
 let launchError = null;
-child.on('error', (error) => { launchError = error; });
+child.on('error', (error) => {
+  launchError = error;
+});
 child.on('exit', (code, signal) => {
   exited = { code, signal };
 });
@@ -91,7 +93,8 @@ const deadline = Date.now() + BOOT_TIMEOUT_MS;
 for (;;) {
   if (launchError) await fail(`app could not be launched: ${launchError.message}`);
   const events = await diagnosticEvents();
-  if (events.some((event) => event.event === FAILED_EVENT)) await fail(`the app could not start its core (${FAILED_EVENT})`);
+  if (events.some((event) => event.event === FAILED_EVENT))
+    await fail(`the app could not start its core (${FAILED_EVENT})`);
   if (events.some((event) => event.event === READY_EVENT)) break;
   if (exited) await fail(`app exited early ${JSON.stringify(exited)}`);
   if (Date.now() > deadline) await fail(`timed out waiting for ${READY_EVENT}`);
@@ -117,8 +120,14 @@ let shot;
 try {
   await new Promise((res, rej) => {
     const timer = setTimeout(() => rej(new Error('CDP open timed out')), 15_000);
-    ws.once('open', () => { clearTimeout(timer); res(); });
-    ws.once('error', (error) => { clearTimeout(timer); rej(error); });
+    ws.once('open', () => {
+      clearTimeout(timer);
+      res();
+    });
+    ws.once('error', (error) => {
+      clearTimeout(timer);
+      rej(error);
+    });
   });
   shot = await new Promise((res, rej) => {
     const timer = setTimeout(() => rej(new Error('CDP screenshot timed out')), 15_000);
@@ -128,7 +137,10 @@ try {
       clearTimeout(timer);
       msg.error ? rej(new Error(msg.error.message)) : res(msg.result.data);
     });
-    ws.once('error', (error) => { clearTimeout(timer); rej(error); });
+    ws.once('error', (error) => {
+      clearTimeout(timer);
+      rej(error);
+    });
     ws.send(JSON.stringify({ id: 1, method: 'Page.captureScreenshot', params: { format: 'png' } }));
   });
 } catch (error) {

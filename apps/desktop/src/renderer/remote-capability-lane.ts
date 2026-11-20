@@ -24,7 +24,10 @@ export function callSharingControlThread(client: Client): (method: string, param
    *  after each redial, and drops it when the core no longer has it (or the client is another one: the store is the client's). */
   const stillHeld = async (reply: unknown): Promise<boolean> => {
     const id = (reply as { thread?: { id?: unknown } } | null)?.thread?.id;
-    const library = client as { threadSubscription?(threadId: string): { readonly held: boolean }; whenHeldSettled?(threadId: string): Promise<void> };
+    const library = client as {
+      threadSubscription?(threadId: string): { readonly held: boolean };
+      whenHeldSettled?(threadId: string): Promise<void>;
+    };
     if (typeof id !== 'string' || !library.threadSubscription) return true;
     // Settled first: after a redial the client's resume of the thread decides whether it is still the core's.
     await library.whenHeldSettled?.(id);
@@ -61,7 +64,11 @@ function laneOf(client: Client) {
       // config switches.
       snapshot: () => ({
         status: 'ready',
-        entries: [...client.store.sections('hostShellJobs'), ...client.store.sections('hostState' as never), ...client.store.sections('config')],
+        entries: [
+          ...client.store.sections('hostShellJobs'),
+          ...client.store.sections('hostState' as never),
+          ...client.store.sections('config'),
+        ],
       }),
       noteUserInput: () => undefined,
       respond: (id, answer) => client.respond(id, answer as never),
@@ -90,7 +97,11 @@ export async function invokePhoneCapability(
   valueOnly: boolean
 ): Promise<unknown> {
   try {
-    const result = await laneOf(host.client()).invoke(request.capability as DesktopCapability, request.args, request.sessionId);
+    const result = await laneOf(host.client()).invoke(
+      request.capability as DesktopCapability,
+      request.args,
+      request.sessionId
+    );
     return valueOnly ? { value: result.value } : result;
   } catch (error) {
     throw relayedError(error);

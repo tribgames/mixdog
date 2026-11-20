@@ -30,12 +30,15 @@ export function useSettingsReread(
   latest.current = read;
   useEffect(() => {
     if (!enabled) return;
-    const recovery = recoveryMs === undefined
-      ? undefined
-      : startSettingsReadRecovery((signal) => latest.current(signal), recoveryMs, true, true);
-    const reread = recovery?.replace ?? (() => {
-      void latest.current();
-    });
+    const recovery =
+      recoveryMs === undefined
+        ? undefined
+        : startSettingsReadRecovery((signal) => latest.current(signal), recoveryMs, true, true);
+    const reread =
+      recovery?.replace ??
+      (() => {
+        void latest.current();
+      });
     if (!recovery) reread();
     const stopLink = recovery ? followSettingsReadConnection(api, recovery) : undefined;
     if (recovery) window.addEventListener('focus', reread);

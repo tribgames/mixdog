@@ -201,10 +201,13 @@ async function streamOnce(browser, assets, stream, completeAfter) {
     await page.addStyleTag({ content: assets.css });
     await page.addStyleTag({ content: '#root { position: fixed; inset: 0; display: flex; container-type: size; }' });
     await page.addScriptTag({ content: assets.script });
-    await page.evaluate(async (session) => {
-      window.fixture.mount(session);
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }, `completion-${Math.random().toString(36).slice(2)}`);
+    await page.evaluate(
+      async (session) => {
+        window.fixture.mount(session);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      },
+      `completion-${Math.random().toString(36).slice(2)}`
+    );
     await page.evaluate(STREAM_FRAME_PROBE);
     const times = await page.evaluate(
       (chunks, text, after) => window.fixture.play(chunks, text, after),
@@ -247,10 +250,13 @@ test('a reply completing mid-reveal shows its rest at once, fading in, and settl
   assert.ok(backlog >= 100, `the item completed with text still to show (${backlog})`);
   t.diagnostic(`backlog at completion: ${backlog} painted characters`);
 
-  await t.test('completion: no node in view replaced, no opacity lost or sped up, no height change without text', () => {
-    const found = completionFlashes(frames, { from: completedAt - 100, to: settledFrame.t + 1_500, fadeMs: FADE_MS });
-    assert.deepEqual(found, []);
-  });
+  await t.test(
+    'completion: no node in view replaced, no opacity lost or sped up, no height change without text',
+    () => {
+      const found = completionFlashes(frames, { from: completedAt - 100, to: settledFrame.t + 1_500, fadeMs: FADE_MS });
+      assert.deepEqual(found, []);
+    }
+  );
 
   await t.test('the switch to completed comes once all of it showed and every character is at full ink', () => {
     const shown = shownAt(frames, completedAt, shownWhole);
@@ -263,7 +269,9 @@ test('a reply completing mid-reveal shows its rest at once, fading in, and settl
 
   await t.test('the rest shows at once on completion and fades in from then', () => {
     const steps = revealSteps(frames, completedAt).filter((step) => step.t <= settledFrame.t);
-    t.diagnostic(`after completion: ${steps.map((step) => `+${step.chars}@${Math.round(step.t - completedAt)}`).join(' ')}`);
+    t.diagnostic(
+      `after completion: ${steps.map((step) => `+${step.chars}@${Math.round(step.t - completedAt)}`).join(' ')}`
+    );
     assert.equal(steps.length, 1, 'in one step');
     assert.equal(steps[0].chars, backlog, 'all of the rest');
     assert.ok(steps[0].t - completedAt <= 50, `at completion (${Math.round(steps[0].t - completedAt)} ms)`);

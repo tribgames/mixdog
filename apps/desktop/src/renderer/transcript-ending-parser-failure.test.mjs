@@ -30,11 +30,16 @@ test('a held completion goes to renderer recovery when its parser import rejects
   const root = createRoot(host, { onCaughtError() {} });
   t.after(() => act(() => root.unmount()));
   t.mock.method(console, 'error', () => {});
-  const row = (streaming) => React.createElement(DesktopErrorBoundary, null, React.createElement(TranscriptRow, {
-    item: { id: 'r', kind: 'assistant', text: streaming ? 'Intro' : 'Intro and final text', streaming },
-    revealKey: 'failed-parser:r',
-    paced: true,
-  }));
+  const row = (streaming) =>
+    React.createElement(
+      DesktopErrorBoundary,
+      null,
+      React.createElement(TranscriptRow, {
+        item: { id: 'r', kind: 'assistant', text: streaming ? 'Intro' : 'Intro and final text', streaming },
+        revealKey: 'failed-parser:r',
+        paced: true,
+      })
+    );
   act(() => root.render(row(true)));
   act(() => root.render(row(false)));
   assert.equal(host.querySelector('article')?.getAttribute('aria-live'), 'off');

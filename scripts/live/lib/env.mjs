@@ -31,7 +31,18 @@ export function instanceConfig(providerBaseURL, configOverlay = {}) {
  * `isoRoot` the root every instance of the run lives under (nothing else is touched), `electronDist` an Electron
  * dist folder to use as it is (optional), `inspector` whether the Electron main's V8 inspector is opened.
  */
-export async function openEnvironment({ coreExe, isoRoot, desktopDir = DESKTOP_DIR, repoRoot = REPO_ROOT, ortLibrary = findOrtLibrary({ desktopDir, repoRoot }), electronDist, inspector = false, configOverlay, passEnv, log = console.log }) {
+export async function openEnvironment({
+  coreExe,
+  isoRoot,
+  desktopDir = DESKTOP_DIR,
+  repoRoot = REPO_ROOT,
+  ortLibrary = findOrtLibrary({ desktopDir, repoRoot }),
+  electronDist,
+  inspector = false,
+  configOverlay,
+  passEnv,
+  log = console.log,
+}) {
   const cpuBeforeStart = await cpuSample(2);
   const coreBuild = await prepareCore({ coreExe, desktopDir, repoRoot, isoRoot, ortLibrary, log });
   const controller = instanceController({ desktopDir, coreExe: coreBuild.exe, isoRoot, electronDist, log });
@@ -49,7 +60,8 @@ export async function openEnvironment({ coreExe, isoRoot, desktopDir = DESKTOP_D
   const doc = await waitCore(info);
   const coreCheck = await verifyCore(doc, coreBuild.exe);
   log(`core: pid ${coreCheck.pid} ${coreCheck.executablePath} ours=${coreCheck.ours}`);
-  if (!coreCheck.ours) log('WARNING: the serving core is NOT the binary this run staged; the run is not the environment it claims');
+  if (!coreCheck.ours)
+    log('WARNING: the serving core is NOT the binary this run staged; the run is not the environment it claims');
   const core = await attach(info.profile, { log });
   const main = inspector ? await connectMain(inspectorPort) : null;
   const control = {
@@ -89,11 +101,18 @@ export async function openEnvironment({ coreExe, isoRoot, desktopDir = DESKTOP_D
 export function conditions(env, extra = {}) {
   return {
     coreBinary: env.coreCheck?.executablePath,
-    coreSource: env.coreBuild ? { path: env.coreBuild.path, size: env.coreBuild.size, mtimeMs: env.coreBuild.mtimeMs } : null,
+    coreSource: env.coreBuild
+      ? { path: env.coreBuild.path, size: env.coreBuild.size, mtimeMs: env.coreBuild.mtimeMs }
+      : null,
     coreVerified: env.coreCheck?.ours ?? null,
     corePid: env.coreCheck?.pid,
     os: `${process.platform} ${process.arch}`,
-    instance: { profile: env.info?.profile, dataDir: env.info?.dataDir, cdpPort: env.info?.cdpPort, inspectorPort: env.info?.inspectorPort },
+    instance: {
+      profile: env.info?.profile,
+      dataDir: env.info?.dataDir,
+      cdpPort: env.info?.cdpPort,
+      inspectorPort: env.info?.inspectorPort,
+    },
     pages: 'local fixtures only (127.0.0.1 / 127.0.0.2); no public sites',
     ...extra,
   };

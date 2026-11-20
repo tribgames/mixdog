@@ -7,7 +7,7 @@ import type { WebContents } from 'electron';
 import { validateBrowserToolArgs } from '../../shared/core-src/runtime/browser-bridge/action-schema.mjs';
 import { bridgeDiscoveryDirectory } from '../bridge/discovery-file';
 import { BrowserBridgeServer } from './bridge-server';
-import { type BrowserCommand } from './host-types';
+import type { BrowserCommand } from './host-types';
 import { assertBrowserTaskCleanupContext, pendingSessionWork } from './host-policy';
 import { secretInputs } from '../secret-input';
 import type { SecretFillValue } from './host-agent';
@@ -58,7 +58,12 @@ export interface BrowserCommandRunnerOptions {
   /** The core's two-phase secret fill (host/browser/command `secret_precheck` / `secret_fill`). */
   secretFill: {
     precheck: (sessionId: string, requestId: string) => { text: string };
-    fill: (sessionId: string, requestId: string, secret: SecretFillValue, signal: AbortSignal) => Promise<{ text: string }>;
+    fill: (
+      sessionId: string,
+      requestId: string,
+      secret: SecretFillValue,
+      signal: AbortSignal
+    ) => Promise<{ text: string }>;
   };
   /** Runtime-only: the saved-login value the core fills Computer Use with, for an admitted fill only. */
   savedLogin: SavedLoginHost;
@@ -131,7 +136,8 @@ export function createBrowserCommandRunner(options: BrowserCommandRunnerOptions)
         if (command.action === 'secret_precheck' || command.action === 'secret_fill') {
           const fields = input as Record<string, unknown>;
           const requestId = String(fields.request_id || '');
-          if (command.action === 'secret_precheck') return options.secretFill.precheck(browserSessionId(session_id), requestId);
+          if (command.action === 'secret_precheck')
+            return options.secretFill.precheck(browserSessionId(session_id), requestId);
           const secret = {
             value: String(fields.value ?? ''),
             username: String(fields.username ?? ''),
@@ -143,11 +149,16 @@ export function createBrowserCommandRunner(options: BrowserCommandRunnerOptions)
         }
         // Runtime-only, from the core that runs a Computer Use saved-login fill: admit the fill, hand over its
         // one value (exact origin, admitted fill only), release it when its turn settles.
-        if (command.action === 'saved_login_admit') return options.savedLogin.admit(browserSessionId(session_id), input as Record<string, unknown>);
-        if (command.action === 'saved_login_release') return options.savedLogin.release(browserSessionId(session_id), input as Record<string, unknown>);
-        if (command.action === 'saved_login_check') return options.savedLogin.check(browserSessionId(session_id), input as Record<string, unknown>);
-        if (command.action === 'saved_login_type') return options.savedLogin.type(browserSessionId(session_id), input as Record<string, unknown>);
-        if (command.action === 'saved_login_value') return options.savedLogin.value(browserSessionId(session_id), input as Record<string, unknown>);
+        if (command.action === 'saved_login_admit')
+          return options.savedLogin.admit(browserSessionId(session_id), input as Record<string, unknown>);
+        if (command.action === 'saved_login_release')
+          return options.savedLogin.release(browserSessionId(session_id), input as Record<string, unknown>);
+        if (command.action === 'saved_login_check')
+          return options.savedLogin.check(browserSessionId(session_id), input as Record<string, unknown>);
+        if (command.action === 'saved_login_type')
+          return options.savedLogin.type(browserSessionId(session_id), input as Record<string, unknown>);
+        if (command.action === 'saved_login_value')
+          return options.savedLogin.value(browserSessionId(session_id), input as Record<string, unknown>);
         // Runtime-only: bind a secret request to its page, list a sign-in page's
         // masked saved logins, or say where a page is now; no value moves.
         if (HANDOFF_PAGE_ACTIONS.has(String(command.action))) {

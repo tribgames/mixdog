@@ -16,7 +16,10 @@ import { assertObservationInputAllowed } from './observation-policy';
 const WHEEL_NOTCH = 100;
 
 /** A native physical point as the renderer's CSS pixels. */
-function rendererPoint(renderer: ElectronTextDispatch['renderer'], native: { x: number; y: number }): { x: number; y: number } {
+function rendererPoint(
+  renderer: ElectronTextDispatch['renderer'],
+  native: { x: number; y: number }
+): { x: number; y: number } {
   const bounds = renderer.getContentBounds();
   const zoom = renderer.webContents.getZoomFactor();
   if (!Number.isFinite(zoom) || zoom <= 0) throw new Error('background_unsupported: window zoom is unreadable');
@@ -160,10 +163,17 @@ export async function dispatchElectronPointer(
   assertObservationInputAllowed(command, host.isObserveOnly());
   const modifiers = modifierMask(pointer.modifiers);
   await sendElectronPointer(renderer, native, { ...pointer, modifiers }, input.scope);
-  input.showCursor?.({ sessionId: host.sessionIdFor(command), windowId: target.targetWindowId, ...native, action: pointer.kind });
+  input.showCursor?.({
+    sessionId: host.sessionIdFor(command),
+    windowId: target.targetWindowId,
+    ...native,
+    action: pointer.kind,
+  });
   return delivered(
     input,
-    pointer.kind === 'click' ? 'sent a click to app-owned Electron renderer' : 'sent a pointer move to app-owned Electron renderer',
+    pointer.kind === 'click'
+      ? 'sent a click to app-owned Electron renderer'
+      : 'sent a pointer move to app-owned Electron renderer',
     pointer.kind === 'click' ? 'electron_click_event' : 'electron_move_event'
   );
 }

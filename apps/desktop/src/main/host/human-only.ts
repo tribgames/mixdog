@@ -29,14 +29,18 @@ export function registerHumanOnlyHolds(connection: HostConnection) {
   const declare = async (hold: OpenHold): Promise<string> => {
     hold.declaring = true;
     try {
-      const begun = await connection.request(HOST_METHOD.humanOnlyBegin, { label: hold.label } satisfies HostHumanOnlyBeginParams);
+      const begun = await connection.request(HOST_METHOD.humanOnlyBegin, {
+        label: hold.label,
+      } satisfies HostHumanOnlyBeginParams);
       return (begun as HostHumanOnlyBeginResult).holdId;
     } finally {
       hold.declaring = false;
     }
   };
   const endOnCore = (coreId: string): void =>
-    void connection.request(HOST_METHOD.humanOnlyEnd, { holdId: coreId } satisfies HostHumanOnlyEndParams).catch(() => undefined);
+    void connection
+      .request(HOST_METHOD.humanOnlyEnd, { holdId: coreId } satisfies HostHumanOnlyEndParams)
+      .catch(() => undefined);
   // The core ended every hold of the connection that closed.
   connection.onClose(() => {
     for (const hold of open.values()) hold.coreId = null;

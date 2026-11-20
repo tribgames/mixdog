@@ -2,29 +2,31 @@
 // the order they were recorded (the last answer repeats). A call that was not recorded is an error, never a guess.
 // Only the per-run values a table names under "normalize" (a measured field, a temp-directory path) are replaced by a placeholder, on the
 // recorded and on the live side alike, before the comparison; everything else must be equal.
-const dec = (v) => JSON.parse(JSON.stringify(v), (_k, x) => {
-  if (x && typeof x === 'object') {
-    if ('$undef' in x) return undefined;
-    if ('$set' in x) return new Set(x.$set);
-    if ('$map' in x) return new Map(x.$map);
-    if ('$date' in x) return new Date(x.$date);
-    if ('$big' in x) return BigInt(x.$big);
-    if ('$num' in x) return Number(x.$num);
-    if ('$buf' in x) return Buffer.from(x.$buf);
-  }
-  return x;
-});
-const enc = (v) => JSON.stringify(v, (_k, x) => {
-  if (x === undefined) return { $undef: 1 };
-  if (typeof x === 'function') return { $fn: 1 };
-  if (typeof x === 'bigint') return { $big: String(x) };
-  if (x instanceof Set) return { $set: [...x] };
-  if (x instanceof Map) return { $map: [...x] };
-  if (x instanceof Date) return { $date: x.getTime() };
-  if (x && x.type === 'Buffer' && Array.isArray(x.data)) return { $buf: x.data };
-  if (typeof x === 'number' && !Number.isFinite(x)) return { $num: String(x) };
-  return x;
-});
+const dec = (v) =>
+  JSON.parse(JSON.stringify(v), (_k, x) => {
+    if (x && typeof x === 'object') {
+      if ('$undef' in x) return undefined;
+      if ('$set' in x) return new Set(x.$set);
+      if ('$map' in x) return new Map(x.$map);
+      if ('$date' in x) return new Date(x.$date);
+      if ('$big' in x) return BigInt(x.$big);
+      if ('$num' in x) return Number(x.$num);
+      if ('$buf' in x) return Buffer.from(x.$buf);
+    }
+    return x;
+  });
+const enc = (v) =>
+  JSON.stringify(v, (_k, x) => {
+    if (x === undefined) return { $undef: 1 };
+    if (typeof x === 'function') return { $fn: 1 };
+    if (typeof x === 'bigint') return { $big: String(x) };
+    if (x instanceof Set) return { $set: [...x] };
+    if (x instanceof Map) return { $map: [...x] };
+    if (x instanceof Date) return { $date: x.getTime() };
+    if (x && x.type === 'Buffer' && Array.isArray(x.data)) return { $buf: x.data };
+    if (typeof x === 'number' && !Number.isFinite(x)) return { $num: String(x) };
+    return x;
+  });
 /** A class or helper whose instances only carried the test's setup (the usage ledger the test filled): it does nothing here, the recorded
  *  answers of the service built on it stand in for what it held. identity returns its argument. */
 export function stub(kind) {
@@ -57,7 +59,9 @@ export function normalizeArgs(value, rules) {
     }
     if (Array.isArray(node)) return node.map(walk);
     if (node && typeof node === 'object') {
-      return Object.fromEntries(Object.entries(node).map(([key, child]) => [key, fields.has(key) ? `<${key}>` : walk(child)]));
+      return Object.fromEntries(
+        Object.entries(node).map(([key, child]) => [key, fields.has(key) ? `<${key}>` : walk(child)])
+      );
     }
     return node;
   };
@@ -89,8 +93,9 @@ export function replay(table, name) {
     };
   }
   const seen = new Map();
-  return function (...args) {
-    if (table.opaque.includes(name)) throw new Error(`${name} returns a live object; it cannot be replayed from a recording`);
+  return (...args) => {
+    if (table.opaque.includes(name))
+      throw new Error(`${name} returns a live object; it cannot be replayed from a recording`);
     const key = callKey(table, name, args);
     const answers = table.calls[key];
     if (!answers) throw new Error(`${name}(${enc(args)}) was not recorded from Node`);
@@ -98,7 +103,10 @@ export function replay(table, name) {
     seen.set(key, at + 1);
     const answer = answers[at];
     if (answer.error) {
-      const failure = Object.assign(new Error(answer.error.message), { name: answer.error.name, code: answer.error.code });
+      const failure = Object.assign(new Error(answer.error.message), {
+        name: answer.error.name,
+        code: answer.error.code,
+      });
       if (answer.async) return Promise.reject(failure);
       throw failure;
     }

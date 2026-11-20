@@ -19,7 +19,12 @@ import { CORE_READS, devJsRuntimeManifest, JS_RUNTIME_MANIFEST, stageOfficeTempl
 const checkoutRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 export async function writeDevInstall({ exe, ortLibrary, packageRoot = checkoutRoot, program = process.execPath }) {
-  const paths = { exe: resolve(exe), ortLibrary: resolve(ortLibrary), packageRoot: resolve(packageRoot), program: resolve(program) };
+  const paths = {
+    exe: resolve(exe),
+    ortLibrary: resolve(ortLibrary),
+    packageRoot: resolve(packageRoot),
+    program: resolve(program),
+  };
   for (const [name, file] of Object.entries({ exe: paths.exe, ortLibrary: paths.ortLibrary, program: paths.program })) {
     await access(file).catch(() => {
       throw new Error(`--${name === 'ortLibrary' ? 'ort-library' : name}: ${file} does not exist`);
@@ -31,7 +36,11 @@ export async function writeDevInstall({ exe, ortLibrary, packageRoot = checkoutR
       throw new Error(`--package-root: ${join(paths.packageRoot, read)} does not exist`);
     });
   }
-  const manifest = devJsRuntimeManifest({ program: paths.program, packageRoot: paths.packageRoot, ortLibrary: paths.ortLibrary });
+  const manifest = devJsRuntimeManifest({
+    program: paths.program,
+    packageRoot: paths.packageRoot,
+    ortLibrary: paths.ortLibrary,
+  });
   const file = join(dirname(paths.exe), JS_RUNTIME_MANIFEST);
   await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`);
   await stageOfficeTemplates(dirname(paths.exe));
@@ -44,8 +53,16 @@ if (invokedPath === import.meta.url) {
   try {
     const exe = argument('exe');
     const ortLibrary = argument('ort-library');
-    if (!exe || !ortLibrary) throw new Error('usage: --exe=<mixdogd> --ort-library=<onnxruntime library> [--package-root=<dir>] [--program=<node>]');
-    const { file } = await writeDevInstall({ exe, ortLibrary, packageRoot: argument('package-root'), program: argument('program') });
+    if (!exe || !ortLibrary)
+      throw new Error(
+        'usage: --exe=<mixdogd> --ort-library=<onnxruntime library> [--package-root=<dir>] [--program=<node>]'
+      );
+    const { file } = await writeDevInstall({
+      exe,
+      ortLibrary,
+      packageRoot: argument('package-root'),
+      program: argument('program'),
+    });
     console.log(`[dev-core-install] wrote ${file}`);
   } catch (error) {
     console.error(`[dev-core-install] failed: ${error.message}`);

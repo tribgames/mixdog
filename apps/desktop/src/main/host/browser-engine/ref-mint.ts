@@ -17,7 +17,10 @@ export const HOST_BROWSER_REF_MINT = 'host/browser/ref/mint';
 /** The longest role or name taken from a node's attributes. */
 const ATTRIBUTE_MAX_CHARS = 120;
 
-const compact = (value: unknown): string => String(value ?? '').replace(/\s+/g, ' ').trim();
+const compact = (value: unknown): string =>
+  String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 function invalid(message: string): HostRpcError {
   return new HostRpcError(HOST_INVALID_PARAMS, message);
@@ -41,7 +44,10 @@ export function registerRefMint(connection: HostConnection, ctx: EngineContext):
     const document = await cdp<{ root: { nodeId: number } }>('DOM.getDocument', { depth: 0 });
     let nodeIds: number[];
     try {
-      ({ nodeIds } = await cdp<{ nodeIds: number[] }>('DOM.querySelectorAll', { nodeId: document.root.nodeId, selector }));
+      ({ nodeIds } = await cdp<{ nodeIds: number[] }>('DOM.querySelectorAll', {
+        nodeId: document.root.nodeId,
+        selector,
+      }));
     } catch (error) {
       if (signal.aborted) throw signal.reason || error;
       return { count: 0, matches: [], invalid: redactBrowserText((error as Error).message || String(error)) };

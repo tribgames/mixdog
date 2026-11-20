@@ -235,19 +235,30 @@ test('request token details distinguish unmeasured Cursor usage from measured ze
     { ...cursor, id: 'no-usage', ts, status: 'completed', output: null },
     { ...cursor, id: 'output-only', ts, output: 0 },
     {
-      id: 'measured', ts, provider: 'openai', model: 'gpt-5.6',
-      input: 60, cacheRead: 40, cacheWrite: 0, output: 100, tokens: 200,
+      id: 'measured',
+      ts,
+      provider: 'openai',
+      model: 'gpt-5.6',
+      input: 60,
+      cacheRead: 40,
+      cacheWrite: 0,
+      output: 100,
+      tokens: 200,
     },
   ];
   const api = {
     invokeCapability: async ({ capability }) => ({
-      value: capability === 'getUsageRequests' ? { requests, generatedAt: ts } : { totals: {}, providers: [], period: {} },
+      value:
+        capability === 'getUsageRequests' ? { requests, generatedAt: ts } : { totals: {}, providers: [], period: {} },
     }),
   };
   await render({ surface: 'stats', open: true, onClose() {}, api });
   await act(async () => tab('Request log').click());
   const cells = bodyRows().map((row) => row.cells[3]);
-  assert.deepEqual(cells.map((cell) => cell.textContent), ['—', `${t('Output')}: 0`, '200']);
+  assert.deepEqual(
+    cells.map((cell) => cell.textContent),
+    ['—', `${t('Output')}: 0`, '200']
+  );
   assert.ok(cells[0].title.includes(`${t('Output')}: —`));
   assert.ok(cells[1].title.includes(`${t('Input')}: —`));
   assert.ok(cells[1].title.includes(`${t('Cache hit rate')}: —`));

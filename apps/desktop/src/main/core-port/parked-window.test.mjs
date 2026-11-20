@@ -13,7 +13,10 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 // Window A parks on a confirmed failure; the core then comes up some other way (window B's attach, the user, a repaired install).
 // Main notices it, and A -- through the real relay, preload bridge and connector -- asks again and attaches.
 test('a window parked on a confirmed failure attaches when main observes the core serving, with no attempt of its own', async () => {
-  const exited = (path) => Object.assign(new Error('ended'), { coreExit: { code: 2, signal: null, reason: 'exited with code 2', stderrPath: path } });
+  const exited = (path) =>
+    Object.assign(new Error('ended'), {
+      coreExit: { code: 2, signal: null, reason: 'exited with code 2', stderrPath: path },
+    });
   const reports = new BootReports();
   reports.attempt().failed(exited('a'));
   reports.attempt().failed(exited('b'));
@@ -23,7 +26,9 @@ test('a window parked on a confirmed failure attaches when main observes the cor
   let discovery = { state: 'booting', rpcPort: null };
   let changed = () => {};
   let watchers = 0;
-  watchRecovery({ ensureRoot() {}, log() {},
+  watchRecovery({
+    ensureRoot() {},
+    log() {},
     reports,
     runtimeRoot: 'runtime',
     readState: async () => discovery,
@@ -50,15 +55,26 @@ test('a window parked on a confirmed failure attaches when main observes the cor
       queueMicrotask(() => socket.emit('open'));
       return socket;
     },
-    createChannel: () => ({ port1: Object.assign(new EventEmitter(), { postMessage() {}, start() {}, close() {} }), port2: { port: 'two' } }),
+    createChannel: () => ({
+      port1: Object.assign(new EventEmitter(), { postMessage() {}, start() {}, close() {} }),
+      port2: { port: 'two' },
+    }),
     log: () => {},
   });
 
   // the preload, as the window's page sees it
   const ipc = new EventEmitter();
-  const host = { listeners: [], addEventListener(_type, listener) { host.listeners.push(listener); } };
+  const host = {
+    listeners: [],
+    addEventListener(_type, listener) {
+      host.listeners.push(listener);
+    },
+  };
   const savedWindow = globalThis.window;
-  globalThis.window = { postMessage: (data, _origin, ports) => host.listeners.forEach((listener) => listener({ source: host, data, ports })) };
+  globalThis.window = {
+    postMessage: (data, _origin, ports) =>
+      host.listeners.forEach((listener) => listener({ source: host, data, ports })),
+  };
   const exposed = {};
   const windowA = Object.assign(new EventEmitter(), {
     id: 1,
@@ -69,8 +85,11 @@ test('a window parked on a confirmed failure attaches when main observes the cor
   const handlers = { [CORE_PORT_OPEN_CHANNEL]: (options) => relay.open(windowA, options.slot) };
   try {
     installCorePort(
-      { on: (channel, listener) => ipc.on(channel, listener), invoke: (channel, ...args) => handlers[channel]?.(...args) },
-      { exposeInMainWorld: (name, api) => void (exposed[name] = api) },
+      {
+        on: (channel, listener) => ipc.on(channel, listener),
+        invoke: (channel, ...args) => handlers[channel]?.(...args),
+      },
+      { exposeInMainWorld: (name, api) => void (exposed[name] = api) }
     );
     const sink = { frame() {}, closed() {} };
     const connector = createPortConnector(exposed.mixdogCorePort, host, 1_000);
@@ -86,7 +105,10 @@ test('a window parked on a confirmed failure attaches when main observes the cor
     await tick();
     assert.equal(reports.confirmed(), null, 'main observed the core serving and superseded the failure');
     assert.equal(watchers, 0, 'and stopped watching');
-    await Promise.race([opening, new Promise((_, reject) => setTimeout(() => reject(new Error('window A never attached')), 500))]);
+    await Promise.race([
+      opening,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('window A never attached')), 500)),
+    ]);
     assert.ok(writer, 'A asked again, got a port and attached');
   } finally {
     globalThis.window = savedWindow;

@@ -29,7 +29,16 @@ const APP_SECTIONS = 1400;
 const options = JSON.parse(
   readFileSync(new URL('../../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8')
 );
-const thread = (id) => ({ id, preview: '', title: id, updatedAt: 1, messageCount: 0, cwd: '/w', classification: {}, projectPath: null });
+const thread = (id) => ({
+  id,
+  preview: '',
+  title: id,
+  updatedAt: 1,
+  messageCount: 0,
+  cwd: '/w',
+  classification: {},
+  projectPath: null,
+});
 const text = (n) => 'x'.repeat(n);
 const immediate = () => new Promise((done) => setImmediate(done));
 
@@ -80,9 +89,18 @@ function createTurnLog() {
       turns
         .map(({ ms, from, to, spans }) => {
           // Garbage collection inside the turn is its own owner; it is not part of the labelled work.
-          const gc = collections.reduce((sum, entry) => sum + Math.max(0, Math.min(to, entry.startTime + entry.duration) - Math.max(from, entry.startTime)), 0);
+          const gc = collections.reduce(
+            (sum, entry) =>
+              sum + Math.max(0, Math.min(to, entry.startTime + entry.duration) - Math.max(from, entry.startTime)),
+            0
+          );
           const labelled = [...spans.values()].reduce((a, b) => a + b, 0);
-          return { ms, owners: [...spans, ['garbage collection', gc], ['library fold step', Math.max(0, ms - labelled - gc)]].sort((a, b) => b[1] - a[1]) };
+          return {
+            ms,
+            owners: [...spans, ['garbage collection', gc], ['library fold step', Math.max(0, ms - labelled - gc)]].sort(
+              (a, b) => b[1] - a[1]
+            ),
+          };
         })
         .sort((a, b) => b.ms - a.ms),
   };
@@ -177,15 +195,36 @@ test('reconnect storms over concurrent streams in several sessions never block t
       // but two requests never share a loop turn.
       await immediate();
       if (frame.method === 'initialize') {
-        send(conn, JSON.stringify({ id: frame.id, result: { ...options.initializeResult, serverInstanceId: `s${gen.n}` } }), 'handshake frame');
+        send(
+          conn,
+          JSON.stringify({ id: frame.id, result: { ...options.initializeResult, serverInstanceId: `s${gen.n}` } }),
+          'handshake frame'
+        );
       } else if (frame.method === 'app/subscribe') {
-        send(conn, JSON.stringify({ id: frame.id, result: { subscription: { id: 'as', mode: 'snapshot', epoch: 'ae', startSeq: 2 } } }), 'handshake frame');
+        send(
+          conn,
+          JSON.stringify({
+            id: frame.id,
+            result: { subscription: { id: 'as', mode: 'snapshot', epoch: 'ae', startSeq: 2 } },
+          }),
+          'handshake frame'
+        );
         send(conn, APP_SNAPSHOT, 'app snapshot frame (parse + stage start)');
         gen.appSnapshots += 1;
         void stream(conn, gen, gen.pool);
       } else if (frame.method === 'thread/resume') {
         const id = frame.params.threadId;
-        send(conn, JSON.stringify({ id: frame.id, result: { thread: thread(id), subscription: { id: `sub-${id}`, mode: 'snapshot', epoch: `e${gen.n}`, startSeq: 2 } } }), 'handshake frame');
+        send(
+          conn,
+          JSON.stringify({
+            id: frame.id,
+            result: {
+              thread: thread(id),
+              subscription: { id: `sub-${id}`, mode: 'snapshot', epoch: `e${gen.n}`, startSeq: 2 },
+            },
+          }),
+          'handshake frame'
+        );
         send(conn, threadSnapshot(id, `e${gen.n}`), 'thread snapshot frame (parse + fold)');
         gen.threadSnapshots += 1;
         void stream(conn, gen, gen.streams.get(id));
@@ -216,7 +255,8 @@ test('reconnect storms over concurrent streams in several sessions never block t
   const delivered = { count: 0 };
   // Every store listener (the consumer's section watchers) runs under one label.
   const subscribe = client.store.subscribe.bind(client.store);
-  client.store.subscribe = (listener) => subscribe((change) => turnLog.timed('store listeners', () => listener(change)));
+  client.store.subscribe = (listener) =>
+    subscribe((change) => turnLog.timed('store listeners', () => listener(change)));
   client.store.subscribe((change) => {
     if (change.type === 'appSnapshot') return;
     turnLog.timed('IPC clone: delta', () => structuredClone(change));
@@ -244,7 +284,11 @@ test('reconnect storms over concurrent streams in several sessions never block t
     current = await net.accept();
     void serve(current, next);
     // The new generation's re-handshake, ~1 MB snapshot and session re-folds run while its streams start.
-    while (next.threadSnapshots < THREADS.length || next.framesSent < THREADS.length * BURST_FRAMES * 3 || folded === foldedBefore) {
+    while (
+      next.threadSnapshots < THREADS.length ||
+      next.framesSent < THREADS.length * BURST_FRAMES * 3 ||
+      folded === foldedBefore
+    ) {
       await immediate();
     }
   }
@@ -262,18 +306,19 @@ test('reconnect storms over concurrent streams in several sessions never block t
   // Not vacuous: one handshake and one app snapshot per generation, every session re-folded each time, every storm
   // streamed mid-session, and the store held the whole snapshot after each reconnect.
   assert.ok(generations.every((g, i) => i === 0 || (g.appSnapshots === 1 && g.threadSnapshots === THREADS.length)));
-  assert.ok(generations.slice(1).every((g) => g.framesSent >= THREADS.length * BURST_FRAMES * 3), 'every storm streamed');
+  assert.ok(
+    generations.slice(1).every((g) => g.framesSent >= THREADS.length * BURST_FRAMES * 3),
+    'every storm streamed'
+  );
   const held = SECTION_NAMES.flatMap((name) => client.store.sections(name)).length;
   assert.ok(held >= APP_SECTIONS, 'the large snapshot is in the store');
-  assert.ok(delivered.count > 0 && folded >= STORMS, 'the store was folded after every reconnect and its changes were delivered');
-  assert.ok(worstMs <= MAX_LOOP_BLOCK_MS, `the main loop was blocked ${worstMs.toFixed(1)} ms (limit ${MAX_LOOP_BLOCK_MS})`);
+  assert.ok(
+    delivered.count > 0 && folded >= STORMS,
+    'the store was folded after every reconnect and its changes were delivered'
+  );
+  assert.ok(
+    worstMs <= MAX_LOOP_BLOCK_MS,
+    `the main loop was blocked ${worstMs.toFixed(1)} ms (limit ${MAX_LOOP_BLOCK_MS})`
+  );
   console.log(`# worst main-loop delay ${worstMs.toFixed(1)} ms over ${STORMS} storms`);
 });
-
-
-
-
-
-
-
-

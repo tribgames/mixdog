@@ -72,9 +72,14 @@ test('environment: lock, suspend and display changes send a takeover; unrelated 
   const power = new EventEmitter();
   const screen = new EventEmitter();
   const sent = [];
-  const stop = bindComputerEnvironment(power, screen, async (method, params) => {
-    sent.push([method, params]);
-  }, () => true);
+  const stop = bindComputerEnvironment(
+    power,
+    screen,
+    async (method, params) => {
+      sent.push([method, params]);
+    },
+    () => true
+  );
   power.emit('lock-screen');
   power.emit('suspend');
   screen.emit('display-added');
@@ -83,7 +88,10 @@ test('environment: lock, suspend and display changes send a takeover; unrelated 
   screen.emit('display-metrics-changed', {}, {}, ['colorSpace']);
   const unavailable = { action: 'takeover', reason: 'desktop_unavailable' };
   const changed = { action: 'takeover', reason: 'display_changed' };
-  assert.deepEqual(sent, [unavailable, unavailable, changed, changed, changed].map((p) => [COMPUTER_USER_CONTROL, p]));
+  assert.deepEqual(
+    sent,
+    [unavailable, unavailable, changed, changed, changed].map((p) => [COMPUTER_USER_CONTROL, p])
+  );
   stop();
   power.emit('lock-screen');
   assert.equal(sent.length, 5);
@@ -92,9 +100,15 @@ test('environment: lock, suspend and display changes send a takeover; unrelated 
 test('environment: a failed send is reported, not thrown', async () => {
   const power = new EventEmitter();
   const errors = [];
-  bindComputerEnvironment(power, new EventEmitter(), async () => {
-    throw new Error('core down');
-  }, () => true, (error) => errors.push(error.message));
+  bindComputerEnvironment(
+    power,
+    new EventEmitter(),
+    async () => {
+      throw new Error('core down');
+    },
+    () => true,
+    (error) => errors.push(error.message)
+  );
   power.emit('suspend');
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(errors, ['core down']);
@@ -117,9 +131,17 @@ function commandHost(answer, { deny } = {}) {
 test('command: the text answer and an uploaded image come back as result and blob', async () => {
   const connection = fakeConnection();
   const bytes = Buffer.from('frame-bytes');
-  const host = commandHost({ ok: true, value: { text: 'done', isError: true, image: { mimeType: 'image/png', data: bytes.toString('base64') } } });
-  registerComputerCommand(connection, () => host, { admit: () => ({ signal: new AbortController().signal, commit() {}, track() {}, trackUnfenced() {} }) });
-  const result = await connection.serve('host/computer/command', { sessionThreadId: 't', command: { action: 'capture' } });
+  const host = commandHost({
+    ok: true,
+    value: { text: 'done', isError: true, image: { mimeType: 'image/png', data: bytes.toString('base64') } },
+  });
+  registerComputerCommand(connection, () => host, {
+    admit: () => ({ signal: new AbortController().signal, commit() {}, track() {}, trackUnfenced() {} }),
+  });
+  const result = await connection.serve('host/computer/command', {
+    sessionThreadId: 't',
+    command: { action: 'capture' },
+  });
   assert.equal(result.ok, true);
   assert.equal(result.text, 'done');
   assert.equal(result.isError, true);
@@ -134,9 +156,17 @@ test('command: the text answer and an uploaded image come back as result and blo
 test('command: a failed answer is the result error; policy and a missing host refuse', async () => {
   const connection = fakeConnection();
   let host = commandHost({ ok: false, error: 'boom' }, { deny: (c) => c.session_id === 'internal' });
-  registerComputerCommand(connection, () => host, { admit: () => ({ signal: new AbortController().signal, commit() {}, track() {}, trackUnfenced() {} }) });
-  assert.deepEqual(await connection.serve('host/computer/command', { command: { action: 'capture' } }), { ok: false, error: 'boom' });
-  await assert.rejects(connection.serve('host/computer/command', { command: { session_id: 'internal' } }), /invalid request/);
+  registerComputerCommand(connection, () => host, {
+    admit: () => ({ signal: new AbortController().signal, commit() {}, track() {}, trackUnfenced() {} }),
+  });
+  assert.deepEqual(await connection.serve('host/computer/command', { command: { action: 'capture' } }), {
+    ok: false,
+    error: 'boom',
+  });
+  await assert.rejects(
+    connection.serve('host/computer/command', { command: { session_id: 'internal' } }),
+    /invalid request/
+  );
   assert.equal(host.seen.length, 1);
   await assert.rejects(connection.serve('host/computer/command', 'x'), /object/);
   host = null;
@@ -148,7 +178,12 @@ test("environment: nothing is reported while the core does not drive the compute
   const screen = new EventEmitter();
   const sent = [];
   let drives = false;
-  bindComputerEnvironment(power, screen, async (method, params) => void sent.push([method, params]), () => drives);
+  bindComputerEnvironment(
+    power,
+    screen,
+    async (method, params) => void sent.push([method, params]),
+    () => drives
+  );
   power.emit('lock-screen');
   screen.emit('display-added');
   assert.deepEqual(sent, []);
@@ -241,15 +276,32 @@ test('a command relayed under its scope endpoint: the scope fences each request,
   const running = wire.serve('host/computer/command', ask);
   await entered.opened;
   const [report] = (await wire.serve('host/computer/revokeScopes', { scopes: [6] })).reports;
-  assert.deepEqual(report, { scope: 6, revision: 1, admission: 'closed', unfinished_at_closure: 2, unfinished: 2, cleanup: 'pending' });
+  assert.deepEqual(report, {
+    scope: 6,
+    revision: 1,
+    admission: 'closed',
+    unfinished_at_closure: 2,
+    unfinished: 2,
+    cleanup: 'pending',
+  });
   assert.deepEqual(wire.notifications, [['host/computer/scopeReport', { report }]], 'pushed before the answer');
   reply.open();
   await assert.rejects(running, /computer use is unavailable/);
   assert.deepEqual(sent, ['first'], 'the continuation was refused');
   await new Promise((resolve) => setImmediate(resolve));
   const pushed = wire.notifications.map(([, params]) => params.report);
-  assert.deepEqual(pushed.at(-1), { scope: 6, revision: pushed.at(-1).revision, admission: 'closed', unfinished_at_closure: 2, unfinished: 0, cleanup: 'complete' });
-  assert.ok(pushed.every((each, at) => at === 0 || each.revision > pushed[at - 1].revision), 'revisions increase');
+  assert.deepEqual(pushed.at(-1), {
+    scope: 6,
+    revision: pushed.at(-1).revision,
+    admission: 'closed',
+    unfinished_at_closure: 2,
+    unfinished: 0,
+    cleanup: 'complete',
+  });
+  assert.ok(
+    pushed.every((each, at) => at === 0 || each.revision > pushed[at - 1].revision),
+    'revisions increase'
+  );
   const [again] = (await wire.serve('host/computer/revokeScopes', { scopes: [6] })).reports;
   assert.deepEqual(again, pushed.at(-1), 'the snapshot of a settled scope repeats its last report');
 });

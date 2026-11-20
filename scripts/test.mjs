@@ -99,7 +99,10 @@ const DISCOVERY_PATTERNS = ROOTS.flatMap((root) =>
 // node-oracle contains explicit comparison suites. Their reference checkout
 // or local recordings are not available to the regular lanes.
 const EXCLUDED_DIRS = new Set(['node_modules', '.runtime', 'out', 'dist', 'target', 'node-oracle']);
-const inExcludedDir = (path) => String(path).split(/[\\/]/).some((segment) => EXCLUDED_DIRS.has(segment));
+const inExcludedDir = (path) =>
+  String(path)
+    .split(/[\\/]/)
+    .some((segment) => EXCLUDED_DIRS.has(segment));
 // Directories (relative to the invoking package) whose tests need a built core, its process-tree helper or cargo, so no
 // plain Node lane runs them: they start mixdogd or compile (scripts/rust-core/core-session.test.mjs and
 // smoke-mixdogd.test.mjs fail without MIXDOGD_BIN, the helper's tests need the helper built). The job that has built
@@ -150,9 +153,11 @@ export function parseArgs(argv) {
     else if (arg === '--exclude-path') {
       const path = argv[++index];
       if (!path || path.startsWith('--')) throw new Error('--exclude-path requires a path');
-      options.excludePaths = [...(options.excludePaths ?? []), path.replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '')];
-    }
-    else if (arg === '--rerun-failed') options.rerunFailed = rerunCount(argv[++index]);
+      options.excludePaths = [
+        ...(options.excludePaths ?? []),
+        path.replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, ''),
+      ];
+    } else if (arg === '--rerun-failed') options.rerunFailed = rerunCount(argv[++index]);
     else if (arg.startsWith('--rerun-failed=')) options.rerunFailed = rerunCount(arg.slice('--rerun-failed='.length));
     else if (arg === '--import') {
       const spec = argv[++index];
@@ -212,16 +217,28 @@ export function skipReportArgs(env = process.env) {
   env.MIXDOG_CHILD_RECEIPTS = childrenOf(resolve(file));
   const reporter = new URL(SKIP_REPORTER);
   reporter.searchParams.set('out', resolve(file));
-  return ['--disable-warning=MaxListenersExceededWarning', `--test-reporter=${reporter.href}`, '--test-reporter-destination=stdout'];
+  return [
+    '--disable-warning=MaxListenersExceededWarning',
+    `--test-reporter=${reporter.href}`,
+    '--test-reporter-destination=stdout',
+  ];
 }
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   // A run that leaves evidence for the release proof is one execution of each test: a re-run that turns a failure green would hide it.
-  if (process.env.MIXDOG_RECEIPT && !options.help && !options.list && (options.rerunFailed ?? defaultRerunFailed()) > 0) {
-    throw new Error('--rerun-failed and MIXDOG_TEST_RERUN_FAILED are not allowed in a run that leaves release evidence (MIXDOG_RECEIPT)');
+  if (
+    process.env.MIXDOG_RECEIPT &&
+    !options.help &&
+    !options.list &&
+    (options.rerunFailed ?? defaultRerunFailed()) > 0
+  ) {
+    throw new Error(
+      '--rerun-failed and MIXDOG_TEST_RERUN_FAILED are not allowed in a run that leaves release evidence (MIXDOG_RECEIPT)'
+    );
   }
-  const receipt = process.env.MIXDOG_RECEIPT && !options.help && !options.list ? resolve(process.env.MIXDOG_RECEIPT) : null;
+  const receipt =
+    process.env.MIXDOG_RECEIPT && !options.help && !options.list ? resolve(process.env.MIXDOG_RECEIPT) : null;
   options.nodeArgs.push(...(options.help || options.list ? [] : skipReportArgs()));
   let threw = true;
   try {
@@ -259,7 +276,9 @@ async function run(options) {
         (options.filters.length === 0 || options.filters.some((filter) => file.includes(filter)))
     );
     if (unreached.length) {
-      console.error(`--changed: no discovered test reaches ${unreached.length} changed file(s); run their tests with a path filter and without --changed:`);
+      console.error(
+        `--changed: no discovered test reaches ${unreached.length} changed file(s); run their tests with a path filter and without --changed:`
+      );
       for (const file of unreached) console.error(`  ${file}`);
     }
     if (!files.length) {
@@ -279,7 +298,8 @@ async function run(options) {
   }
   // The root package loads TypeScript through tsx; apps/desktop passes its own loader, apps/relay has none.
   const rootPackage = resolve(fileURLToPath(new URL('..', import.meta.url)));
-  const rootLoader = resolve(process.cwd()) === rootPackage ? ['--import', new URL('./test-tsx.mjs', import.meta.url).href] : [];
+  const rootLoader =
+    resolve(process.cwd()) === rootPackage ? ['--import', new URL('./test-tsx.mjs', import.meta.url).href] : [];
   await runNodeTests(
     [
       ...rootLoader,

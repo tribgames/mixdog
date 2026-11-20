@@ -32,11 +32,7 @@ import type { createBrowserTaskLifecycle } from './task-lifecycle';
 import { HostRpcError } from '../host/connection';
 import type { SignInDeps } from '../host/browser-engine/signin';
 import { takeoverGate } from '../takeover-gate';
-import {
-  type SecretFillOutcome,
-  secretInputs,
-  type SecretInputs,
-} from '../secret-input';
+import { type SecretFillOutcome, secretInputs, type SecretInputs } from '../secret-input';
 
 type Toolkit = ReturnType<typeof createBrowserCommandToolkit>;
 
@@ -109,7 +105,11 @@ function boundTarget(
   requestId: string,
   registry: SecretInputs
 ):
-  | { guest: WebContents; binding: NonNullable<ReturnType<SecretInputs['binding']>>; onOrigin: (page: WebContents) => boolean }
+  | {
+      guest: WebContents;
+      binding: NonNullable<ReturnType<SecretInputs['binding']>>;
+      onOrigin: (page: WebContents) => boolean;
+    }
   | { text: 'blocked' | 'page_changed' | 'no_field' } {
   const refuse = (text: 'blocked' | 'page_changed' | 'no_field') => {
     registry.discard(requestId);
@@ -167,11 +167,13 @@ export async function runSecretFill(
   if (!secret.value) return { text: 'blocked' };
   const { value, username, save } = secret;
   const bound = fillGuard(host.engine, binding.pageId, secret.expect);
-  const guard = bound && (() => {
-    (host.assertFree || ((id: string) => takeoverGate.assertFree(id)))(sessionId);
-    if (!onOrigin(guest)) throw new BrowserPageChangedError();
-    bound();
-  });
+  const guard =
+    bound &&
+    (() => {
+      (host.assertFree || ((id: string) => takeoverGate.assertFree(id)))(sessionId);
+      if (!onOrigin(guest)) throw new BrowserPageChangedError();
+      bound();
+    });
   try {
     const result = await host.fill(
       guest,
@@ -675,11 +677,28 @@ export function createBrowserHostAgent(options: {
       finishBrowserTurn({ taskLifecycle, sessions, lifecycle }, sessionId, turnId, finish),
     beginTurn: (sessionId, turnId) => sessions.beginTurn(sessionId, turnId),
     secretFill: {
-      precheck: (sessionId, requestId) => precheckSecretFill({ hostId: options.hostId, pageById, fill: tools.credentialFill.fillSecretField }, sessionId, requestId),
+      precheck: (sessionId, requestId) =>
+        precheckSecretFill(
+          { hostId: options.hostId, pageById, fill: tools.credentialFill.fillSecretField },
+          sessionId,
+          requestId
+        ),
       fill: (sessionId, requestId, secret, signal) =>
-        runSecretFill({ hostId: options.hostId, pageById, fill: tools.credentialFill.fillSecretField, engine: options.engine }, sessionId, requestId, secret, signal),
+        runSecretFill(
+          { hostId: options.hostId, pageById, fill: tools.credentialFill.fillSecretField, engine: options.engine },
+          sessionId,
+          requestId,
+          secret,
+          signal
+        ),
     },
-    savedLogin: createSavedLoginHost({ autoSignIn: options.autoSignInEnabled || (() => true), credentials: base.profileImporter, worker: options.savedLoginWorker ?? NO_COMPUTER_HOST, engine: options.engine, text: () => import('./credential-vault') }),
+    savedLogin: createSavedLoginHost({
+      autoSignIn: options.autoSignInEnabled || (() => true),
+      credentials: base.profileImporter,
+      worker: options.savedLoginWorker ?? NO_COMPUTER_HOST,
+      engine: options.engine,
+      text: () => import('./credential-vault'),
+    }),
     handoffPage: (sessionId, action, input, signal) =>
       handoffPageFacts(
         {
@@ -713,12 +732,14 @@ export function createBrowserHostAgent(options: {
     );
   /** What the core's engine asks the desktop about sign-ins and turns (host/browser-engine/signin.ts). */
   const signIn: SignInDeps = {
-    beforeAction: (guest, action, command, signal) => linkedSignIn.beforeAction(guest, action, { ...command, action } as BrowserCommand, signal),
+    beforeAction: (guest, action, command, signal) =>
+      linkedSignIn.beforeAction(guest, action, { ...command, action } as BrowserCommand, signal),
     afterCommand: (input) => autoSignIn.afterCommand(input),
     replyLine: (input) => linkedSignIn.replyLine(input),
     fillStored: (guest, account, signal) => services.credentials.fillStored(guest, account, signal),
     beginTurn: (sessionId, turn) => sessions.beginTurn(sessionId, turn),
-    finishTurn: (sessionId, turn, aborted) => finishBrowserTurn({ taskLifecycle, sessions, lifecycle }, sessionId, turn, { aborted }),
+    finishTurn: (sessionId, turn, aborted) =>
+      finishBrowserTurn({ taskLifecycle, sessions, lifecycle }, sessionId, turn, { aborted }),
     forget: (sessionId) => taskLifecycle.forget(sessionId),
     onDiagnostic: options.onDiagnostic,
   };

@@ -122,7 +122,10 @@ async function commandIn(
       ...(value?.timing ? { timing: value.timing } : {}),
     };
   } catch (error) {
-    const failure = error as { message?: string; detail?: { message?: string; data?: { timing?: BrowserCommandTiming } } };
+    const failure = error as {
+      message?: string;
+      detail?: { message?: string; data?: { timing?: BrowserCommandTiming } };
+    };
     throw Object.assign(new Error(failure.detail?.message || failure.message || 'browser command failed'), {
       timing: failure.detail?.data?.timing,
     });
@@ -173,7 +176,9 @@ const suite: CoreHarnessSuite = async (harness) => {
     // The pane's requests of the page: the harness's shell window is the one the host sends them to.
     const browserSurfaceRequests: DesktopBrowserOpenRequest[] = [];
     const viewportChanges: DesktopBrowserGuestViewportChange[] = [];
-    const shell = webContents.getAllWebContents().find((entry) => entry.getURL().startsWith('data:') && entry.getTitle() === 'Harness shell');
+    const shell = webContents
+      .getAllWebContents()
+      .find((entry) => entry.getURL().startsWith('data:') && entry.getTitle() === 'Harness shell');
     assert.ok(shell, 'the harness has no shell window');
     const sendToRenderer = shell.send.bind(shell);
     shell.send = ((channel: string, ...args: unknown[]) => {
@@ -1604,7 +1609,9 @@ const suite: CoreHarnessSuite = async (harness) => {
       })
       .then((answer) => {
         const reply = answer as { ok?: boolean; error?: string };
-        throw new Error(reply.ok ? 'the stalled navigation completed' : String(reply.error || 'browser command failed'));
+        throw new Error(
+          reply.ok ? 'the stalled navigation completed' : String(reply.error || 'browser command failed')
+        );
       });
     setTimeout(() => void harness.client.call('browser/bridge/abort', { signalId }).catch(() => undefined), 250);
     await assert.rejects(stalled, /abort/i);

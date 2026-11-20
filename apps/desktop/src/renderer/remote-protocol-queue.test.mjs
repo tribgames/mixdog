@@ -426,7 +426,6 @@ test('a hung resolveLocalPaths does not hold submit or settings calls behind it'
   queue.close();
 });
 
-
 // Cross-group ordering: one queue per connection, across every adapter that routes through it (files, scm, terminal, chat).
 test('a file write is finished before the source-control read issued after it starts', async () => {
   const queue = createRemoteCallQueue();
@@ -477,7 +476,9 @@ test('file reads run beside each other and beside a slow search, and a write wai
 test('a project-list change is ordered with the file calls around it', async () => {
   const queue = createRemoteCallQueue();
   const seen = [];
-  const calls = ['addProject', 'listProjects', 'renameProject', 'listProjectDir', 'removeProject'].map((name) => queue.run(name, async () => void seen.push(name)));
+  const calls = ['addProject', 'listProjects', 'renameProject', 'listProjectDir', 'removeProject'].map((name) =>
+    queue.run(name, async () => void seen.push(name))
+  );
   await Promise.all(calls);
   assert.deepEqual(seen, ['addProject', 'listProjects', 'renameProject', 'listProjectDir', 'removeProject']);
   queue.close();

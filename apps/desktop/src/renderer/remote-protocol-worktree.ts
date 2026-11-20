@@ -5,7 +5,11 @@
 import { DESKTOP_WORKTREE_CAPABILITIES, type DesktopWorktreeCapability } from '../shared/contract';
 import { requiredCapabilityRequest } from '../shared/capability-request';
 import { requiredSessionId } from '../main/desktop-state';
-import { isWorktreeCapability, validateWorktreeCapabilityArgs, WORKTREE_CAPABILITY_ARITY } from '../main/worktree-validation';
+import {
+  isWorktreeCapability,
+  validateWorktreeCapabilityArgs,
+  WORKTREE_CAPABILITY_ARITY,
+} from '../main/worktree-validation';
 import { invokePhoneCapability } from './remote-capability-lane';
 import type { NodeCall, PhoneProtocolAdapter } from './remote-shim-protocol';
 

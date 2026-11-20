@@ -54,7 +54,14 @@ test('a listed node keeps its ref and an unlisted one gets a ref minted from its
   const h = harness({
     nodes: [
       { nodeId: 11, node: { backendNodeId: 5, nodeName: 'BUTTON' } },
-      { nodeId: 12, node: { backendNodeId: 77, nodeName: 'DIV', attributes: ['id', 'consent', 'role', 'group', 'aria-label', '  Consent   row '] } },
+      {
+        nodeId: 12,
+        node: {
+          backendNodeId: 77,
+          nodeName: 'DIV',
+          attributes: ['id', 'consent', 'role', 'group', 'aria-label', '  Consent   row '],
+        },
+      },
       { nodeId: 13, node: { backendNodeId: 78, nodeName: 'SECTION' } },
     ],
   });
@@ -71,13 +78,17 @@ test('a listed node keeps its ref and an unlisted one gets a ref minted from its
 });
 
 test('a node bound to a frame session is not the top document node of the same backend id', async () => {
-  const h = harness({ nodes: [{ nodeId: 21, node: { backendNodeId: 90, nodeName: 'A', attributes: ['title', 'Pay'] } }] });
+  const h = harness({
+    nodes: [{ nodeId: 21, node: { backendNodeId: 90, nodeName: 'A', attributes: ['title', 'Pay'] } }],
+  });
   const result = await h.call(params);
   assert.deepEqual(result.matches, [{ ref: 'p1-s2-t90', role: 'a', name: 'Pay' }]);
 });
 
 test('more matches than the limit answer only the count, and a selector the page rejects is reported as invalid', async () => {
-  const many = harness({ nodes: Array.from({ length: 3 }, (_, index) => ({ nodeId: 30 + index, node: { backendNodeId: 100 + index } })) });
+  const many = harness({
+    nodes: Array.from({ length: 3 }, (_, index) => ({ nodeId: 30 + index, node: { backendNodeId: 100 + index } })),
+  });
   const counted = await many.call({ ...params, limit: 2 });
   assert.equal(counted.count, 3);
   assert.deepEqual(counted.matches, []);

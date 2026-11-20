@@ -173,9 +173,10 @@ export function useConversationComposerActions({
         });
       // An idle refusal belongs to the composer that restores the draft; the
       // global invocation handler would announce it and turn it into a second refusal.
-      accepted = optimistic.queuedBehindTurn || options?.retryFailedTurn
-        ? await composerActions.current.invokeResult(send)
-        : await send();
+      accepted =
+        optimistic.queuedBehindTurn || options?.retryFailedTurn
+          ? await composerActions.current.invokeResult(send)
+          : await send();
     } catch (error) {
       if (materializingDraft) suppressDraftSubmitPaintHandoff.current = false;
       if (goalSubmission.current?.id === submissionId) goalSubmission.current = null;

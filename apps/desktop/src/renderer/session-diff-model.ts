@@ -311,7 +311,11 @@ async function runStepsYielding<T>(steps: Generator<number, T, void>): Promise<T
 
 /** File section starts: lines matching `marker` (global, multiline), found
  *  one chunk of patch at a time; the chunks are hashed into `hash.value`. */
-function* scanSections(patch: string, marker: RegExp, hash: { value: number } | null): Generator<number, number[], void> {
+function* scanSections(
+  patch: string,
+  marker: RegExp,
+  hash: { value: number } | null
+): Generator<number, number[], void> {
   const starts: number[] = [];
   for (let at = 0; at < patch.length; at += SCAN_CHUNK) {
     const end = Math.min(patch.length, at + SCAN_CHUNK);
@@ -332,7 +336,10 @@ function* scanSections(patch: string, marker: RegExp, hash: { value: number } | 
 }
 
 /** The result's content digest, a chunk of patch or a file per step. */
-function* fingerprintSteps(result: SessionDiffResult | null, patch: string): Generator<number, { fingerprint: string; starts: number[] | null }, void> {
+function* fingerprintSteps(
+  result: SessionDiffResult | null,
+  patch: string
+): Generator<number, { fingerprint: string; starts: number[] | null }, void> {
   const hash = { value: FNV_OFFSET };
   const { files: _files, patch: _patch, ...flags } = (result ?? {}) as SessionDiffResult;
   hash.value = fnv(hash.value, JSON.stringify(flags));
@@ -362,7 +369,11 @@ export function sessionDiffFingerprint(result: SessionDiffResult | null): string
 function* exactDiffSteps(left: SessionDiffResult, right: SessionDiffResult): Generator<number, boolean, void> {
   const { patch, files, ...flags } = left;
   const { patch: otherPatch, files: others, ...otherFlags } = right;
-  if (patch !== otherPatch || files?.length !== others?.length || JSON.stringify(flags) !== JSON.stringify(otherFlags)) {
+  if (
+    patch !== otherPatch ||
+    files?.length !== others?.length ||
+    JSON.stringify(flags) !== JSON.stringify(otherFlags)
+  ) {
     return false;
   }
   for (let i = 0; files && i < files.length; i++) {

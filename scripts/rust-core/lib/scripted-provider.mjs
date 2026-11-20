@@ -7,7 +7,13 @@ const sse = (res, chunks) => {
   for (const chunk of chunks) res.write(`data: ${typeof chunk === 'string' ? chunk : JSON.stringify(chunk)}\n\n`);
   res.end();
 };
-const chunk = (delta, finish = null) => ({ id: 'scripted', object: 'chat.completion.chunk', created: 0, model: 'smoke', choices: [{ index: 0, delta, finish_reason: finish }] });
+const chunk = (delta, finish = null) => ({
+  id: 'scripted',
+  object: 'chat.completion.chunk',
+  created: 0,
+  model: 'smoke',
+  choices: [{ index: 0, delta, finish_reason: finish }],
+});
 
 /**
  * @param {{ tool: string, args: string }} call the one tool call the first request answers with (`args` is the raw JSON string)
@@ -36,7 +42,14 @@ export function startScriptedProvider({ tool, args }) {
       }
       requests.push({ method: req.method, url: req.url, body });
       if (requests.length === 1) {
-        sse(res, [chunk({ role: 'assistant', tool_calls: [{ index: 0, id: 'call_smoke', type: 'function', function: { name: tool, arguments: args } }] }), chunk({}, 'tool_calls'), '[DONE]']);
+        sse(res, [
+          chunk({
+            role: 'assistant',
+            tool_calls: [{ index: 0, id: 'call_smoke', type: 'function', function: { name: tool, arguments: args } }],
+          }),
+          chunk({}, 'tool_calls'),
+          '[DONE]',
+        ]);
       } else {
         sawToolResult(requests.at(-1));
         sse(res, [chunk({ role: 'assistant', content: 'done' }), chunk({}, 'stop'), '[DONE]']);
@@ -51,10 +64,11 @@ export function startScriptedProvider({ tool, args }) {
         baseURL: `http://127.0.0.1:${port}`,
         requests,
         toolResult,
-        close: () => new Promise((resolveClose) => {
-          server.closeAllConnections();
-          server.close(resolveClose);
-        }),
+        close: () =>
+          new Promise((resolveClose) => {
+            server.closeAllConnections();
+            server.close(resolveClose);
+          }),
       });
     });
   });

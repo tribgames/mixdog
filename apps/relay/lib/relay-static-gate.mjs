@@ -174,20 +174,29 @@ export function serveStatic(renderer, store, unauthorizedLimiter, request, respo
   const unmatched = selected === null;
   const classify = unmatched || (access.route && isNativeAppRequest(request));
   const resolved = classify && rendererDir ? resolveStaticTarget(rendererDir, rest) : { status: 404 };
-  const document = classify && (rest === '/' || rest === '/index.html' || (resolved.status === 200 &&
-    resolved.target === resolveStaticTarget(rendererDir, '/index.html').target));
+  const document =
+    classify &&
+    (rest === '/' ||
+      rest === '/index.html' ||
+      (resolved.status === 200 && resolved.target === resolveStaticTarget(rendererDir, '/index.html').target));
   if (document && access.route && serveUpdatePcPage(renderer, store, access, request, response)) return;
   if (selected === null && document) {
     // An OK, no-store document evicts the stale shell in already shipped workers.
-    response.writeHead(200, {
-      'Cache-Control': 'no-store',
-      'Content-Type': 'text/html; charset=utf-8',
-      'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
-      'X-Content-Type-Options': 'nosniff',
-    }).end(request.method === 'HEAD' ? undefined :
-      '<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Web client unavailable</title>' +
-      '<h1>Web client unavailable</h1><p>The web client for this PC version is unavailable.</p>' +
-      '<button type="button" onclick="location.reload()">Reload page</button>');
+    response
+      .writeHead(200, {
+        'Cache-Control': 'no-store',
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Security-Policy':
+          "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+        'X-Content-Type-Options': 'nosniff',
+      })
+      .end(
+        request.method === 'HEAD'
+          ? undefined
+          : '<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Web client unavailable</title>' +
+              '<h1>Web client unavailable</h1><p>The web client for this PC version is unavailable.</p>' +
+              '<button type="button" onclick="location.reload()">Reload page</button>'
+      );
     return;
   }
   if (!rendererDir || (selected === null && !PUBLIC_APP_ASSETS.has(pathname) && !WORKER_SCRIPTS.has(pathname))) {

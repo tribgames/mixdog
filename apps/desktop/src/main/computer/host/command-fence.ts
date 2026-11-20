@@ -40,7 +40,8 @@ export function switchEndpoint(signal: AbortSignal, enabled: () => boolean): Com
   return {
     signal,
     commit() {
-      if (!enabled()) throw new Error('computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings');
+      if (!enabled())
+        throw new Error('computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings');
     },
     track() {},
   };

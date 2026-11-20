@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type {
-  DesktopTidyEngine,
-  DesktopTidyEngineStatus,
-  DesktopTidyInstallEngine,
-} from '../../shared/contract';
+import type { DesktopTidyEngine, DesktopTidyEngineStatus, DesktopTidyInstallEngine } from '../../shared/contract';
 import { t } from '../i18n';
 import { record } from '../record-utils';
 import type { SidebarResourceTag } from '../sidebar-resource-row';
@@ -53,10 +49,14 @@ export type TidyEngineSnapshot = Omit<DesktopTidyEngineStatus, 'installing'>;
 function installStatusOf(value: unknown): TidyInstallProgress | null {
   const status = record(value);
   if (typeof status.active !== 'boolean') return null;
-  const engines = Array.isArray(status.engines) ? status.engines.filter((value): value is DesktopTidyInstallEngine => {
-    const engine = record(value);
-    return typeof engine.id === 'string' && typeof engine.status === 'string' && Number.isFinite(engine.receivedBytes);
-  }) : [];
+  const engines = Array.isArray(status.engines)
+    ? status.engines.filter((value): value is DesktopTidyInstallEngine => {
+        const engine = record(value);
+        return (
+          typeof engine.id === 'string' && typeof engine.status === 'string' && Number.isFinite(engine.receivedBytes)
+        );
+      })
+    : [];
   return {
     active: status.active,
     percent: typeof status.percent === 'number' && Number.isFinite(status.percent) ? status.percent : null,
@@ -67,11 +67,18 @@ function installStatusOf(value: unknown): TidyInstallProgress | null {
 function engineStatusOf(value: unknown): TidyEngineSnapshot | null {
   const status = record(value);
   if (typeof status.toolsDir !== 'string' || !stringList(status.core) || !Array.isArray(status.engines)) return null;
-  if (!status.engines.every((value) => {
-    const engine = record(value);
-    return typeof engine.id === 'string' && typeof engine.title === 'string' &&
-      stringList(engine.languages) && stringList(engine.kind);
-  })) return null;
+  if (
+    !status.engines.every((value) => {
+      const engine = record(value);
+      return (
+        typeof engine.id === 'string' &&
+        typeof engine.title === 'string' &&
+        stringList(engine.languages) &&
+        stringList(engine.kind)
+      );
+    })
+  )
+    return null;
   return { toolsDir: status.toolsDir, core: status.core, engines: status.engines, probing: status.probing === true };
 }
 
@@ -240,7 +247,8 @@ export function useTidyEngineStatus(
     }
     const next = engineStatusOf(value);
     // A newer partial reply withdraws the catalog; an older reply must not put its actions back.
-    if (latest.current === ticket) setSnapshot({ api, status: next, progress: installStatusOf(record(value).installing) });
+    if (latest.current === ticket)
+      setSnapshot({ api, status: next, progress: installStatusOf(record(value).installing) });
     return next;
   }, [api]);
 
@@ -249,7 +257,9 @@ export function useTidyEngineStatus(
   useEffect(() => {
     if (!active) return;
     void refresh();
-    return () => { latest.current += 1; };
+    return () => {
+      latest.current += 1;
+    };
   }, [active, opened, refresh]);
 
   // A host-module probe still pending settles on its own: keep asking until

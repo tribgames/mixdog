@@ -37,14 +37,17 @@ test('a first schedule save is usable before refresh settles, without discarding
   const write = Promise.withResolvers();
   const refresh = Promise.withResolvers();
   const saves = [];
-  const { document, name, instructions, submit, requestNewSchedule } = await mountSchedules(t, ({ capability, args }) => {
-    if (capability === 'getChannelSetup') return saves.length ? refresh.promise : { value: { schedules: [] } };
-    if (capability === 'saveSchedule') {
-      saves.push(args[0]);
-      return write.promise;
+  const { document, name, instructions, submit, requestNewSchedule } = await mountSchedules(
+    t,
+    ({ capability, args }) => {
+      if (capability === 'getChannelSetup') return saves.length ? refresh.promise : { value: { schedules: [] } };
+      if (capability === 'saveSchedule') {
+        saves.push(args[0]);
+        return write.promise;
+      }
+      return { value: null };
     }
-    return { value: null };
-  });
+  );
 
   await act(async () => document.querySelector('.schedules-add').click());
   name().value = 'daily-report';
@@ -96,7 +99,9 @@ test('late save outcomes preserve a newer same-name row and report rejection out
       return { value: null };
     });
   const openReport = () =>
-    [...document.querySelectorAll('.routines-open')].find((button) => button.textContent.includes('daily-report')).click();
+    [...document.querySelectorAll('.routines-open')]
+      .find((button) => button.textContent.includes('daily-report'))
+      .click();
   const toasts = [];
   const { DESKTOP_TOAST_EVENT } = await import('./desktop-toasts.tsx');
   window.addEventListener(DESKTOP_TOAST_EVENT, (event) => toasts.push(event.detail));
@@ -105,7 +110,9 @@ test('late save outcomes preserve a newer same-name row and report rejection out
   instructions().value = 'Instructions from the pending write';
   await act(async () => submit());
   await act(async () => updateSidebarReference('channelSetup', { schedules: [newer, unrelated] }));
-  await act(async () => receipt.resolve({ value: { ...original, instructions: 'Instructions from the pending write' } }));
+  await act(async () =>
+    receipt.resolve({ value: { ...original, instructions: 'Instructions from the pending write' } })
+  );
 
   await act(async () => openReport());
   assert.equal(instructions().value, 'Newer catalog instructions', 'a late receipt must not replace the observed row');
@@ -135,15 +142,17 @@ test('a delayed create receipt cannot resurrect a schedule after a published del
   const receipt = Promise.withResolvers();
   const refresh = Promise.withResolvers();
   let saves = 0;
-  const { document, name, instructions, submit, requestNewSchedule, updateSidebarReference } =
-    await mountSchedules(t, ({ capability }) => {
+  const { document, name, instructions, submit, requestNewSchedule, updateSidebarReference } = await mountSchedules(
+    t,
+    ({ capability }) => {
       if (capability === 'getChannelSetup') return saves ? refresh.promise : { value: empty };
       if (capability === 'saveSchedule') {
         saves++;
         return receipt.promise;
       }
       return { value: null };
-    });
+    }
+  );
 
   await act(async () => document.querySelector('.schedules-add').click());
   name().value = saved.name;

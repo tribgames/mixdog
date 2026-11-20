@@ -74,7 +74,10 @@ function parseArgs(argv) {
 /** The client library's `Connector` over a WebSocket with the discovery token and, for a window, its header. */
 function connectorFor(doc, windowId) {
   const url = `ws://127.0.0.1:${doc.core.rpc.port}/rpc`;
-  const headers = { Authorization: `Bearer ${doc.endpoints.session.token}`, ...(windowId ? { 'Mixdog-Window': windowId } : {}) };
+  const headers = {
+    Authorization: `Bearer ${doc.endpoints.session.token}`,
+    ...(windowId ? { 'Mixdog-Window': windowId } : {}),
+  };
   return {
     open(_target, sink) {
       const socket = new WebSocket(url, { headers, perMessageDeflate: false, maxPayload: 16 * 1024 * 1024 });
@@ -113,7 +116,8 @@ class Link {
     this.resolved = [];
     this.tabs = new Map();
     this.off = client.on((event) => {
-      if (event.type === 'serverRequest' && /requestApproval$/.test(event.request.method)) this.approvals.push(event.request);
+      if (event.type === 'serverRequest' && /requestApproval$/.test(event.request.method))
+        this.approvals.push(event.request);
       else if (event.type === 'serverRequestResolved') this.resolved.push(event.params);
       else if (event.type === 'notification') this.frame(event.notification);
     });
@@ -121,12 +125,16 @@ class Link {
 
   frame(notification) {
     const feed = notification.feed?.id;
-    if (typeof feed !== 'string' || !feed.startsWith('process:') || notification.method !== 'process/outputDelta') return;
+    if (typeof feed !== 'string' || !feed.startsWith('process:') || notification.method !== 'process/outputDelta')
+      return;
     const tab = this.tabs.get(feed.slice('process:'.length));
     if (!tab) return;
     const { bytesB64, leadUnit, tailUnit } = notification.params ?? {};
     const unit = (value) => (typeof value === 'number' ? String.fromCharCode(value) : '');
-    tab.partial += unit(leadUnit) + tab.decoder.decode(Buffer.from(String(bytesB64 ?? ''), 'base64'), { stream: true }) + unit(tailUnit);
+    tab.partial +=
+      unit(leadUnit) +
+      tab.decoder.decode(Buffer.from(String(bytesB64 ?? ''), 'base64'), { stream: true }) +
+      unit(tailUnit);
     const cut = tab.partial.lastIndexOf('\n');
     if (cut < 0) return;
     for (const row of tab.partial.slice(0, cut).split('\n')) {
@@ -154,14 +162,25 @@ class Link {
 async function startOwnCore(bin) {
   const { startCore, within } = await import('../../../scripts/rust-core/lib/core-session.mjs');
   const { startScriptedProvider } = await import('../../../scripts/rust-core/lib/scripted-provider.mjs');
-  const ids = { prompt: 'custom-11111111-1111-4111-8111-111111111111', approve: 'custom-22222222-2222-4222-8222-222222222222', race: 'custom-33333333-3333-4333-8333-333333333333' };
+  const ids = {
+    prompt: 'custom-11111111-1111-4111-8111-111111111111',
+    approve: 'custom-22222222-2222-4222-8222-222222222222',
+    race: 'custom-33333333-3333-4333-8333-333333333333',
+  };
   const command = JSON.stringify({ command: 'echo approval-smoke' });
   const providers = {
     prompt: await startScriptedProvider({ tool: 'read', args: '{}' }),
     approve: await startScriptedProvider({ tool: 'bash', args: command }),
     race: await startScriptedProvider({ tool: 'bash', args: command }),
   };
-  const entry = (key) => ({ type: 'custom', name: `smoke-${key}`, protocol: 'openai-chat', baseURL: providers[key].baseURL, auth: 'none', models: [{ id: 'smoke' }] });
+  const entry = (key) => ({
+    type: 'custom',
+    name: `smoke-${key}`,
+    protocol: 'openai-chat',
+    baseURL: providers[key].baseURL,
+    auth: 'none',
+    models: [{ id: 'smoke' }],
+  });
   const config = { agent: { providers: Object.fromEntries(Object.keys(ids).map((key) => [ids[key], entry(key)])) } };
   const root = mkdtempSync(join(tmpdir(), 'mixdog-direct-smoke-'));
   let core;
@@ -198,7 +217,9 @@ async function run() {
     args = parseArgs(process.argv.slice(2));
   } catch (error) {
     console.error(`direct-core-smoke: ${message(error)}`);
-    console.error('usage: direct-core-smoke.mjs --core <daemon.json> [--workspace <dir>] [--route <provider>:<model>] | --mixdogd <binary>');
+    console.error(
+      'usage: direct-core-smoke.mjs --core <daemon.json> [--workspace <dir>] [--route <provider>:<model>] | --mixdogd <binary>'
+    );
     return 2;
   }
   let own = null;
@@ -211,7 +232,8 @@ async function run() {
       ({ doc, workspace, routes } = own);
     } else {
       doc = JSON.parse(readFileSync(resolve(args.core), 'utf8'));
-      if (!doc?.core?.rpc?.port || !doc?.endpoints?.session?.token) throw new Error(`${args.core} is not a serving core's discovery file (core.rpc.port, endpoints.session.token)`);
+      if (!doc?.core?.rpc?.port || !doc?.endpoints?.session?.token)
+        throw new Error(`${args.core} is not a serving core's discovery file (core.rpc.port, endpoints.session.token)`);
       if (args.route) {
         const cut = args.route.indexOf(':');
         if (cut <= 0) throw new Error('--route is <provider>:<model>');
@@ -234,7 +256,12 @@ async function run() {
         const client = await connect({
           target: { id: label },
           connector: connectorFor(doc, windowId),
-          clientInfo: { name: `direct-core-smoke-${label}`, title: label, version: wanted, kind: windowId ? 'desktop' : 'cli' },
+          clientInfo: {
+            name: `direct-core-smoke-${label}`,
+            title: label,
+            version: wanted,
+            kind: windowId ? 'desktop' : 'cli',
+          },
           capabilities: windowId ? { approvalsInbox: true } : {},
           clock: { sleep },
           random: Math.random,
@@ -289,18 +316,47 @@ async function run() {
   const needs = (what, ...values) => {
     if (values.some((value) => !value)) throw new NotRun(`not run: needs ${what}`);
   };
-  const blobText = async (client, text) => ({ $blobRef: (await client.putBlob(Buffer.from(text, 'utf8'), 'text/plain')).blob.digest, as: 'text' });
+  const blobText = async (client, text) => ({
+    $blobRef: (await client.putBlob(Buffer.from(text, 'utf8'), 'text/plain')).blob.digest,
+    as: 'text',
+  });
   const startThread = async (client, route, interactive) => {
-    const draft = { projectPath: workspace, route, orchestrationMode: 'none', ...(interactive ? {} : { workflowId: 'headless' }) };
-    const session = interactive ? undefined : { toolProfile: 'headless', toolMode: 'full', approvalMode: 'implicit', disallowDelegation: true, autoWakeCompletions: false, webSearch: false, memory: false };
-    const started = await client.call('thread/start', { kind: 'task', projectPath: workspace, draft, ...(session ? { session } : {}) });
+    const draft = {
+      projectPath: workspace,
+      route,
+      orchestrationMode: 'none',
+      ...(interactive ? {} : { workflowId: 'headless' }),
+    };
+    const session = interactive
+      ? undefined
+      : {
+          toolProfile: 'headless',
+          toolMode: 'full',
+          approvalMode: 'implicit',
+          disallowDelegation: true,
+          autoWakeCompletions: false,
+          webSearch: false,
+          memory: false,
+        };
+    const started = await client.call('thread/start', {
+      kind: 'task',
+      projectPath: workspace,
+      draft,
+      ...(session ? { session } : {}),
+    });
     const id = started?.thread?.id;
     if (!id) throw new Error(`thread/start answered without a thread: ${JSON.stringify(started).slice(0, 200)}`);
     return id;
   };
 
-  await check('list projects (main)', async () => `${JSON.stringify(await main.client.call('project/list', {})).length} bytes`);
-  await check('list projects (window)', async () => `${JSON.stringify(await windowA.client.call('project/list', {})).length} bytes`);
+  await check(
+    'list projects (main)',
+    async () => `${JSON.stringify(await main.client.call('project/list', {})).length} bytes`
+  );
+  await check(
+    'list projects (window)',
+    async () => `${JSON.stringify(await windowA.client.call('project/list', {})).length} bytes`
+  );
 
   let promptThread = null;
   await check('start a thread', async () => {
@@ -314,8 +370,12 @@ async function run() {
     const head = `HEAD-${nonce()}`;
     const tail = `TAIL-${nonce()}`;
     const text = head + 'a'.repeat(PROMPT_CHARS - head.length - tail.length) + tail;
-    const started = await main.client.call('turn/start', { threadId: promptThread, input: { prompt: [{ type: 'text', text: await blobText(main.client, text) }] } });
-    if (started?.kind !== 'started' && started?.kind !== 'queued') throw new Error(`turn/start answered ${JSON.stringify(started).slice(0, 200)}`);
+    const started = await main.client.call('turn/start', {
+      threadId: promptThread,
+      input: { prompt: [{ type: 'text', text: await blobText(main.client, text) }] },
+    });
+    if (started?.kind !== 'started' && started?.kind !== 'queued')
+      throw new Error(`turn/start answered ${JSON.stringify(started).slice(0, 200)}`);
     const provider = own?.providers.prompt;
     if (!provider) return `accepted (${text.length} chars); the model side is not scripted here`;
     const request = await waitFor('the model request', STEP_MS, () => provider.requests[0]);
@@ -329,26 +389,36 @@ async function run() {
     needs('--workspace', workspace);
     const rel = `.direct-core-smoke-${nonce()}.txt`;
     const text = '0123456789abcdef'.repeat(Math.ceil(FILE_BYTES / 16)).slice(0, FILE_BYTES - 1) + '\n';
-    await windowA.client.call('projectFs/writeText', { root: workspace, rel, content: await blobText(windowA.client, text), expectedContent: '' });
+    await windowA.client.call('projectFs/writeText', {
+      root: workspace,
+      rel,
+      content: await blobText(windowA.client, text),
+      expectedContent: '',
+    });
     try {
       const read = await main.client.call('projectFs/readText', { root: workspace, rel });
       const back = typeof read === 'string' ? read : (read?.content ?? read?.text);
-      if (typeof back !== 'string') throw new Error(`projectFs/readText answered ${JSON.stringify(read).slice(0, 200)}`);
+      if (typeof back !== 'string')
+        throw new Error(`projectFs/readText answered ${JSON.stringify(read).slice(0, 200)}`);
       if (back !== text) throw new Error(`the file read back differs (${back.length} chars, wrote ${text.length})`);
       return `${rel}, ${text.length} bytes`;
     } finally {
       // The file is the smoke's own: it does not stay in the workspace (a --core run may point at a real project).
-      await main.client.call('projectFs/trash', { root: workspace, rel }).catch((error) => console.error(`could not trash ${rel}: ${message(error)}`));
+      await main.client
+        .call('projectFs/trash', { root: workspace, rel })
+        .catch((error) => console.error(`could not trash ${rel}: ${message(error)}`));
     }
   });
 
   for (const link of [main, windowA]) {
     await check(`terminal ensure/attach/input/output (${link.label})`, async () => {
       const made = await link.client.call('terminal/ensure', { options: { cols: 80, rows: 24 } });
-      if (!made || typeof made.id !== 'string' || !made.id) throw new Error(`terminal/ensure answered ${JSON.stringify(made)}`);
+      if (!made || typeof made.id !== 'string' || !made.id)
+        throw new Error(`terminal/ensure answered ${JSON.stringify(made)}`);
       try {
         const reply = await link.attach(made.id);
-        if (!reply || typeof reply.replay !== 'string' || typeof reply.subscription?.id !== 'string') throw new Error(`terminal/attach answered ${JSON.stringify(reply)}`);
+        if (!reply || typeof reply.replay !== 'string' || typeof reply.subscription?.id !== 'string')
+          throw new Error(`terminal/attach answered ${JSON.stringify(reply)}`);
         const mark = `MK-${nonce()}`;
         link.client.notify('terminal/input', { tabId: made.id, data: `echo ${mark}\r` });
         const tab = link.tabs.get(made.id);
@@ -363,7 +433,11 @@ async function run() {
 
   await check('denied process/spawn (window)', async () => {
     try {
-      await windowA.client.call('process/spawn', { processHandle: `smoke-${nonce()}`, argv: ['node', '-v'], owner: 'internal' });
+      await windowA.client.call('process/spawn', {
+        processHandle: `smoke-${nonce()}`,
+        argv: ['node', '-v'],
+        owner: 'internal',
+      });
     } catch (error) {
       const detail = error?.detail;
       if (detail?.kind === 'rpc' && detail.reason === 'permissionDenied') return 'permissionDenied';
@@ -388,7 +462,8 @@ async function run() {
     const { thread, offered } = await askApproval(routes.approve, [windowA]);
     windowA.client.respond(offered(windowA).id, { result: { approved: false } });
     const resolved = await waitFor('the approval resolved', STEP_MS, () => decided(windowA, thread));
-    if (resolved.resolution.kind !== 'decided' || resolved.resolution.decision.approved !== false) throw new Error(`resolved as ${JSON.stringify(resolved.resolution).slice(0, 200)}`);
+    if (resolved.resolution.kind !== 'decided' || resolved.resolution.decision.approved !== false)
+      throw new Error(`resolved as ${JSON.stringify(resolved.resolution).slice(0, 200)}`);
     return `denied by ${resolved.resolution.connectionKind}`;
   });
 
@@ -400,7 +475,9 @@ async function run() {
     for (const link of [windowA, windowB]) {
       const resolved = await waitFor(`the approval resolved on ${link.label}`, STEP_MS, () => decided(link, thread));
       if (resolved.resolution.kind !== 'decided' || resolved.resolution.decision.approved !== false) {
-        throw new Error(`${link.label} saw ${JSON.stringify(resolved.resolution).slice(0, 200)}, not the first window's denial`);
+        throw new Error(
+          `${link.label} saw ${JSON.stringify(resolved.resolution).slice(0, 200)}, not the first window's denial`
+        );
       }
     }
     return 'both windows saw the first answer';
@@ -412,7 +489,11 @@ async function run() {
   const skipped = results.filter((ok) => ok === null).length;
   const ran = results.length - skipped;
   const unrun = skipped ? `; ${skipped} not run (give --route and --workspace, or --mixdogd)` : '';
-  console.log(failed ? `direct-core-smoke: ${failed} of ${ran} steps FAILED${unrun}` : `direct-core-smoke: all ${ran} steps run passed${unrun}`);
+  console.log(
+    failed
+      ? `direct-core-smoke: ${failed} of ${ran} steps FAILED${unrun}`
+      : `direct-core-smoke: all ${ran} steps run passed${unrun}`
+  );
   return failed ? 1 : 0;
 }
 

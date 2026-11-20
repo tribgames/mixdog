@@ -48,7 +48,8 @@ async function run(): Promise<void> {
       request: async () => ({}),
       notify: () => undefined,
       sendBinary: () => undefined,
-      handleRequest: (method, handler) => void handlers.set(method, (params) => handler(params, new AbortController().signal)),
+      handleRequest: (method, handler) =>
+        void handlers.set(method, (params) => handler(params, new AbortController().signal)),
       handleNotification: () => undefined,
       servedMethods: () => [],
       onClose: () => undefined,

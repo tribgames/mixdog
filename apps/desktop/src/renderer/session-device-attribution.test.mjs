@@ -107,7 +107,10 @@ test('a handed-back prompt lands only in the composer of the device that sent it
     applyPromptRestore({ ...restore, id: 'r0', ids: ['desktop-submit-someone-else'] }, 'draft', 's1', applied),
     null
   );
-  assert.equal(applyPromptRestore(restore, 'half typed', 's1', applied), draftWithRestoredPrompt('half typed', 'my prompt'));
+  assert.equal(
+    applyPromptRestore(restore, 'half typed', 's1', applied),
+    draftWithRestoredPrompt('half typed', 'my prompt')
+  );
   assert.ok(applyPromptRestore(restore, 'half typed', 's1', new Map()), 'ownership, not the draft, decides');
   assert.equal(applyPromptRestore(restore, 'half typed', 's1', applied), null, 'applied once');
   assert.ok(draftWithRestoredPrompt('half typed', 'my prompt').includes('half typed'));

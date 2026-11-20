@@ -27,7 +27,9 @@ function fakeClient(answer = async () => ({ ok: true })) {
     },
     notify: (method, params) => calls.push({ notify: method, params }),
     subscribeApp: async () => undefined,
-    resumeThread: async (threadId, win) => (calls.push({ method: 'thread/resume', params: { threadId, window: win } }), {}),
+    resumeThread: async (threadId, win) => (
+      calls.push({ method: 'thread/resume', params: { threadId, window: win } }), {}
+    ),
     unsubscribeThread: async (threadId) => void calls.push({ method: 'thread/unsubscribe', params: { threadId } }),
     respond: () => undefined,
     pendingServerRequests: () => [],
@@ -42,10 +44,25 @@ async function opened(answer) {
   await connection.start();
   return { client, connection };
 }
-const win = () => ({ seen: [], lost: [], pushes: [], push(p) { this.pushes.push(p); }, notification(m, p) { this.seen.push([m, p]); }, loginFeedLost(f) { this.lost.push(f); } });
+const win = () => ({
+  seen: [],
+  lost: [],
+  pushes: [],
+  push(p) {
+    this.pushes.push(p);
+  },
+  notification(m, p) {
+    this.seen.push([m, p]);
+  },
+  loginFeedLost(f) {
+    this.lost.push(f);
+  },
+});
 
 test('capability_lane_runs', async () => {
-  const { client, connection } = await opened(async (method) => (method === 'thread/start' ? { thread: { id: 't1' } } : { ok: true }));
+  const { client, connection } = await opened(async (method) =>
+    method === 'thread/start' ? { thread: { id: 't1' } } : { ok: true }
+  );
   const lane = createCapabilityLane({ protocol: connection });
   await lane.stopShellJob('s1', 'task1').catch(() => undefined);
   assert.ok(client.calls.length > 0, 'the lane sent its requests through the connection');
@@ -59,9 +76,16 @@ test('service_lane_resume_unsubscribe', async () => {
   assert.equal(await lane.call('setVisibleSessions', [['a', 'b']]), true);
   assert.equal(await lane.call('setVisibleSessions', [['b']]), true);
   // Acceptance answers the call; the lane brings each thread there after it, so the unsubscribe follows the reply.
-  const sent = () => client.calls.filter((c) => /^thread\/(resume|unsubscribe)$/.test(c.method)).map((c) => [c.method, c.params.threadId]);
+  const sent = () =>
+    client.calls
+      .filter((c) => /^thread\/(resume|unsubscribe)$/.test(c.method))
+      .map((c) => [c.method, c.params.threadId]);
   for (let turn = 0; turn < 50 && sent().length < 3; turn++) await new Promise((r) => setImmediate(r));
-  assert.deepEqual(sent(), [['thread/resume', 'a'], ['thread/resume', 'b'], ['thread/unsubscribe', 'a']]);
+  assert.deepEqual(sent(), [
+    ['thread/resume', 'a'],
+    ['thread/resume', 'b'],
+    ['thread/unsubscribe', 'a'],
+  ]);
   lane.dispose();
 });
 
@@ -70,15 +94,29 @@ test('watch_per_connection', async () => {
   const w = win();
   const detach = connection.attach(w);
   await connection.watchFiles(w, { watchId: 'w1', path: '/x' });
-  assert.deepEqual(client.calls.at(-1), { method: 'fs/watch', params: { watchId: 'w1', path: '/x' } }, 'the id is sent as the caller chose it');
-  client.emit({ type: 'notification', notification: { method: 'fs/changed', params: { watchId: 'w1', changedPaths: ['/x/a'] } } });
+  assert.deepEqual(
+    client.calls.at(-1),
+    { method: 'fs/watch', params: { watchId: 'w1', path: '/x' } },
+    'the id is sent as the caller chose it'
+  );
+  client.emit({
+    type: 'notification',
+    notification: { method: 'fs/changed', params: { watchId: 'w1', changedPaths: ['/x/a'] } },
+  });
   assert.equal(w.seen[0][0], 'fs/changed');
   await connection.viewPorts(w, true);
   await connection.viewPorts(win(), true);
-  assert.equal(client.calls.filter((c) => c.method === 'system/ports/subscribe').length, 1, 'the first viewer subscribes');
+  assert.equal(
+    client.calls.filter((c) => c.method === 'system/ports/subscribe').length,
+    1,
+    'the first viewer subscribes'
+  );
   detach();
   await new Promise((r) => setImmediate(r));
-  assert.ok(client.calls.some((c) => c.method === 'fs/unwatch' && c.params.watchId === 'w1'), 'closing the window releases its watch');
+  assert.ok(
+    client.calls.some((c) => c.method === 'fs/unwatch' && c.params.watchId === 'w1'),
+    'closing the window releases its watch'
+  );
 });
 
 test('watches_restored_after_reconnect', async () => {
@@ -97,7 +135,10 @@ test('restore_line_separates_attempted_from_settled', async () => {
     if (method === 'fs/watch' && params.watchId === 'w2') throw new Error('refused');
     return {};
   });
-  const connection = createRendererConnection({ open: async () => client, log: (event, fields) => lines.push({ event, ...fields }) });
+  const connection = createRendererConnection({
+    open: async () => client,
+    log: (event, fields) => lines.push({ event, ...fields }),
+  });
   await connection.start();
   const w = win();
   connection.attach(w);
@@ -107,29 +148,50 @@ test('restore_line_separates_attempted_from_settled', async () => {
   client.emit({ type: 'status', status: { state: 'reconnecting' } });
   client.emit({ type: 'status', status: { state: 'ready' } });
   await new Promise((r) => setImmediate(r));
-  assert.deepEqual(lines.map((l) => l.event), ['core-scoped-feeds-restore-started', 'core-scoped-feeds-restore-settled'], 'the attempt first, its outcome after');
+  assert.deepEqual(
+    lines.map((l) => l.event),
+    ['core-scoped-feeds-restore-started', 'core-scoped-feeds-restore-settled'],
+    'the attempt first, its outcome after'
+  );
   const [started, settled] = lines;
   assert.equal('restored' in started, false, 'the attempt carries no outcome');
-  assert.equal(settled.restored + settled.lost + settled.failed, started.attempted.fsWatches + started.attempted.feeds + started.attempted.ports);
+  assert.equal(
+    settled.restored + settled.lost + settled.failed,
+    started.attempted.fsWatches + started.attempted.feeds + started.attempted.ports
+  );
   assert.ok(settled.restored >= 1);
 });
 
 test('errors_mapped', async () => {
-  const rpc = Object.assign(new Error('x'), { detail: { kind: 'rpc', code: -32602, data: { reason: 'invalidParams', path: 'p', expected: 'path must be a string' } } });
+  const rpc = Object.assign(new Error('x'), {
+    detail: {
+      kind: 'rpc',
+      code: -32602,
+      data: { reason: 'invalidParams', path: 'p', expected: 'path must be a string' },
+    },
+  });
   const { connection } = await opened(async () => {
     throw rpc;
   });
-  await assert.rejects(connection.call('project/list', {}), (e) => e instanceof TypeError && e.message === 'path must be a string');
+  await assert.rejects(
+    connection.call('project/list', {}),
+    (e) => e instanceof TypeError && e.message === 'path must be a string'
+  );
   await assert.rejects(connection.watchFiles(win(), { watchId: 'w' }), TypeError);
 });
 
 test('login_feed_followed_and_lost', async () => {
-  const { client, connection } = await opened(async (method) => (method === 'github/login/start' ? { flowId: 'f1' } : {}));
+  const { client, connection } = await opened(async (method) =>
+    method === 'github/login/start' ? { flowId: 'f1' } : {}
+  );
   const w = win();
   connection.attach(w);
   await connection.call('github/login/start', {});
   assert.ok(client.calls.some((c) => c.method === 'feed/subscribe' && c.params.feedId === 'login:f1'));
-  client.emit({ type: 'notification', notification: { method: 'login/updated', params: { flowId: 'f1', state: { state: 'complete' } } } });
+  client.emit({
+    type: 'notification',
+    notification: { method: 'login/updated', params: { flowId: 'f1', state: { state: 'complete' } } },
+  });
   assert.deepEqual(connection.loginFeed('f1'), { state: { state: 'complete' }, lost: false });
   client.emit({ type: 'status', status: { state: 'reconnecting' } });
   assert.deepEqual(w.lost, ['f1']);
@@ -163,8 +225,14 @@ test('activity_rate_limited', async () => {
   assert.equal(client.calls.filter((c) => c.notify === 'client/activity').length, 2);
 });
 
-const absent = Object.assign(new Error('x'), { detail: { kind: 'rpc', code: -32602, data: { reason: 'invalidParams' } } });
-const mediaUpdate = (value) => ({ method: 'job/section', params: { section: 'mediaJobs', key: 'j1', revision: 1, value }, feed: { id: 'media:j1' } });
+const absent = Object.assign(new Error('x'), {
+  detail: { kind: 'rpc', code: -32602, data: { reason: 'invalidParams' } },
+});
+const mediaUpdate = (value) => ({
+  method: 'job/section',
+  params: { section: 'mediaJobs', key: 'j1', revision: 1, value },
+  feed: { id: 'media:j1' },
+});
 
 test('scoped_feed_held_for_late_watcher_and_removed', async () => {
   const { client, connection } = await opened();
@@ -177,13 +245,19 @@ test('scoped_feed_held_for_late_watcher_and_removed', async () => {
   assert.equal(a.pushes[0].changes[0].entry.value.s, 1);
   await connection.watchFeed(b, 'media:j1');
   assert.equal(b.pushes[0].changes[0].entry.value.s, 1, 'a late watcher is given what the feed holds');
-  assert.ok(connection.snapshot().entries.some((e) => e.section === 'mediaJobs' && e.key === 'j1'), 'a replaced mirror keeps the held sections');
+  assert.ok(
+    connection.snapshot().entries.some((e) => e.section === 'mediaJobs' && e.key === 'j1'),
+    'a replaced mirror keeps the held sections'
+  );
   assert.equal(client.calls.filter((c) => c.method === 'feed/subscribe').length, 1, 'the first watcher subscribes');
   await connection.unwatchFeed(a, 'media:j1');
   assert.equal(a.pushes.at(-1).changes[0].entry, null, 'leaving removes the held sections from its mirror');
   assert.ok(!client.calls.some((c) => c.method === 'feed/unsubscribe'), 'another watcher remains');
   await connection.unwatchFeed(b, 'media:j1');
-  assert.ok(client.calls.some((c) => c.method === 'feed/unsubscribe'), 'the last one leaving unsubscribes');
+  assert.ok(
+    client.calls.some((c) => c.method === 'feed/unsubscribe'),
+    'the last one leaving unsubscribes'
+  );
   await assert.rejects(connection.call('feed/subscribe', { feedId: 'login:x' }), /not available/);
 });
 
@@ -239,7 +313,10 @@ test('a first open that fails is opened again by the next call, once for the cal
   assert.equal(connection.status, 'closed');
   assert.equal(connection.link().closed?.cause, 'failed');
   assert.match(connection.link().closed?.message ?? '', /port did not arrive/);
-  const [a, b] = await Promise.all([connection.call('thread/read', { threadId: 't' }), connection.call('thread/read', { threadId: 't' })]);
+  const [a, b] = await Promise.all([
+    connection.call('thread/read', { threadId: 't' }),
+    connection.call('thread/read', { threadId: 't' }),
+  ]);
   assert.deepEqual([a, b], [{ ok: true }, { ok: true }]);
   assert.equal(opens, 2, 'one new open served both calls');
   assert.equal(connection.status, 'ready');
@@ -251,7 +328,13 @@ test('a connection the core refused for its version says why, and a call or a re
   const clients = [fakeClient(), fakeClient()];
   const connection = createRendererConnection({ open: async () => clients[opens++] });
   await connection.start();
-  clients[0].emit({ type: 'status', status: { state: 'closed', reason: { kind: 'versionRefused', reason: 'clientOutdated', serverVersion: '2', clientVersion: '1' } } });
+  clients[0].emit({
+    type: 'status',
+    status: {
+      state: 'closed',
+      reason: { kind: 'versionRefused', reason: 'clientOutdated', serverVersion: '2', clientVersion: '1' },
+    },
+  });
   assert.equal(connection.status, 'closed');
   assert.equal(connection.link().closed?.cause, 'clientOutdated');
   await connection.reopen();
@@ -265,7 +348,9 @@ test('a connection the core refused for its version says why, and a call or a re
 test('ports_viewed_before_the_first_open_subscribe_once_it_opens', async () => {
   const client = fakeClient();
   let release;
-  const connection = createRendererConnection({ open: () => new Promise((resolve) => (release = () => resolve(client))) });
+  const connection = createRendererConnection({
+    open: () => new Promise((resolve) => (release = () => resolve(client))),
+  });
   const starting = connection.start();
   const viewing = connection.viewPorts(win(), true);
   await new Promise((r) => setImmediate(r));
@@ -273,5 +358,8 @@ test('ports_viewed_before_the_first_open_subscribe_once_it_opens', async () => {
   release();
   await starting;
   await viewing;
-  assert.deepEqual(client.calls.map((c) => c.method), ['system/ports/subscribe']);
+  assert.deepEqual(
+    client.calls.map((c) => c.method),
+    ['system/ports/subscribe']
+  );
 });

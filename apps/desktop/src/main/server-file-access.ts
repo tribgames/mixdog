@@ -361,7 +361,8 @@ export function createServerFilePreviews({ session, invoke }: { session: Protoco
           regeneratedByThisRead = true;
           preview.regenerating ??= (async () => {
             const fresh = await regenerate();
-            if (`${fresh.mtimeMs}:${fresh.size}` !== preview.version) throw new Error('The source changed since this preview.');
+            if (`${fresh.mtimeMs}:${fresh.size}` !== preview.version)
+              throw new Error('The source changed since this preview.');
             preview.root = posix.dirname(fresh.path);
             preview.rel = posix.basename(fresh.path);
             preview.generation += 1;
@@ -429,7 +430,15 @@ export function createServerFilePreviews({ session, invoke }: { session: Protoco
       let token = tokensByKey.get(key);
       if (!token || !previews.has(token)) {
         token = randomUUID();
-        previews.set(token, { root, rel, key, version, generation: 0, ...(options.regenerate ? { regenerate: options.regenerate } : {}), ...type });
+        previews.set(token, {
+          root,
+          rel,
+          key,
+          version,
+          generation: 0,
+          ...(options.regenerate ? { regenerate: options.regenerate } : {}),
+          ...type,
+        });
         tokensByKey.set(key, token);
         while (previews.size > MAX_PREVIEWS) {
           const oldest = previews.keys().next().value;
@@ -497,7 +506,11 @@ export async function uploadServerBytes(
     for (let offset = 0; offset < bytes.length; offset += chunkBytes) {
       if (hasFailed) await failure;
       while (flights.size >= inFlightChunks) await Promise.race([...flights, failure]);
-      const chunk = new Uint8Array(bytes.buffer, bytes.byteOffset + offset, Math.min(chunkBytes, bytes.length - offset));
+      const chunk = new Uint8Array(
+        bytes.buffer,
+        bytes.byteOffset + offset,
+        Math.min(chunkBytes, bytes.length - offset)
+      );
       const flight: Promise<void> = uploads.write(owner, uploadId, offset, chunk).then(
         () => void flights.delete(flight),
         (error: unknown) => {

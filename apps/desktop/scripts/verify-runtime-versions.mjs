@@ -27,8 +27,14 @@ export async function readRuntimePackages(modulesDir) {
   return shipped;
 }
 
-export async function verifyRuntimeVersions({ lockfile = join(rootDir, 'package-lock.json'), modulesDir = join(desktopDir, '.runtime', 'native-modules') } = {}) {
-  const [lock, shipped] = await Promise.all([readFile(lockfile, 'utf8').then(JSON.parse), readRuntimePackages(modulesDir)]);
+export async function verifyRuntimeVersions({
+  lockfile = join(rootDir, 'package-lock.json'),
+  modulesDir = join(desktopDir, '.runtime', 'native-modules'),
+} = {}) {
+  const [lock, shipped] = await Promise.all([
+    readFile(lockfile, 'utf8').then(JSON.parse),
+    readRuntimePackages(modulesDir),
+  ]);
   if (shipped.length === 0) throw new Error(`${modulesDir} lists no package.json files; refusing to pass.`);
   return compareShippedVersions({ lockPackages: lock.packages, shipped });
 }

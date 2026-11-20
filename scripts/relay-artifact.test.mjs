@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
-  recordLocalRelayArtifact, recordRelayArtifact, verifyLocalRelayArtifact, verifyRelayArtifact, RELAY_BUILD_INFO,
+  recordLocalRelayArtifact,
+  recordRelayArtifact,
+  verifyLocalRelayArtifact,
+  verifyRelayArtifact,
+  RELAY_BUILD_INFO,
 } from './relay-artifact.mjs';
 
 const target = 'x86_64-unknown-linux-gnu';
@@ -24,7 +28,9 @@ test('provenance returns the actual checked-out source, independent of a dispatc
     assert.throws(() => verifyRelayArtifact({ folder, target: 'aarch64-unknown-linux-gnu' }), /target/);
     writeFileSync(join(folder, 'mixdog-relay'), 'different binary');
     assert.throws(() => verifyRelayArtifact({ folder, target }), /differs/);
-  } finally { rmSync(folder, { recursive: true, force: true }); }
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 });
 
 test('an artifact without trustworthy source and hash is never selected', () => {
@@ -38,7 +44,9 @@ test('an artifact without trustworthy source and hash is never selected', () => 
       writeFileSync(join(folder, RELAY_BUILD_INFO), JSON.stringify({ ...info, ...change }));
       assert.throws(() => verifyRelayArtifact({ folder, target }));
     }
-  } finally { rmSync(folder, { recursive: true, force: true }); }
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 });
 
 test('a local build of a dirty tree is told apart from a CI artifact', () => {
@@ -54,6 +62,11 @@ test('a local build of a dirty tree is told apart from a CI artifact', () => {
     assert.throws(() => verifyLocalRelayArtifact({ folder, target }), /differs/);
     recordRelayArtifact({ folder, target, sourceCommit });
     assert.throws(() => verifyLocalRelayArtifact({ folder, target }), /local relay build/);
-    assert.throws(() => recordLocalRelayArtifact({ folder, target, sourceCommit, sourceFingerprint: 'x', dirty: true }), /fingerprint/);
-  } finally { rmSync(folder, { recursive: true, force: true }); }
+    assert.throws(
+      () => recordLocalRelayArtifact({ folder, target, sourceCommit, sourceFingerprint: 'x', dirty: true }),
+      /fingerprint/
+    );
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 });

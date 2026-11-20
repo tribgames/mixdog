@@ -255,7 +255,12 @@ test('every Stop is logged with the core answer, and one that stopped nothing sa
     assert.deepEqual(seen.notices, []);
 
     // Node's idle reply: `aborted: false` with no reason is "nothing was running".
-    seen = await stopWith(async () => ({ aborted: false, restoreText: '', restoredSubmissionIds: [] }), false, '', 'escape');
+    seen = await stopWith(
+      async () => ({ aborted: false, restoreText: '', restoredSubmissionIds: [] }),
+      false,
+      '',
+      'escape'
+    );
     assert.equal(seen.record.source, 'escape');
     assert.equal(seen.record.stopOutcome, 'nothing');
     assert.equal(seen.record.aborted, false);

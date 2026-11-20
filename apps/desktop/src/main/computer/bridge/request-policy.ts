@@ -1,9 +1,6 @@
 /** Which commands the loopback bridge accepts from a caller: the public ones, never an internal session or an
  *  internal execution authority. The core answers the same refusal for a command that reaches it. */
-import {
-  computerActionHas,
-  computerActionsWith,
-} from '../../../shared/core-src/runtime/computer-bridge/actions.mjs';
+import { computerActionHas, computerActionsWith } from '../../../shared/core-src/runtime/computer-bridge/actions.mjs';
 import { CHROME_SETUP_SESSION_ID, USER_WAIT_SESSION_ID, WINDOW_ARRIVALS_SESSION_ID } from '../shared/common';
 
 /** The session the helper warms up under, before any caller exists. */

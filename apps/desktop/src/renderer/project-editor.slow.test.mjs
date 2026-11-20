@@ -359,10 +359,13 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
   await page.waitForFunction(() =>
     document.querySelector('.projects-edit-dialog')?.textContent.includes('Destination memory scope changed')
   );
-  assert.deepEqual(await page.evaluate(() => {
-    const { target_project_id, destination_cwd, index_revision } = window.fixture.writes[3];
-    return { target_project_id, destination_cwd, index_revision };
-  }), { target_project_id: 'alpha-scope', destination_cwd: 'a', index_revision: 'beta-v2' });
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const { target_project_id, destination_cwd, index_revision } = window.fixture.writes[3];
+      return { target_project_id, destination_cwd, index_revision };
+    }),
+    { target_project_id: 'alpha-scope', destination_cwd: 'a', index_revision: 'beta-v2' }
+  );
   assert.deepEqual(await page.$$eval('.core-memory-edit textarea', (els) => els.map((el) => el.value)), [
     'Beta memory',
     'New Beta rule',

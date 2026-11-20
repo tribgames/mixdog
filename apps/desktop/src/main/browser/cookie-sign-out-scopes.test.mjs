@@ -21,10 +21,8 @@ test('a saved logout suppresses cookies that can reach the site without suppress
     'notlogin.example.test',
     'login.example.test.invalid',
   ];
-  assert.deepEqual(cookies.filter((domain) => !blocked(domain)), [
-    'example.test',
-    'sibling.example.test',
-    'notlogin.example.test',
-    'login.example.test.invalid',
-  ]);
+  assert.deepEqual(
+    cookies.filter((domain) => !blocked(domain)),
+    ['example.test', 'sibling.example.test', 'notlogin.example.test', 'login.example.test.invalid']
+  );
 });

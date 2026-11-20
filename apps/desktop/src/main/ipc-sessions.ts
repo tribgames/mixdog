@@ -22,7 +22,8 @@ export function registerSessionIpc({ handle, remoteHosts, core }: SessionIpcOpti
     try {
       // `desktop/attachment/thumbnail`: a content hash names the stored image; the core scales it to a 320 px JPEG, hands a small
       // PNG/GIF/WebP it cannot decode over as it is, and answers `dataUrl: null` for anything else.
-      return ((await core.call('desktop/attachment/thumbnail', { attachmentRef })) as { dataUrl: string | null }).dataUrl;
+      return ((await core.call('desktop/attachment/thumbnail', { attachmentRef })) as { dataUrl: string | null })
+        .dataUrl;
     } catch (error) {
       throw coreErrorForWindow(error);
     }

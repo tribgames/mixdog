@@ -586,7 +586,10 @@ const PASS_ENV_NAME = /^MIXDOGD?_[A-Z0-9_]+$/;
 
 /** The names of a --pass-env value; anything outside the MIXDOG_/MIXDOGD_ prefix is refused. */
 export function parsePassEnv(value) {
-  const names = String(value ?? '').split(',').map((name) => name.trim()).filter(Boolean);
+  const names = String(value ?? '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
   for (const name of names) {
     if (!PASS_ENV_NAME.test(name)) throw new Error(`--pass-env accepts only MIXDOG_* names (got "${name}").`);
   }

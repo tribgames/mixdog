@@ -22,7 +22,12 @@ export function helperTest() {
   const missing = absence();
   if (missing === null) return nodeTest;
   if (process.env[WITHOUT_HELPER_ENV] === '1') {
-    return (name, options, fn) => nodeTest(name, { ...(typeof options === 'object' ? options : {}), skip: `${WITHOUT_HELPER_ENV}=1: ${missing}` }, typeof options === 'function' ? options : fn);
+    return (name, options, fn) =>
+      nodeTest(
+        name,
+        { ...(typeof options === 'object' ? options : {}), skip: `${WITHOUT_HELPER_ENV}=1: ${missing}` },
+        typeof options === 'function' ? options : fn
+      );
   }
   let reported = false;
   return () => {

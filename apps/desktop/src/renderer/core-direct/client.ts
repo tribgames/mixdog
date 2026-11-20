@@ -55,7 +55,10 @@ export function windowOfReply(reply: Pick<InitializeResponse, 'connection'> | un
 /** Link life-cycle lines go to the main process's diagnostics log (`mixdog:renderer-diagnostic`, kind `core-link`). */
 export const reportCoreLink = createLinkLog((event, fields) => {
   // The host half exists before the composed API does (install.ts), and the first link lines come in between.
-  const host = window as unknown as Record<'mixdogDesktop' | 'mixdogDesktopHost', { rendererDiagnostic?: (payload: unknown) => void } | undefined>;
+  const host = window as unknown as Record<
+    'mixdogDesktop' | 'mixdogDesktopHost',
+    { rendererDiagnostic?: (payload: unknown) => void } | undefined
+  >;
   (host.mixdogDesktop ?? host.mixdogDesktopHost)?.rendererDiagnostic?.({ kind: 'core-link', event, ...fields });
 });
 

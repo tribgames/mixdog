@@ -129,12 +129,14 @@ test('observation-only enabled during focus confirmation prevents text after the
   );
   try {
     await assert.rejects(
-      fenced(() => dispatch({ action: 'type', text: 'fixture' }, 'type', {
-        targetWindowId: 'hwnd:0x1',
-        physicalX: 2,
-        physicalY: 2,
-        allowedWindowIds: ['hwnd:0x1'],
-      })),
+      fenced(() =>
+        dispatch({ action: 'type', text: 'fixture' }, 'type', {
+          targetWindowId: 'hwnd:0x1',
+          physicalX: 2,
+          physicalY: 2,
+          allowedWindowIds: ['hwnd:0x1'],
+        })
+      ),
       /observation_only/
     );
     assert.equal(clicks, 1);
@@ -180,12 +182,14 @@ test('a failed preparatory click retains uncertainty and never sends app-owned t
       { assertAction() {}, dispatchAuthority: () => ({}) }
     );
     try {
-      const response = await fenced(() => dispatch({ action: 'type', text: 'must not be typed' }, 'type', {
-        targetWindowId: 'hwnd:0x1',
-        physicalX: 2,
-        physicalY: 2,
-        allowedWindowIds: ['hwnd:0x1'],
-      }));
+      const response = await fenced(() =>
+        dispatch({ action: 'type', text: 'must not be typed' }, 'type', {
+          targetWindowId: 'hwnd:0x1',
+          physicalX: 2,
+          physicalY: 2,
+          allowedWindowIds: ['hwnd:0x1'],
+        })
+      );
       assert.equal(response.result.action, 'type');
       assert.equal(response.result.code, 'background_unsupported');
       assert.equal(response.result.input_may_have_executed, uncertain);

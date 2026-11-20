@@ -58,7 +58,11 @@ function buttonIdentity(params: Record<string, unknown>): string {
 }
 
 /** Runs `work` with typed input to `contents` under `scope`, after the operations queued before it on this renderer. */
-export function runRendererInput<T>(contents: WebContents, scope: ScopeEndpoint, work: (input: RendererInput) => Promise<T>): Promise<T> {
+export function runRendererInput<T>(
+  contents: WebContents,
+  scope: ScopeEndpoint,
+  work: (input: RendererInput) => Promise<T>
+): Promise<T> {
   const previous = operationTails.get(contents) ?? Promise.resolve();
   const run = previous.then(() => attachedOperation(contents, scope, work));
   operationTails.set(
@@ -68,7 +72,11 @@ export function runRendererInput<T>(contents: WebContents, scope: ScopeEndpoint,
   return run;
 }
 
-async function attachedOperation<T>(contents: WebContents, scope: ScopeEndpoint, work: (input: RendererInput) => Promise<T>): Promise<T> {
+async function attachedOperation<T>(
+  contents: WebContents,
+  scope: ScopeEndpoint,
+  work: (input: RendererInput) => Promise<T>
+): Promise<T> {
   // Refused before the debugger is touched: an operation queued behind the revocation attaches nothing.
   scope.commit();
   const cdp = contents.debugger;
@@ -110,7 +118,12 @@ async function attachedOperation<T>(contents: WebContents, scope: ScopeEndpoint,
     scope.commit();
     return completed(handOver(method, params));
   };
-  const press = (identity: string, method: typeof KEY | typeof MOUSE, params: Record<string, unknown>, release: Record<string, unknown>) => {
+  const press = (
+    identity: string,
+    method: typeof KEY | typeof MOUSE,
+    params: Record<string, unknown>,
+    release: Record<string, unknown>
+  ) => {
     scope.commit();
     const reply = handOver(method, params);
     held.set(identity, { method, release });
@@ -133,14 +146,28 @@ async function attachedOperation<T>(contents: WebContents, scope: ScopeEndpoint,
     if (method === KEY) {
       if (type === 'rawKeyDown' || type === 'keyDown') {
         const { code, key, windowsVirtualKeyCode, nativeVirtualKeyCode, modifiers } = params;
-        return press(keyIdentity(params), KEY, params, { type: 'keyUp', code, key, windowsVirtualKeyCode, nativeVirtualKeyCode, modifiers });
+        return press(keyIdentity(params), KEY, params, {
+          type: 'keyUp',
+          code,
+          key,
+          windowsVirtualKeyCode,
+          nativeVirtualKeyCode,
+          modifiers,
+        });
       }
       if (type === 'keyUp') return release(keyIdentity(params), KEY, params);
       if (type === 'char') return submit(KEY, params);
     } else if (method === MOUSE) {
       if (type === 'mousePressed') {
         const { x, y, button, clickCount, modifiers } = params;
-        return press(buttonIdentity(params), MOUSE, params, { type: 'mouseReleased', x, y, button, clickCount, modifiers });
+        return press(buttonIdentity(params), MOUSE, params, {
+          type: 'mouseReleased',
+          x,
+          y,
+          button,
+          clickCount,
+          modifiers,
+        });
       }
       if (type === 'mouseReleased') return release(buttonIdentity(params), MOUSE, params);
       if (type === 'mouseMoved' || type === 'mouseWheel') {

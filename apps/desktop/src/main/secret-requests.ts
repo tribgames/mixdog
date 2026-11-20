@@ -5,7 +5,12 @@
  */
 
 import type { TakeoverStateReader } from './takeover-gate';
-import { MAX_SECRET_LENGTH, SECRET_REQUEST_ID, SECRET_SAVE_SUFFIX, SECRET_USERNAME_SUFFIX } from '../shared/secret-slots.ts';
+import {
+  MAX_SECRET_LENGTH,
+  SECRET_REQUEST_ID,
+  SECRET_SAVE_SUFFIX,
+  SECRET_USERNAME_SUFFIX,
+} from '../shared/secret-slots.ts';
 
 export const SECRET_INPUT_TIMEOUT_MS = 120_000;
 /** A binding outlives the card's own wait (the runtime's 120 s) a little. */
@@ -115,7 +120,12 @@ export function createSecretRequests(options: { timeoutMs?: number; bindingTimeo
     },
     /** The card's value for `requestId`; false when the id or value is unusable. */
     provide(requestId: string, value: string): boolean {
-      if (!SECRET_REQUEST_ID.test(requestId) || typeof value !== 'string' || !value || value.length > MAX_SECRET_LENGTH) {
+      if (
+        !SECRET_REQUEST_ID.test(requestId) ||
+        typeof value !== 'string' ||
+        !value ||
+        value.length > MAX_SECRET_LENGTH
+      ) {
         return false;
       }
       hold(slots, requestId, value, timeoutMs);

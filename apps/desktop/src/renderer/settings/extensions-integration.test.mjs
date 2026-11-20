@@ -210,11 +210,14 @@ test('extension settings routes collapse into Plugin and Skill', () => {
 
 test('Plugin combines built-in features and installed plugins', async () => {
   const calls = [];
-  const rendered = await renderPanel('plugins', writablePanelContext({
-    async run(capability, args) {
-      calls.push([capability, args]);
-    },
-  }));
+  const rendered = await renderPanel(
+    'plugins',
+    writablePanelContext({
+      async run(capability, args) {
+        calls.push([capability, args]);
+      },
+    })
+  );
   try {
     assert.ok(document.querySelectorAll('[data-built-in-feature]').length > 0);
     // Built-in rows share the extension row grammar and carry no switch.
@@ -239,7 +242,10 @@ test('Plugin combines built-in features and installed plugins', async () => {
     });
     const memoryDialog = document.querySelector('[data-feature-id="memory"]');
     assert.ok(memoryDialog);
-    assert.deepEqual([...memoryDialog.querySelectorAll('header h2')].map((heading) => heading.textContent), ['Memory']);
+    assert.deepEqual(
+      [...memoryDialog.querySelectorAll('header h2')].map((heading) => heading.textContent),
+      ['Memory']
+    );
     assert.equal(memoryDialog.querySelector('footer'), null);
     await act(async () => {
       memoryDialog.querySelector('header button[aria-label="Close"]').click();

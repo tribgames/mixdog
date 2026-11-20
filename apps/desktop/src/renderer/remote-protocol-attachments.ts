@@ -16,7 +16,10 @@ const LOCAL_PATH_TIMEOUT_MS = 15_000;
 function withPathDeadline<T>(operation: Promise<T>, path: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
-    timer = globalThis.setTimeout(() => reject(new Error(`Timed out after ${LOCAL_PATH_TIMEOUT_MS / 1000}s reading ${path}.`)), LOCAL_PATH_TIMEOUT_MS);
+    timer = globalThis.setTimeout(
+      () => reject(new Error(`Timed out after ${LOCAL_PATH_TIMEOUT_MS / 1000}s reading ${path}.`)),
+      LOCAL_PATH_TIMEOUT_MS
+    );
   });
   return Promise.race([operation, deadline]).finally(() => globalThis.clearTimeout(timer));
 }
@@ -36,7 +39,10 @@ async function resolveLocalPaths(host: PhoneProtocolHost, paths: unknown): Promi
   const worker = async (): Promise<void> => {
     while (next < paths.length) {
       const index = next++;
-      rows[index] = await withPathDeadline(rpc(host, 'transfer/grant/mint', { path: localPath(paths[index]) }), String(paths[index]));
+      rows[index] = await withPathDeadline(
+        rpc(host, 'transfer/grant/mint', { path: localPath(paths[index]) }),
+        String(paths[index])
+      );
     }
   };
   await Promise.all(Array.from({ length: Math.min(LOCAL_PATH_CONCURRENCY, paths.length) }, worker));
@@ -59,7 +65,8 @@ function imageMime(bytes: string): string | null {
   return null;
 }
 
-const failureReason = (error: unknown): unknown => (error as { detail?: { data?: { reason?: unknown } } } | null)?.detail?.data?.reason;
+const failureReason = (error: unknown): unknown =>
+  (error as { detail?: { data?: { reason?: unknown } } } | null)?.detail?.data?.reason;
 
 /** The stored image of `ref` as a data URL, or null: no reference, no stored blob (gone or failing its content check), more than
  *  2 MiB (decided before the rest is read), or no image by its bytes. The blob is read a page at a time (`blob/read`). */
@@ -84,15 +91,20 @@ async function readAttachmentThumbnail(host: PhoneProtocolHost, ref: unknown): P
   return mime ? `data:${mime};base64,${btoa(bytes)}` : null;
 }
 
-
 /** `readLocalFileAbs` (local-files.ts): the core checks the file as Node did and holds it open; its bytes come a page at a time from
  *  that one open file, so the join is one version of it. */
 async function readLocalFile(host: PhoneProtocolHost, path: unknown): Promise<unknown> {
-  const { transferId, version, ...file } = (await rpc(host, 'projectFs/readLocal', { path: localPath(path), paged: true })) as { transferId: string; version: string };
+  const { transferId, version, ...file } = (await rpc(host, 'projectFs/readLocal', {
+    path: localPath(path),
+    paged: true,
+  })) as { transferId: string; version: string };
   try {
     let data = '';
     for (let offset = 0; ; offset += PAGE_BYTES) {
-      const page = (await rpc(host, 'transfer/readRange', { transferId, version, offset, length: PAGE_BYTES })) as { data: string; eof: boolean };
+      const page = (await rpc(host, 'transfer/readRange', { transferId, version, offset, length: PAGE_BYTES })) as {
+        data: string;
+        eof: boolean;
+      };
       data += page.data;
       if (page.eof) break;
     }

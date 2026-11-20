@@ -16,7 +16,10 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { MIXY_AGENT_ID, agentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import {
+  MIXY_AGENT_ID,
+  agentHomeSessionId,
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import type { DesktopBrowserLoginStatus, ToolApprovalDecision } from '../shared/contract';
 import { connectorById } from '../shared/core-src/runtime/shared/connector-catalog.mjs';
 import { loginSiteLabel } from '../shared/login-site';
@@ -275,7 +278,10 @@ export function sessionAllowScope(agent: string, action: string): string {
  *  changing its agent and a restart of the background service end it (it is
  *  held in the service's memory). */
 export function sessionAllowToolScope(tool: string): string {
-  return t("{{tool}} won't ask again in this conversation until you close, delete, or reset it, change its agent, or restart the app.", { tool });
+  return t(
+    "{{tool}} won't ask again in this conversation until you close, delete, or reset it, change its agent, or restart the app.",
+    { tool }
+  );
 }
 
 /** What the scope line says "Allow for this agent" changes: this one tool, for
@@ -1284,7 +1290,12 @@ function SecretFields({
       </label>
       {save !== null && (
         <label className="approval-check">
-          <input type="checkbox" checked={save} disabled={disabled} onChange={(event) => onSave(event.target.checked)} />
+          <input
+            type="checkbox"
+            checked={save}
+            disabled={disabled}
+            onChange={(event) => onSave(event.target.checked)}
+          />
           <span>{t("Save as this site's login")}</span>
         </label>
       )}

@@ -8,21 +8,21 @@
       "sourceSha256": "499c4dbae9581ba7973b0874eed9c760107fb4168b8935534b7e8970471be60c"
     },
     "recorder": {
-      "remote-protocol-chat-live.record.mjs": "1dae50c134ceba9acb792f52f0ab7a99b83d98fa5e58b21ff2f1d90e79dcee40",
+      "remote-protocol-chat-live.record.mjs": "17193108423398fa664b3eeaa2bd0b389c39ceb4e6c7980aeccea49cc2e6e827",
       "../../../../packages/protocol-client/src/client.ts": "5a23d380093dbb3314a9ae8219d093495901e564bc8b53f9b10f17da82b49472",
-      "remote-protocol-chat-abort-live.mjs": "87fc7f1ba5963673d8b74963935c3e926c794c6fe3cf5b75f30c2bcd8ad1e80b",
-      "remote-protocol-chat-record-core.mjs": "df3a94a247a0bcad06cf370f56cf9f6ee4036f86cdf919bce8f04a0c1f89bdcc",
-      "remote-protocol-chat-fixtures.mjs": "af68defbc31e072aafaab63719f70d1b17e2fef1bdd1f870b3f14d91e61d31da",
-      "remote-protocol-chat-abort-procs.mjs": "2283528c6a2dc4c5e8ce0b1f9f251fdb1e873ee06bcbf4cbff4a832ae4125f61"
+      "remote-protocol-chat-abort-live.mjs": "ec034a7db6968adf45dc03d35db33ac674a22d20462b984d0721f83c456a169e",
+      "remote-protocol-chat-record-core.mjs": "e20cdfa2f5c6125d05888c0c490a29d80d1cdfb69cfb24c5b9321477172c961e",
+      "remote-protocol-chat-fixtures.mjs": "3ff47c0dd991f08172adcc53dfe3a37ab4d2486ac6a85f1cea78b1cb84813620",
+      "remote-protocol-chat-abort-procs.mjs": "578e53261a43ba05dbb5fd8f2ec1074994c6da7bae4b50f1cada803006fb694d"
     },
     "harness": {
       "lib/deadline.mjs": "d89fb8c88b96bcb122df03c55964d2fa40d7cd0bbe36325d6ab8aa7878073539",
       "lib/env.mjs": "1bcdf5944008d05e3a63e6152ea5a738056027bc88edcfe82bc4591aadbee3ee",
-      "lib/fake-provider.mjs": "b25526afa3f04229ee89a5018098517be01a14f9ba26135b92b784d75cc256b9",
+      "lib/fake-provider.mjs": "36ee1b6ae07ae493cc4157499549e4d9b6d49fcff04b40b86b10f96e43760497",
       "lib/pg-version.json": "5e8cca4e89784fde84e58ee38173ac8202f9975ef9295a80dc1570fce8b977fc",
       "lib/proc.mjs": "55b1e92d2fac78d4e46780f544a2e7d0929f9661bb76e71aac83ae8f238d8979",
       "lib/scenarios.mjs": "75d46bacf4228ead41af47ef5cbd27b21e06db6ef17de7ef7e85d7f20b42e527",
-      "lib/stage.mjs": "329973da37db72c453b35438cf965f26377218c604601f6979b50e3f92a06b89"
+      "lib/stage.mjs": "ff9d4c7a940b4a25595385a1f84abeaccd38f11a9be0e4ac509703aa94e9e156"
     },
     "clientVersion": "1.5.0",
     "server": null,

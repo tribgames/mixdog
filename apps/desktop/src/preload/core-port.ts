@@ -21,13 +21,13 @@ export interface CorePortOpenOptions {
 
 export function installCorePort(
   ipcRenderer: Pick<IpcRenderer, 'on' | 'invoke'>,
-  contextBridge: Pick<ContextBridge, 'exposeInMainWorld'>,
+  contextBridge: Pick<ContextBridge, 'exposeInMainWorld'>
 ): void {
   ipcRenderer.on(PORT_CHANNEL, (event, payload: { generation: number; slot?: CorePortSlot }) => {
     window.postMessage(
       { type: 'mixdog-core-port', generation: payload.generation, slot: payload.slot ?? 'primary' },
       '*',
-      [...event.ports],
+      [...event.ports]
     );
   });
   // Kept from the preload's start: main tells the window while it loads, before any page code could listen, and a listener that
@@ -39,7 +39,10 @@ export function installCorePort(
     for (const listener of [...listeners]) listener(report);
   });
   contextBridge.exposeInMainWorld('mixdogCorePort', {
-    open: (options?: CorePortOpenOptions): Promise<{ generation: number } | { launchFailed: CoreBootReport['failure'] }> => ipcRenderer.invoke(OPEN_CHANNEL, options ?? {}),
+    open: (
+      options?: CorePortOpenOptions
+    ): Promise<{ generation: number } | { launchFailed: CoreBootReport['failure'] }> =>
+      ipcRenderer.invoke(OPEN_CHANNEL, options ?? {}),
     /** The user's `Try again`: main may launch the core again. */
     retry: (): Promise<void> => ipcRenderer.invoke(RETRY_CHANNEL),
     /** Told what the launcher reports while the window waits for its port (the rebuild's progress, a start that cannot succeed); returns the unsubscribe. */

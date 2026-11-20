@@ -81,7 +81,23 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 function build(overrides = {}) {
   const wire = pair();
-  const calls = { viewFailures: [], installFailures: [], updates: [], publishFailures: [], remote: [], controls: [], stream: [], executed: [], exported: [], lifecycle: [], toasts: [], sounds: 0, activations: 0, captured: [], computerOff: false };
+  const calls = {
+    viewFailures: [],
+    installFailures: [],
+    updates: [],
+    publishFailures: [],
+    remote: [],
+    controls: [],
+    stream: [],
+    executed: [],
+    exported: [],
+    lifecycle: [],
+    toasts: [],
+    sounds: 0,
+    activations: 0,
+    captured: [],
+    computerOff: false,
+  };
   const clicks = [];
   const shows = [];
   const host = createDesktopHost({
@@ -92,7 +108,10 @@ function build(overrides = {}) {
         execute: async (command, signal) => {
           calls.executed.push(command);
           if (command.action === 'boom') throw new Error('failed at https://u:secret@x.test/');
-          if (command.action === 'wait') await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))));
+          if (command.action === 'wait')
+            await new Promise((resolve, reject) =>
+              signal.addEventListener('abort', () => reject(new Error('aborted')))
+            );
           return { text: 'ok' };
         },
         begin: () => calls.lifecycle.push('begin'),
@@ -136,11 +155,15 @@ function build(overrides = {}) {
     files: () => ({
       captureFileSnapshot: async (root, rel, grant) => ({ root, rel, grant }),
     }),
-    resolveProxy: async (url) => (url.includes('bad') ? Promise.reject(new Error('PAC http://u:p@pac/x')) : `PROXY ${url}`),
+    resolveProxy: async (url) =>
+      url.includes('bad') ? Promise.reject(new Error('PAC http://u:p@pac/x')) : `PROXY ${url}`,
     computer: {
       mirror: createComputerPresence({ notifyPointerReleased: () => {}, now: () => 1 }),
       permissions: { read: () => ({}), request: () => undefined },
-      environment: { ready: new Promise(() => {}), sources: () => ({ power: new EventEmitter(), screen: new EventEmitter() }) },
+      environment: {
+        ready: new Promise(() => {}),
+        sources: () => ({ power: new EventEmitter(), screen: new EventEmitter() }),
+      },
       desktopHostCommand: () => null,
       computerSwitch: createComputerSwitch(true),
       desktopHostScreen: () =>
@@ -148,7 +171,8 @@ function build(overrides = {}) {
           ? null
           : {
               assertPublic: (command) => {
-                if (command?.action === 'launch') throw new Error('invalid_action: computer bridge action is not available');
+                if (command?.action === 'launch')
+                  throw new Error('invalid_action: computer bridge action is not available');
               },
               answer: async (command) => {
                 calls.captured.push(command);
@@ -161,7 +185,10 @@ function build(overrides = {}) {
     },
     notifications: {
       createNotification: (content) => {
-        const toast = { content, show() {}, on: (event, fn) => {
+        const toast = {
+          content,
+          show() {},
+          on: (event, fn) => {
             if (event === 'click') clicks.push(fn);
             if (event === 'show') shows.push(fn);
           },
@@ -182,7 +209,11 @@ function build(overrides = {}) {
 
 test('a browser command runs on the thread as session and answers the tool result', async () => {
   const { wire, calls } = build();
-  const result = await wire.call('host/browser/command', { action: 'snapshot', input: { turn_id: 3 }, threadId: 'th1' });
+  const result = await wire.call('host/browser/command', {
+    action: 'snapshot',
+    input: { turn_id: 3 },
+    threadId: 'th1',
+  });
   assert.deepEqual(result, { text: 'ok' });
   assert.deepEqual(calls.executed[0], { turn_id: 3, action: 'snapshot', session_id: 'th1' });
 });
@@ -193,19 +224,28 @@ test('a failing command is an error with the message redacted', async () => {
     wire.call('host/browser/command', { action: 'boom', threadId: 't' }),
     (error) => error.code === -32000 && !error.message.includes('secret')
   );
-  assert.throws(() => toBrowserCommand({ input: {} }), (error) => error.code === -32602);
+  assert.throws(
+    () => toBrowserCommand({ input: {} }),
+    (error) => error.code === -32602
+  );
 });
 
 test('an abandoned command aborts and a closed claimed connection stops the browser', async () => {
   const { wire, host, calls } = build();
   await host.claim();
   // The claim names every host/* method this desktop serves.
-  assert.deepEqual(wire.sent.requests[0], ['host/claim', { hostId: 'host-1', serves: wire.connection.servedMethods() }]);
+  assert.deepEqual(wire.sent.requests[0], [
+    'host/claim',
+    { hostId: 'host-1', serves: wire.connection.servedMethods() },
+  ]);
   assert.ok(wire.sent.requests[0][1].serves.includes('host/browser/command'));
   assert.deepEqual(calls.lifecycle, ['begin', 'ready', 'watch:true']);
   assert.deepEqual(wire.sent.requests[1], [
     'host/state/set',
-    { key: 'browserTabs', value: { tabs: [{ id: 'main-browser-1', title: 'T', url: 'https://a.test/', loading: false }] } },
+    {
+      key: 'browserTabs',
+      value: { tabs: [{ id: 'main-browser-1', title: 'T', url: 'https://a.test/', loading: false }] },
+    },
   ]);
   await host.publishRemoteTabs([]);
   assert.equal(wire.sent.requests[3][1].key, 'visualize', 'the visualize state follows the claim');
@@ -226,8 +266,13 @@ test('PC dialog marks publish as ids only, are restored on claim, and clear with
   wire.close();
   await host.claim();
   host.reports.browserApprovalSessions([]);
-  const marks = wire.sent.requests.filter(([method, params]) => method === 'host/state/set' && params.key === 'browserDialogApprovalSessions');
-  assert.deepEqual(marks.map(([, params]) => params.value), [[], ['s1'], ['s1'], []]);
+  const marks = wire.sent.requests.filter(
+    ([method, params]) => method === 'host/state/set' && params.key === 'browserDialogApprovalSessions'
+  );
+  assert.deepEqual(
+    marks.map(([, params]) => params.value),
+    [[], ['s1'], ['s1'], []]
+  );
 });
 
 test('view frames start the lease, send X17 JPEG frames only while viewed, and stop on off', async () => {
@@ -258,33 +303,58 @@ test('view frames start the lease, send X17 JPEG frames only while viewed, and s
   await host.publishRemoteFrame(frame('s1'));
   assert.equal(wire.sent.binary.length, 1);
   // An invalid notification throws at the handler; a stream that cannot start is reported.
-  assert.throws(() => wire.push('host/browser/viewFrames', { tabId: 's1', on: true }), (e) => e.code === -32602);
+  assert.throws(
+    () => wire.push('host/browser/viewFrames', { tabId: 's1', on: true }),
+    (e) => e.code === -32602
+  );
 });
 
 test('each frame goes out as its facts in host/browser/frame, the picture announced without data, before its X17 picture', async () => {
   const { wire, host } = build();
-  wire.push('host/browser/viewFrames', { tabId: 's1', streamId: 7, on: true, request: { maxWidth: 800, maxHeight: 600 } });
+  wire.push('host/browser/viewFrames', {
+    tabId: 's1',
+    streamId: 7,
+    on: true,
+    request: { maxWidth: 800, maxHeight: 600 },
+  });
   await flush();
   const sent = [];
   wire.connection.notify = (method, params) => sent.push(['notify', method, params]);
   wire.connection.sendBinary = (frame) => sent.push(['binary', frame.length]);
   const facts = { frameId: 'f1', sessionId: 's1', seq: 3, documentId: 'd1', width: 640, height: 480 };
-  await host.publishRemoteFrame({ ...facts, image: { mimeType: 'image/jpeg', data: Buffer.from([1, 2, 3]).toString('base64') }, fitSettled: true });
+  await host.publishRemoteFrame({
+    ...facts,
+    image: { mimeType: 'image/jpeg', data: Buffer.from([1, 2, 3]).toString('base64') },
+    fitSettled: true,
+  });
   await host.publishRemoteFrame({ ...facts, seq: 4 });
   await host.publishRemoteFrame({ ...facts, sessionId: 'other', image: { mimeType: 'image/jpeg', data: 'AQID' } });
   assert.deepEqual(sent, [
-    ['notify', 'host/browser/frame', { tabId: 's1', frame: { ...facts, image: { mimeType: 'image/jpeg' }, fitSettled: true } }],
+    [
+      'notify',
+      'host/browser/frame',
+      { tabId: 's1', frame: { ...facts, image: { mimeType: 'image/jpeg' }, fitSettled: true } },
+    ],
     ['binary', 16 + 3],
     ['notify', 'host/browser/frame', { tabId: 's1', frame: { ...facts, seq: 4 } }],
     // A tab nobody views has no stream: its facts go, no picture follows.
-    ['notify', 'host/browser/frame', { tabId: 'other', frame: { ...facts, sessionId: 'other', image: { mimeType: 'image/jpeg' } } }],
+    [
+      'notify',
+      'host/browser/frame',
+      { tabId: 'other', frame: { ...facts, sessionId: 'other', image: { mimeType: 'image/jpeg' } } },
+    ],
   ]);
 });
 
 test('a live view that cannot start is reported, as nothing answers the notification', async () => {
   const { wire, calls } = build();
   calls.failStream = true;
-  wire.push('host/browser/viewFrames', { tabId: 's9', streamId: 1, on: true, request: { maxWidth: 10, maxHeight: 10 } });
+  wire.push('host/browser/viewFrames', {
+    tabId: 's9',
+    streamId: 1,
+    on: true,
+    request: { maxWidth: 10, maxHeight: 10 },
+  });
   await flush();
   assert.deepEqual(calls.viewFailures, ['no page']);
 });
@@ -313,9 +383,17 @@ test('computer reads answer the host reply as it is, its refusal by message, and
     wire.call('host/computer/capture', { command: { ...command, screen: 9 } }),
     (error) => error.code === -32000 && error.message === 'screen must be an integer from 0 to 0'
   );
-  await assert.rejects(wire.call('host/computer/capture', { command: { action: 'launch' } }), (error) => error.code === -32602);
-  await assert.rejects(wire.call('host/computer/capture', { command: { action: 'list_windows' } }), (error) => error.code === -32602);
-  assert.deepEqual(await wire.call('host/computer/displays', {}), [{ index: 0, id: '1', primary: true, scale_factor: 1, width: 2, height: 2 }]);
+  await assert.rejects(
+    wire.call('host/computer/capture', { command: { action: 'launch' } }),
+    (error) => error.code === -32602
+  );
+  await assert.rejects(
+    wire.call('host/computer/capture', { command: { action: 'list_windows' } }),
+    (error) => error.code === -32602
+  );
+  assert.deepEqual(await wire.call('host/computer/displays', {}), [
+    { index: 0, id: '1', primary: true, scale_factor: 1, width: 2, height: 2 },
+  ]);
   calls.computerOff = true;
   const unavailable = (error) => error.code === -32000 && error.message.startsWith('computer use is unavailable;');
   await assert.rejects(wire.call('host/computer/capture', { command }), unavailable);
@@ -356,7 +434,11 @@ test('a dialog still open when the connection closes holds the core again at the
   assert.equal(wire.sent.requests[2][0], 'host/claim');
   close('answered');
   assert.equal(await approval, 'answered');
-  assert.deepEqual(holds(), [begin, begin, ['host/humanOnly/end', { holdId: 'hold-2' }]], 'only the live hold is ended');
+  assert.deepEqual(
+    holds(),
+    [begin, begin, ['host/humanOnly/end', { holdId: 'hold-2' }]],
+    'only the live hold is ended'
+  );
   // Nothing is open any more: a later claim declares nothing.
   wire.close();
   await host.claim();
@@ -381,11 +463,16 @@ test('the core computer host handlers are always served: a core that does not dr
   ];
   const { wire } = build();
   const served = wire.connection.servedMethods();
-  assert.deepEqual(served.filter((method) => coreComputerMethods.includes(method)), [...coreComputerMethods].sort());
+  assert.deepEqual(
+    served.filter((method) => coreComputerMethods.includes(method)),
+    [...coreComputerMethods].sort()
+  );
   // The claim names them, so the core routes them here.
   assert.ok(coreComputerMethods.every((method) => served.includes(method)));
   // No overlay is bound here, so the arrow cannot be prepared.
-  assert.deepEqual(await wire.call('host/computer/cursorPrepare', { sessionThreadId: 's1', x: 1, y: 2 }), { state: 'unavailable' });
+  assert.deepEqual(await wire.call('host/computer/cursorPrepare', { sessionThreadId: 's1', x: 1, y: 2 }), {
+    state: 'unavailable',
+  });
 });
 
 test('the server window handlers are served whenever the host has windows, and the windows capability is declared', async () => {
@@ -393,7 +480,8 @@ test('the server window handlers are served whenever the host has windows, and t
   assert.equal(HOST_CAPABILITIES.windows, true);
   const { wire, host } = build({ windows: { open: async () => true, close() {}, focus() {} } });
   const served = wire.connection.servedMethods();
-  for (const method of ['host/window/open', 'host/window/close', 'host/window/focus']) assert.ok(served.includes(method), method);
+  for (const method of ['host/window/open', 'host/window/close', 'host/window/focus'])
+    assert.ok(served.includes(method), method);
   assert.ok(host.windowHost);
 });
 
@@ -410,7 +498,7 @@ test('a shown notification plays its sound and a click reports the thread', () =
   assert.deepEqual(wire.sent.notifications, [['host/notification/clicked', { threadId: 'th9' }]]);
 });
 
-test('the core asks whether this PC shows toasts and how long it has been idle, as Node\'s notificationStatus answered', async () => {
+test("the core asks whether this PC shows toasts and how long it has been idle, as Node's notificationStatus answered", async () => {
   const { wire } = build();
   assert.deepEqual(await wire.call('host/notification/status', {}), { supported: true, idleSeconds: 42 });
 });
@@ -430,7 +518,7 @@ test('power, update state and remote target reports; state is re-sent after a cl
   assert.deepEqual(await wire.call('host/update/command', { action: 'check' }), { checked: true });
 });
 
-test('non-tool browser requests get Node\'s argument checks, and a malformed one gets Node\'s message', async () => {
+test("non-tool browser requests get Node's argument checks, and a malformed one gets Node's message", async () => {
   const { wire, calls } = build();
   const call = (action, input, threadId = 'th1') => wire.call('host/browser/command', { action, input, threadId });
   const nodeMessage = (run) => {
@@ -477,7 +565,8 @@ test('non-tool browser requests get Node\'s argument checks, and a malformed one
 test('visualize state is sent on a claim and on each change, and its commands and the file methods are served', async () => {
   const { wire, host } = build();
   await host.claim();
-  const states = () => wire.sent.requests.filter(([method, params]) => method === 'host/state/set' && params.key === 'visualize');
+  const states = () =>
+    wire.sent.requests.filter(([method, params]) => method === 'host/state/set' && params.key === 'visualize');
   // The claim sends the list `hostSnapshot()` returns, `active: null` included.
   const first = states()[0][1].value;
   assert.deepEqual(first, [{ sessionId: 's1', tabs: [], active: null }]);
@@ -496,7 +585,7 @@ test('visualize state is sent on a claim and on each change, and its commands an
   });
 });
 
-test('a device export draws through the service\'s exportForDevice and answers its path', async () => {
+test("a device export draws through the service's exportForDevice and answers its path", async () => {
   const { wire, calls } = build();
   const input = { sessionId: 's1', tabId: 'v1', format: 'png', pane: 0, forDevice: true };
   assert.deepEqual(await wire.call('host/visualize/command', { sessionId: 's1', cwd: '/p', action: 'export', input }), {
@@ -509,7 +598,11 @@ test('a device export draws through the service\'s exportForDevice and answers i
     (error) => /export format is invalid\./.test(error.message)
   );
   // An export without the mark is the tool's own export, run by xecute.
-  const plain = await wire.call('host/visualize/command', { sessionId: 's1', action: 'export', input: { format: 'png' } });
+  const plain = await wire.call('host/visualize/command', {
+    sessionId: 's1',
+    action: 'export',
+    input: { format: 'png' },
+  });
   assert.equal(plain.text, 'ran');
   assert.equal(calls.exported.length, 1);
 });
@@ -519,7 +612,10 @@ test('update install answers the state taken before installing, and installs onl
   const { wire, calls } = build();
   const { updater } = calls;
   // Ready, unconfirmed, nothing running: the ready state is answered, then it installs.
-  assert.deepEqual(await wire.call('host/update/command', { action: 'install' }), { status: 'ready', version: '2.0.0' });
+  assert.deepEqual(await wire.call('host/update/command', { action: 'install' }), {
+    status: 'ready',
+    version: '2.0.0',
+  });
   assert.deepEqual(calls.updates, ['confirmBusy'], 'the install waits until the caller is answered');
   await flush();
   assert.deepEqual(calls.updates, ['confirmBusy', 'install:false']);
@@ -542,7 +638,9 @@ test('update install answers the state taken before installing, and installs onl
   // Not ready (downloading, idle, disabled): the state is answered and nothing installs.
   calls.updates.length = 0;
   updater.state = { status: 'downloading' };
-  assert.deepEqual(await wire.call('host/update/command', { action: 'install', confirmed: true }), { status: 'downloading' });
+  assert.deepEqual(await wire.call('host/update/command', { action: 'install', confirmed: true }), {
+    status: 'downloading',
+  });
   await flush();
   assert.deepEqual(calls.updates, []);
 });
@@ -553,7 +651,10 @@ test('an install that fails after the answer is reported, not discarded', async 
   calls.updater.install = async () => {
     throw new Error('installer could not start');
   };
-  assert.deepEqual(await wire.call('host/update/command', { action: 'install' }), { status: 'ready', version: '2.0.0' });
+  assert.deepEqual(await wire.call('host/update/command', { action: 'install' }), {
+    status: 'ready',
+    version: '2.0.0',
+  });
   assert.deepEqual(calls.installFailures, [], 'the caller is answered before the install runs');
   await flush();
   await flush();
@@ -624,7 +725,10 @@ test('a phone gesture runs end to end through the host channel, in order, off th
   assert.deepEqual(results, [null, null]);
   assert.deepEqual(
     calls.controls.map(([id, control]) => [id, control.type, control.phase]),
-    [['th1', 'pointer', 'mousePressed'], ['th1', 'pointer', 'mouseReleased']]
+    [
+      ['th1', 'pointer', 'mousePressed'],
+      ['th1', 'pointer', 'mouseReleased'],
+    ]
   );
   assert.deepEqual(calls.executed, [], 'input never reaches the tool runner');
   await wire.call('host/browser/command', { action: 'input', threadId: 'th1', input: { type: 'back' } });
@@ -634,7 +738,11 @@ test('a phone gesture runs end to end through the host channel, in order, off th
     (error) => error.code === -32602
   );
   await assert.rejects(
-    wire.call('host/browser/command', { action: 'input', threadId: 'th1', input: { type: 'navigate', url: 'https://x.test/' } }),
+    wire.call('host/browser/command', {
+      action: 'input',
+      threadId: 'th1',
+      input: { type: 'navigate', url: 'https://x.test/' },
+    }),
     (error) => error.code === -32000 && !error.message.includes('secret')
   );
 });
@@ -642,7 +750,14 @@ test('a phone gesture runs end to end through the host channel, in order, off th
 test('the pill snapshot carries cleanupState, so an idle one neither stops nor sticks', () => {
   const source = createComputerPillSource(() => 5);
   assert.equal(source.snapshot().cleanupState, 'ready');
-  source.apply({ active: false, observeOnly: false, controller: null, sessionThreadId: null, sessions: [], cleanupState: 'failed' });
+  source.apply({
+    active: false,
+    observeOnly: false,
+    controller: null,
+    sessionThreadId: null,
+    sessions: [],
+    cleanupState: 'failed',
+  });
   assert.equal(source.snapshot().cleanupState, 'failed');
   source.apply({ active: false, observeOnly: false, controller: null, sessionThreadId: null, sessions: [] });
   assert.equal(source.snapshot().cleanupState, 'ready');
@@ -652,11 +767,29 @@ test('the computer pill source turns section values into snapshots', () => {
   const source = createComputerPillSource(() => 5);
   const seen = [];
   const off = source.subscribe((snapshot) => seen.push(snapshot));
-  source.apply({ active: true, observeOnly: false, controller: 'agent', sessionThreadId: 'th1', sessions: [{ sessionThreadId: 'th1', observeOnly: false }] });
+  source.apply({
+    active: true,
+    observeOnly: false,
+    controller: 'agent',
+    sessionThreadId: 'th1',
+    sessions: [{ sessionThreadId: 'th1', observeOnly: false }],
+  });
   source.apply({ active: false, observeOnly: false, controller: null, sessionThreadId: null, sessions: [] });
   off();
-  source.apply({ active: true, observeOnly: true, controller: null, sessionThreadId: 'th2', sessions: [{ sessionThreadId: 'th2', observeOnly: true }] });
-  assert.deepEqual(seen.map((s) => [s.revision, s.presentSessionIds]), [[1, ['th1']], [2, []]]);
+  source.apply({
+    active: true,
+    observeOnly: true,
+    controller: null,
+    sessionThreadId: 'th2',
+    sessions: [{ sessionThreadId: 'th2', observeOnly: true }],
+  });
+  assert.deepEqual(
+    seen.map((s) => [s.revision, s.presentSessionIds]),
+    [
+      [1, ['th1']],
+      [2, []],
+    ]
+  );
   assert.equal(seen[0].activities[0].sessionId, 'th1');
 });
 
@@ -674,5 +807,11 @@ test('the computer pill source keeps every open session, oldest first', () => {
   });
   const snapshot = source.snapshot();
   assert.deepEqual(snapshot.presentSessionIds, ['thA', 'thB']);
-  assert.deepEqual(snapshot.activities.map((a) => [a.sessionId, a.action]), [['thA', 'control'], ['thB', 'observe']]);
+  assert.deepEqual(
+    snapshot.activities.map((a) => [a.sessionId, a.action]),
+    [
+      ['thA', 'control'],
+      ['thB', 'observe'],
+    ]
+  );
 });

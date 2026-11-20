@@ -12,7 +12,9 @@ import { createProtocolRouter } from './remote-shim-protocol.ts';
 // The router arms a per-call deadline on the page's window timers. This test is about order, not the deadline: its window never fires one.
 globalThis.window = { setTimeout: () => 0, clearTimeout() {} };
 
-const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-order/golden.json', import.meta.url), 'utf8'));
+const golden = JSON.parse(
+  readFileSync(new URL('../../../mobile/fixtures/phone-order/golden.json', import.meta.url), 'utf8')
+);
 const orderCalls = golden.calls;
 const nameOf = Object.fromEntries(Object.entries(orderCalls).map(([name, call]) => [call.method, name]));
 // What the files adapter asks the core for each of its calls the script uses.
@@ -32,7 +34,9 @@ const coreMethods = {
 // it, so the connection is ready before the first call here. Calls held at the gates leave in the order Node's phone sends them, which the
 // lifecycle recording compares (apps/mobile/fixtures/phone-lifecycle: the ungated boot reads leave beside the sync, a fire waits for the
 // connection only); this recording has no gate step to compare them against.
-for (const [scenario, { steps, events: expectedEvents, answers: expectedAnswers }] of Object.entries(golden.scenarios)) {
+for (const [scenario, { steps, events: expectedEvents, answers: expectedAnswers }] of Object.entries(
+  golden.scenarios
+)) {
   test(`order of calls across groups: ${scenario}`, async () => {
     const events = [];
     const answers = {};
@@ -53,24 +57,45 @@ for (const [scenario, { steps, events: expectedEvents, answers: expectedAnswers 
     };
     const chat = {
       group: 'chat',
-      calls: Object.fromEntries(['renameSession', 'setSessionArchived', 'getSnapshot', 'readCapabilities'].map((method) => [method, ran(method)])),
+      calls: Object.fromEntries(
+        ['renameSession', 'setSessionArchived', 'getSnapshot', 'readCapabilities'].map((method) => [
+          method,
+          ran(method),
+        ])
+      ),
     };
     // The core: a call of the files adapter reaches it under a protocol method name; it is the Node call by that name.
-    const host = { ctx: { phone: { start: () => connected.promise, synced: () => synced.promise } }, client: () => ({
+    const host = {
+      ctx: { phone: { start: () => connected.promise, synced: () => synced.promise } },
+      client: () => ({
         call: async (method) => (await ran(coreMethods[method])(), {}),
         notify: (method) => void ran(coreMethods[method])(),
-      }), declareLane() {} };
-    const router = createProtocolRouter([filesAdapter, terminalAdapter, chat], { host, started: () => connected.promise, synced: () => synced.promise, probe() {}, silentSince: () => false });
+      }),
+      declareLane() {},
+    };
+    const router = createProtocolRouter([filesAdapter, terminalAdapter, chat], {
+      host,
+      started: () => connected.promise,
+      synced: () => synced.promise,
+      probe() {},
+      silentSince: () => false,
+    });
     connected.resolve();
     synced.resolve();
     for (const [action, name] of steps) {
       switch (action) {
         case 'send': {
           const { method, params } = orderCalls[name];
-          pending.push(router.call(method, params).then(
-            () => { answers[name] = 'ok'; },
-            (error) => { answers[name] = error.message; }
-          ));
+          pending.push(
+            router.call(method, params).then(
+              () => {
+                answers[name] = 'ok';
+              },
+              (error) => {
+                answers[name] = error.message;
+              }
+            )
+          );
           break;
         }
         case 'fire':
@@ -109,12 +134,22 @@ test('keystrokes and resizes go out once the connection is up, without waiting f
     }),
     declareLane() {},
   };
-  const router = createProtocolRouter([terminalAdapter], { host, started: () => connected.promise, synced: () => synced.promise, probe() {}, silentSince: () => false });
+  const router = createProtocolRouter([terminalAdapter], {
+    host,
+    started: () => connected.promise,
+    synced: () => synced.promise,
+    probe() {},
+    silentSince: () => false,
+  });
   router.fire('termWrite', ['t', 'x']);
   router.fire('termResize', ['t', 80, 24, true]);
   log.push('connection up');
   connected.resolve();
-  await bounded(delivered.promise, 'both terminal calls to be sent once the connection is up, with the view sync still unfinished', 10_000);
+  await bounded(
+    delivered.promise,
+    'both terminal calls to be sent once the connection is up, with the view sync still unfinished',
+    10_000
+  );
   // Node's fire waits for the connection and sends (remote-shim-calls.ts:354); the core's frame names are the spec table's, so there is no
   // Node output of these entries to record: the order is the assertion (the lane's own order is recorded in phone-order/golden.json).
   assert.deepEqual(log, ['connection up', 'terminal/input', 'terminal/resize']);

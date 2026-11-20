@@ -65,8 +65,14 @@ async function main(argv) {
   }
   const options = flags(rest);
   const root = resolve(options.root ?? '.');
-  const context = { sha: options.sha, runId: options['run-id'], attempt: options.attempt,
-    repository: options.repository, workflow: options.workflow, allowReused: process.env.ALLOW_REUSED_EVIDENCE === 'true' };
+  const context = {
+    sha: options.sha,
+    runId: options['run-id'],
+    attempt: options.attempt,
+    repository: options.repository,
+    workflow: options.workflow,
+    allowReused: process.env.ALLOW_REUSED_EVIDENCE === 'true',
+  };
   if (command === 'wiring') {
     const problems = wiringProblems(loadWorkflows(root), plan);
     for (const problem of problems) console.error(problem);
@@ -89,9 +95,14 @@ async function main(argv) {
       writeFileSync(options.report, `${JSON.stringify(errors, null, 1)}\n`);
     }
     if (errors.length) {
-      for (const error of errors) console.error(`${error.code}: ${error.path}${error.line ? `:${error.line}` : ''} ${error.message}`);
-      const byCode = Object.entries(Object.groupBy(errors, (error) => error.code)).map(([code, list]) => `${code} ${list.length}`).sort();
-      console.error(`${errors.length} inventory error(s) in ${stats.files} tracked files of ${sha} (${byCode.join(', ')}): no manifest is written; each needs a route of the plan or a reviewed class`);
+      for (const error of errors)
+        console.error(`${error.code}: ${error.path}${error.line ? `:${error.line}` : ''} ${error.message}`);
+      const byCode = Object.entries(Object.groupBy(errors, (error) => error.code))
+        .map(([code, list]) => `${code} ${list.length}`)
+        .sort();
+      console.error(
+        `${errors.length} inventory error(s) in ${stats.files} tracked files of ${sha} (${byCode.join(', ')}): no manifest is written; each needs a route of the plan or a reviewed class`
+      );
       return 1;
     }
     mkdirSync(dirname(resolve(options.out)), { recursive: true });
@@ -103,24 +114,31 @@ async function main(argv) {
     const manifest = JSON.parse(readFileSync(options.manifest, 'utf8'));
     const tracked = trackedFiles(root);
     const { byName, errors } = packagesByName(tracked, (path) => readFileSync(join(root, path), 'utf8'));
-    const loaded = options['rust-lists'] ? loadRustLists(options['rust-lists'], plan, { gate: process.env.GATE_NAME, sha: options.sha }) : { lists: {}, problems: [] };
+    const loaded = options['rust-lists']
+      ? loadRustLists(options['rust-lists'], plan, { gate: process.env.GATE_NAME, sha: options.sha })
+      : { lists: {}, problems: [] };
     const rustLists = loaded.lists;
-    const problems = [...loaded.problems, ...reconcile({
-      manifest,
-      plan,
-      exceptions: loadExceptions(plan),
-      receipts: readReceipts(receiptFiles(options.evidence)),
-      context: { ...context, joins: process.env.GATE_JOINS === 'true', gate: process.env.GATE_NAME },
-      rustLists,
-      byName,
-    })];
+    const problems = [
+      ...loaded.problems,
+      ...reconcile({
+        manifest,
+        plan,
+        exceptions: loadExceptions(plan),
+        receipts: readReceipts(receiptFiles(options.evidence)),
+        context: { ...context, joins: process.env.GATE_JOINS === 'true', gate: process.env.GATE_NAME },
+        rustLists,
+        byName,
+      }),
+    ];
     for (const error of errors) problems.push(`${error.code}: ${error.path} ${error.message}`);
     for (const problem of problems) console.error(problem);
     if (problems.length) {
       console.error(`${problems.length} coverage problem(s): the release is not covered at ${options.sha}`);
       return 1;
     }
-    console.log(`coverage: every test file and target of ${options.sha} ran a case on each leg that must run it, and every skip is an exact reviewed exception`);
+    console.log(
+      `coverage: every test file and target of ${options.sha} ran a case on each leg that must run it, and every skip is an exact reviewed exception`
+    );
     return 0;
   }
   if (command === 'join') {
@@ -133,7 +151,9 @@ async function main(argv) {
     });
     for (const problem of problems) console.error(problem);
     if (problems.length) {
-      console.error(`${problems.length} join problem(s): the prepared-environment replacements of ${options.sha} were not executed`);
+      console.error(
+        `${problems.length} join problem(s): the prepared-environment replacements of ${options.sha} were not executed`
+      );
       return 1;
     }
     console.log(`join: every prepared-environment replacement of ${options.sha} passed`);
@@ -143,4 +163,5 @@ async function main(argv) {
   return 2;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(pathToFileURL(process.argv[1]))) process.exit(await main(process.argv.slice(2)));
+if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(pathToFileURL(process.argv[1])))
+  process.exit(await main(process.argv.slice(2)));

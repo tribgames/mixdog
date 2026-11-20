@@ -38,7 +38,8 @@ function fakeClient(answer) {
     server: { connection: { device: 'Desk PC' } },
     store: {
       sections: (name) => [...sections.values()].filter((e) => e.section === name),
-      section: (name, key) => sections.get(`${name}:${key ?? ''}`) ?? [...sections.values()].find((e) => e.section === name),
+      section: (name, key) =>
+        sections.get(`${name}:${key ?? ''}`) ?? [...sections.values()].find((e) => e.section === name),
       thread: (id) => folds.get(id),
       appFeed: () => ({ epoch: 'e1' }),
       subscribe: (l) => (storeListeners.add(l), () => storeListeners.delete(l)),
@@ -52,14 +53,22 @@ function fakeClient(answer) {
     resumeThread: async (threadId, window) => {
       calls.push({ method: 'thread/resume', params: { threadId, window } });
       followed.add(threadId);
-      folds.set(threadId, { feed: { id: threadId, epoch: 'e1', seq: 1 }, order: 1, state: sessionReducer.initial({ thread: { id: threadId }, items: [] }) });
+      folds.set(threadId, {
+        feed: { id: threadId, epoch: 'e1', seq: 1 },
+        order: 1,
+        state: sessionReducer.initial({ thread: { id: threadId }, items: [] }),
+      });
       queueMicrotask(() => storeListeners.forEach((l) => l({ type: 'thread', threadId })));
       return {};
     },
     threadSubscription: (threadId) => ({
-      followed: followed.has(threadId), held: false, restoring: restoring.has(threadId),
-      snapshotPending: snapshotPending.has(threadId), replayPending: replayPending.has(threadId),
-      restoresStarted: 0, connection: 1,
+      followed: followed.has(threadId),
+      held: false,
+      restoring: restoring.has(threadId),
+      snapshotPending: snapshotPending.has(threadId),
+      replayPending: replayPending.has(threadId),
+      restoresStarted: 0,
+      connection: 1,
     }),
     feedPosition: (threadId) => {
       const fold = folds.get(threadId);
@@ -85,7 +94,13 @@ const defaults = (method, params) => {
   if (method === 'thread/delete') return {};
   if (method === 'model/list') return [];
   if (method === 'thread/fork') return { thread: { id: S2 }, messages: 1, provider: 'p', model: 'm' };
-  if (method === 'desktop/attachment/resolve') return { attachment: { id: DIGEST, mimeType: 'image/png' }, bytes: 3, viewName: 'a.png', dataUrl: 'data:image/png;base64,AAAA' };
+  if (method === 'desktop/attachment/resolve')
+    return {
+      attachment: { id: DIGEST, mimeType: 'image/png' },
+      bytes: 3,
+      viewName: 'a.png',
+      dataUrl: 'data:image/png;base64,AAAA',
+    };
   return true;
 };
 
@@ -106,8 +121,16 @@ test('every key of the group is implemented', async () => {
 
 test('requests equal what the IPC handlers sent', async () => {
   const cases = [
-    ['markSessionRead', [S1, 4, undefined], [['thread/readState/update', { threadId: S1, messageCount: 4, consumedUnread: false }]]],
-    ['markSessionRead', [S1, 4, true], [['thread/readState/update', { threadId: S1, messageCount: 4, consumedUnread: true }]]],
+    [
+      'markSessionRead',
+      [S1, 4, undefined],
+      [['thread/readState/update', { threadId: S1, messageCount: 4, consumedUnread: false }]],
+    ],
+    [
+      'markSessionRead',
+      [S1, 4, true],
+      [['thread/readState/update', { threadId: S1, messageCount: 4, consumedUnread: true }]],
+    ],
     ['searchSessionContent', [' needle '], [['thread/search', { query: 'needle' }]]],
     ['listAgentPool', [], [['agent/pool/list', {}]]],
     ['renameSession', [S1, 'Title'], [['thread/name/set', { threadId: S1, title: 'Title' }]]],
@@ -116,7 +139,11 @@ test('requests equal what the IPC handlers sent', async () => {
     ['setSessionFavorite', [S1, true], [['thread/metadata/update', { threadId: S1, favorite: true }]]],
     ['setSessionProject', [S1, 'C:/p'], [['thread/metadata/update', { threadId: S1, projectPath: 'C:/p' }]]],
     ['deleteSession', [S1], [['thread/delete', { threadId: S1 }]]],
-    ['continueSessionInModel', [S1, { provider: 'p', model: 'm' }], [['thread/continueInModel', { threadId: S1, route: { provider: 'p', model: 'm' } }]]],
+    [
+      'continueSessionInModel',
+      [S1, { provider: 'p', model: 'm' }],
+      [['thread/continueInModel', { threadId: S1, route: { provider: 'p', model: 'm' } }]],
+    ],
     ['scheduleQuotaResume', [S1], [['thread/quotaResume/schedule', { threadId: S1 }]]],
     ['cancelQuotaResume', [S1], [['thread/quotaResume/cancel', { threadId: S1 }]]],
     ['setQuotaAutoResume', [false], [['config/value/write', { path: 'quotaAutoResume', value: false }]]],
@@ -124,17 +151,48 @@ test('requests equal what the IPC handlers sent', async () => {
     ['openAgentHome', [' bot '], [['agent/home/open', { agentId: 'bot' }]]],
     ['resetAgentHome', ['bot'], [['agent/home/reset', { agentId: 'bot' }]]],
     ['listAgentMemory', ['bot'], [['agent/memory/list', { agentId: 'bot' }]]],
-    ['deleteAgentMemory', ['bot', { id: 'm1', indexRevision: 7 }], [['agent/memory/delete', { agentId: 'bot', entryId: 'm1', indexRevision: 7 }]]],
+    [
+      'deleteAgentMemory',
+      ['bot', { id: 'm1', indexRevision: 7 }],
+      [['agent/memory/delete', { agentId: 'bot', entryId: 'm1', indexRevision: 7 }]],
+    ],
     ['agentRoomAction', ['continue', ['r1']], [['room/continue', { input: { roomId: 'r1' } }]]],
     ['agentRoomAction', ['leave', undefined], [['room/leave', { input: { roomId: undefined } }]]],
     ['listProviderModels', [], [['model/list', {}]]],
     ['listProviderModels', [{ force: true }], [['model/list', { force: true }]]],
-    ['submitToSession', [S1, 'hi', { id: 'sub1', priority: 'now', device: 'x' }], [['turn/start', { threadId: S1, input: { prompt: 'hi', options: { priority: 'now', clientSubmissionId: 'sub1' } } }]]],
+    [
+      'submitToSession',
+      [S1, 'hi', { id: 'sub1', priority: 'now', device: 'x' }],
+      [
+        [
+          'turn/start',
+          { threadId: S1, input: { prompt: 'hi', options: { priority: 'now', clientSubmissionId: 'sub1' } } },
+        ],
+      ],
+    ],
     ['submitToSession', [S1, 'hi'], [['turn/start', { threadId: S1, input: { prompt: 'hi', options: {} } }]]],
-    ['abortSession', [S1, { restorePrompt: true, submissionId: 'x' }], [['turn/interrupt', { threadId: S1, restorePrompt: true, submissionId: 'x' }]]],
+    [
+      'abortSession',
+      [S1, { restorePrompt: true, submissionId: 'x' }],
+      [['turn/interrupt', { threadId: S1, restorePrompt: true, submissionId: 'x' }]],
+    ],
     ['abortSession', [S1], [['turn/interrupt', { threadId: S1 }]]],
-    ['inheritSession', [S1, null, { compact: true }], [['thread/fork', { threadId: S1, compact: true }], ['thread/resume', { threadId: S2, window: { lastItems: 32 } }]]],
-    ['inheritSession', [S1], [['thread/fork', { threadId: S1, compact: false }], ['thread/resume', { threadId: S2, window: { lastItems: 32 } }]]],
+    [
+      'inheritSession',
+      [S1, null, { compact: true }],
+      [
+        ['thread/fork', { threadId: S1, compact: true }],
+        ['thread/resume', { threadId: S2, window: { lastItems: 32 } }],
+      ],
+    ],
+    [
+      'inheritSession',
+      [S1],
+      [
+        ['thread/fork', { threadId: S1, compact: false }],
+        ['thread/resume', { threadId: S2, window: { lastItems: 32 } }],
+      ],
+    ],
   ];
   for (const [key, args, expected] of cases) {
     const { client, api } = await opened();
@@ -145,20 +203,29 @@ test('requests equal what the IPC handlers sent', async () => {
 
 test('setFast returns the addressed conversation, not the blank window shell', async () => {
   const { api, client } = await opened((method, params) => {
-    if (method === 'thread/read') return { thread: { id: params.threadId }, state: { route: { fast: true } }, items: [] };
+    if (method === 'thread/read')
+      return { thread: { id: params.threadId }, state: { route: { fast: true } }, items: [] };
     return defaults(method);
   });
   const snapshot = await api.setFast(true, S1);
   assert.equal(snapshot.sessionId, S1);
   assert.equal(snapshot.fast, true);
-  assert.deepEqual(sent(client), [['fast/set', { threadId: S1, on: true }], ['thread/read', { threadId: S1, window: { none: true } }]]);
+  assert.deepEqual(sent(client), [
+    ['fast/set', { threadId: S1, on: true }],
+    ['thread/read', { threadId: S1, window: { none: true } }],
+  ]);
 });
 
 test('answers keep the handlers shapes', async () => {
   const { api } = await opened();
   assert.equal(await api.getTaskWorkspace(), 'C:/task');
   assert.equal(await api.viewerDevice(), 'Desk PC');
-  assert.deepEqual(await api.readSessionAttachment(S1, DIGEST), { name: 'a.png', mimeType: 'image/png', size: 3, dataUrl: 'data:image/png;base64,AAAA' });
+  assert.deepEqual(await api.readSessionAttachment(S1, DIGEST), {
+    name: 'a.png',
+    mimeType: 'image/png',
+    size: 3,
+    dataUrl: 'data:image/png;base64,AAAA',
+  });
   assert.equal(await api.getQuotaAutoResume(), true);
   const blank = await opened();
   blank.client.sections.set('x', { section: 'hostState', key: 'x', value: 1 });
@@ -182,36 +249,71 @@ test('a standing grant is announced after the approval is accepted, a one-time a
   const ask = [{ id: 'r1', method: 'item/tool/requestApproval', params: { threadId: S1 } }];
   const always = await opened(answer);
   always.client.pendingServerRequests = () => ask;
-  assert.equal(await always.api.resolveToolApprovalForSession(S1, ' r1 ', { approved: true, remember: 'always', reply: ' ok ', device: 'x' }), true);
+  assert.equal(
+    await always.api.resolveToolApprovalForSession(S1, ' r1 ', {
+      approved: true,
+      remember: 'always',
+      reply: ' ok ',
+      device: 'x',
+    }),
+    true
+  );
   await tick();
   assert.deepEqual(sent(always.client), [
-    ['thread/approval/answer', { threadId: S1, approvalId: 'r1', result: { approved: true, remember: 'always', reply: 'ok' } }],
+    [
+      'thread/approval/answer',
+      { threadId: S1, approvalId: 'r1', result: { approved: true, remember: 'always', reply: 'ok' } },
+    ],
     ['ui/settings/announce', { scope: 'permissions' }],
   ]);
   const once = await opened(answer);
   once.client.pendingServerRequests = () => ask;
   assert.equal(await once.api.resolveToolApprovalForSession(S1, 'r1', { approved: true, remember: 'once' }), true);
   await tick();
-  assert.equal(once.client.calls.some((c) => c.method === 'ui/settings/announce'), false);
+  assert.equal(
+    once.client.calls.some((c) => c.method === 'ui/settings/announce'),
+    false
+  );
 });
 
 test('a core failure leaves as the IPC path returned it', async () => {
   const failing = Object.assign(new Error('-32600 domainError'), {
     name: 'ClientError',
-    detail: { kind: 'rpc', code: -32600, reason: 'domainError', message: 'domainError', data: { reason: 'domainError', domain: 'x', code: 'ROOM_MEMBER_SWITCHED_OFF', message: 'Off.', detail: { type: 'roomMember', name: 'Bench', count: 1 } } },
+    detail: {
+      kind: 'rpc',
+      code: -32600,
+      reason: 'domainError',
+      message: 'domainError',
+      data: {
+        reason: 'domainError',
+        domain: 'x',
+        code: 'ROOM_MEMBER_SWITCHED_OFF',
+        message: 'Off.',
+        detail: { type: 'roomMember', name: 'Bench', count: 1 },
+      },
+    },
   });
   const { api } = await opened(async () => {
     throw failing;
   });
-  await assert.rejects(api.searchSessionContent('q'), (e) => e.code === 'ROOM_MEMBER_SWITCHED_OFF' && e.details.name === 'Bench');
+  await assert.rejects(
+    api.searchSessionContent('q'),
+    (e) => e.code === 'ROOM_MEMBER_SWITCHED_OFF' && e.details.name === 'Bench'
+  );
 });
 
 test('setVisibleSessions follows the visible set and fences an old version', async () => {
   const { client, api } = await opened();
   assert.equal(await api.setVisibleSessions([S1, S2, S1]), true);
   assert.equal(await api.setVisibleSessions([S2]), true);
-  const lane = client.calls.filter((c) => /^thread\/(resume|unsubscribe)$/.test(c.method)).map((c) => [c.method, c.params.threadId]);
-  assert.deepEqual(lane, [['thread/resume', S1], ['thread/resume', S2], ['thread/unsubscribe', S1]]);
+  const lane = client.calls
+    .filter((c) => /^thread\/(resume|unsubscribe)$/.test(c.method))
+    .map((c) => [c.method, c.params.threadId]);
+  assert.deepEqual(lane, [
+    ['thread/resume', S1],
+    ['thread/resume', S2],
+    ['thread/unsubscribe', S1],
+  ]);
   await assert.rejects(api.setVisibleSessions('nope'), TypeError);
 });
 
@@ -229,7 +331,11 @@ test('a followed session publishes only while it is visible and is released with
   assert.deepEqual(seen, [[S1, 'state']]);
   await api.setVisibleSessions([S2]);
   await tick();
-  assert.deepEqual(seen, [[S1, 'state'], [S1, null], [S2, 'state']]);
+  assert.deepEqual(seen, [
+    [S1, 'state'],
+    [S1, null],
+    [S2, 'state'],
+  ]);
 });
 
 test('a session whose registration went empty and back is delivered again: a new baseline, then live frames', async () => {
@@ -242,7 +348,10 @@ test('a session whose registration went empty and back is delivered again: a new
   // The empty set releases the window's baseline at once and the lane lets S1 go; showing it again resumes it.
   await Promise.all([api.setVisibleSessions([]), api.setVisibleSessions([S1])]);
   await tick();
-  assert.deepEqual(seen.slice(0, 2), [[S1, 'state'], [S1, null]]);
+  assert.deepEqual(seen.slice(0, 2), [
+    [S1, 'state'],
+    [S1, null],
+  ]);
   assert.deepEqual(seen.at(-1), [S1, 'state'], 'the shown session has a state again');
   // Live frames reach it.
   const delivered = seen.length;
@@ -262,7 +371,10 @@ test('showing an already followed session delivers its hidden fold without anoth
   assert.deepEqual(seen, []);
   await api.setVisibleSessions([S2]);
   await api.setVisibleSessions([S2]);
-  assert.deepEqual(seen.map(({ frameSource, snapshot }) => [frameSource, snapshot.items[0].id]), [['live', 'held']]);
+  assert.deepEqual(
+    seen.map(({ frameSource, snapshot }) => [frameSource, snapshot.items[0].id]),
+    [['live', 'held']]
+  );
   assert.deepEqual(sent(client), []);
 });
 
@@ -309,7 +421,10 @@ test('re-entering before unsubscribe settles delivers the replacement snapshot, 
   release.resolve();
   await arrived.promise;
   assert.deepEqual(seen, [[], null, []]);
-  assert.deepEqual(client.calls.map(({ method }) => method), ['thread/resume', 'thread/unsubscribe', 'thread/resume']);
+  assert.deepEqual(
+    client.calls.map(({ method }) => method),
+    ['thread/resume', 'thread/unsubscribe', 'thread/resume']
+  );
 });
 
 test('an approval during snapshot restore is delivered with the replacement transcript, not the old fold', async () => {
@@ -325,7 +440,11 @@ test('an approval during snapshot restore is delivered with the replacement tran
   client.snapshotPending.add(S2);
   client.emitStore({ type: 'subscription', feedId: S2, state: 'restored' });
   const approval = { kind: 'shell', command: 'ls' };
-  client.requests.push({ id: 7, method: 'item/tool/requestApproval', params: { threadId: S2, order: 1, card: approval } });
+  client.requests.push({
+    id: 7,
+    method: 'item/tool/requestApproval',
+    params: { threadId: S2, order: 1, card: approval },
+  });
   client.emitStore({ type: 'thread', threadId: S2 });
   assert.deepEqual(seen, []);
   folding(client, S2, [row('fresh', 'after reconnect')]);
@@ -372,7 +491,10 @@ test('cache-only resync redelivers the visible baseline with its position and ne
   assert.equal(seen.length, 2);
   assert.deepEqual(seen[1], seen[0]);
   assert.ok(seen[1].streamPosition);
-  assert.deepEqual(client.calls.map(({ method }) => method), ['thread/resume']);
+  assert.deepEqual(
+    client.calls.map(({ method }) => method),
+    ['thread/resume']
+  );
 });
 
 test('the frame of a requested read passes the filter and carries the trace id', async () => {
@@ -400,7 +522,11 @@ test('resync delivers the state the window last held and asks the lane for one i
   // A session with no held state: the lane is asked once, the answer (any frame) is admitted although the session is hidden.
   api.resyncSessionState(S2);
   api.resyncSessionState(S2);
-  client.folds.set(S2, { feed: { id: S2, epoch: 'e1', seq: 1 }, order: 1, state: sessionReducer.initial({ thread: { id: S2 }, items: [] }) });
+  client.folds.set(S2, {
+    feed: { id: S2, epoch: 'e1', seq: 1 },
+    order: 1,
+    state: sessionReducer.initial({ thread: { id: S2 }, items: [] }),
+  });
   client.emitStore({ type: 'thread', threadId: S2 });
   assert.deepEqual(seen, [S1, S1, S2]);
   api.resyncSessionState('not a session id');
@@ -438,11 +564,15 @@ test('the core announcing a refused relay frame reaches the subscriber until it 
   const { client, api } = await opened();
   const seen = [];
   const off = api.subscribeRelayPayloadRefused((detail) => seen.push(detail));
-  const announce = (params) => client.emit({ type: 'notification', notification: { method: 'ui/relayPayloadRefused', params } });
+  const announce = (params) =>
+    client.emit({ type: 'notification', notification: { method: 'ui/relayPayloadRefused', params } });
   announce({ bytes: 70000000, limit: 67108864 });
   announce({ bytes: null });
   client.emit({ type: 'notification', notification: { method: 'ui/settings/changed', params: { scope: 'x' } } });
-  assert.deepEqual(seen, [{ bytes: 70000000, limit: 67108864 }, { bytes: null, limit: null }]);
+  assert.deepEqual(seen, [
+    { bytes: 70000000, limit: 67108864 },
+    { bytes: null, limit: null },
+  ]);
   off();
   announce({ bytes: 1, limit: 2 });
   assert.equal(seen.length, 2);
@@ -486,7 +616,10 @@ test('an engine state that left the baseline unchanged is not delivered again', 
   shell.publish({ sessionId: 'a', items: [] });
   shell.publish({ sessionId: 'a', items: [] });
   shell.publish({ sessionId: 'b', items: [] });
-  assert.deepEqual(seen.map((s) => s.sessionId), ['a', 'b']);
+  assert.deepEqual(
+    seen.map((s) => s.sessionId),
+    ['a', 'b']
+  );
 });
 
 test('sessions that leave the visible set are logged as released baselines', async () => {
@@ -506,12 +639,20 @@ test('sessions that leave the visible set are logged as released baselines', asy
     console.error = originalError;
   }
   assert.deepEqual(errors, [], 'a routine release is not a console error');
-  assert.equal(logged.filter((line) => line.startsWith('[mixdog-lane] baseline released count=1 visible=1 ids=')).length, 1);
+  assert.equal(
+    logged.filter((line) => line.startsWith('[mixdog-lane] baseline released count=1 visible=1 ids=')).length,
+    1
+  );
 });
 
 // The patch chain of the removed preload decoder (session-state.test.mjs) is gone: the lane publishes whole states, so a
 // window that missed frames, or whose feed was resumed after a gap, is rebuilt from the whole fold, never from a delta.
-const folding = (client, id, items) => client.folds.set(id, { feed: { id, epoch: 'e1', seq: 1 }, order: 1, state: sessionReducer.initial({ thread: { id }, items }) });
+const folding = (client, id, items) =>
+  client.folds.set(id, {
+    feed: { id, epoch: 'e1', seq: 1 },
+    order: 1,
+    state: sessionReducer.initial({ thread: { id }, items }),
+  });
 const row = (id, text) => ({ type: 'agentMessage', id, text, meta: {} });
 
 test('a feed resumed after a gap replaces the window state with the whole new fold', async () => {

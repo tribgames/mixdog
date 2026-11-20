@@ -64,14 +64,18 @@ test('the boot report store follows the window bridge: counts only when they cou
   assert.deepEqual(store.get().progress, { done: 10, total: 10, boot: null }, 'never past the total');
   report({ progress: { done: 4, total: 10, boot: 1 }, failure: null });
   report({ progress: { done: 2, total: 10, boot: 1 }, failure: null });
-  assert.equal(store.get().progress.done, 4, 'one boot\'s counts never go back');
+  assert.equal(store.get().progress.done, 4, "one boot's counts never go back");
   report({ progress: null, failure: null });
   report({ progress: { done: 3, total: 10, boot: 1 }, failure: null });
   assert.equal(store.get().progress.done, 4, 'withdrawing the bar does not forget the highest count of the boot');
   report({ progress: { done: 0, total: 10, boot: 2 }, failure: null });
   assert.equal(store.get().progress.done, 0, 'a new boot starts again');
   report({ progress: { done: 8, total: 10, boot: 1 }, failure: null });
-  assert.deepEqual(store.get().progress, { done: 0, total: 10, boot: 2 }, 'a superseded boot\'s late report changes nothing');
+  assert.deepEqual(
+    store.get().progress,
+    { done: 0, total: 10, boot: 2 },
+    "a superseded boot's late report changes nothing"
+  );
   report({ progress: { done: 0, total: 0 }, failure: null });
   assert.equal(store.get().progress, null, 'a migration without counts is the mark alone');
   report({ progress: null, failure: { message: 'the core ended', exitCode: 2, stderrPath: null } });
@@ -79,5 +83,9 @@ test('the boot report store follows the window bridge: counts only when they cou
   report({ progress: null, failure: { message: '' } });
   assert.equal(store.get().failure, null);
   assert.equal(told, 11);
-  assert.deepEqual(createBootReportStore(undefined).get(), { progress: null, failure: null }, 'a window without the bridge (a phone) has none');
+  assert.deepEqual(
+    createBootReportStore(undefined).get(),
+    { progress: null, failure: null },
+    'a window without the bridge (a phone) has none'
+  );
 });

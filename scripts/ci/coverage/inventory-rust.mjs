@@ -6,7 +6,18 @@ import { posix } from 'node:path';
 
 import { parseToml } from './toml-lite.mjs';
 
-const ITEM_SKIP_TO_END = new Set(['impl', 'trait', 'struct', 'enum', 'union', 'static', 'type', 'use', 'extern', 'const']);
+const ITEM_SKIP_TO_END = new Set([
+  'impl',
+  'trait',
+  'struct',
+  'enum',
+  'union',
+  'static',
+  'type',
+  'use',
+  'extern',
+  'const',
+]);
 
 export function tokenize(text) {
   const tokens = [];
@@ -57,7 +68,10 @@ export function tokenize(text) {
       }
       i += 1;
       push('str', value);
-    } else if ((c === 'r' || ((c === 'b' || c === 'c') && text[i + 1] === 'r')) && /^(?:b|c)?r#*"/.test(text.slice(i, i + 12))) {
+    } else if (
+      (c === 'r' || ((c === 'b' || c === 'c') && text[i + 1] === 'r')) &&
+      /^(?:b|c)?r#*"/.test(text.slice(i, i + 12))
+    ) {
       const head = /^(?:b|c)?r(#*)"/.exec(text.slice(i, i + 12));
       const close = `"${head[1]}`;
       const start = i + head[0].length;
@@ -127,7 +141,12 @@ function matching(tokens, at) {
   throw new Error(`unbalanced ${open} at line ${tokens[at].line}`);
 }
 
-const sourceText = (tokens) => tokens.map((token) => (token.t === 'str' ? JSON.stringify(token.v) : token.v)).join(' ').replace(/ ?([(),]) ?/g, '$1').replace(/ = /g, '=');
+const sourceText = (tokens) =>
+  tokens
+    .map((token) => (token.t === 'str' ? JSON.stringify(token.v) : token.v))
+    .join(' ')
+    .replace(/ ?([(),]) ?/g, '$1')
+    .replace(/ = /g, '=');
 
 function readAttribute(tokens, at) {
   // tokens[at] is '#'
@@ -169,7 +188,11 @@ function parseItems(tokens, from, to, ctx, out) {
       if (tokens[i]?.v === '(') i = matching(tokens, i) + 1;
       continue;
     }
-    if (token.t === 'id' && (token.v === 'unsafe' || token.v === 'async' || token.v === 'default') && ['fn', 'mod', 'impl', 'trait', 'extern', 'unsafe', 'async'].includes(tokens[i + 1]?.v)) {
+    if (
+      token.t === 'id' &&
+      (token.v === 'unsafe' || token.v === 'async' || token.v === 'default') &&
+      ['fn', 'mod', 'impl', 'trait', 'extern', 'unsafe', 'async'].includes(tokens[i + 1]?.v)
+    ) {
       i += 1;
       continue;
     }
@@ -177,7 +200,12 @@ function parseItems(tokens, from, to, ctx, out) {
       i += 1;
       continue;
     }
-    if (token.t === 'id' && token.v === 'extern' && tokens[i + 1]?.t === 'str' && ['fn', 'unsafe'].includes(tokens[i + 2]?.v)) {
+    if (
+      token.t === 'id' &&
+      token.v === 'extern' &&
+      tokens[i + 1]?.t === 'str' &&
+      ['fn', 'unsafe'].includes(tokens[i + 2]?.v)
+    ) {
       i += 2;
       continue;
     }
@@ -192,16 +220,29 @@ function parseItems(tokens, from, to, ctx, out) {
         i = end + 1;
       } else {
         // a #[path] below an inline module is relative to the directory of that module, a file's own otherwise
-        const wanted = pathAttr ? [posix.join(ctx.inline ? ctx.dir : posix.dirname(ctx.file), str(pathAttr))] : [posix.join(ctx.dir, `${name}.rs`), posix.join(ctx.dir, name, 'mod.rs')];
+        const wanted = pathAttr
+          ? [posix.join(ctx.inline ? ctx.dir : posix.dirname(ctx.file), str(pathAttr))]
+          : [posix.join(ctx.dir, `${name}.rs`), posix.join(ctx.dir, name, 'mod.rs')];
         const found = wanted.filter((candidate) => ctx.files.has(candidate));
         // a module only the owner's machine compiles (cfg(node_twin)) names material that is not tracked
         if (found.length === 0 && isLocalOnly(here.cfg)) {
           /* nothing tracked to declare */
-        } else if (found.length !== 1) out.errors.push({ code: 'unresolved-mod', path: ctx.file, line: token.line, message: `mod ${name} resolves to ${found.length} files among ${wanted.join(', ')}` });
+        } else if (found.length !== 1)
+          out.errors.push({
+            code: 'unresolved-mod',
+            path: ctx.file,
+            line: token.line,
+            message: `mod ${name} resolves to ${found.length} files among ${wanted.join(', ')}`,
+          });
         else {
           const file = found[0];
           const isModRs = posix.basename(file) === 'mod.rs' || Boolean(pathAttr);
-          out.visit(file, { ...here, modPath: [...ctx.modPath, name], dir: isModRs ? posix.dirname(file) : posix.join(posix.dirname(file), posix.basename(file, '.rs')), inline: false });
+          out.visit(file, {
+            ...here,
+            modPath: [...ctx.modPath, name],
+            dir: isModRs ? posix.dirname(file) : posix.join(posix.dirname(file), posix.basename(file, '.rs')),
+            inline: false,
+          });
         }
         i += 3;
       }
@@ -240,7 +281,13 @@ function parseItems(tokens, from, to, ctx, out) {
         const file = posix.join(posix.dirname(ctx.file), body[0].v);
         const cfg = [...ctx.cfg, ...cfgOf(attrs)];
         if (ctx.files.has(file)) out.visit(file, { ...ctx, cfg, dir: ctx.dir, include: true, inline: false });
-        else if (!isLocalOnly(cfg)) out.errors.push({ code: 'unresolved-include', path: ctx.file, line: token.line, message: `include!(${body[0].v}) names no tracked file` });
+        else if (!isLocalOnly(cfg))
+          out.errors.push({
+            code: 'unresolved-include',
+            path: ctx.file,
+            line: token.line,
+            message: `include!(${body[0].v}) names no tracked file`,
+          });
       }
       i = end + 1;
       attrs = [];
@@ -273,17 +320,24 @@ function parseItems(tokens, from, to, ctx, out) {
 // `node_twin` is the one reviewed never-built cfg: the comparison tests and their recorded data exist on the owner's machine only
 // (docs/testing.md); no CI build sets it, so what it guards is not part of the release denominator. A predicate counts when the atom
 // is not negated.
-export const isLocalOnly = (cfg) => cfg.some((predicate) => /\bnode_twin\b/.test(predicate) && !/not\(node_twin\)/.test(predicate));
+export const isLocalOnly = (cfg) =>
+  cfg.some((predicate) => /\bnode_twin\b/.test(predicate) && !/not\(node_twin\)/.test(predicate));
 
 const str = (attr) => attr.args.find((arg) => arg.t === 'str')?.v ?? '';
-const cfgOf = (attrs) => attrs.filter((attr) => attr.path.join('::') === 'cfg').map((attr) => sourceText(attr.args.slice(1, -1)));
+const cfgOf = (attrs) =>
+  attrs.filter((attr) => attr.path.join('::') === 'cfg').map((attr) => sourceText(attr.args.slice(1, -1)));
 
 /** Reads one `.rs` file and everything its `mod` declarations reach. */
 export function scanCrateRoot(root, files, read) {
   const out = { errors: [], docTests: [], visited: new Set() };
   out.visit = (file, ctx) => {
     if (out.visited.has(`${file}\u0000${ctx.include ? 'i' : ''}${ctx.modPath.join('::')}`)) {
-      out.errors.push({ code: 'module-reached-twice', path: file, line: 0, message: `${file} is reached by more than one mod declaration` });
+      out.errors.push({
+        code: 'module-reached-twice',
+        path: file,
+        line: 0,
+        message: `${file} is reached by more than one mod declaration`,
+      });
       return;
     }
     out.visited.add(`${file}\u0000${ctx.include ? 'i' : ''}${ctx.modPath.join('::')}`);
@@ -319,7 +373,11 @@ function doctestsOf(file, docs) {
       continue;
     }
     const tags = fence[2].split(/[\s,]+/).filter(Boolean);
-    const foreign = tags.some((tag) => /^(text|txt|toml|json|sh|bash|shell|console|yaml|yml|ini|c|cpp|js|javascript|ts|typescript|python|py|diff|html|xml|markdown|md|ignore|powershell|ps1|plain|plaintext|sql|csv|log|ebnf|asm)$/.test(tag));
+    const foreign = tags.some((tag) =>
+      /^(text|txt|toml|json|sh|bash|shell|console|yaml|yml|ini|c|cpp|js|javascript|ts|typescript|python|py|diff|html|xml|markdown|md|ignore|powershell|ps1|plain|plaintext|sql|csv|log|ebnf|asm)$/.test(
+        tag
+      )
+    );
     open = { line: doc.line };
     if (!foreign) found.push({ file, line: doc.line, info: fence[2].trim() });
   }
@@ -351,18 +409,32 @@ export function readPackages(tracked, read) {
     const lib = toml.lib ?? {};
     const libPath = rel(lib.path ?? 'src/lib.rs');
     if (set.has(libPath) && lib.test !== false) {
-      targets.push({ kind: 'lib', name: lib.name ?? name.replaceAll('-', '_'), root: libPath, doctest: lib.doctest !== false });
+      targets.push({
+        kind: 'lib',
+        name: lib.name ?? name.replaceAll('-', '_'),
+        root: libPath,
+        doctest: lib.doctest !== false,
+      });
     }
     const declared = new Set();
     for (const bin of toml.bin ?? []) {
-      const root = rel(bin.path ?? (bin.name === name && set.has(rel('src/main.rs')) ? 'src/main.rs' : `src/bin/${bin.name}.rs`));
+      const root = rel(
+        bin.path ?? (bin.name === name && set.has(rel('src/main.rs')) ? 'src/main.rs' : `src/bin/${bin.name}.rs`)
+      );
       declared.add(root);
       if (bin.test !== false) targets.push({ kind: 'bin', name: bin.name, root });
     }
     if (toml.package.autobins !== false) {
-      if (set.has(rel('src/main.rs')) && !declared.has(rel('src/main.rs')) && !(toml.bin ?? []).some((bin) => bin.name === name)) targets.push({ kind: 'bin', name, root: rel('src/main.rs') });
+      if (
+        set.has(rel('src/main.rs')) &&
+        !declared.has(rel('src/main.rs')) &&
+        !(toml.bin ?? []).some((bin) => bin.name === name)
+      )
+        targets.push({ kind: 'bin', name, root: rel('src/main.rs') });
       for (const file of tracked) {
-        const hit = new RegExp(`^${escape(rel('src/bin/'))}([^/]+)\\.rs$`).exec(file) ?? new RegExp(`^${escape(rel('src/bin/'))}([^/]+)/main\\.rs$`).exec(file);
+        const hit =
+          new RegExp(`^${escape(rel('src/bin/'))}([^/]+)\\.rs$`).exec(file) ??
+          new RegExp(`^${escape(rel('src/bin/'))}([^/]+)/main\\.rs$`).exec(file);
         if (hit && !declared.has(file)) targets.push({ kind: 'bin', name: hit[1], root: file });
       }
     }
@@ -373,13 +445,21 @@ export function readPackages(tracked, read) {
     }
     if (toml.package.autotests !== false) {
       for (const file of tracked) {
-        const hit = new RegExp(`^${escape(rel('tests/'))}([^/]+)\\.rs$`).exec(file) ?? new RegExp(`^${escape(rel('tests/'))}([^/]+)/main\\.rs$`).exec(file);
+        const hit =
+          new RegExp(`^${escape(rel('tests/'))}([^/]+)\\.rs$`).exec(file) ??
+          new RegExp(`^${escape(rel('tests/'))}([^/]+)/main\\.rs$`).exec(file);
         if (hit && !declared.has(file)) targets.push({ kind: 'test', name: hit[1], root: file });
       }
     }
     // examples and benches: compiled by `cargo test` but their tests do not run (test = false) unless a manifest entry says so
     const nonTest = [...(toml.example ?? []), ...(toml.bench ?? [])].filter((entry) => entry.test === true);
-    for (const entry of nonTest) errors.push({ code: 'example-or-bench-tests', path, line: 0, message: `${entry.name} sets test = true: no adapter runs it` });
+    for (const entry of nonTest)
+      errors.push({
+        code: 'example-or-bench-tests',
+        path,
+        line: 0,
+        message: `${entry.name} sets test = true: no adapter runs it`,
+      });
     packages.push({ name, manifest: path, dir, targets, features: toml.features ?? {}, toml });
   }
   return { packages, errors };
@@ -398,24 +478,39 @@ export function scanRust(tracked, read) {
     for (const target of pkg.targets) {
       const key = `${pkg.manifest}\u0000${target.kind}\u0000${target.name}`;
       if (names.has(key)) {
-        errors.push({ code: 'duplicate-target', path: pkg.manifest, line: 0, message: `${target.kind} ${target.name} is declared twice` });
+        errors.push({
+          code: 'duplicate-target',
+          path: pkg.manifest,
+          line: 0,
+          message: `${target.kind} ${target.name} is declared twice`,
+        });
         continue;
       }
       names.add(key);
       const out = scanCrateRoot(target.root, files, read);
       for (const file of out.visited) reached.add(file.split('\u0000')[0]);
       errors.push(...out.errors);
-      if (target.doctest) doctests.push(...out.docTests.map((doc) => ({ ...doc, manifest: pkg.manifest, target: target.name, dir: pkg.dir })));
+      if (target.doctest)
+        doctests.push(
+          ...out.docTests.map((doc) => ({ ...doc, manifest: pkg.manifest, target: target.name, dir: pkg.dir }))
+        );
     }
   }
   // a `.rs` file under a package that no target reaches
   const roots = packages.map((pkg) => pkg.dir);
   for (const file of files) {
     if (reached.has(file)) continue;
-    const owner = roots.filter((dir) => dir === '' || file.startsWith(`${dir}/`)).sort((a, b) => b.length - a.length)[0];
+    const owner = roots
+      .filter((dir) => dir === '' || file.startsWith(`${dir}/`))
+      .sort((a, b) => b.length - a.length)[0];
     // build scripts, examples and benches are compiled but never run as tests (their targets have test = false)
     if (owner === undefined || /(^|\/)build\.rs$|\/(examples|benches)\//.test(file)) continue;
-    errors.push({ code: 'orphan-rust-source', path: file, line: 0, message: 'no tested target of any package reaches this file' });
+    errors.push({
+      code: 'orphan-rust-source',
+      path: file,
+      line: 0,
+      message: 'no tested target of any package reaches this file',
+    });
   }
   return { packages, doctests, errors };
 }

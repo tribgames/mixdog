@@ -59,7 +59,11 @@ test('a paged config read that a newer change or the unsubscribe superseded is d
     call: () => new Promise((resolve) => pending.push(resolve)),
   };
   const applied = [];
-  const off = observeCoreForMain({ connection, applyDesktopSettings: (s) => applied.push(s), releaseBrowserSession: () => undefined });
+  const off = observeCoreForMain({
+    connection,
+    applyDesktopSettings: (s) => applied.push(s),
+    releaseBrowserSession: () => undefined,
+  });
   store({ type: 'section', section: 'config', key: 'desktop' });
   entries = [{ section: 'config', key: 'desktop', revision: 2, value: { keepAwake: true } }];
   store({ type: 'section', section: 'config', key: 'desktop' });

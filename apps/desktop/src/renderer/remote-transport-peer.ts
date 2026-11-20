@@ -138,12 +138,14 @@ export class CarrierDeparture {
     if (this.waiters.length === 0) return;
     if (!this.usable()) {
       this.stop();
-      for (const waiter of this.waiters.splice(0)) waiter.reject(new Error('The carrier closed before the frame left it.'));
+      for (const waiter of this.waiters.splice(0))
+        waiter.reject(new Error('The carrier closed before the frame left it.'));
       return;
     }
     const buffered = this.read();
     // Oldest first: a later frame has more behind it never, less always, so claims resolve in the order they were made.
-    while (this.waiters.length > 0 && buffered <= this.enqueued - this.waiters[0].after) this.waiters.shift()!.resolve();
+    while (this.waiters.length > 0 && buffered <= this.enqueued - this.waiters[0].after)
+      this.waiters.shift()!.resolve();
     if (this.waiters.length === 0) return this.stop();
     if (this.timer === null) {
       this.timer = this.timers.setTimeout(() => {
@@ -473,8 +475,16 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
     if (!found) {
       found =
         path === relayPath
-          ? new CarrierDeparture(() => options.relay.bufferedAmount(), () => !ended, timers)
-          : new CarrierDeparture(() => appQueued(path), () => !ended && isOpen((path as Direct).app), timers);
+          ? new CarrierDeparture(
+              () => options.relay.bufferedAmount(),
+              () => !ended,
+              timers
+            )
+          : new CarrierDeparture(
+              () => appQueued(path),
+              () => !ended && isOpen((path as Direct).app),
+              timers
+            );
       departures.set(path, found);
     }
     return found;

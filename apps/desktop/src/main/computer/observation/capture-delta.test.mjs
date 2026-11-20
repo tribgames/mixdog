@@ -24,9 +24,7 @@ const { recordObservation } = await import('./capture-delta.ts');
 const { createSessionState } = await import('../session/state.ts');
 const { createExecutionState } = await import('../host/execution-state.ts');
 const { DEFAULT_CAPTURE_MAX_ELEMENTS } = await import('../shared/common.ts');
-const { canonicalComputerResultText } = await import(
-  '../../../shared/test-recorded/capture-delta.test.0.recorded.mjs'
-);
+const { canonicalComputerResultText } = await import('../../../shared/test-recorded/capture-delta.test.0.recorded.mjs');
 
 const WINDOW = 'hwnd:0x1';
 const PERMISSIONS = {

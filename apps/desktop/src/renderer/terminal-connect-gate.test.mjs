@@ -13,7 +13,11 @@ function managerWithCountedSpawns() {
   const live = new Map();
   const known = new Set();
   const manager = {
-    terminals: { get size() { return known.size; } },
+    terminals: {
+      get size() {
+        return known.size;
+      },
+    },
     async attach(id) {
       return live.get(id) === true ? { id } : null;
     },

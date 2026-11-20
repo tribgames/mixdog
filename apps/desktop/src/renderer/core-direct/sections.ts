@@ -49,7 +49,10 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
   // Whether the connection has been open: the window is composed before its first open, whose app snapshot reaches the window as
   // section changes, so only a ready after that one is a leg that came back. Set after the first open's own status push.
   let opened = connection.client() !== null;
-  void connection.whenSynced().then(() => void (opened = true), () => undefined);
+  void connection.whenSynced().then(
+    () => void (opened = true),
+    () => undefined
+  );
   connection.onReplaced(() => void (opened = true));
 
   // The whole store at once, then the status: a store refolded from another core (a restarted one numbers its revisions
@@ -149,7 +152,9 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
       if (method === 'feed/subscribe' || method === 'feed/unsubscribe') {
         const feedId = (params as { feedId?: unknown } | null)?.feedId;
         if (!isScopedSectionFeed(feedId)) throw new Error('This feed is not available to the window.');
-        return method === 'feed/subscribe' ? connection.watchFeed(window, feedId) : connection.unwatchFeed(window, feedId);
+        return method === 'feed/subscribe'
+          ? connection.watchFeed(window, feedId)
+          : connection.unwatchFeed(window, feedId);
       }
       const watchId = (params as { watchId?: unknown } | null)?.watchId;
       if ((method === 'fs/watch' || method === 'fs/unwatch') && typeof watchId === 'string') {

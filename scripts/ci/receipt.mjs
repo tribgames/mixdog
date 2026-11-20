@@ -35,11 +35,30 @@ export function parentOf(dir) {
 }
 
 /** Creates the receipt of an invocation that is about to run. A file that is already there is a reused receipt: an error. */
-export function beginReceipt(path, kind, { slot = process.env.MIXDOG_SLOT ?? 'root', parent = null, ...extra } = {}, env = process.env) {
+export function beginReceipt(
+  path,
+  kind,
+  { slot = process.env.MIXDOG_SLOT ?? 'root', parent = null, ...extra } = {},
+  env = process.env
+) {
   if (existsSync(path)) throw new Error(`receipt ${path} already exists: a receipt belongs to one invocation`);
   mkdirSync(dirname(path), { recursive: true });
-  const envelope = envelopeFromEnv(env, { kind, slot, parentSlot: parent?.slot ?? null, parentInvocation: parent?.invocation ?? null });
-  const receipt = { v: EVIDENCE_VERSION, id: randomUUID(), kind, platform: process.platform, complete: false, envelope, records: [], ...extra };
+  const envelope = envelopeFromEnv(env, {
+    kind,
+    slot,
+    parentSlot: parent?.slot ?? null,
+    parentInvocation: parent?.invocation ?? null,
+  });
+  const receipt = {
+    v: EVIDENCE_VERSION,
+    id: randomUUID(),
+    kind,
+    platform: process.platform,
+    complete: false,
+    envelope,
+    records: [],
+    ...extra,
+  };
   writeFileSync(path, `${JSON.stringify(receipt)}\n`, { flag: 'wx' });
 }
 
@@ -57,7 +76,12 @@ export function finishReceipt(path, exitCode, extra = {}) {
   const parts = existsSync(dir)
     ? readdirSync(dir)
         .sort()
-        .flatMap((name) => readFileSync(join(dir, name), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)))
+        .flatMap((name) =>
+          readFileSync(join(dir, name), 'utf8')
+            .split('\n')
+            .filter(Boolean)
+            .map((line) => JSON.parse(line))
+        )
     : [];
   const events = [...parts.flatMap((part) => part.records ?? []), ...(extra.records ?? [])];
   receipt.records = events.map((event, seq) => makeRecord(seq, event));
@@ -80,12 +104,18 @@ export function readReceipts(paths) {
     try {
       receipt = JSON.parse(readFileSync(path, 'utf8'));
     } catch (error) {
-      out.push({ path, parent, problem: error.code === 'ENOENT' ? 'no receipt: the invocation did not run' : `unreadable receipt (${error.message})` });
+      out.push({
+        path,
+        parent,
+        problem:
+          error.code === 'ENOENT' ? 'no receipt: the invocation did not run' : `unreadable receipt (${error.message})`,
+      });
       return;
     }
     out.push({ path, parent, receipt });
     const children = childrenOf(path);
-    if (existsSync(children)) for (const name of readdirSync(children).sort()) if (name.endsWith('.json')) visit(join(children, name), path);
+    if (existsSync(children))
+      for (const name of readdirSync(children).sort()) if (name.endsWith('.json')) visit(join(children, name), path);
   };
   for (const path of paths) visit(path, null);
   return out;

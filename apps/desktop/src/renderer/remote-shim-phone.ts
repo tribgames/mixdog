@@ -11,7 +11,11 @@ import type { RemoteShimContext } from './remote-shim-state';
 
 const REMOTE_STATE_GAP_EVENT = 'mixdog:remote-state-gap';
 
-export function createPhoneApi(ctx: RemoteShimContext, adapters: readonly PhoneProtocolAdapter[], env: PhoneEnv): DesktopApi {
+export function createPhoneApi(
+  ctx: RemoteShimContext,
+  adapters: readonly PhoneProtocolAdapter[],
+  env: PhoneEnv
+): DesktopApi {
   const boot = bootPhone(ctx, env);
   const host: PhoneProtocolHost = {
     ctx,
@@ -84,6 +88,9 @@ export function createPhoneApi(ctx: RemoteShimContext, adapters: readonly PhoneP
   });
   router.install();
   const api = createRemoteApi(ctx);
-  Object.defineProperty(api, 'sections', { value: createPhoneSections(boot, sectionsSourceFromFoldStore), enumerable: true });
+  Object.defineProperty(api, 'sections', {
+    value: createPhoneSections(boot, sectionsSourceFromFoldStore),
+    enumerable: true,
+  });
   return api;
 }

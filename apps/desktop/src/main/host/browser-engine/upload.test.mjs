@@ -89,7 +89,17 @@ function harness({ onResolveNode } = {}) {
   registerUpload(connection, ctx, { host, invalidateInteractionState: (g) => invalidated.push(g) });
   const call = (params) => handlers.get('host/browser/upload')(params, new AbortController().signal);
   const receiver = (params) => handlers.get('host/browser/upload/receiver')(params, new AbortController().signal);
-  return { call, receiver, state, sent, counts, files, invalidated, file, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  return {
+    call,
+    receiver,
+    state,
+    sent,
+    counts,
+    files,
+    invalidated,
+    file,
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
 }
 
 const expectOf = (extra = {}) => ({ documentId: 'p1:1', ...extra });
@@ -100,7 +110,13 @@ test('the receiver of a ref is the frame document key an approval binds, and the
     const answer = await h.receiver({ pageId: 'p1', snapshotId: 's1', ref: 'e1', expect: expectOf() });
     assert.deepEqual({ key: answer.key, url: answer.url }, { key: DOCUMENT_KEY, url: 'https://a.example/' });
     const out = await h.call({
-      pageId: 'p1', route: 'fileInput', snapshotId: 's1', ref: 'e1', files: [h.file], receiverKey: answer.key, expect: expectOf(),
+      pageId: 'p1',
+      route: 'fileInput',
+      snapshotId: 's1',
+      ref: 'e1',
+      files: [h.file],
+      receiverKey: answer.key,
+      expect: expectOf(),
     });
     assert.equal(out.dispatched, true);
     await assert.rejects(h.receiver({ pageId: 'p1', snapshotId: 'old', ref: 'e1' }), { code: -32013 });
@@ -138,7 +154,14 @@ test('the files are not sent when the page moved after the first check, or the s
   const moved = harness({ onResolveNode: () => (moved.state.documentGeneration = 2) });
   try {
     await assert.rejects(
-      moved.call({ pageId: 'p1', route: 'fileInput', ref: 'e1', files: [moved.file], receiverKey: DOCUMENT_KEY, expect: expectOf() }),
+      moved.call({
+        pageId: 'p1',
+        route: 'fileInput',
+        ref: 'e1',
+        files: [moved.file],
+        receiverKey: DOCUMENT_KEY,
+        expect: expectOf(),
+      }),
       (error) => error.code === -32010 && error.data.reason === 'document'
     );
     assert.equal(moved.sent.length, 0);
@@ -169,11 +192,25 @@ test('a receiver other than the approved one gets nothing; an empty key binds no
   const h = harness();
   try {
     await assert.rejects(
-      h.call({ pageId: 'p1', route: 'fileInput', ref: 'e1', files: [h.file], receiverKey: '\nF9\nL9\nhttps://evil.example/', expect: expectOf() }),
+      h.call({
+        pageId: 'p1',
+        route: 'fileInput',
+        ref: 'e1',
+        files: [h.file],
+        receiverKey: '\nF9\nL9\nhttps://evil.example/',
+        expect: expectOf(),
+      }),
       /upload target changed; nothing was dispatched/
     );
     assert.equal(h.sent.length, 0);
-    const open = await h.call({ pageId: 'p1', route: 'fileInput', ref: 'e1', files: [h.file], receiverKey: '', expect: expectOf() });
+    const open = await h.call({
+      pageId: 'p1',
+      route: 'fileInput',
+      ref: 'e1',
+      files: [h.file],
+      receiverKey: '',
+      expect: expectOf(),
+    });
     assert.equal(open.dispatched, true);
     assert.equal(h.sent.length, 1);
   } finally {
@@ -205,7 +242,13 @@ test('the open chooser is answered only while it is the one the approval named',
     assert.equal(h.state.pendingFileChooser, null);
     // The chooser is gone: a second answer is refused by the page state.
     await assert.rejects(
-      h.call({ pageId: 'p1', route: 'chooser', files: [h.file], receiverKey: key, expect: expectOf({ receiverKey: key }) }),
+      h.call({
+        pageId: 'p1',
+        route: 'chooser',
+        files: [h.file],
+        receiverKey: key,
+        expect: expectOf({ receiverKey: key }),
+      }),
       (error) => error.code === -32010 && error.data.reason === 'receiver'
     );
     assert.equal(h.sent.length, 1);
@@ -219,7 +262,14 @@ test('the click that opens a picker is held to the same check', async () => {
   try {
     h.files.input = false;
     await assert.rejects(
-      h.call({ pageId: 'p1', route: 'pickerClick', ref: 'e1', files: [h.file], receiverKey: DOCUMENT_KEY, expect: expectOf() }),
+      h.call({
+        pageId: 'p1',
+        route: 'pickerClick',
+        ref: 'e1',
+        files: [h.file],
+        receiverKey: DOCUMENT_KEY,
+        expect: expectOf(),
+      }),
       (error) => error.code === -32010 && error.data.reason === 'document'
     );
     assert.equal(h.counts.clicks, 0);
@@ -232,7 +282,14 @@ test('the click that opens a picker is held to the same check', async () => {
 test('a request that does not name its route, files, receiver or state is refused as invalid params', async () => {
   const h = harness();
   try {
-    const base = { pageId: 'p1', route: 'fileInput', ref: 'e1', files: [h.file], receiverKey: DOCUMENT_KEY, expect: expectOf() };
+    const base = {
+      pageId: 'p1',
+      route: 'fileInput',
+      ref: 'e1',
+      files: [h.file],
+      receiverKey: DOCUMENT_KEY,
+      expect: expectOf(),
+    };
     for (const bad of [
       { ...base, route: 'paste' },
       { ...base, files: [] },
@@ -274,10 +331,16 @@ test('the route the approval named has to be what the ref is: a file input is no
   try {
     const base = { pageId: 'p1', ref: 'e1', files: [h.file], receiverKey: DOCUMENT_KEY, expect: expectOf() };
     for (const route of ['pickerClick', 'drop']) {
-      await assert.rejects(h.call({ ...base, route }), (error) => error.code === -32010 && error.data.reason === 'receiver');
+      await assert.rejects(
+        h.call({ ...base, route }),
+        (error) => error.code === -32010 && error.data.reason === 'receiver'
+      );
     }
     h.files.input = false;
-    await assert.rejects(h.call({ ...base, route: 'fileInput' }), (error) => error.code === -32010 && error.data.reason === 'receiver');
+    await assert.rejects(
+      h.call({ ...base, route: 'fileInput' }),
+      (error) => error.code === -32010 && error.data.reason === 'receiver'
+    );
     assert.equal(h.sent.length, 0);
     assert.equal(h.counts.clicks + h.counts.drops, 0);
   } finally {

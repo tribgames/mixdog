@@ -31,7 +31,9 @@ test('a named file or a glob that matches nothing is reported, one that matches 
     writeFileSync(join(cwd, 'present', 'a.test.mjs'), '');
     writeFileSync(join(cwd, 'b.test.mjs'), '');
     assert.deepEqual(
-      unmatchedPatterns(['present/*.test.mjs', 'b.test.mjs', 'gone/*.test.mjs', 'gone.test.mjs', '--test-force-exit'], { cwd }),
+      unmatchedPatterns(['present/*.test.mjs', 'b.test.mjs', 'gone/*.test.mjs', 'gone.test.mjs', '--test-force-exit'], {
+        cwd,
+      }),
       ['gone/*.test.mjs', 'gone.test.mjs']
     );
     assert.deepEqual(unmatchedPatterns([], { cwd }), []);

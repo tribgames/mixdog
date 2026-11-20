@@ -51,8 +51,12 @@ function fakeSources(overrides = {}) {
     calls,
     displays: () => [display('11', 0, 0, true), display('12', 1, 2000)],
     ownedWindow: (id) => (id === 'hwnd:0x1' ? ownedWindow(async () => image(800, 600)) : null),
-    displayPixels: async (d, size) => (calls.push(['display', d.id, size.width, size.height]), image(size.width, size.height)),
-    windowPixels: async (id, size) => (calls.push(['window', id, size.width, size.height]), image(size.width, size.height)),
+    displayPixels: async (d, size) => (
+      calls.push(['display', d.id, size.width, size.height]), image(size.width, size.height)
+    ),
+    windowPixels: async (id, size) => (
+      calls.push(['window', id, size.width, size.height]), image(size.width, size.height)
+    ),
     screenAccess: () => undefined,
     ...overrides,
   };
@@ -89,7 +93,10 @@ test('a region is cut from the full-resolution capture and answered as the sourc
   assert.deepEqual(got.image.ops, [['crop', 100, 100, 400, 300]]);
   assert.deepEqual([got.source.x, got.source.y, got.source.width, got.source.height], [2100, 100, 400, 300]);
   await assert.rejects(
-    acquirePixels(sources, request({ target: { kind: 'display', displayId: '12' }, region: { x: 0, y: 0, width: 10, height: 10 } })),
+    acquirePixels(
+      sources,
+      request({ target: { kind: 'display', displayId: '12' }, region: { x: 0, y: 0, width: 10, height: 10 } })
+    ),
     (error) => error.code === 'invalid_params'
   );
 });
@@ -127,7 +134,10 @@ test('failures map to the codes the core reads', async () => {
     acquirePixels(empty, request()),
     (error) => error.code === 'computer_capture_unavailable' && /empty_frame/.test(error.message)
   );
-  const denied = fakeSources({ displayPixels: async () => image(10, 10, { empty: true }), screenAccess: () => 'denied' });
+  const denied = fakeSources({
+    displayPixels: async () => image(10, 10, { empty: true }),
+    screenAccess: () => 'denied',
+  });
   await assert.rejects(acquirePixels(denied, request()), (error) => error.code === 'computer_capture_permission');
   const refused = fakeSources({
     displayPixels: async () => {
@@ -139,8 +149,14 @@ test('failures map to the codes the core reads', async () => {
     acquirePixels(fakeSources(), request({ target: { kind: 'display', displayId: '99' } })),
     (error) => error.code === 'computer_capture_unavailable'
   );
-  await assert.rejects(acquirePixels(fakeSources(), request({ backend: 'app_owned' })), (error) => error.code === 'invalid_params');
-  await assert.rejects(acquirePixels(fakeSources(), windowRequest('hwnd:0x1', 'screen')), (error) => error.code === 'invalid_params');
+  await assert.rejects(
+    acquirePixels(fakeSources(), request({ backend: 'app_owned' })),
+    (error) => error.code === 'invalid_params'
+  );
+  await assert.rejects(
+    acquirePixels(fakeSources(), windowRequest('hwnd:0x1', 'screen')),
+    (error) => error.code === 'invalid_params'
+  );
 });
 
 test('encoding: jpeg takes the quality, png does not, empty bytes are refused', () => {
@@ -183,12 +199,26 @@ function host(sources, callCore) {
 test('the host method uploads before it answers the blob reference', async () => {
   const puts = [];
   const ask = host(fakeSources(), async (_method, params) => (puts.push(params), {}));
-  const answer = await ask({ target: { kind: 'display' }, backend: 'screen', maxWidth: 1000, format: 'jpeg', quality: 60 });
+  const answer = await ask({
+    target: { kind: 'display' },
+    backend: 'screen',
+    maxWidth: 1000,
+    format: 'jpeg',
+    quality: 60,
+  });
   assert.equal(answer.blob.mimeType, 'image/jpeg');
   assert.equal(answer.blob.digest, puts[0].digest);
   assert.equal(answer.blob.byteLength, Buffer.from(puts[0].bytesB64, 'base64').length);
   assert.ok(answer.captureWidth <= 1000);
-  assert.deepEqual(answer.source, { x: 0, y: 0, width: 2000, height: 1000, scaleFactor: 1, displayId: '11', windowId: null });
+  assert.deepEqual(answer.source, {
+    x: 0,
+    y: 0,
+    width: 2000,
+    height: 1000,
+    scaleFactor: 1,
+    displayId: '11',
+    windowId: null,
+  });
   assert.deepEqual(answer.attempts, [{ backend: 'screen', ok: true }]);
   assert.equal(answer.backend, 'screen');
 });
@@ -208,6 +238,7 @@ test('the host method answers -32602 for bad params and -32000 with the code for
   );
   await assert.rejects(
     ask({ target: { kind: 'display' }, backend: 'screen', maxWidth: 100, format: 'jpeg', quality: 50 }),
-    (error) => error.code === -32000 && error.data.code === 'computer_capture_permission' && error.data.attempts.length === 1
+    (error) =>
+      error.code === -32000 && error.data.code === 'computer_capture_permission' && error.data.attempts.length === 1
   );
 });

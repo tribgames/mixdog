@@ -10,19 +10,44 @@ import { approvalAllowOnceDecision, approvalEnterAllowsOnce } from './approval-e
 const permission = (...scopes) => ({ kind: 'permission', permission: { scopes } });
 
 test('a tool or outbound approval is allowed once with a bare allow; an Office commit says approve', () => {
-  assert.deepEqual(approvalAllowOnceDecision({ kind: 'approval', name: 'shell', args: { command: 'npm test' } }), { approved: true });
-  assert.deepEqual(approvalAllowOnceDecision({ kind: 'outbound', outbound: { category: 'comment' } }), { approved: true });
-  assert.deepEqual(approvalAllowOnceDecision({ name: 'shell' }), { approved: true }, 'a card without a kind is a tool approval');
-  assert.deepEqual(approvalAllowOnceDecision({ kind: 'approval', name: 'Office', args: { action: 'Commit' } }), { approved: true, response: 'approve' });
+  assert.deepEqual(approvalAllowOnceDecision({ kind: 'approval', name: 'shell', args: { command: 'npm test' } }), {
+    approved: true,
+  });
+  assert.deepEqual(approvalAllowOnceDecision({ kind: 'outbound', outbound: { category: 'comment' } }), {
+    approved: true,
+  });
+  assert.deepEqual(
+    approvalAllowOnceDecision({ name: 'shell' }),
+    { approved: true },
+    'a card without a kind is a tool approval'
+  );
+  assert.deepEqual(approvalAllowOnceDecision({ kind: 'approval', name: 'Office', args: { action: 'Commit' } }), {
+    approved: true,
+    response: 'approve',
+  });
 });
 
 test('a permission is allowed once with its narrowest once-type option, the first of that kind', () => {
   assert.deepEqual(
-    approvalAllowOnceDecision(permission({ id: 'a', kind: 'allow_always' }, { id: 's', kind: 'allow_session' }, { id: 'o', kind: 'allow_once' }, { id: 'o2', kind: 'allow_once' })),
+    approvalAllowOnceDecision(
+      permission(
+        { id: 'a', kind: 'allow_always' },
+        { id: 's', kind: 'allow_session' },
+        { id: 'o', kind: 'allow_once' },
+        { id: 'o2', kind: 'allow_once' }
+      )
+    ),
     { approved: true, scope: 'o' }
   );
-  assert.deepEqual(approvalAllowOnceDecision(permission({ id: 'a', kind: 'allow_always' }, { id: 's', kind: 'allow_session' })), { approved: true, scope: 's' });
-  assert.deepEqual(approvalAllowOnceDecision(permission({ id: 'once' })), { approved: true, scope: 'once' }, 'a scope without a kind is read by its id');
+  assert.deepEqual(
+    approvalAllowOnceDecision(permission({ id: 'a', kind: 'allow_always' }, { id: 's', kind: 'allow_session' })),
+    { approved: true, scope: 's' }
+  );
+  assert.deepEqual(
+    approvalAllowOnceDecision(permission({ id: 'once' })),
+    { approved: true, scope: 'once' },
+    'a scope without a kind is read by its id'
+  );
 });
 
 test('what a bare Enter does not allow has no once decision', () => {

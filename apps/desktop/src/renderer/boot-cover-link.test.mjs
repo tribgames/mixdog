@@ -6,7 +6,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 // The first screen's end belongs to the window's own link to its core. A rebuild's counts (even a full bar or a cleared report), the
 // readiness of the window and its time limit never open the app while that link is not open; a link that drops during the fade
 // takes the hand-off back; and a core that ends at boot the same way each time is a card with a way to try again, not a mark forever.
-test('the boot cover stays until the window\'s core link is open, however the boot reports go', async (t) => {
+test("the boot cover stays until the window's core link is open, however the boot reports go", async (t) => {
   const { root, document } = installTestDom(t, { rootId: 'root', globals: {} });
   let report;
   window.mixdogCorePort = {
@@ -23,7 +23,9 @@ test('the boot cover stays until the window\'s core link is open, however the bo
   const gate = () => document.querySelector('.desktop-boot-gate');
   const cover = () => document.querySelector('.desktop-boot-cover');
   await act(async () =>
-    root.render(React.createElement(DesktopBootGate, { ready: true, enabled: true }, React.createElement('main', null, 'app')))
+    root.render(
+      React.createElement(DesktopBootGate, { ready: true, enabled: true }, React.createElement('main', null, 'app'))
+    )
   );
   await wait(350);
   assert.ok(cover(), 'ready, and nothing pending: still covered while the core link is not open');
@@ -41,7 +43,14 @@ test('the boot cover stays until the window\'s core link is open, however the bo
   assert.equal(document.querySelector('.desktop-loading-progress'), null);
 
   await act(async () =>
-    report({ progress: null, failure: { message: 'core is not ready: the core ended before serving (exited with code 2): mixdogd: no manifest', exitCode: 2, stderrPath: 'C:\\x\\stderr.log' } })
+    report({
+      progress: null,
+      failure: {
+        message: 'core is not ready: the core ended before serving (exited with code 2): mixdogd: no manifest',
+        exitCode: 2,
+        stderrPath: 'C:\\x\\stderr.log',
+      },
+    })
   );
   const card = document.querySelector('.desktop-boot-failure');
   assert.ok(card, 'a start that ends the same way each time is a failure card');
@@ -52,8 +61,15 @@ test('the boot cover stays until the window\'s core link is open, however the bo
 
   // The link opens: the existing rules take over and the app opens.
   const listeners = new Set();
-  const connection = { status: 'reconnecting', onState: (listener) => (listeners.add(listener), () => listeners.delete(listener)) };
-  const move = (status) => act(async () => { connection.status = status; for (const listener of [...listeners]) listener(); });
+  const connection = {
+    status: 'reconnecting',
+    onState: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+  };
+  const move = (status) =>
+    act(async () => {
+      connection.status = status;
+      for (const listener of [...listeners]) listener();
+    });
   watchLocalCoreLink(connection);
   await wait(350);
   assert.ok(cover(), 'a connection that is not ready does not open it');

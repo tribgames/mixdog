@@ -128,7 +128,10 @@ test('an outbound post: a centred question, the target, the editable text and �
     // No text lines under the card (reason, note, scope): what "Allow for this agent"
     // changes is that button's tooltip; the others keep their label.
     assert.equal(ui.doc.querySelector('.approval-reason, .approval-note, .approval-scope'), null);
-    assert.equal(ui.button('Allow for this agent').title, "github won't ask again for github-watcher, in any conversation");
+    assert.equal(
+      ui.button('Allow for this agent').title,
+      "github won't ask again for github-watcher, in any conversation"
+    );
     assert.equal(ui.button('Allow just once').title, 'Allow just once');
     const box = ui.doc.querySelector('.approval-edit textarea');
     await ui.type(box, 'Edited text');
@@ -518,11 +521,7 @@ test('Always allow is never the initial focus nor the default Enter; a focused o
       assert.equal(ui.doc.activeElement, ui.row(2), 'initial focus is Allow just once');
       assert.notEqual(ui.doc.activeElement, ui.button(grant));
       await settle();
-      assert.notEqual(
-        ui.doc.activeElement,
-        ui.button(grant),
-        'nothing moves focus there after the settle window'
-      );
+      assert.notEqual(ui.doc.activeElement, ui.button(grant), 'nothing moves focus there after the settle window');
       ui.doc.activeElement.blur();
       await ui.key('Enter', {}, ui.doc.body);
       assert.deepEqual(
@@ -1098,7 +1097,11 @@ test('a failed saveChatLogins read offers no save box (never an "off" one) until
       for (const listener of [...listeners]) listener({ scope: 'desktop' });
       await new Promise((done) => setTimeout(done, 0));
     });
-    assert.equal(ui.doc.querySelector('.approval-check input').checked, true, 'the stored default (on) once it arrives');
+    assert.equal(
+      ui.doc.querySelector('.approval-check input').checked,
+      true,
+      'the stored default (on) once it arrives'
+    );
   } finally {
     dom.window.mixdogDesktop = previous;
     await ui.done();
@@ -2183,9 +2186,7 @@ test("the runtime's known reasons read in the UI language; an agent's own reason
     'This connector tool is set to ask before it runs for this agent.',
   ];
   {
-    const { CONNECTOR_APPROVAL_REASON } = await import(
-      '../shared/test-recorded/ApprovalCard.slow.test.0.recorded.mjs'
-    );
+    const { CONNECTOR_APPROVAL_REASON } = await import('../shared/test-recorded/ApprovalCard.slow.test.0.recorded.mjs');
     assert.deepEqual([CONNECTOR_APPROVAL_REASON], known.slice(2), 'the runtime texts mapped');
     const ko = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
     for (const key of known.slice(2)) assert.ok(/[가-힣]/.test(ko[key] ?? ''), `ko: ${key}`);

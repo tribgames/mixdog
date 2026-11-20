@@ -104,7 +104,6 @@ test('a temp variable that was unset before tsx loaded stays unset', async (t) =
   assert.equal(report.after.hasTMPDIR, false);
 });
 
-
 test('an explicit external cache keeps dependency junctions read-only while preserving the test temp directory', async (t) => {
   const external = await mkdtemp(join(tmpdir(), 'mixdog-tsx-external-cache-'));
   t.after(() => rm(external, { recursive: true, force: true }));

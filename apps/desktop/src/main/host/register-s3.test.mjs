@@ -76,7 +76,10 @@ test('every handler of the computer host is registered, with no desktop host run
   ]) {
     assert.ok(connection.handlers.has(method), `${method} is served`);
   }
-  await assert.rejects(connection.handlers.get('host/computer/command')({ command: {} }, new AbortController().signal), /unavailable/);
+  await assert.rejects(
+    connection.handlers.get('host/computer/command')({ command: {} }, new AbortController().signal),
+    /unavailable/
+  );
   stop();
 });
 
@@ -90,7 +93,9 @@ test('a lock or suspend after the app is ready is a takeover for the core only w
   assert.deepEqual(connection.requests, [], 'no core session: the core is not told');
   mirror.applySection(section);
   power.emit('lock-screen');
-  assert.deepEqual(connection.requests, [['computer/userControl', { action: 'takeover', reason: 'desktop_unavailable' }]]);
+  assert.deepEqual(connection.requests, [
+    ['computer/userControl', { action: 'takeover', reason: 'desktop_unavailable' }],
+  ]);
   stop();
   power.emit('lock-screen');
   assert.equal(connection.requests.length, 1, 'stopped');

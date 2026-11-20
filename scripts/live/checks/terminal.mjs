@@ -10,7 +10,8 @@ export async function run({ env, outputMs = 30_000 }) {
   const { core } = env;
   const ensured = await core.request('terminal/ensure', { options: { cwd: tmpdir() } });
   const id = ensured?.id ?? ensured?.tabId;
-  if (typeof id !== 'string' || !id) throw new Error(`terminal/ensure answered no tab id: ${JSON.stringify(ensured).slice(0, 200)}`);
+  if (typeof id !== 'string' || !id)
+    throw new Error(`terminal/ensure answered no tab id: ${JSON.stringify(ensured).slice(0, 200)}`);
   let received = '';
   let wake = () => {};
   const stop = core.client.on((event) => {
@@ -23,7 +24,15 @@ export async function run({ env, outputMs = 30_000 }) {
     await core.request('terminal/attach', { tabId: id });
     core.client.notify('terminal/input', { tabId: id, data: 'echo mixdog-live-smoke\r' });
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`no output with the typed text on process:${id} within ${outputMs} ms (got ${received.length} characters)`)), outputMs);
+      const timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `no output with the typed text on process:${id} within ${outputMs} ms (got ${received.length} characters)`
+            )
+          ),
+        outputMs
+      );
       wake = () => {
         if (!/mixdog-live-smoke/.test(received)) return;
         clearTimeout(timer);

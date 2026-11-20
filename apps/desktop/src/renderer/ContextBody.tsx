@@ -4,6 +4,7 @@ import { t } from './i18n';
 import { record } from './record-utils';
 import { ContextInspector, type ContextInspection, type ContextRequest } from './ContextInspector';
 import { statsCount, statsMoney, statsNumber, statsPercent, statsSpeed, statsTokens } from './usage-stats-model';
+// biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error Shared presentation contract has no separate declaration file.
 import { contextMeasurementStats, contextMeasurementLabel } from '../../../../packages/protocol-client/src/rows/context-measurement.mjs';
 

@@ -53,8 +53,11 @@ async function run() {
     return { ...result, helperPid: core.helperPid(session) };
   };
   const authorizationWindows = async (session = 'reliability') =>
-    (JSON.parse((await command({ action: 'authorization_windows' }, session)).text) as { windows: AuthorizationWindow[] })
-      .windows;
+    (
+      JSON.parse((await command({ action: 'authorization_windows' }, session)).text) as {
+        windows: AuthorizationWindow[];
+      }
+    ).windows;
   const updateAuthorization = async (authorization: Record<string, unknown>) => {
     await command({ action: 'update_authorization', authorization });
   };

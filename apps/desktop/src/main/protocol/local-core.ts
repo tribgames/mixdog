@@ -11,7 +11,11 @@ import { readLocalDiscovery } from './discovery';
 import type { WsEndpoint } from './ws-connector';
 
 /** The core binary: the packaged one beside the app's resources, `MIXDOGD_BIN` in development. */
-export function coreBinaryPath(packaged: boolean, resourcesPath: string, platform: NodeJS.Platform = process.platform): string {
+export function coreBinaryPath(
+  packaged: boolean,
+  resourcesPath: string,
+  platform: NodeJS.Platform = process.platform
+): string {
   if (!packaged) return process.env.MIXDOGD_BIN || 'mixdogd';
   return join(resourcesPath, 'core', platform === 'win32' ? 'mixdogd.exe' : 'mixdogd');
 }
@@ -93,16 +97,19 @@ export function packagedMixdogRoot(resourcesPath: string): string {
 /** What the started core inherits: a packaged app tells it where its resources are and which Electron profile is
  *  its own. The core never guesses a profile (`migration_roots` in the daemon's boot.rs): `MIXDOG_DESKTOP_USER_DATA`
  *  is the only way the one-time migration reaches the profile's session metadata and remote state. */
-export function coreEnvironment(packaged: boolean, resourcesPath: string, userData: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function coreEnvironment(
+  packaged: boolean,
+  resourcesPath: string,
+  userData: string,
+  base: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
   if (!packaged) return base;
   // The test hooks belong to a dev core built with `--features test-hooks`; a packaged core never receives them.
   const { MIXDOG_DEV_COMPUTER_RUN: _run, MIXDOGD_TEST_HOOKS: _hooks, ...inherited } = base;
   return { ...inherited, MIXDOG_ROOT: packagedMixdogRoot(resourcesPath), MIXDOG_DESKTOP_USER_DATA: userData };
 }
 
-export async function readCoreState(
-  runtimeRoot: string
-): Promise<{
+export async function readCoreState(runtimeRoot: string): Promise<{
   state: string;
   rpcPort: number | null;
   blocked: unknown;
@@ -116,7 +123,10 @@ export async function readCoreState(
     text = await readFile(join(runtimeRoot, 'daemon.json'), 'utf8');
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
-      throw Object.assign(new Error(`no core is running (${runtimeRoot})`), { name: 'CoreDiscoveryError', code: 'absent' });
+      throw Object.assign(new Error(`no core is running (${runtimeRoot})`), {
+        name: 'CoreDiscoveryError',
+        code: 'absent',
+      });
     }
     throw error;
   }
@@ -134,8 +144,13 @@ export async function readCoreState(
   };
   const core = discovery.core;
   const sessionPort = discovery.endpoints?.session?.port;
-  const legacy = core === undefined && discovery.protocol === 1
-    && typeof sessionPort === 'number' && Number.isInteger(sessionPort) && sessionPort > 0 && sessionPort <= 65535;
+  const legacy =
+    core === undefined &&
+    discovery.protocol === 1 &&
+    typeof sessionPort === 'number' &&
+    Number.isInteger(sessionPort) &&
+    sessionPort > 0 &&
+    sessionPort <= 65535;
   return {
     state: legacy ? 'legacy' : String(core?.state ?? 'unknown'),
     rpcPort: Number.isInteger(core?.rpc?.port) ? (core?.rpc?.port as number) : null,
@@ -147,7 +162,9 @@ export async function readCoreState(
     token: typeof discovery.endpoints?.session?.token === 'string' ? discovery.endpoints.session.token : null,
     // Present only while the core rebuilds its conversation index at start.
     rebuild:
-      Number.isInteger(core?.rebuild?.done) && Number.isInteger(core?.rebuild?.total) && (core?.rebuild?.total as number) > 0
+      Number.isInteger(core?.rebuild?.done) &&
+      Number.isInteger(core?.rebuild?.total) &&
+      (core?.rebuild?.total as number) > 0
         ? { done: core?.rebuild?.done as number, total: core?.rebuild?.total as number }
         : null,
   };
@@ -222,11 +239,18 @@ export function coreExit(child: CoreProcess | null, timeoutMs: number): Promise<
 /** Ends the core this app started, and the processes it started (its workers, PostgreSQL), when a quit's stop left it running.
  *  The app's exit does not end its children on Windows, so a core that did not leave in time would outlive the app, keep the
  *  data directory and make the next launch wait on it. True when a kill was sent. */
-export function forceEndCore(child: CoreProcess | null, { platform = process.platform, spawnImpl = spawn }: { platform?: NodeJS.Platform; spawnImpl?: typeof spawn } = {}): boolean {
+export function forceEndCore(
+  child: CoreProcess | null,
+  { platform = process.platform, spawnImpl = spawn }: { platform?: NodeJS.Platform; spawnImpl?: typeof spawn } = {}
+): boolean {
   if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return false;
   try {
     if (platform === 'win32') {
-      const kill = spawnImpl('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, detached: true });
+      const kill = spawnImpl('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+        detached: true,
+      });
       kill.once('error', () => {});
       kill.unref();
     } else {
@@ -305,7 +329,9 @@ export async function requestCoreStop({
         if (stderr.length < 2_000) stderr += String(chunk);
       });
       ctl.once('error', (error: Error) => done('refused', error.message));
-      ctl.once('exit', (code) => (code === 0 ? done('sent') : done('refused', stderr.trim() || `mixdogd ctl stop exited ${code}`)));
+      ctl.once('exit', (code) =>
+        code === 0 ? done('sent') : done('refused', stderr.trim() || `mixdogd ctl stop exited ${code}`)
+      );
     } catch (error) {
       done('refused', error instanceof Error ? error.message : String(error));
     }

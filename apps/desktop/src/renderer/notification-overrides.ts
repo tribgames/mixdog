@@ -135,7 +135,8 @@ export const notificationSnapshot = () => snapshot;
 /** Whether this window offers per-conversation controls (SSH and older hosts do not). */
 export const conversationNotificationsAvailable = () =>
   !isSshConnectionWindow() &&
-  typeof window !== 'undefined' && typeof window.mixdogDesktop?.setConversationNotification === 'function';
+  typeof window !== 'undefined' &&
+  typeof window.mixdogDesktop?.setConversationNotification === 'function';
 
 /** A session's overrides apply in this order: the session, its room, its bot. */
 function chainOf(target: NotificationTarget): NotificationTarget[] {

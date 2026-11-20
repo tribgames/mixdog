@@ -34,7 +34,11 @@ const NOTHING: BootReport = { progress: null, failure: null };
 function counted(value: unknown): BootProgress | null {
   const { done, total, boot } = (value ?? {}) as Partial<BootProgress>;
   if (!Number.isInteger(done) || !Number.isInteger(total) || (total as number) <= 0) return null;
-  return { done: Math.min(Math.max(done as number, 0), total as number), total: total as number, boot: Number.isInteger(boot) ? (boot as number) : null };
+  return {
+    done: Math.min(Math.max(done as number, 0), total as number),
+    total: total as number,
+    boot: Number.isInteger(boot) ? (boot as number) : null,
+  };
 }
 
 function failed(value: unknown): BootFailure | null {
@@ -60,7 +64,8 @@ export function createBootReportStore(bridge: Pick<CorePortBridge, 'onBootReport
     let progress: BootProgress | null = null;
     if (next) {
       const held = highs.get(next.boot);
-      if (held && next.boot !== bootNow) progress = current.progress; // a superseded boot's late report changes nothing
+      if (held && next.boot !== bootNow)
+        progress = current.progress; // a superseded boot's late report changes nothing
       else {
         progress = held && next.done < held.done ? held : next;
         highs.set(next.boot, progress);
@@ -85,9 +90,15 @@ let shared: BootReportStore | undefined;
 
 function useBootReport(): BootReport {
   const remote = isRemoteHostRenderer();
-  shared ??= createBootReportStore(typeof window === 'undefined' ? undefined : (window as { mixdogCorePort?: CorePortBridge }).mixdogCorePort);
+  shared ??= createBootReportStore(
+    typeof window === 'undefined' ? undefined : (window as { mixdogCorePort?: CorePortBridge }).mixdogCorePort
+  );
   const store = shared;
-  return useSyncExternalStore(store.subscribe, () => (remote ? NOTHING : store.get()), () => NOTHING);
+  return useSyncExternalStore(
+    store.subscribe,
+    () => (remote ? NOTHING : store.get()),
+    () => NOTHING
+  );
 }
 
 /** How far the core's index rebuild has come, while one runs and the window waits for its core; null otherwise. Counts only decide

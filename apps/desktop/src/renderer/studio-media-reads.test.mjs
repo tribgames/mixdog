@@ -24,7 +24,9 @@ const job = (index, extra = {}) => ({
 function mediaCore({ snapshotFails = false, snapshotFailsLate = false, refuse = [], transportFails = [] } = {}) {
   // A snapshot read that is still in flight while the pushes arrive, and fails afterwards.
   let failLate = () => undefined;
-  const lateGate = snapshotFailsLate ? new Promise((_, reject) => void (failLate = () => reject(new Error('core unreachable')))) : null;
+  const lateGate = snapshotFailsLate
+    ? new Promise((_, reject) => void (failLate = () => reject(new Error('core unreachable'))))
+    : null;
   const listeners = new Set();
   const held = new Map();
   let revision = 0;
@@ -62,13 +64,25 @@ function mediaCore({ snapshotFails = false, snapshotFailsLate = false, refuse = 
   };
 }
 
-async function mountJobs(context, { refreshAssetKind = async () => {}, snapshotFails = false, snapshotFailsLate = false, refuse = [], transportFails = [] } = {}) {
+async function mountJobs(
+  context,
+  {
+    refreshAssetKind = async () => {},
+    snapshotFails = false,
+    snapshotFailsLate = false,
+    refuse = [],
+    transportFails = [],
+  } = {}
+) {
   const { restore } = installTestDom(null, { html: '<!doctype html><main></main>' });
   const core = mediaCore({ snapshotFails, snapshotFailsLate, refuse, transportFails });
   const errors = [];
   const refreshed = [];
   const written = new Map();
-  const referenceStore = { read: async (key) => written.get(key), write: async (key, value) => void written.set(key, value) };
+  const referenceStore = {
+    read: async (key) => written.get(key),
+    write: async (key, value) => void written.set(key, value),
+  };
   const state = { current: null };
   // The panel hands the hook stable callbacks and a stable `api`/`assets`; a fresh one per render would re-arm it.
   const api = { sections: core.sections };
@@ -79,7 +93,14 @@ async function mountJobs(context, { refreshAssetKind = async () => {}, snapshotF
   };
   const setError = (error) => errors.push(error);
   function Harness() {
-    state.current = useStudioMediaJobs({ active: true, api, assets, referenceStore, refreshAssetKind: stableRefresh, setError });
+    state.current = useStudioMediaJobs({
+      active: true,
+      api,
+      assets,
+      referenceStore,
+      refreshAssetKind: stableRefresh,
+      setError,
+    });
     return null;
   }
   const root = createRoot(document.querySelector('main'));
@@ -100,10 +121,16 @@ test('Studio follows every running job from the core push, however many, with no
   await drain();
   core.set(...jobs.map((entry) => ({ ...entry, progress: 1 })));
   await drain();
-  assert.deepEqual(state.current.jobs.map(({ progress }) => progress), jobs.map(() => 1));
+  assert.deepEqual(
+    state.current.jobs.map(({ progress }) => progress),
+    jobs.map(() => 1)
+  );
   core.set(...jobs.map((entry) => ({ ...entry, progress: 2 })));
   await drain();
-  assert.deepEqual(state.current.jobs.map(({ progress }) => progress), jobs.map(() => 2));
+  assert.deepEqual(
+    state.current.jobs.map(({ progress }) => progress),
+    jobs.map(() => 2)
+  );
   assert.deepEqual(errors, []);
   assert.deepEqual(refreshed, [], 'running jobs refresh no asset list');
 });
@@ -121,11 +148,21 @@ test('a job the core reports done lands its asset, and a refresh that fails is s
   await drain();
   assert.deepEqual(errors, ['asset list unavailable']);
   assert.deepEqual(refreshed, ['image']);
-  assert.deepEqual(state.current.jobs.map(({ status }) => status), ['running', 'running'], 'nothing is applied from a failed read');
+  assert.deepEqual(
+    state.current.jobs.map(({ status }) => status),
+    ['running', 'running'],
+    'nothing is applied from a failed read'
+  );
   failing = false;
   core.set(job(0, { status: 'done', progress: 100, assetId: 'asset-0' }), job(1, { progress: 40 }));
   await drain();
-  assert.deepEqual(state.current.jobs.map(({ status, progress }) => [status, progress]), [['done', 100], ['running', 40]]);
+  assert.deepEqual(
+    state.current.jobs.map(({ status, progress }) => [status, progress]),
+    [
+      ['done', 100],
+      ['running', 40],
+    ]
+  );
 });
 
 // Node read a job every 1.5 s: the first null read keeps it running with its progress, the second marks it lost.
@@ -141,7 +178,14 @@ test('a job the core does not hold keeps running with its progress through the f
   const { core, state, drain } = await mountJobs(context, { refuse: ['media:job-1'] });
   await act(async () => state.current.setJobs([job(0), job(1, { progress: 7 })]));
   await drain();
-  assert.deepEqual(state.current.jobs.map(({ status, progress }) => [status, progress]), [['running', 0], ['running', 7]], 'the first null read');
+  assert.deepEqual(
+    state.current.jobs.map(({ status, progress }) => [status, progress]),
+    [
+      ['running', 0],
+      ['running', 7],
+    ],
+    'the first null read'
+  );
   await tick(1_499);
   await drain();
   assert.equal(state.current.jobs[1].status, 'running', 'not before the second read');
@@ -165,12 +209,20 @@ test('a job the core announced and then removed without a result is lost on the 
   await drain();
   core.remove('job-0');
   await drain();
-  assert.deepEqual(state.current.jobs.map(({ status, progress }) => [status, progress]), [['running', 10]], 'the first null read');
+  assert.deepEqual(
+    state.current.jobs.map(({ status, progress }) => [status, progress]),
+    [['running', 10]],
+    'the first null read'
+  );
   core.set(job(0, { progress: 20 }));
   await drain();
   await tick(1_500);
   await drain();
-  assert.deepEqual(state.current.jobs.map(({ status, progress }) => [status, progress]), [['running', 20]], 'an entry resets the count');
+  assert.deepEqual(
+    state.current.jobs.map(({ status, progress }) => [status, progress]),
+    [['running', 20]],
+    'an entry resets the count'
+  );
   core.remove('job-0');
   await drain();
   await tick(1_499);
@@ -198,7 +250,11 @@ test('a job removed, restored and removed again is lost 1.5 s after its latest r
   await drain();
   await tick(500);
   await drain();
-  assert.deepEqual(state.current.jobs.map(({ status, progress }) => [status, progress]), [['running', 20]], '1500 ms after the first removal is only 500 ms after the latest');
+  assert.deepEqual(
+    state.current.jobs.map(({ status, progress }) => [status, progress]),
+    [['running', 20]],
+    '1500 ms after the first removal is only 500 ms after the latest'
+  );
   await tick(999);
   await drain();
   assert.equal(state.current.jobs[0].status, 'running', 'not before 1.5 s after the latest removal');
@@ -216,20 +272,32 @@ test('a status read that fails after the updates arrived is surfaced and keeps t
   failed.core.set(job(0, { progress: 55 }));
   await failed.drain();
   assert.deepEqual(failed.errors, []);
-  assert.deepEqual(failed.state.current.jobs.map(({ status, progress }) => [status, progress]), [['running', 55]]);
+  assert.deepEqual(
+    failed.state.current.jobs.map(({ status, progress }) => [status, progress]),
+    [['running', 55]]
+  );
   failed.core.failSnapshot();
   await failed.drain();
   assert.deepEqual(failed.errors, ['core unreachable']);
-  assert.deepEqual(failed.state.current.jobs.map(({ status, progress }) => [status, progress]), [['running', 55]]);
+  assert.deepEqual(
+    failed.state.current.jobs.map(({ status, progress }) => [status, progress]),
+    [['running', 55]]
+  );
 });
 test('a feed request that fails in transport is a status error and leaves the job running; an absent feed is a lost job', async (context) => {
   withTimers(context);
-  const { state, drain, errors } = await mountJobs(context, { transportFails: ['media:job-0'], refuse: ['media:job-1'] });
+  const { state, drain, errors } = await mountJobs(context, {
+    transportFails: ['media:job-0'],
+    refuse: ['media:job-1'],
+  });
   await act(async () => state.current.setJobs([job(0), job(1)]));
   await drain();
   await tick(1_500);
   await drain();
   // The lost job changes the running set, so the surviving job's feed is asked for again and fails again.
   assert.ok(errors.length > 0 && errors.every((error) => error === 'core unreachable'));
-  assert.deepEqual(state.current.jobs.map(({ status }) => status), ['running', 'failed']);
+  assert.deepEqual(
+    state.current.jobs.map(({ status }) => status),
+    ['running', 'failed']
+  );
 });

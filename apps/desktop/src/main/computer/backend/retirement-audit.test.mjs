@@ -123,7 +123,6 @@ test('retirement distinguishes read, semantic, character and press/release lifet
         assert.throws(() => coordinator.resumeAfterUserTakeover(), /computer_cleanup_pending/);
       }
     } finally {
-
       coordinator.reset();
       await rm(directory, { recursive: true, force: true });
     }

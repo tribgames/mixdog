@@ -138,7 +138,10 @@ test('the live status line never paints one item over the next while the quiet c
     assert.equal(results.length, 2);
     for (const { width, columnRight, items } of results) {
       const layout = JSON.stringify(items);
-      assert.ok(items.some((item) => /live-activity-quiet/.test(item.name)), `${width}px: no quiet cue: ${layout}`);
+      assert.ok(
+        items.some((item) => /live-activity-quiet/.test(item.name)),
+        `${width}px: no quiet cue: ${layout}`
+      );
       for (const [index, item] of items.entries()) {
         assert.ok(item.inkRight <= columnRight + 0.5, `${width}px: ${item.name} runs past the column: ${layout}`);
         const next = items[index + 1];

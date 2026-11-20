@@ -75,7 +75,10 @@ function createServiceClient({
   return client;
 }
 
-export function createDesktopConnection(spec: DesktopConnectionSpec, deps: DesktopConnectionDependencies): DesktopConnection {
+export function createDesktopConnection(
+  spec: DesktopConnectionSpec,
+  deps: DesktopConnectionDependencies
+): DesktopConnection {
   const identity: ConnectionIdentity = { id: spec.id, kind: spec.kind, name: spec.name };
   const protocol = deps.createProtocol?.(identity) ?? null;
   if (!protocol) throw new Error('A connection is carried by its core connection: it needs createProtocol.');
@@ -90,7 +93,11 @@ export function createDesktopConnection(spec: DesktopConnectionSpec, deps: Deskt
     deps.onServiceReady?.(identity, { generation });
   };
   const stopWatching = protocol.onEvent((event) => {
-    if ((started || firstFailed) && event.type === 'status' && (event as { status: { state: string } }).status.state === 'ready') {
+    if (
+      (started || firstFailed) &&
+      event.type === 'status' &&
+      (event as { status: { state: string } }).status.state === 'ready'
+    ) {
       started = true;
       firstFailed = false;
       attached();

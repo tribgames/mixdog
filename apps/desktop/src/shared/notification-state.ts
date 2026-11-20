@@ -170,12 +170,17 @@ export function pairedClients(remote: unknown): DesktopRemoteClientInfo[] {
  *  onto the default a device without stored preferences has, which is bot chats only for a phone app paired at or after the store
  *  was first written (`devicePreferencesIn`). A device that is not paired (or whose unpair is queued) is refused as Node refused it,
  *  before anything is written. */
-export function notificationWriteMode(deviceId: string, remote: unknown, notifications: unknown): 'mergePatch' | 'mergePatchBots' {
+export function notificationWriteMode(
+  deviceId: string,
+  remote: unknown,
+  notifications: unknown
+): 'mergePatch' | 'mergePatchBots' {
   if (deviceId === NOTIFICATION_PC_DEVICE_ID) return 'mergePatch';
   const client = pairedClients(remote).find((candidate) => candidate.id === deviceId && !candidate.pendingRemoval);
   if (!client) throw new TypeError('That device is not paired with this PC.');
   const info = pairedDeviceInfo({ ...client, name: '', platform: '', lastSeenAt: 0, online: false });
-  const botsFirst = info.kind === 'phone-app' && info.pairedAt !== undefined && info.pairedAt >= migratedAtOf(notifications);
+  const botsFirst =
+    info.kind === 'phone-app' && info.pairedAt !== undefined && info.pairedAt >= migratedAtOf(notifications);
   return botsFirst ? 'mergePatchBots' : 'mergePatch';
 }
 

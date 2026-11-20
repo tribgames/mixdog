@@ -13,10 +13,37 @@ export interface DesktopSectionEntry {
 /** Every section of the protocol's closed registry (`SectionName`); main's open-core.ts fails to compile when the
  *  registry grows past this list. Also the list the phone reads its fold store with. */
 export const SECTION_NAMES = [
-  'config', 'projects', 'agentPool', 'agents', 'botOrder', 'presets', 'modelCatalog', 'workflows', 'webSearch', 'toolModules',
-  'providerSetup', 'providerAccounts', 'usage', 'hostShellJobs', 'terminalActivity', 'terminalTabs', 'remote',
-  'notice', 'update', 'hostState', 'computer', 'approvalInbox', 'core', 'coreHealth', 'migration', 'reviewDiff',
-  'gitStatus', 'lspStatus', 'lspDiagnostics', 'mediaJobs', 'ports',
+  'config',
+  'projects',
+  'agentPool',
+  'agents',
+  'botOrder',
+  'presets',
+  'modelCatalog',
+  'workflows',
+  'webSearch',
+  'toolModules',
+  'providerSetup',
+  'providerAccounts',
+  'usage',
+  'hostShellJobs',
+  'terminalActivity',
+  'terminalTabs',
+  'remote',
+  'notice',
+  'update',
+  'hostState',
+  'computer',
+  'approvalInbox',
+  'core',
+  'coreHealth',
+  'migration',
+  'reviewDiff',
+  'gitStatus',
+  'lspStatus',
+  'lspDiagnostics',
+  'mediaJobs',
+  'ports',
   'connections',
 ] as const;
 
@@ -101,7 +128,9 @@ export interface DesktopSectionsApi {
   /** Opens this window's core connection anew (the one a closed connection offers); resolves once it is up, rejects with why not. */
   reconnect?(): Promise<void>;
   /** `fs/changed` for this window's watches; returns the unsubscribe. */
-  subscribeFsChanged(listener: (change: { watchId: string; changedPaths: string[]; kind?: string }) => void): () => void;
+  subscribeFsChanged(
+    listener: (change: { watchId: string; changedPaths: string[]; kind?: string }) => void
+  ): () => void;
   /** Progress of a sign-in flow (`login/updated`); the caller filters by `flowId`. Returns the unsubscribe. */
   subscribeLoginUpdated(listener: (update: { flowId: string; state: unknown }) => void): () => void;
   /** The flow's feed can no longer deliver (`flowId`); its progress will not arrive. Returns the unsubscribe. */
@@ -114,4 +143,3 @@ export interface DesktopSectionsApi {
 export function isRendererProtocolMethod(method: unknown): method is RendererProtocolMethod {
   return typeof method === 'string' && (RENDERER_PROTOCOL_METHODS as readonly string[]).includes(method);
 }
-

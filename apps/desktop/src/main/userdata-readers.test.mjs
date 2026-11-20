@@ -2,13 +2,13 @@
 // files of native/core/crates/mixdog-migrate/src/desktop_profile/plan.rs (FILE_KINDS) and the
 // supplement files of desktop_profile/supplement.rs (FILES). A name in a non-test source outside
 // the allowlist means a second reader of a file that now has one owner, the core.
-import assert from 'node:assert/strict'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { dirname, join, relative, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { test } from 'node:test'
+import assert from 'node:assert/strict';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { test } from 'node:test';
 
-const SRC = join(dirname(fileURLToPath(import.meta.url)), '..')
+const SRC = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const FILE_KINDS = [
   'desktop-projects.json',
@@ -26,8 +26,8 @@ const FILE_KINDS = [
   'remote-native-push.json',
   'pc-access-revokes.json',
   'selected-file-grants.json',
-]
-const SUPPLEMENT_FILES = ['ssh-hosts.json', 'port-forwards.json', 'remote-hosts.json', 'server-windows.json']
+];
+const SUPPLEMENT_FILES = ['ssh-hosts.json', 'port-forwards.json', 'remote-hosts.json', 'server-windows.json'];
 
 // Files (relative to apps/desktop/src, forward slashes) that may name a moved file, with the reason.
 // These are readers the core has not yet taken over; each entry goes when its module stops naming the
@@ -40,37 +40,37 @@ const ALLOWLIST = new Map([
   ['main/notification-preferences.ts', 'notification-preferences.json store, awaiting its deletion'],
   ['main/remote-relay-device.ts', 'relay-device identity and revocation files, awaiting their deletion'],
   ['main/ssh/ssh-host-store.ts', 'ssh-hosts.json store, awaiting its deletion'],
-])
+]);
 
-const isTest = (name) => /\.(test|slow\.test|electron\.test)\.(mjs|ts|tsx|js)$/.test(name) || name.endsWith('.d.ts')
+const isTest = (name) => /\.(test|slow\.test|electron\.test)\.(mjs|ts|tsx|js)$/.test(name) || name.endsWith('.d.ts');
 
 function* sources(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) yield* sources(path)
-    else if (/\.(ts|tsx|mjs|js|cjs)$/.test(entry.name) && !isTest(entry.name)) yield path
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) yield* sources(path);
+    else if (/\.(ts|tsx|mjs|js|cjs)$/.test(entry.name) && !isTest(entry.name)) yield path;
   }
 }
 
 // Block and line comments are documentation, not readers.
-const BLOCK_COMMENT = new RegExp(String.raw`/\*[\s\S]*?\*/`, 'g')
-const LINE_COMMENT = new RegExp(String.raw`(^|[^:'"])//.*$`, 'gm')
-const stripComments = (text) => text.replace(BLOCK_COMMENT, '').replace(LINE_COMMENT, '$1')
+const BLOCK_COMMENT = /\/\*[\s\S]*?\*\//g;
+const LINE_COMMENT = /(^|[^:'"])\/\/.*$/gm;
+const stripComments = (text) => text.replace(BLOCK_COMMENT, '').replace(LINE_COMMENT, '$1');
 
 test('no desktop source names a userData file the core moved', () => {
-  const names = [...FILE_KINDS, ...SUPPLEMENT_FILES]
-  const hits = []
-  const allowedSeen = new Set()
+  const names = [...FILE_KINDS, ...SUPPLEMENT_FILES];
+  const hits = [];
+  const allowedSeen = new Set();
   for (const path of sources(SRC)) {
-    const rel = relative(SRC, path).split(sep).join('/')
-    const text = stripComments(readFileSync(path, 'utf8'))
+    const rel = relative(SRC, path).split(sep).join('/');
+    const text = stripComments(readFileSync(path, 'utf8'));
     for (const name of names) {
-      if (!text.includes(name)) continue
-      if (ALLOWLIST.has(rel)) allowedSeen.add(rel)
-      else hits.push(`${rel}: ${name}`)
+      if (!text.includes(name)) continue;
+      if (ALLOWLIST.has(rel)) allowedSeen.add(rel);
+      else hits.push(`${rel}: ${name}`);
     }
   }
-  assert.deepEqual(hits, [])
-  const stale = [...ALLOWLIST.keys()].filter((rel) => !allowedSeen.has(rel) && existsSync(join(SRC, rel)))
-  assert.deepEqual(stale, [], 'stale allowlist entry')
-})
+  assert.deepEqual(hits, []);
+  const stale = [...ALLOWLIST.keys()].filter((rel) => !allowedSeen.has(rel) && existsSync(join(SRC, rel)));
+  assert.deepEqual(stale, [], 'stale allowlist entry');
+});

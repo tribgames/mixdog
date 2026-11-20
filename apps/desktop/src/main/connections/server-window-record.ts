@@ -2,7 +2,11 @@
 // owns the connection (the tunnel, the link, the reconnects); main keeps the id, the name, and the one question a window
 // needs answered: where the server's core listens (`connections/endpoint`, asked of this PC's core on every dial, so a
 // tunnel the core re-opened is followed). Nothing else of the old per-server connection object lives in this process.
-import type { ConnectionEndpoint, ConnectionIdParams, SshOpenEphemeralParams } from '../../../../../packages/protocol/src/index.ts';
+import type {
+  ConnectionEndpoint,
+  ConnectionIdParams,
+  SshOpenEphemeralParams,
+} from '../../../../../packages/protocol/src/index.ts';
 import type { CoreEndpoint, CoreSlot } from '../core-port/relay';
 import { LOCAL_CONNECTION_ID } from './contract';
 
@@ -100,7 +104,10 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
  *  failure code. */
 export async function openEnvSshTarget(core: CoreCaller, target: string): Promise<void> {
   const params: SshOpenEphemeralParams = { target, name: target };
-  const result = (await core.call('connections/ssh/openEphemeral', params)) as { ok?: unknown; failure?: unknown } | null;
+  const result = (await core.call('connections/ssh/openEphemeral', params)) as {
+    ok?: unknown;
+    failure?: unknown;
+  } | null;
   if (result?.ok === true) return;
   const failure = result?.failure as { code?: unknown; kind?: unknown } | undefined;
   const reason = [failure?.code, failure?.kind].find((value) => typeof value === 'string' && value);

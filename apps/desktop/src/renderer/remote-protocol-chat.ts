@@ -46,7 +46,11 @@ import { normalizedProviderModels } from '../shared/desktop-transcript-limits';
 export interface ChatClient {
   call(method: string, params: unknown): Promise<unknown>;
   /** `join`: a resume of the thread the client already has in flight (its snapshot not folded yet) answers this one; none is sent. */
-  resumeThread(threadId: string, window: unknown, options?: { readonly join?: boolean; readonly force?: boolean }): Promise<unknown>;
+  resumeThread(
+    threadId: string,
+    window: unknown,
+    options?: { readonly join?: boolean; readonly force?: boolean }
+  ): Promise<unknown>;
   unsubscribeThread(threadId: string): Promise<void>;
   readonly server: { readonly connection?: { readonly device?: string } };
 }
@@ -59,7 +63,11 @@ export interface ChatRoute {
 
 /** `createCapabilityLane(...)` of main/protocol/capability-route.ts. */
 export interface ChatLane {
-  invoke(capability: string, args: unknown[], sessionId: string | undefined): Promise<{ value: unknown; snapshot: SessionSnapshot }>;
+  invoke(
+    capability: string,
+    args: unknown[],
+    sessionId: string | undefined
+  ): Promise<{ value: unknown; snapshot: SessionSnapshot }>;
   read(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]>;
   renameSession(sessionId: string, title: string): Promise<void>;
   setSessionFavorite(sessionId: string, favorite: boolean): Promise<void>;
@@ -102,8 +110,6 @@ export interface ChatShared {
     ): { id: string; result?: unknown; rawResult?: unknown; uiDiff?: unknown } | null;
   };
 }
-
-
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -150,7 +156,11 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
 
   // Node's host answered once the daemon had resolved the approval (session-host resolveToolApproval awaits the daemon's reply), so a
   // second answer to it found it settled: an answer here is over when the core has resolved the request it answered.
-  const resolveApproval = async (sessionId: string, cardId: string, decision: Record<string, unknown>): Promise<boolean> => {
+  const resolveApproval = async (
+    sessionId: string,
+    cardId: string,
+    decision: Record<string, unknown>
+  ): Promise<boolean> => {
     // The phone names the approval by its card's id (room_approval.rs `card_id`); the core answers the request that carries it.
     const id = shared.approvalRequestId(cardId);
     const settled = shared.whenSettled(id);
@@ -162,7 +172,9 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
    *  onSessionState: `toolApproval`, a question being none, its id `String(id ?? 'pending')`), read from this client's fold of the
    *  thread. The thread is followed first when it is not: the core hands a pending request only to a connection that follows its
    *  thread (outgoing.rs `deliver`), and the answer goes to that request. */
-  const shownApproval = async (sessionId: string): Promise<{ id: string; approval: Record<string, unknown> } | null> => {
+  const shownApproval = async (
+    sessionId: string
+  ): Promise<{ id: string; approval: Record<string, unknown> } | null> => {
     const approval = (await snapshotOf(sessionId))?.toolApproval as unknown;
     if (!approval || typeof approval !== 'object' || record(approval).kind === 'question') return null;
     return { id: String(record(approval).id ?? 'pending'), approval: record(approval) };
@@ -197,9 +209,12 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       if (!output) throw new Error(READ_NOT_HELD);
       return output;
     },
-    setSessionArchived: (sessionId: string, archived: boolean): Promise<void> => lane.setSessionArchived(sessionId, archived),
-    setSessionFavorite: (sessionId: string, favorite: boolean): Promise<void> => lane.setSessionFavorite(sessionId, favorite),
-    setSessionProject: (sessionId: string, projectPath: string): Promise<void> => lane.setSessionProject(sessionId, projectPath),
+    setSessionArchived: (sessionId: string, archived: boolean): Promise<void> =>
+      lane.setSessionArchived(sessionId, archived),
+    setSessionFavorite: (sessionId: string, favorite: boolean): Promise<void> =>
+      lane.setSessionFavorite(sessionId, favorite),
+    setSessionProject: (sessionId: string, projectPath: string): Promise<void> =>
+      lane.setSessionProject(sessionId, projectPath),
     openAgentHome: async (agentId: string): Promise<{ sessionId: string }> =>
       (await service('openAgentHome', [agentId])) as { sessionId: string },
     resetAgentHome: async (agentId: string): Promise<{ sessionId: string; archivedSessionId: string | null }> =>
@@ -215,7 +230,11 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       // Node answers `null`: the page keeps its own state (use-app-session-actions applySnapshot).
       return null as unknown as SessionSnapshot;
     },
-    prefetchSession: async (sessionId: string, transcriptItemLimit?: number, _readTraceId?: string): Promise<boolean> => {
+    prefetchSession: async (
+      sessionId: string,
+      transcriptItemLimit?: number,
+      _readTraceId?: string
+    ): Promise<boolean> => {
       // A thread the phone follows pages its own window (Node: requestPhoneTranscriptPage); one it does not is resumed.
       const state = shared.sessionStateOf(sessionId);
       if (state && typeof transcriptItemLimit === 'number') {
@@ -231,7 +250,8 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       _sessionId: string,
       _request: DesktopTranscriptHistoryRequest
     ): Promise<DesktopTranscriptHistoryPage> => ({ items: [], hasOlder: false, hasNewer: false, unsupported: true }),
-    startProject: async (projectPath: string): Promise<SessionSnapshot> => blankSnapshot(await service('startProject', [projectPath])),
+    startProject: async (projectPath: string): Promise<SessionSnapshot> =>
+      blankSnapshot(await service('startProject', [projectPath])),
     startProjectTask: async (projectPath: string): Promise<SessionSnapshot> =>
       blankSnapshot(await service('startProjectTask', [projectPath])),
     startTask: async (): Promise<SessionSnapshot> => blankSnapshot(await service('startTask', [])),
@@ -243,13 +263,22 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       const started = record(await service('submitNewTask', [prompt, submit, draft]));
       // A refusal is an error, not a reply; a reply without turn answers a retry of a submission the core already accepted.
       const sessionId = String(record(started.thread).id || '');
-      if (!sessionId) return { accepted: false, sessionId: '', snapshot: null } as unknown as DesktopNewTaskSubmitResult;
+      if (!sessionId)
+        return { accepted: false, sessionId: '', snapshot: null } as unknown as DesktopNewTaskSubmitResult;
       // Node answers the session's projection (session-host-lifecycle.ts:938 applySessionResult), not the published state the host
       // decorates with its shell jobs (session-host.ts snapshotWithShellJobs).
-      const { shellJobs: _shellJobs, hostShellJobs: _hostShellJobs, ...snapshot } = (await snapshotOf(sessionId)) as Record<string, unknown>;
+      const {
+        shellJobs: _shellJobs,
+        hostShellJobs: _hostShellJobs,
+        ...snapshot
+      } = (await snapshotOf(sessionId)) as Record<string, unknown>;
       return { accepted: true, sessionId, snapshot } as unknown as DesktopNewTaskSubmitResult;
     },
-    submitToSession: async (sessionId: string, prompt: DesktopPromptContent, submit: DesktopSubmitOptions = {}): Promise<boolean> => {
+    submitToSession: async (
+      sessionId: string,
+      prompt: DesktopPromptContent,
+      submit: DesktopSubmitOptions = {}
+    ): Promise<boolean> => {
       await service('submitToSession', [sessionId, prompt, submit]);
       return true;
     },
@@ -257,7 +286,8 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       // A Stop of a thread that runs no turn is Node's `aborted: false` (abort.mjs:129 `reclaimIdleSubmission`, no submission named).
       const reply = record(
         await service('abortSession', [sessionId, abort]).catch((error: unknown) => {
-          if ((error as { detail?: { data?: { reason?: unknown } } } | null)?.detail?.data?.reason === 'turnNotActive') return { cancelRequested: false };
+          if ((error as { detail?: { data?: { reason?: unknown } } } | null)?.detail?.data?.reason === 'turnNotActive')
+            return { cancelRequested: false };
           throw error;
         })
       );
@@ -276,7 +306,11 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
         ...(typeof restore.restoreId === 'string' ? { restoreId: restore.restoreId } : {}),
       };
     },
-    resolveToolApprovalForSession: async (sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean> => {
+    resolveToolApprovalForSession: async (
+      sessionId: string,
+      id: string,
+      decision: ToolApprovalDecision
+    ): Promise<boolean> => {
       const answer = decision as unknown as Record<string, unknown>;
       // remote-session-methods.ts:175-183: a bare Allow of the shown approval that only a click allows (push-notifier.ts approvalPointerOnly).
       if (answer.approved && answer.response === undefined) {
@@ -286,7 +320,10 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       return resolveApproval(sessionId, id, answer);
     },
     provideSecretInput: async (requestId: string, value: string): Promise<boolean> => {
-      await send({ method: 'approval/provideSecret', params: { requestId, secret: typeof value === 'string' ? value : '' } });
+      await send({
+        method: 'approval/provideSecret',
+        params: { requestId, secret: typeof value === 'string' ? value : '' },
+      });
       return true;
     },
     inheritSession: async (
@@ -310,7 +347,8 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       ).snapshot,
     setFast: async (enabled: boolean, sessionId?: string): Promise<SessionSnapshot> =>
       (await lane.invoke('setFast', [enabled], sessionId || undefined)).snapshot,
-    readCapabilities: (requests: DesktopCapabilityReadRequest[]): Promise<DesktopCapabilityReadResult[]> => lane.read(requests),
+    readCapabilities: (requests: DesktopCapabilityReadRequest[]): Promise<DesktopCapabilityReadResult[]> =>
+      lane.read(requests),
   };
 }
 
@@ -421,7 +459,10 @@ export function createRosterFeed<S>(options: {
     const mine = generation;
     const superseded = (): Promise<S[]> => {
       if (retired) return Promise.reject(remoteConnectionInterruptedError());
-      return reading ?? (known ? Promise.resolve(project(held.values())) : Promise.reject(remoteConnectionInterruptedError()));
+      return (
+        reading ??
+        (known ? Promise.resolve(project(held.values())) : Promise.reject(remoteConnectionInterruptedError()))
+      );
     };
     const first: { show?: (rows: S[]) => void; shown?: boolean } = {};
     firstPage = everKnown ? null : new Promise<S[]>((resolve) => (first.show = resolve));
@@ -480,12 +521,16 @@ export function createRosterFeed<S>(options: {
 
   // The core announces an archive change by `thread/archived` / `thread/unarchived` alone (thread_edges.rs:12), never as a summary
   // edge, so it is a change of the one row's flag: laid over the held row, or over the row an earlier edge brought.
-  const archiveOf = (archived: boolean) => (was: ThreadRow | null | undefined): ThreadRow | null | undefined => (was ? { ...was, archived } : was);
+  const archiveOf =
+    (archived: boolean) =>
+    (was: ThreadRow | null | undefined): ThreadRow | null | undefined =>
+      was ? { ...was, archived } : was;
 
   const onEdge = (method: string, params: Record<string, unknown>): void => {
     const thread = params.thread as ThreadRow | undefined;
     const flag = method === 'thread/archived' ? true : method === 'thread/unarchived' ? false : undefined;
-    const id = method === 'thread/deleted' || flag !== undefined ? String(params.threadId ?? '') : thread ? idOf(thread) : '';
+    const id =
+      method === 'thread/deleted' || flag !== undefined ? String(params.threadId ?? '') : thread ? idOf(thread) : '';
     if (!id) return;
     const row = method === 'thread/deleted' ? null : thread ? (thread as ThreadRow) : null;
     if (reading || !known) {
@@ -534,7 +579,15 @@ export function createRosterFeed<S>(options: {
     attach(client: RosterClient): () => void {
       const offEvents = client.on((event) => {
         const n = event.notification;
-        if (event.type === 'notification' && n && (n.method === 'thread/started' || n.method === 'thread/summary/updated' || n.method === 'thread/deleted' || n.method === 'thread/archived' || n.method === 'thread/unarchived')) {
+        if (
+          event.type === 'notification' &&
+          n &&
+          (n.method === 'thread/started' ||
+            n.method === 'thread/summary/updated' ||
+            n.method === 'thread/deleted' ||
+            n.method === 'thread/archived' ||
+            n.method === 'thread/unarchived')
+        ) {
           onEdge(n.method, (n.params ?? {}) as Record<string, unknown>);
         }
       });
@@ -570,20 +623,56 @@ import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-prot
 const FRESH_FOLD_WAIT_MS = 3000;
 
 const CHAT_CALLS = [
-  'abortSession', 'agentRoomAction', 'cancelQuotaResume', 'continueSessionInModel', 'deleteSession',
-  'getQuotaAutoResume', 'getTaskWorkspace', 'inheritSession', 'listProviderModels', 'markSessionRead', 'openAgentHome',
-  'prefetchSession', 'provideSecretInput', 'readCapabilities', 'readTranscriptHistory', 'readTranscriptItem', 'releaseShellJob',
-  'renameSession', 'resetAgentHome', 'resolveToolApprovalForSession', 'scheduleQuotaResume', 'searchSessionContent', 'setModelRoute',
-  'setQuotaAutoResume', 'setSessionArchived', 'setSessionFavorite', 'setSessionProject', 'startProject', 'startProjectTask',
-  'startTask', 'stopShellJob', 'submitNewTask', 'submitToSession', 'viewerDevice', 'setFast',
+  'abortSession',
+  'agentRoomAction',
+  'cancelQuotaResume',
+  'continueSessionInModel',
+  'deleteSession',
+  'getQuotaAutoResume',
+  'getTaskWorkspace',
+  'inheritSession',
+  'listProviderModels',
+  'markSessionRead',
+  'openAgentHome',
+  'prefetchSession',
+  'provideSecretInput',
+  'readCapabilities',
+  'readTranscriptHistory',
+  'readTranscriptItem',
+  'releaseShellJob',
+  'renameSession',
+  'resetAgentHome',
+  'resolveToolApprovalForSession',
+  'scheduleQuotaResume',
+  'searchSessionContent',
+  'setModelRoute',
+  'setQuotaAutoResume',
+  'setSessionArchived',
+  'setSessionFavorite',
+  'setSessionProject',
+  'startProject',
+  'startProjectTask',
+  'startTask',
+  'stopShellJob',
+  'submitNewTask',
+  'submitToSession',
+  'viewerDevice',
+  'setFast',
 ] as const satisfies ReadonlyArray<keyof ChatApi>;
 /** The calls Node's host answered after republishing the catalog itself (session-host-lifecycle.ts at b6f10295a: markSessionRead 203,
  *  renameSession 231, setSessionFavorite 311, setSessionProject 336, setSessionArchived 493/500, deleteSession 576). */
 const CATALOG_PUBLISHING_CALLS = [
-  'markSessionRead', 'renameSession', 'setSessionFavorite', 'setSessionProject', 'setSessionArchived', 'deleteSession',
+  'markSessionRead',
+  'renameSession',
+  'setSessionFavorite',
+  'setSessionProject',
+  'setSessionArchived',
+  'deleteSession',
 ] as const satisfies ReadonlyArray<(typeof CHAT_CALLS)[number]>;
 /** The calls whose answer Node's host also published as its shell snapshot (session-host-lifecycle.ts:170-190). */
-const SHELL_PUBLISHING_CALLS = ['startProject', 'startProjectTask', 'startTask'] as const satisfies ReadonlyArray<(typeof CHAT_CALLS)[number]>;
+const SHELL_PUBLISHING_CALLS = ['startProject', 'startProjectTask', 'startTask'] as const satisfies ReadonlyArray<
+  (typeof CHAT_CALLS)[number]
+>;
 
 /** `sharedFor` and the api are made PER CALL from `host.client()`: that client carries this call's transmission claim
  *  (phone-send-scope.ts), so a request written through anything built from it is claimed; one captured at start would not be. */
@@ -635,21 +724,28 @@ export function createChatAdapter(options: {
   const shells = new WeakMap<object, SessionSnapshot>();
   for (const name of SHELL_PUBLISHING_CALLS) {
     calls[name] = async (params, host) => {
-      const snapshot = (await (api(host)[name] as (...args: unknown[]) => Promise<SessionSnapshot>)(...params)) as SessionSnapshot;
+      const snapshot = (await (api(host)[name] as (...args: unknown[]) => Promise<SessionSnapshot>)(
+        ...params
+      )) as SessionSnapshot;
       shells.set(host.ctx, snapshot);
       return snapshot;
     };
   }
   calls.getSnapshot = (_params, host) => {
     const held = shells.get(host.ctx);
-    return held ? withRemoteSession(held, remoteSessionIdOf(options.remoteSession(host.client() as unknown as ChatClient))) : null;
+    return held
+      ? withRemoteSession(held, remoteSessionIdOf(options.remoteSession(host.client() as unknown as ChatClient)))
+      : null;
   };
   /** A thread's state as the page is shown it (Node's host pushed it as a `sessionState` frame, remote-shim-dispatch.ts at v1.4.5),
    *  with the remote channel's session as this client holds it now. */
   const decorated = (client: ChatClient, state: unknown): SessionSnapshot =>
     // The core sends tool results whole; the page is shown them capped (main/remote-transcript.ts). The fold itself stays whole,
     // which is where `readTranscriptItem` reads "show full output" from.
-    withRemoteSession(remoteTranscriptSnapshot(state), remoteSessionIdOf(options.remoteSession(client))) as unknown as SessionSnapshot;
+    withRemoteSession(
+      remoteTranscriptSnapshot(state),
+      remoteSessionIdOf(options.remoteSession(client))
+    ) as unknown as SessionSnapshot;
   /** The page's follower of its current client's threads (remote-session-states.ts), per page: the page's sessions are these
    *  states (session-lane-store.ts). A page whose host hands it no client (`onClient`) has none. */
   const followers = new WeakMap<object, SessionStateFollower>();
@@ -682,13 +778,16 @@ export function createChatAdapter(options: {
     const [resume] = shared.routeService('prefetchSession', [sessionId]).requests;
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([
-      shared.whenFolded(sessionId, () => client.resumeThread(sessionId, resume?.params.window, { force: true })).catch(() => undefined),
+      shared
+        .whenFolded(sessionId, () => client.resumeThread(sessionId, resume?.params.window, { force: true }))
+        .catch(() => undefined),
       new Promise<void>((resolve) => (timer = setTimeout(resolve, FRESH_FOLD_WAIT_MS))),
     ]);
     clearTimeout(timer);
     const state = shared.sessionStateOf(sessionId);
     if (!state) return false;
-    if (!follower) host.ctx.sessionInbox.publish({ sessionId, snapshot: decorated(client, state), frameSource: 'live' });
+    if (!follower)
+      host.ctx.sessionInbox.publish({ sessionId, snapshot: decorated(client, state), frameSource: 'live' });
     return true;
   };
   calls.listSessions = (_params, host) => {
@@ -764,7 +863,10 @@ export const sharedFor = (scoped: ChatClient): ChatHostShared => {
   const lane = createCapabilityLane({
     protocol: {
       call: callSharingControlThread(client),
-      snapshot: () => ({ status: connectionStatus(client), entries: SECTION_NAMES.flatMap((name) => [...client.store.sections(name)]) }),
+      snapshot: () => ({
+        status: connectionStatus(client),
+        entries: SECTION_NAMES.flatMap((name) => [...client.store.sections(name)]),
+      }),
       // `client/activity` is the desktop window's rate-limited presence ping; Node's phone never sent one.
       noteUserInput: () => undefined,
       respond: (id, answer) => client.respond(id as never, answer as never),
@@ -833,6 +935,10 @@ export const remoteSession = (scoped: ChatClient): unknown =>
 
 /** The phone's chat adapter; `timers` is the catalog clock (a replay's own; the real one otherwise). */
 export const phoneChatAdapter = (timers?: RosterTimers): PhoneProtocolAdapter =>
-  createChatAdapter({ sharedFor, remoteSession, roster: { summaries: summariesOfThreadRows, ...(timers ? { timers } : {}) } });
+  createChatAdapter({
+    sharedFor,
+    remoteSession,
+    roster: { summaries: summariesOfThreadRows, ...(timers ? { timers } : {}) },
+  });
 
 export const adapter: PhoneProtocolAdapter = phoneChatAdapter();

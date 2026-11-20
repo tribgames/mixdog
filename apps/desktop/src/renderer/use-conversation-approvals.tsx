@@ -16,12 +16,7 @@ import { BrowserApprovalCard, useBrowserApprovals } from './BrowserApprovalHost'
 import { QuestionCard } from './QuestionCard';
 import { useAgentChatSession } from './agent-chat-mode';
 import { useHandoffTarget } from './agent-task-line';
-import {
-  approvalQuestions,
-  buildAnswers,
-  questionAwareSubmit,
-  type QuestionDraft,
-} from './question-card-logic';
+import { approvalQuestions, buildAnswers, questionAwareSubmit, type QuestionDraft } from './question-card-logic';
 import type { ComposerIslandFlash } from './ComposerIsland';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
@@ -31,7 +26,7 @@ import { useViewerDevice } from './use-viewer-device';
 
 /** A refusal the core did not confirm as a decision: the card clears its resolving state and can be answered again. */
 export const UNCONFIRMED = 'unconfirmed';
-type AnsweredElsewhere ={ id: string; device: string };
+type AnsweredElsewhere = { id: string; device: string };
 type ComposerSubmit<R> = (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<R>;
 
 /** Tool approvals for the session this pane renders: the pending card, the
@@ -154,7 +149,9 @@ export function useConversationApprovals(
           setAnsweredElsewhere({
             id: approvalId,
             device:
-              multiDevice && result?.id === approvalId && isOtherDevice(result.device, viewerDevice) ? result.device : '',
+              multiDevice && result?.id === approvalId && isOtherDevice(result.device, viewerDevice)
+                ? result.device
+                : '',
           });
         } else {
           // Reproject from the client's current pending list (not the cached frame). Never awaited: the card is answerable

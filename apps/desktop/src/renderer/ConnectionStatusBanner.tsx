@@ -116,7 +116,11 @@ function LinkBanner({ view, serverName }: { view: DesktopConnectionLinkView; ser
         )}
         {state.status === 'lost' && (
           <>
-            <button type="button" className="conn-btn conn-btn--sm" onClick={() => void window.mixdogDesktop?.closeConnectionWindow?.()}>
+            <button
+              type="button"
+              className="conn-btn conn-btn--sm"
+              onClick={() => void window.mixdogDesktop?.closeConnectionWindow?.()}
+            >
               {t('Close window')}
             </button>
             <button
@@ -139,7 +143,9 @@ export function coreClosedDetail(closed: NonNullable<DesktopCoreLink['closed']>)
     return t('This app is older than the version running on the server. Update the app, then reconnect.');
   }
   if (closed.cause === 'serverOutdated') {
-    return t('An older version is still running in the background. Restart the app to finish updating, then reconnect.');
+    return t(
+      'An older version is still running in the background. Restart the app to finish updating, then reconnect.'
+    );
   }
   return closed.message;
 }
@@ -157,7 +163,11 @@ function CoreLinkStatus() {
   const closed = view.link.closed;
   return createPortal(
     <div className="conn-link-stack" data-modal-background>
-      <div className="mx-toast conn-link-banner" role={closed ? 'alert' : 'status'} data-state={closed ? 'lost' : 'reconnecting'}>
+      <div
+        className="mx-toast conn-link-banner"
+        role={closed ? 'alert' : 'status'}
+        data-state={closed ? 'lost' : 'reconnecting'}
+      >
         <div className="conn-link-copy">
           <b>
             {!closed && <span className="conn-spinner" aria-hidden="true" />}
@@ -175,7 +185,9 @@ function CoreLinkStatus() {
               disabled={trying}
               onClick={() => {
                 setTrying(true);
-                void reconnectCore().catch(() => undefined).finally(() => setTrying(false));
+                void reconnectCore()
+                  .catch(() => undefined)
+                  .finally(() => setTrying(false));
               }}
             >
               {t('Reconnect')}

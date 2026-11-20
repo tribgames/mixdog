@@ -109,35 +109,46 @@ test('a mounted picker follows model and effort route feeds, not the running ses
     pendingServerRequests: () => [],
     store: { thread: () => ({ feed: { id, epoch: 'e1', seq: 1 }, order: 1, state: fold }), section: () => undefined },
   };
-  const lane = createSessionLane({ protocol: {
-    client: () => client,
-    onStoreChange: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
-    onEvent: () => () => {},
-    onReplaced: () => () => {},
-    call: async () => ({ threads: [] }),
-  } });
+  const lane = createSessionLane({
+    protocol: {
+      client: () => client,
+      onStoreChange: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+      onEvent: () => () => {},
+      onReplaced: () => () => {},
+      call: async () => ({ threads: [] }),
+    },
+  });
   const store = createSessionLaneStore();
   const stop = store.start((listener) => lane.subscribeSessionStates(listener));
-  const publish = async (patch) => act(async () => {
-    let off;
-    const published = new Promise((resolve) => { off = store.subscribe(id, resolve); });
-    route = { ...route, ...patch };
-    // The core publishes the route change and then the frame that carries it (the lane projects at the frame).
-    for (const note of [
-      { method: 'thread/route/updated', params: { threadId: id, value: route } },
-      { method: 'thread/frame', params: { threadId: id, structureChanged: false } },
-    ]) {
-      fold = sessionReducer.apply(fold, note);
-      for (const listener of listeners) listener({ type: 'thread', threadId: id });
-    }
-    await published;
-    off();
-  });
+  const publish = async (patch) =>
+    act(async () => {
+      let off;
+      const published = new Promise((resolve) => {
+        off = store.subscribe(id, resolve);
+      });
+      route = { ...route, ...patch };
+      // The core publishes the route change and then the frame that carries it (the lane projects at the frame).
+      for (const note of [
+        { method: 'thread/route/updated', params: { threadId: id, value: route } },
+        { method: 'thread/frame', params: { threadId: id, structureChanged: false } },
+      ]) {
+        fold = sessionReducer.apply(fold, note);
+        for (const listener of listeners) listener({ type: 'thread', threadId: id });
+      }
+      await published;
+      off();
+    });
   function Harness() {
     const snapshot = useSessionLane(id, store, desktopConversationShellSnapshotsEqual);
     return React.createElement(ModelSelector, {
-      ...snapshot, sessionId: id, fastCapable: true, modelDisabled: false, tuningDisabled: false,
-      invokeResult: (action) => action(), applySnapshot() {}, onOpenSettings() {},
+      ...snapshot,
+      sessionId: id,
+      fastCapable: true,
+      modelDisabled: false,
+      tuningDisabled: false,
+      invokeResult: (action) => action(),
+      applySnapshot() {},
+      onOpenSettings() {},
     });
   }
   const host = document.createElement('main');
@@ -151,7 +162,8 @@ test('a mounted picker follows model and effort route feeds, not the running ses
     await publish({ model: next.model, effort: 'high', sessionProvider: model.provider, sessionModel: model.model });
     assert.match(host.querySelector('.model-trigger').textContent, /Next route/);
     await act(async () => host.querySelector('.model-trigger').click());
-    const effortRow = () => [...document.querySelectorAll('.route-sheet-row')].find((row) => row.textContent.includes('Reasoning effort'));
+    const effortRow = () =>
+      [...document.querySelectorAll('.route-sheet-row')].find((row) => row.textContent.includes('Reasoning effort'));
     assert.match(effortRow().textContent, /High/);
     await publish({ effort: 'low' });
     assert.match(effortRow().textContent, /Low/);
@@ -176,15 +188,20 @@ async function mountedStreamPicker(id, state, body) {
   const listeners = new Set();
   const client = {
     pendingServerRequests: () => [],
-    store: { thread: () => ({ feed: { id, epoch: epoch.epoch, seq }, order: epoch.order, state: fold }), section: () => undefined },
+    store: {
+      thread: () => ({ feed: { id, epoch: epoch.epoch, seq }, order: epoch.order, state: fold }),
+      section: () => undefined,
+    },
   };
-  const lane = createSessionLane({ protocol: {
-    client: () => client,
-    onStoreChange: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
-    onEvent: () => () => {},
-    onReplaced: () => () => {},
-    call: async () => ({ threads: [] }),
-  } });
+  const lane = createSessionLane({
+    protocol: {
+      client: () => client,
+      onStoreChange: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+      onEvent: () => () => {},
+      onReplaced: () => () => {},
+      call: async () => ({ threads: [] }),
+    },
+  });
   const store = defaultSessionLaneStore;
   const stop = store.start((listener) => lane.subscribeSessionStates(listener));
   const oldPosition = window.mixdogDesktop.sessionStreamPosition;
@@ -206,15 +223,19 @@ async function mountedStreamPicker(id, state, body) {
     for (const listener of listeners) listener({ type: 'thread', threadId: id });
   };
   /** Notes the core sends, received and folded in order; with `frame`, the frame that closes them follows. */
-  const stream = (notes, { frame = true } = {}) => act(async () => {
-    for (const note of [...notes, ...(frame ? [{ method: 'thread/frame', params: { structureChanged: false } }] : [])]) {
-      seq += 1;
-      fold = sessionReducer.apply(fold, { ...note, params: { threadId: id, ...note.params } });
-      announce();
-    }
-    if (frame) await waitForPosition(received());
-    else await settleFrames();
-  });
+  const stream = (notes, { frame = true } = {}) =>
+    act(async () => {
+      for (const note of [
+        ...notes,
+        ...(frame ? [{ method: 'thread/frame', params: { structureChanged: false } }] : []),
+      ]) {
+        seq += 1;
+        fold = sessionReducer.apply(fold, { ...note, params: { threadId: id, ...note.params } });
+        announce();
+      }
+      if (frame) await waitForPosition(received());
+      else await settleFrames();
+    });
   /** The subscription is replaced (a resume after a reconnect): a new epoch, received after every earlier one, with its snapshot. */
   const resubscribe = (next) => {
     epoch = { epoch: `e${epoch.order + 1}`, order: epoch.order + 1 };
@@ -228,7 +249,11 @@ async function mountedStreamPicker(id, state, body) {
     const snapshot = useSessionLane(id, store, desktopConversationShellSnapshotsEqual);
     if (!snapshot) return null;
     return React.createElement(ModelSelector, {
-      ...snapshot, sessionId: id, fastCapable: true, modelDisabled: false, tuningDisabled: false,
+      ...snapshot,
+      sessionId: id,
+      fastCapable: true,
+      modelDisabled: false,
+      tuningDisabled: false,
       invokeResult: async (action) => {
         try {
           return await action();
@@ -236,7 +261,9 @@ async function mountedStreamPicker(id, state, body) {
           return undefined;
         }
       },
-      applySnapshot() {}, onOpenSettings() {}, onRoutePreferenceApplied() {},
+      applySnapshot() {},
+      onOpenSettings() {},
+      onRoutePreferenceApplied() {},
     });
   }
   const host = document.createElement('main');
@@ -261,15 +288,36 @@ async function mountedStreamPicker(id, state, body) {
   }
 }
 
-const sheetRow = (label) => [...document.querySelectorAll('.route-sheet-row')].find((row) => row.textContent.includes(label));
+const sheetRow = (label) =>
+  [...document.querySelectorAll('.route-sheet-row')].find((row) => row.textContent.includes(label));
 
 test('after a quota hop the composer keeps the edited conversation’s speed, effort and model when reopened', async () => {
-  const primary = { ...model, provider: 'anthropic-oauth', model: 'fable', display: 'Fable', fastCapable: false, fastEfforts: [] };
-  const fallback = { ...model, provider: 'openai-oauth', model: 'gpt-6.2-astra', display: 'Astra', fastEfforts: ['low', 'high'] };
+  const primary = {
+    ...model,
+    provider: 'anthropic-oauth',
+    model: 'fable',
+    display: 'Fable',
+    fastCapable: false,
+    fastEfforts: [],
+  };
+  const fallback = {
+    ...model,
+    provider: 'openai-oauth',
+    model: 'gpt-6.2-astra',
+    display: 'Astra',
+    fastEfforts: ['low', 'high'],
+  };
   availableModels = [primary, fallback];
   providerSetup = { oauth: [primary, fallback].map(({ provider: id }) => ({ id, authenticated: true, usable: true })) };
   const id = 'stream-hop';
-  const initial = { provider: primary.provider, model: primary.model, effort: 'high', fast: false, autoEffort: false, modelParameters: {} };
+  const initial = {
+    provider: primary.provider,
+    model: primary.model,
+    effort: 'high',
+    fast: false,
+    autoEffort: false,
+    modelParameters: {},
+  };
   const note = (value) => ({ method: 'thread/route/updated', params: { value } });
   const oldSetRoute = window.mixdogDesktop.setModelRoute;
   const oldFast = window.mixdogDesktop.setFast;
@@ -282,8 +330,10 @@ test('after a quota hop the composer keeps the edited conversation’s speed, ef
   };
   window.mixdogDesktop.setModelRoute = write;
   window.mixdogDesktop.setFast = (fast, session) => write({ fast }, session);
-  window.mixdogDesktop.invokeCapability = (input) => input.capability === 'setEffort'
-    ? write({ effort: input.args[0], autoEffort: false }, input.sessionId) : oldInvoke(input);
+  window.mixdogDesktop.invokeCapability = (input) =>
+    input.capability === 'setEffort'
+      ? write({ effort: input.args[0], autoEffort: false }, input.sessionId)
+      : oldInvoke(input);
   try {
     await mountedStreamPicker(id, { route: initial }, async ({ host, stream }) => {
       await act(async () => sheetRow('Reasoning effort').click());
@@ -311,9 +361,27 @@ test('after a quota hop the composer keeps the edited conversation’s speed, ef
         if (row !== 'Model') await act(async () => sheetRow(row).click());
         assert.ok(shown(), 'the reopened picker shows the published selection');
       };
-      await pick('Speed', () => option('Fast').click(), { fast: true }, () => option('Fast')?.getAttribute('aria-checked') === 'true');
-      await pick('Reasoning effort', () => option('Low').click(), { effort: 'low' }, () => option('Low')?.getAttribute('aria-checked') === 'true');
-      await pick('Model', () => [...document.querySelectorAll('.model-group--provider [role="option"]')].find((b) => b.textContent.includes(primary.display)).click(), { provider: primary.provider, model: primary.model }, () => host.querySelector('.model-trigger').textContent.includes(primary.display));
+      await pick(
+        'Speed',
+        () => option('Fast').click(),
+        { fast: true },
+        () => option('Fast')?.getAttribute('aria-checked') === 'true'
+      );
+      await pick(
+        'Reasoning effort',
+        () => option('Low').click(),
+        { effort: 'low' },
+        () => option('Low')?.getAttribute('aria-checked') === 'true'
+      );
+      await pick(
+        'Model',
+        () =>
+          [...document.querySelectorAll('.model-group--provider [role="option"]')]
+            .find((b) => b.textContent.includes(primary.display))
+            .click(),
+        { provider: primary.provider, model: primary.model },
+        () => host.querySelector('.model-trigger').textContent.includes(primary.display)
+      );
     });
   } finally {
     window.mixdogDesktop.setModelRoute = oldSetRoute;
@@ -329,16 +397,27 @@ for (const setting of ['speed', 'model', 'effort', 'context']) {
     const second = { ...model, model: 'gpt-stream-second', display: 'Stream second' };
     const windowed = { ...model, contextWindow: 400_000 };
     availableModels = setting === 'context' ? [windowed] : [model, second];
-    const route = { provider: model.provider, model: model.model, effort: 'high', fast: false, autoEffort: false, modelParameters: {} };
+    const route = {
+      provider: model.provider,
+      model: model.model,
+      effort: 'high',
+      fast: false,
+      autoEffort: false,
+      modelParameters: {},
+    };
     const routeNote = (patch) => ({ method: 'thread/route/updated', params: { value: { ...route, ...patch } } });
-    const contextNote = (contextPercent) => ({ method: 'thread/context/updated', params: { value: { contextPercent } } });
+    const contextNote = (contextPercent) => ({
+      method: 'thread/context/updated',
+      params: { value: { contextPercent } },
+    });
     const call = deferred();
     const oldSetRoute = window.mixdogDesktop.setModelRoute;
     const oldSetFast = window.mixdogDesktop.setFast;
     const oldInvoke = window.mixdogDesktop.invokeCapability;
     window.mixdogDesktop.setModelRoute = () => call.promise;
     window.mixdogDesktop.setFast = () => call.promise;
-    window.mixdogDesktop.invokeCapability = (input) => (input.capability === 'setEffort' ? call.promise : oldInvoke(input));
+    window.mixdogDesktop.invokeCapability = (input) =>
+      input.capability === 'setEffort' ? call.promise : oldInvoke(input);
     // What each setting's pick is, what this window's own mutation then publishes, what the other device publishes after it,
     // what the late answer would claim, and what the picker shows.
     const cases = {
@@ -348,15 +427,20 @@ for (const setting of ['speed', 'model', 'effort', 'context']) {
         own: [routeNote({ fast: true })],
         other: [routeNote({ fast: false })],
         answer: { ...route, fast: true },
-        shows: (value) => (value === 'pick' ? option('Fast') : option('Standard')).getAttribute('aria-checked') === 'true',
+        shows: (value) =>
+          (value === 'pick' ? option('Fast') : option('Standard')).getAttribute('aria-checked') === 'true',
       },
       model: {
         open: async () => sheetRow('Model').click(),
-        pick: async () => [...document.querySelectorAll('[role="option"]')].find((button) => button.textContent.includes(second.display)).click(),
+        pick: async () =>
+          [...document.querySelectorAll('[role="option"]')]
+            .find((button) => button.textContent.includes(second.display))
+            .click(),
         own: [routeNote({ model: second.model })],
         other: [routeNote({ model: model.model })],
         answer: { ...route, model: second.model },
-        shows: (value, host) => host.querySelector('.model-trigger').textContent.includes(value === 'pick' ? second.display : model.display),
+        shows: (value, host) =>
+          host.querySelector('.model-trigger').textContent.includes(value === 'pick' ? second.display : model.display),
       },
       effort: {
         open: async () => sheetRow('Reasoning effort').click(),
@@ -373,7 +457,8 @@ for (const setting of ['speed', 'model', 'effort', 'context']) {
         own: [contextNote(100)],
         other: [contextNote(30)],
         answer: { ...route, contextPercent: 100 },
-        shows: (value) => document.querySelector('.route-context-head strong').textContent === (value === 'pick' ? '100%' : '30%'),
+        shows: (value) =>
+          document.querySelector('.route-context-head strong').textContent === (value === 'pick' ? '100%' : '30%'),
       },
     };
     const step = cases[setting];
@@ -409,7 +494,14 @@ test('an answered pick stays previewed until the stream shows the state its call
   const oldFast = window.mixdogDesktop.setFast;
   window.mixdogDesktop.setFast = () => call.promise;
   availableModels = [model];
-  const route = { provider: model.provider, model: model.model, effort: 'high', fast: false, autoEffort: false, modelParameters: {} };
+  const route = {
+    provider: model.provider,
+    model: model.model,
+    effort: 'high',
+    fast: false,
+    autoEffort: false,
+    modelParameters: {},
+  };
   try {
     await mountedStreamPicker('stream-held', { route }, async ({ stream }) => {
       await act(async () => sheetRow('Speed').click());
@@ -421,11 +513,19 @@ test('an answered pick stays previewed until the stream shows the state its call
         await Promise.resolve();
         await Promise.resolve();
       });
-      assert.equal(option('Fast').getAttribute('aria-checked'), 'true', 'no flash of the old value between answer and frame');
+      assert.equal(
+        option('Fast').getAttribute('aria-checked'),
+        'true',
+        'no flash of the old value between answer and frame'
+      );
       await stream([]);
       assert.equal(option('Fast').getAttribute('aria-checked'), 'true', 'the stream shows it');
       await stream([{ method: 'thread/route/updated', params: { value: { ...route, fast: false } } }]);
-      assert.equal(option('Standard').getAttribute('aria-checked'), 'true', 'the preview has ended: the stream owns the value');
+      assert.equal(
+        option('Standard').getAttribute('aria-checked'),
+        'true',
+        'the preview has ended: the stream owns the value'
+      );
     });
   } finally {
     window.mixdogDesktop.setFast = oldFast;
@@ -438,7 +538,14 @@ test('an answer read at a trailing note that schedules no frame still ends its p
   const oldFast = window.mixdogDesktop.setFast;
   window.mixdogDesktop.setFast = () => call.promise;
   availableModels = [model];
-  const route = { provider: model.provider, model: model.model, effort: 'high', fast: false, autoEffort: false, modelParameters: {} };
+  const route = {
+    provider: model.provider,
+    model: model.model,
+    effort: 'high',
+    fast: false,
+    autoEffort: false,
+    modelParameters: {},
+  };
   try {
     await mountedStreamPicker('stream-trailing', { route }, async ({ stream, received, settleFrames }) => {
       await act(async () => sheetRow('Speed').click());
@@ -454,7 +561,11 @@ test('an answer read at a trailing note that schedules no frame still ends its p
         await Promise.resolve();
       });
       assert.equal(received().seq, markAt, 'nothing arrived after the note');
-      assert.equal(option('Standard').getAttribute('aria-checked'), 'true', 'the preview ended at the note, not stranded past it');
+      assert.equal(
+        option('Standard').getAttribute('aria-checked'),
+        'true',
+        'the preview ended at the note, not stranded past it'
+      );
     });
   } finally {
     window.mixdogDesktop.setFast = oldFast;
@@ -466,7 +577,14 @@ test('an answer whose position read races a replaced subscription still ends its
   const oldFast = window.mixdogDesktop.setFast;
   window.mixdogDesktop.setFast = () => call.promise;
   availableModels = [model];
-  const route = { provider: model.provider, model: model.model, effort: 'high', fast: false, autoEffort: false, modelParameters: {} };
+  const route = {
+    provider: model.provider,
+    model: model.model,
+    effort: 'high',
+    fast: false,
+    autoEffort: false,
+    modelParameters: {},
+  };
   try {
     await mountedStreamPicker('stream-epoch', { route }, async ({ stream, resubscribe }) => {
       await act(async () => sheetRow('Speed').click());
@@ -483,7 +601,11 @@ test('an answer whose position read races a replaced subscription still ends its
         call.resolve({ ...route, fast: true });
         await positionRead.promise;
       });
-      assert.equal(option('Standard').getAttribute('aria-checked'), 'true', "B's snapshot reached the mark: the stream's value shows");
+      assert.equal(
+        option('Standard').getAttribute('aria-checked'),
+        'true',
+        "B's snapshot reached the mark: the stream's value shows"
+      );
       await stream([{ method: 'thread/runtime/updated', params: { value: { busy: false } } }]);
       assert.equal(option('Standard').getAttribute('aria-checked'), 'true', 'and a later frame of B keeps it');
     });
@@ -1233,11 +1355,19 @@ test('a route picker that opts out of Auto shows only the effort levels', async 
   document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(React.createElement(ModelRouteEditor, {
-      models: [model], value: { provider: model.provider, model: model.model, effort: 'high' }, onChange() {},
-    })));
+    await act(async () =>
+      root.render(
+        React.createElement(ModelRouteEditor, {
+          models: [model],
+          value: { provider: model.provider, model: model.model, effort: 'high' },
+          onChange() {},
+        })
+      )
+    );
     await act(async () => host.querySelector('.model-trigger').click());
-    const effort = [...document.querySelectorAll('.route-sheet-row')].find(row => row.textContent.includes('Reasoning effort'));
+    const effort = [...document.querySelectorAll('.route-sheet-row')].find((row) =>
+      row.textContent.includes('Reasoning effort')
+    );
     await act(async () => effort.click());
     assert.ok(option('High'));
     assert.equal(document.querySelector('[data-effort-option^="auto"]'), null);

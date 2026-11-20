@@ -19,7 +19,13 @@ const events = [
 test('traces of the same events are equal whatever their durations', () => {
   assert.equal(traceTextsEqual(stopText(events, 40), stopText(events, 95)), true);
   assert.equal(
-    traceTextsEqual(stopText(events, 40), stopText(events.map((e) => ({ ...e, dur: e.dur + 7 })), 40)),
+    traceTextsEqual(
+      stopText(events, 40),
+      stopText(
+        events.map((e) => ({ ...e, dur: e.dur + 7 })),
+        40
+      )
+    ),
     true
   );
   assert.match(normalizeTraceDurations(stopText(events, 40)), /Events: 3\n/);
@@ -33,6 +39,8 @@ test('traces that differ in an event name or count are different', () => {
 });
 
 test('text outside the trace format is refused, not normalised', () => {
-  assert.throws(() => normalizeTraceDurations('Performance trace stopped.\nTrace duration: 5ms\nEvents: 1\nTop trace events:\n- x: y'));
+  assert.throws(() =>
+    normalizeTraceDurations('Performance trace stopped.\nTrace duration: 5ms\nEvents: 1\nTop trace events:\n- x: y')
+  );
   assert.throws(() => traceTextsEqual('something else', 'something else'));
 });

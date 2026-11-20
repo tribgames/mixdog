@@ -10,7 +10,9 @@ export interface TerminalFeedPosition {
 function positionOf(value: unknown): TerminalFeedPosition | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const { epoch, seq } = value as { epoch?: unknown; seq?: unknown };
-  return typeof epoch === 'string' && epoch && typeof seq === 'number' && Number.isFinite(seq) ? { epoch, seq } : undefined;
+  return typeof epoch === 'string' && epoch && typeof seq === 'number' && Number.isFinite(seq)
+    ? { epoch, seq }
+    : undefined;
 }
 
 /** The last position read on each tab's feed. */
@@ -37,7 +39,8 @@ export class TerminalFeedPositions {
  *  resumed from a position of the same epoch (`subscription.mode === "replay"`); a snapshot, a new epoch, or a core that answers no
  *  subscription gives the screen as it is now. */
 export function attachNeedsRedraw(reply: unknown, resumed: TerminalFeedPosition | undefined): boolean {
-  const subscription = reply && typeof reply === 'object' ? (reply as { subscription?: unknown }).subscription : undefined;
+  const subscription =
+    reply && typeof reply === 'object' ? (reply as { subscription?: unknown }).subscription : undefined;
   if (!subscription || typeof subscription !== 'object') return true;
   const { mode, epoch } = subscription as { mode?: unknown; epoch?: unknown };
   return !(mode === 'replay' && resumed !== undefined && epoch === resumed.epoch);

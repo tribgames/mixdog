@@ -83,7 +83,6 @@ test('no OS keychain: saveSecretAsync stores the key in an owner-only file, neve
   }
 });
 
-
 test('no OS keychain: sync saveSecret and both delete paths use the file', async () => {
   const other = config.SECRET_ACCOUNTS.agentApiKey('anthropic');
   const otherFile = path.join(secretsDir, 'agent.anthropic.apiKey.secret');
@@ -102,7 +101,6 @@ test('no OS keychain: sync saveSecret and both delete paths use the file', async
   assert.equal(config.getAgentApiKey('openai'), null);
   assert.deepEqual(fs.readdirSync(secretsDir), []);
 });
-
 
 test('the environment variable still wins over the fallback file', async () => {
   await config.saveSecretAsync(account, SECRET);
@@ -134,6 +132,3 @@ test('when the fallback file cannot be written the save fails with the env-var h
     assert.ok(!fs.readFileSync(file, 'utf8').includes(SECRET), `${path.relative(root, file)} must not hold the key`);
   }
 });
-
-
-

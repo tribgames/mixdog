@@ -41,7 +41,11 @@ test('a QR build failure answers null and is logged instead of rejecting', async
 // the main process: each of the three that answer a card goes through `access`, which builds it with the guarded builder.
 test('every remote-access action of the window builds its card through the guarded path', async () => {
   const source = await readFile(new URL('../renderer/core-direct/api-settings.ts', import.meta.url), 'utf8');
-  assert.match(source, /const access = async [^\n]*remoteAccessInfoFromDescriptor\(await op\(/, 'access uses the guarded card builder');
+  assert.match(
+    source,
+    /const access = async [^\n]*remoteAccessInfoFromDescriptor\(await op\(/,
+    'access uses the guarded card builder'
+  );
   assert.doesNotMatch(source, /buildRemoteAccessInfo\(/, 'the card is never built unguarded');
   for (const [key, call] of [
     ['rotateRemoteAccess', "access('remoteAccessRotate')"],

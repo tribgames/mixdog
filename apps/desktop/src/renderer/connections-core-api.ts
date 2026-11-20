@@ -11,15 +11,48 @@ import { firstPcCoreOpen, pcCoreClient } from './core-direct/client.ts';
 import { withDirectErrors } from './core-direct/errors.ts';
 
 type PreloadMethods =
-  | 'sshListHosts' | 'sshRenameHost' | 'sshForgetHost' | 'sshOpenHost' | 'sshConfigHosts' | 'sshInspectHostKey'
-  | 'sshConnect' | 'sshCancel' | 'sshAskpassReply' | 'sshCleanupHost' | 'sshCleanupTarget' | 'sshUpdateHostSettings' | 'sshServerLogins'
-  | 'sshServerLoginBegin' | 'sshServerLoginStatus' | 'sshServerLoginComplete' | 'sshServerLoginCancel'
-  | 'sshServerLoginSaveKey' | 'sshServerLoginLogout' | 'sshServerLoginRemoveCustom' | 'sshDiagnosticsLog'
-  | 'sshDiagnosticsCopy' | 'sshServerLog' | 'getConnectionLink' | 'retryConnection' | 'retryConnectionNow'
-  | 'getReopenServerWindows' | 'setReopenServerWindows' | 'getServerRestoreProgress' | 'listServerPorts'
-  | 'forwardServerPort' | 'stopServerPortForward' | 'dismissServerPort' | 'openServerPortInBrowser'
-  | 'subscribeSshAskpass' | 'subscribeSshProgress' | 'subscribeSshCleanupProgress' | 'subscribeSshServerLoginUpdated'
-  | 'subscribeConnectionLink' | 'subscribeConnectionNotice' | 'subscribeConnectionSignIn' | 'subscribeServerPorts'
+  | 'sshListHosts'
+  | 'sshRenameHost'
+  | 'sshForgetHost'
+  | 'sshOpenHost'
+  | 'sshConfigHosts'
+  | 'sshInspectHostKey'
+  | 'sshConnect'
+  | 'sshCancel'
+  | 'sshAskpassReply'
+  | 'sshCleanupHost'
+  | 'sshCleanupTarget'
+  | 'sshUpdateHostSettings'
+  | 'sshServerLogins'
+  | 'sshServerLoginBegin'
+  | 'sshServerLoginStatus'
+  | 'sshServerLoginComplete'
+  | 'sshServerLoginCancel'
+  | 'sshServerLoginSaveKey'
+  | 'sshServerLoginLogout'
+  | 'sshServerLoginRemoveCustom'
+  | 'sshDiagnosticsLog'
+  | 'sshDiagnosticsCopy'
+  | 'sshServerLog'
+  | 'getConnectionLink'
+  | 'retryConnection'
+  | 'retryConnectionNow'
+  | 'getReopenServerWindows'
+  | 'setReopenServerWindows'
+  | 'getServerRestoreProgress'
+  | 'listServerPorts'
+  | 'forwardServerPort'
+  | 'stopServerPortForward'
+  | 'dismissServerPort'
+  | 'openServerPortInBrowser'
+  | 'subscribeSshAskpass'
+  | 'subscribeSshProgress'
+  | 'subscribeSshCleanupProgress'
+  | 'subscribeSshServerLoginUpdated'
+  | 'subscribeConnectionLink'
+  | 'subscribeConnectionNotice'
+  | 'subscribeConnectionSignIn'
+  | 'subscribeServerPorts'
   | 'subscribeServerRestoreProgress';
 
 /** The preload's methods with the preload's types, and the two this file adds. */
@@ -87,7 +120,11 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
   const pendingOpen = (): Promise<unknown> | null => (deps.client() ? null : (deps.opening?.() ?? null));
   const call = <T>(method: string, params: unknown = {}): Promise<T> => {
     const opening = pendingOpen();
-    if (opening) return opening.then(() => callOpen<T>(method, params), () => callOpen<T>(method, params));
+    if (opening)
+      return opening.then(
+        () => callOpen<T>(method, params),
+        () => callOpen<T>(method, params)
+      );
     return callOpen<T>(method, params);
   };
   const callOpen = <T>(method: string, params: unknown): Promise<T> => {
@@ -116,7 +153,7 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
           const identity = deps.connection();
           const reply = (await client.call(
             'connections/subscribe',
-            identity?.kind === 'ssh' ? { connectionId: identity.id } : {},
+            identity?.kind === 'ssh' ? { connectionId: identity.id } : {}
           )) as { id: string };
           feedSubscription = reply.id;
         } else if (sectionListeners.size === 0 && feedSubscription !== null) {
@@ -222,7 +259,10 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
       return hosts();
     },
     sshForgetHost: async (id) => {
-      const result = await call<{ ok: true } | Extract<DesktopSshForgetResult, { ok: false }>>('connections/ssh/forget', { id });
+      const result = await call<{ ok: true } | Extract<DesktopSshForgetResult, { ok: false }>>(
+        'connections/ssh/forget',
+        { id }
+      );
       if (!result.ok) return result;
       return { ok: true, hosts: await hosts() };
     },
@@ -246,7 +286,7 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
     sshServerLoginBegin: async (id, provider) => {
       const flow = await call<Awaited<ReturnType<ConnectionsCoreApi['sshServerLoginBegin']>> & { openUrl?: string }>(
         'connections/ssh/serverLoginBegin',
-        { id, provider },
+        { id, provider }
       );
       // The server never opens a browser of its own: this PC's does. A browser that does not open ends the login.
       if (flow.openUrl && /^https?:\/\//i.test(flow.openUrl)) {
@@ -304,7 +344,9 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
     },
     openServerPortInBrowser: async (remotePort) => {
       const view = await api.listServerPorts();
-      const forward = view.forwards.find((f) => f.remotePort === remotePort && f.status === 'active' && f.localPort > 0);
+      const forward = view.forwards.find(
+        (f) => f.remotePort === remotePort && f.status === 'active' && f.localPort > 0
+      );
       if (!forward) throw new Error(`port-not-active: Port ${remotePort} is not forwarded to this PC right now.`);
       await deps.openExternal(`http://127.0.0.1:${forward.localPort}/`);
     },
@@ -354,13 +396,49 @@ const defaults = createConnectionsCoreApi({
 export const connectionsApi = defaults;
 
 export const {
-  sshListHosts, sshRenameHost, sshForgetHost, sshOpenHost, sshConfigHosts, sshInspectHostKey, sshConnect, sshCancel,
-  sshAskpassReply, sshCleanupHost, sshCleanupTarget, sshUpdateHostSettings, sshServerLogins, sshServerLoginBegin, sshServerLoginStatus,
-  sshServerLoginComplete, sshServerLoginCancel, sshServerLoginSaveKey, sshServerLoginLogout, sshServerLoginRemoveCustom,
-  sshDiagnosticsLog, sshDiagnosticsCopy, sshServerLog, getConnectionLink, retryConnection, retryConnectionNow,
-  getReopenServerWindows, setReopenServerWindows, getServerRestoreProgress, listServerPorts, forwardServerPort,
-  stopServerPortForward, dismissServerPort, openServerPortInBrowser, requestConnectionSignIn, subscribeSshAskpass,
-  subscribeSshProgress, subscribeSshCleanupProgress, subscribeSshServerLoginUpdated, subscribeConnectionLink,
-  subscribeConnectionNotice, subscribeConnectionSignIn, subscribeServerPorts, subscribeServerRestoreProgress,
+  sshListHosts,
+  sshRenameHost,
+  sshForgetHost,
+  sshOpenHost,
+  sshConfigHosts,
+  sshInspectHostKey,
+  sshConnect,
+  sshCancel,
+  sshAskpassReply,
+  sshCleanupHost,
+  sshCleanupTarget,
+  sshUpdateHostSettings,
+  sshServerLogins,
+  sshServerLoginBegin,
+  sshServerLoginStatus,
+  sshServerLoginComplete,
+  sshServerLoginCancel,
+  sshServerLoginSaveKey,
+  sshServerLoginLogout,
+  sshServerLoginRemoveCustom,
+  sshDiagnosticsLog,
+  sshDiagnosticsCopy,
+  sshServerLog,
+  getConnectionLink,
+  retryConnection,
+  retryConnectionNow,
+  getReopenServerWindows,
+  setReopenServerWindows,
+  getServerRestoreProgress,
+  listServerPorts,
+  forwardServerPort,
+  stopServerPortForward,
+  dismissServerPort,
+  openServerPortInBrowser,
+  requestConnectionSignIn,
+  subscribeSshAskpass,
+  subscribeSshProgress,
+  subscribeSshCleanupProgress,
+  subscribeSshServerLoginUpdated,
+  subscribeConnectionLink,
+  subscribeConnectionNotice,
+  subscribeConnectionSignIn,
+  subscribeServerPorts,
+  subscribeServerRestoreProgress,
   subscribeSshHostsChanged,
 } = defaults;

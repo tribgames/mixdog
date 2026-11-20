@@ -37,7 +37,9 @@ function manualTimers() {
     async advance(ms) {
       const end = now + ms;
       for (;;) {
-        const due = [...entries.entries()].filter(([, entry]) => entry.due <= end).sort((a, b) => a[1].due - b[1].due)[0];
+        const due = [...entries.entries()]
+          .filter(([, entry]) => entry.due <= end)
+          .sort((a, b) => a[1].due - b[1].due)[0];
         if (!due) break;
         const [id, entry] = due;
         now = entry.due;
@@ -72,7 +74,12 @@ function memoryState(initial = {}) {
 }
 
 /** A key is saved and the bound profile ('Default' unless said otherwise) was imported with it. */
-function setup({ saved = { enabled: false, profileId: '' }, chromeRunning = false, runOutcome, ready = ['Default', 'Profile 1', 'Profile 2'] } = {}) {
+function setup({
+  saved = { enabled: false, profileId: '' },
+  chromeRunning = false,
+  runOutcome,
+  ready = ['Default', 'Profile 1', 'Profile 2'],
+} = {}) {
   const clock = manualTimers();
   const state = memoryState({ readyProfiles: ready });
   const calls = { run: [], settingsWrites: [], forgets: 0, errors: [], chromeChecks: 0, watches: 0, unwatches: 0 };
@@ -408,7 +415,12 @@ test('one watcher error leaves one registration and no live watcher, reported on
   writeFileSync(lock, '');
   const fake = fakeFolderWatch();
   let stopped = 0;
-  const stop = watchChromeLock(lock, () => {}, () => (stopped += 1), fake.watchFn);
+  const stop = watchChromeLock(
+    lock,
+    () => {},
+    () => (stopped += 1),
+    fake.watchFn
+  );
   fake.made[0].fail();
   fake.made[0].fail();
   assert.equal(fake.made.length, 1, 'nothing is re-armed from an error');
@@ -427,7 +439,12 @@ test('a parent (recovery) watcher error also stops for good', async (t) => {
   writeFileSync(lock, '');
   const fake = fakeFolderWatch();
   let stopped = 0;
-  watchChromeLock(lock, () => {}, () => (stopped += 1), fake.watchFn);
+  watchChromeLock(
+    lock,
+    () => {},
+    () => (stopped += 1),
+    fake.watchFn
+  );
   rmSync(folder, { recursive: true });
   fake.live()[0].listener('rename', folder);
   const parent = fake.live().find((w) => w.path === dir);
@@ -571,7 +588,11 @@ test('forgetting the key closes the watch and asks for one manual import only if
 test('the status shows the setting, the key, the last import and the last error', async () => {
   const { importer, state, world } = setup({ saved: ON });
   await importer.start();
-  await state.updateProfile('Default', { lastImportAt: 1_700_000_000_000, lastCount: 42, lastError: 'Chrome data decryption failed.' });
+  await state.updateProfile('Default', {
+    lastImportAt: 1_700_000_000_000,
+    lastCount: 42,
+    lastError: 'Chrome data decryption failed.',
+  });
   world.keyAvailable = false;
   assert.deepEqual(await importer.status(), {
     enabled: true,
@@ -623,7 +644,10 @@ test('watchChromeLock reports the lock file being removed, once, and nothing els
   rmSync(join(dir, 'Local State'));
   await new Promise((resolve) => setTimeout(resolve, 200));
   assert.equal(exits, 1);
-  assert.equal(watchChromeLock(join(dir, 'missing', 'lockfile'), () => {}), undefined);
+  assert.equal(
+    watchChromeLock(join(dir, 'missing', 'lockfile'), () => {}),
+    undefined
+  );
 });
 
 test('on the real file system, deleting and recreating the watched folder keeps the next exit detectable', async (t) => {
@@ -735,4 +759,3 @@ test('a deleted watched folder is awaited through its parent and re-attached whe
   stop();
   assert.equal(fake.live().length, 0);
 });
-

@@ -24,7 +24,12 @@ export function recordLocalRelayArtifact({ folder, target, sourceCommit, sourceF
   if (!/^(x86_64|aarch64)-unknown-linux-gnu$/.test(target)) throw new Error('Unsupported relay target.');
   if (!/^[0-9a-f]{64}$/.test(sourceFingerprint)) throw new Error('A relay source fingerprint is required.');
   const info = {
-    schema: 1, build: 'local', dirty: Boolean(dirty), sourceCommit, sourceFingerprint, target,
+    schema: 1,
+    build: 'local',
+    dirty: Boolean(dirty),
+    sourceCommit,
+    sourceFingerprint,
+    target,
     binarySha256: digest(join(folder, 'mixdog-relay')),
   };
   writeFileSync(join(folder, RELAY_BUILD_INFO), `${JSON.stringify(info, null, 2)}\n`);
@@ -34,8 +39,13 @@ export function recordLocalRelayArtifact({ folder, target, sourceCommit, sourceF
 /** The provenance of a local build whose binary and target match; its fingerprint names the sources it was built from. */
 export function verifyLocalRelayArtifact({ folder, target }) {
   const info = JSON.parse(readFileSync(join(folder, RELAY_BUILD_INFO), 'utf8'));
-  if (info.schema !== 1 || info.build !== 'local' || info.target !== target || !validCommit(info.sourceCommit)
-      || !/^[0-9a-f]{64}$/.test(info.sourceFingerprint ?? ''))
+  if (
+    info.schema !== 1 ||
+    info.build !== 'local' ||
+    info.target !== target ||
+    !validCommit(info.sourceCommit) ||
+    !/^[0-9a-f]{64}$/.test(info.sourceFingerprint ?? '')
+  )
     throw new Error('Not the provenance of a local relay build for the requested target.');
   if (typeof info.binarySha256 !== 'string' || info.binarySha256 !== digest(join(folder, 'mixdog-relay')))
     throw new Error('Relay binary differs from its build provenance.');
@@ -47,8 +57,11 @@ export function verifyRelayArtifact({ folder, target }) {
   if (info.build === 'local') throw new Error('A local relay build is not a CI artifact.');
   if (info.schema !== 1 || !validCommit(info.sourceCommit) || info.target !== target)
     throw new Error('Relay build provenance does not identify the requested target and source.');
-  if (typeof info.binarySha256 !== 'string' || !/^[0-9a-f]{64}$/.test(info.binarySha256)
-      || info.binarySha256 !== digest(join(folder, 'mixdog-relay')))
+  if (
+    typeof info.binarySha256 !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(info.binarySha256) ||
+    info.binarySha256 !== digest(join(folder, 'mixdog-relay'))
+  )
     throw new Error('Relay binary differs from its build provenance.');
   return info.sourceCommit;
 }
@@ -60,10 +73,13 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
     else if (mode === 'record-local') {
       recordLocalRelayArtifact({ folder, target, sourceCommit, sourceFingerprint, dirty: dirty === 'dirty' });
     } else if (mode === 'verify') process.stdout.write(`${verifyRelayArtifact({ folder, target })}\n`);
-    else if (mode === 'verify-local') process.stdout.write(`${verifyLocalRelayArtifact({ folder, target }).sourceFingerprint}\n`);
+    else if (mode === 'verify-local')
+      process.stdout.write(`${verifyLocalRelayArtifact({ folder, target }).sourceFingerprint}\n`);
     else {
-      throw new Error('Usage: relay-artifact.mjs record|verify <folder> <target> [checked-out commit] | '
-        + 'record-local <folder> <target> <commit> <source fingerprint> clean|dirty | verify-local <folder> <target>');
+      throw new Error(
+        'Usage: relay-artifact.mjs record|verify <folder> <target> [checked-out commit] | ' +
+          'record-local <folder> <target> <commit> <source fingerprint> clean|dirty | verify-local <folder> <target>'
+      );
     }
   } catch (error) {
     process.stderr.write(`${error.message}\n`);

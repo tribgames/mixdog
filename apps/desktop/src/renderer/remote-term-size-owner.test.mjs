@@ -19,7 +19,13 @@ test('a host that serves termSizeOwner lets the phone claim and release the PTY 
     sendSizeOwnerHeartbeat(api, 't1', 80, 24);
     sendSizeOwnerRelease(api, 't1');
     await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.deepEqual(calls.map((c) => c.params), [['t1', 80, 24, true], ['t1', 0, 0, true]]);
+    assert.deepEqual(
+      calls.map((c) => c.params),
+      [
+        ['t1', 80, 24, true],
+        ['t1', 0, 0, true],
+      ]
+    );
 
     Object.assign(ctx, peerFlagsOf(capabilities(false)));
     assert.equal(api.remoteTermSizeOwner, false, 'a reconnect to a host without the flag');

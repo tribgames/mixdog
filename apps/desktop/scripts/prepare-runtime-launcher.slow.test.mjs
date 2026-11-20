@@ -7,7 +7,12 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
-import { copyPptxgenjsData, launcherRuntimeFiles, PPTXGENJS_DATA_DIR, SKILL_LAUNCHER_ENTRY } from './stage-js-bundle.mjs';
+import {
+  copyPptxgenjsData,
+  launcherRuntimeFiles,
+  PPTXGENJS_DATA_DIR,
+  SKILL_LAUNCHER_ENTRY,
+} from './stage-js-bundle.mjs';
 
 const rootDir = join(import.meta.dirname, '..', '..', '..');
 
@@ -26,8 +31,7 @@ function minimalPackage(work) {
   return join(packageDir, SKILL_LAUNCHER_ENTRY);
 }
 
-const argvCarrier = (args) =>
-  `mixdog1${args.map((arg) => `,${Buffer.from(arg, 'utf8').toString('base64')}`).join('')}`;
+const argvCarrier = (args) => `mixdog1${args.map((arg) => `,${Buffer.from(arg, 'utf8').toString('base64')}`).join('')}`;
 
 const run = (entry, args, env = {}) =>
   spawnSync(process.execPath, [entry, ...args], {
@@ -55,7 +59,7 @@ test('a script requires a package from its own node_modules and is the main modu
       "import { createRequire } from 'node:module';",
       "import { pathToFileURL } from 'node:url';",
       'const own = createRequire(import.meta.url)("own-package");',
-      "const main = import.meta.url === pathToFileURL(process.argv[1]).href;",
+      'const main = import.meta.url === pathToFileURL(process.argv[1]).href;',
       'console.log(JSON.stringify({ answer: own.answer, main, args: process.argv.slice(2), electron: process.env.ELECTRON_RUN_AS_NODE ?? null }));',
     ].join('\n')
   );
@@ -68,7 +72,10 @@ test('a non-ASCII path and empty arguments carried the PowerShell way reach the 
   const work = makeTempDirSync('launcher-argv');
   const entry = minimalPackage(work);
   const script = join(work, '스킬 폴더', 'scripts', '실행.mjs');
-  put(script, 'console.log(JSON.stringify({ args: process.argv.slice(2), carried: process.env.MIXDOG_SKILL_ARGV ?? null }));');
+  put(
+    script,
+    'console.log(JSON.stringify({ args: process.argv.slice(2), carried: process.env.MIXDOG_SKILL_ARGV ?? null }));'
+  );
   const args = [script, '', 'quote"d', '한글', ''];
   const result = run(entry, [], { MIXDOG_SKILL_ARGV: argvCarrier(args) });
   assert.equal(result.status, 0, result.stderr);
@@ -99,5 +106,6 @@ test('the pptxgenjs files are copied as data beside the package', async () => {
   await copyPptxgenjsData({ modulesDir, packageDir });
   const dir = join(packageDir, PPTXGENJS_DATA_DIR);
   assert.equal(readFileSync(join(dir, 'pptxgen.cjs.js'), 'utf8'), 'a');
-  for (const name of ['LICENSE-pptxgenjs', 'jszip.min.js', 'LICENSE-jszip.markdown']) assert.ok(existsSync(join(dir, name)));
+  for (const name of ['LICENSE-pptxgenjs', 'jszip.min.js', 'LICENSE-jszip.markdown'])
+    assert.ok(existsSync(join(dir, name)));
 });

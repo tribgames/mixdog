@@ -26,7 +26,8 @@ function hub() {
         const previous = storedPinsState(config.desktop?.activityRailPins);
         if (!(initializeIfMissing && previous)) {
           const revision = (previous?.revision ?? 0) + 1;
-          const stored = JSON.stringify(pins) === JSON.stringify(DEFAULT_ACTIVITY_RAIL_PINS) ? { revision } : { pins, revision };
+          const stored =
+            JSON.stringify(pins) === JSON.stringify(DEFAULT_ACTIVITY_RAIL_PINS) ? { revision } : { pins, revision };
           config = { ...config, desktop: { ...config.desktop, activityRailPins: stored } };
         }
         return storedPinsState(config.desktop.activityRailPins);

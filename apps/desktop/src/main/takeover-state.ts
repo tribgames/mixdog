@@ -17,7 +17,13 @@ export interface TakeoverStateDeps {
   login: { sync(sessionId: string, login: unknown): void };
   loginOf(snapshot: unknown): unknown;
   /** The in-app browser host, once it exists. */
-  browser(): { endTakeoverPage(sessionId: string, current: string): void; openForTakeover(sessionId: string, id: string): void } | null | undefined;
+  browser():
+    | {
+        endTakeoverPage(sessionId: string, current: string): void;
+        openForTakeover(sessionId: string, id: string): void;
+      }
+    | null
+    | undefined;
   /** Fixes the handed-over page as the takeover starts; false when the tab cannot be handed over (the takeover is declined). */
   capture(sessionId: string, id: string, tab: string): boolean;
 }

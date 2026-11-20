@@ -497,9 +497,10 @@ export const ModelSelector = memo(function ModelSelector({
   const fastCapable = known?.fastCapable ?? sourceFastCapable;
   const preferred = preferredModelParameters(known, modelParameters || {});
   // No service tier on an active Fast route means priority, even if the catalog remembers Ultrafast.
-  const selectedModelParameters = sessionId && modelOffersUltrafast(known)
-    ? { ...preferred, serviceTier: modelParameters?.serviceTier ?? 'priority' }
-    : preferred;
+  const selectedModelParameters =
+    sessionId && modelOffersUltrafast(known)
+      ? { ...preferred, serviceTier: modelParameters?.serviceTier ?? 'priority' }
+      : preferred;
   const defaultContextWindow = known ? modelContextWindow(known) : 0;
   const maxContextWindow = known ? modelMaxContextWindow(known) : 0;
   const contextDefaultPercent = defaultContextPercent(defaultContextWindow, maxContextWindow);
@@ -648,7 +649,11 @@ export const ModelSelector = memo(function ModelSelector({
     reportBootSurfaceStage('model-controls', modelBootKey, 'data');
   }, [model, modelBootKey, startupCatalogSettled]);
 
-  const route = async (selection: DesktopModelSelection, modelChoice = false, write = () => window.mixdogDesktop.setModelRoute(selection, sessionId) as Promise<unknown>) => {
+  const route = async (
+    selection: DesktopModelSelection,
+    modelChoice = false,
+    write = () => window.mixdogDesktop.setModelRoute(selection, sessionId) as Promise<unknown>
+  ) => {
     if (modelUnavailable) return false;
     if (onDraftSelection) {
       onDraftSelection(selection);
@@ -745,16 +750,20 @@ export const ModelSelector = memo(function ModelSelector({
     if (tuningUnavailable) return;
     const offersTier = modelOffersUltrafast(known);
     const next = speedRouteFields(speed, modelParameters ?? {}, offersTier);
-    await route({
-      provider,
-      model,
-      ...(effort ? { effort } : {}),
-      fast: next.fast,
-      ...autoEffortField,
-      modelParameters: routeModelParameters(next.modelParameters, maxContextWindow),
-      contextPercent: normalizedContextPercent,
-      ...exactContextField,
-    }, false, offersTier ? undefined : () => window.mixdogDesktop.setFast(next.fast, sessionId));
+    await route(
+      {
+        provider,
+        model,
+        ...(effort ? { effort } : {}),
+        fast: next.fast,
+        ...autoEffortField,
+        modelParameters: routeModelParameters(next.modelParameters, maxContextWindow),
+        contextPercent: normalizedContextPercent,
+        ...exactContextField,
+      },
+      false,
+      offersTier ? undefined : () => window.mixdogDesktop.setFast(next.fast, sessionId)
+    );
   };
   const changeEffort = async (effort: string) => {
     if (tuningUnavailable) return;
@@ -764,22 +773,30 @@ export const ModelSelector = memo(function ModelSelector({
     // A picked level is explicit: it turns the route's Auto effort off (the
     // runtime's setEffort does the same), or Auto would replace it next turn.
     const pickedAutoEffort = hostRouteAutoEffort() ? { autoEffort: false } : {};
-    await route({
-      provider,
-      model,
-      effort,
-      ...(nextFast === undefined ? {} : { fast: nextFast }),
-      ...pickedAutoEffort,
-      modelParameters: routeModelParameters(modelParameters ?? {}, maxContextWindow),
-      contextPercent: normalizedContextPercent,
-      ...exactContextField,
-    }, false, nextFast === false && displayedFast ? undefined : async () => {
-      const result = await window.mixdogDesktop.invokeCapability<string | false>({
-        capability: 'setEffort', args: [effort], ...(sessionId ? { sessionId } : {}),
-      });
-      if (result.value === false) throw new Error(`Effort ${effort} is not available for ${provider}/${model}`);
-      return result;
-    });
+    await route(
+      {
+        provider,
+        model,
+        effort,
+        ...(nextFast === undefined ? {} : { fast: nextFast }),
+        ...pickedAutoEffort,
+        modelParameters: routeModelParameters(modelParameters ?? {}, maxContextWindow),
+        contextPercent: normalizedContextPercent,
+        ...exactContextField,
+      },
+      false,
+      nextFast === false && displayedFast
+        ? undefined
+        : async () => {
+            const result = await window.mixdogDesktop.invokeCapability<string | false>({
+              capability: 'setEffort',
+              args: [effort],
+              ...(sessionId ? { sessionId } : {}),
+            });
+            if (result.value === false) throw new Error(`Effort ${effort} is not available for ${provider}/${model}`);
+            return result;
+          }
+    );
   };
 
   const changeContext = async (nextContextPercent: number, nextContextTokens?: number) => {

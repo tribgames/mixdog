@@ -186,7 +186,8 @@ export function AttachmentCard({
           <ContentMinimap text={text} prose={type.prose} />
         </span>
       );
-    else if (kind === 'pdf' && content) thumbnail = <PdfFirstPage data={content} contentId={contentId} tone={type.tone} />;
+    else if (kind === 'pdf' && content)
+      thumbnail = <PdfFirstPage data={content} contentId={contentId} tone={type.tone} />;
     if (!tooltip && meta) hover = pasted ? label : `${name} · ${meta}`;
     const parts = (
       <>

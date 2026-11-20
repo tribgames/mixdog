@@ -52,11 +52,7 @@ export function pageOfDocument(documentId: unknown): string {
  * document included, checkPrecondition). `undefined` is the forward path without an engine lane: no engine lane, no `expect`,
  * and the fill is bound by its own request binding alone.
  */
-export function fillGuard(
-  engine: FillEngine | undefined,
-  pageId: string,
-  expect: unknown
-): FillGuard | undefined {
+export function fillGuard(engine: FillEngine | undefined, pageId: string, expect: unknown): FillGuard | undefined {
   if (expect === undefined || expect === null) {
     if (engine?.isEngineMode()) throw documentRefusal(engine, pageId);
     return undefined;
@@ -695,7 +691,11 @@ function createSecretFieldFill(
   ): Promise<BrowserSecretFillResult> {
     const stale: BrowserSecretFillResult = { filled: false, stale: true };
     if (!request.document || !request.targets.length) return stale;
-    const world = await openIsolatedWorld(guest, signal, { document: request.document, url: request.url, guard: request.guard });
+    const world = await openIsolatedWorld(guest, signal, {
+      document: request.document,
+      url: request.url,
+      guard: request.guard,
+    });
     try {
       const elements: Array<{ objectId: string }> = [];
       for (const target of request.targets) {
@@ -710,7 +710,8 @@ function createSecretFieldFill(
         } catch (error) {
           // The node is gone, unless the page itself moved (said as such) or the call's binding refused.
           const failure = await world.failure(error);
-          if (failure instanceof BrowserPageChangedError || failure instanceof HostRpcError || signal?.aborted) throw failure;
+          if (failure instanceof BrowserPageChangedError || failure instanceof HostRpcError || signal?.aborted)
+            throw failure;
         }
         if (!objectId) return stale;
         elements.push({ objectId });

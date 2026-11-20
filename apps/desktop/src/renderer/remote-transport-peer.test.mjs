@@ -851,7 +851,11 @@ test('progress: a held fragment that is retried is not reported again, and a rec
   remoteTransportAssemblyPool.release(free);
   s.timers.run();
   await until(() => s.delivered.length === 2, 'delivered once room exists');
-  assert.equal(s.progress.length - base, records, 'every record once: the held one is not counted again when it is retried');
+  assert.equal(
+    s.progress.length - base,
+    records,
+    'every record once: the held one is not counted again when it is retried'
+  );
   await s.feed(wire);
   await s.barrier();
   assert.equal(s.progress.length - base, records, 'a replayed record is not progress');
@@ -861,7 +865,11 @@ test('progress: the relay pong, an acknowledgement, a ping and a forged record a
   const s = await session();
   await s.peer.send({ id: 23 });
   const base = s.progress.length;
-  await s.feed([await s.desk.control(remoteTransportAck(1))], undefined, () => s.peer.diagnostics().outstandingBytes === 0);
+  await s.feed(
+    [await s.desk.control(remoteTransportAck(1))],
+    undefined,
+    () => s.peer.diagnostics().outstandingBytes === 0
+  );
   s.peer.receiveRelay(await s.desk.control(remoteTransportPing(7)));
   const forged = (await s.desk.records({ id: 24, data: 'x' })).flat().map((raw) => {
     const copy = new Uint8Array(raw);
@@ -883,7 +891,14 @@ test('settled: resolves once the receive work already accepted has been processe
 
 test('departure: admission is not departure — the receipt waits for the carrier to be handed the records and to report nothing buffered', async () => {
   const s = await session();
-  const state = async (promise) => Promise.race([promise.then(() => 'left', () => 'failed'), new Promise((r) => setImmediate(() => r('pending')))]);
+  const state = async (promise) =>
+    Promise.race([
+      promise.then(
+        () => 'left',
+        () => 'failed'
+      ),
+      new Promise((r) => setImmediate(() => r('pending'))),
+    ]);
   s.relay.bufferedAmount = 10_000_000; // the carrier is full: the message is admitted but cannot be handed
   const { departed } = await s.peer.sendDeparting({ id: 30 });
   assert.equal(await state(departed), 'pending', 'admitted (sealed and queued) is not left');
@@ -900,7 +915,14 @@ test('departure: admission is not departure — the receipt waits for the carrie
 
 test('departure: a session that ends first never reports the message as left', async () => {
   const s = await session();
-  const state = async (promise) => Promise.race([promise.then(() => 'left', () => 'failed'), new Promise((r) => setImmediate(() => r('pending')))]);
+  const state = async (promise) =>
+    Promise.race([
+      promise.then(
+        () => 'left',
+        () => 'failed'
+      ),
+      new Promise((r) => setImmediate(() => r('pending'))),
+    ]);
   s.relay.bufferedAmount = 10_000_000;
   const { departed } = await s.peer.sendDeparting({ id: 31 });
   await s.peer.suspend();
@@ -913,14 +935,24 @@ function fifo(s, ahead = 0) {
   const total = () => s.relay.sent.reduce((sum, bytes) => sum + bytes.byteLength, 0);
   const base = total();
   const model = { left: 0, total: () => total() - base };
-  Object.defineProperty(s.relay, 'bufferedAmount', { configurable: true, get: () => ahead + total() - base - model.left });
+  Object.defineProperty(s.relay, 'bufferedAmount', {
+    configurable: true,
+    get: () => ahead + total() - base - model.left,
+  });
   model.leave = (bytes) => {
     model.left += bytes;
   };
   model.ahead = ahead;
   return model;
 }
-const settledState = (promise) => Promise.race([promise.then(() => 'left', () => 'failed'), new Promise((r) => setImmediate(() => r('pending')))]);
+const settledState = (promise) =>
+  Promise.race([
+    promise.then(
+      () => 'left',
+      () => 'failed'
+    ),
+    new Promise((r) => setImmediate(() => r('pending'))),
+  ]);
 
 test('departure: later traffic never postpones it — the probe has left once the buffer holds no more than what was sent after it', async () => {
   const s = await session();
@@ -936,7 +968,11 @@ test('departure: later traffic never postpones it — the probe has left once th
   buffer.leave(probeEnd); // the probe leaves; what was sent after it is still queued, and the buffer is not empty
   assert.ok(s.relay.bufferedAmount > 0);
   s.timers.run();
-  assert.equal(await settledState(departed), 'left', 'a buffer that stays above zero with later traffic does not hold the probe');
+  assert.equal(
+    await settledState(departed),
+    'left',
+    'a buffer that stays above zero with later traffic does not hold the probe'
+  );
 });
 
 test('departure: a probe still behind earlier unsent bytes has not left, however much is sent after it', async () => {
@@ -962,7 +998,10 @@ test('departure: several probes with traffic between them resolve in order, each
   const probe = async (id) => {
     const { departed } = await s.peer.sendDeparting({ id });
     const end = buffer.total();
-    departed.then(() => order.push(id), () => order.push('failed ' + id));
+    departed.then(
+      () => order.push(id),
+      () => order.push('failed ' + id)
+    );
     return end;
   };
   const first = await probe(50);
@@ -1009,7 +1048,11 @@ test('departure: a carrier switch mid-request — the request has not left while
   link.app.bufferedAmount = 0;
   link.app.onbufferedamountlow?.();
   s.timers.run();
-  assert.equal(await settledState(departed), 'pending', 'the direct carrier is empty but the first fragment is still in the relay buffer');
+  assert.equal(
+    await settledState(departed),
+    'pending',
+    'the direct carrier is empty but the first fragment is still in the relay buffer'
+  );
   buffer.leave(buffer.total());
   s.timers.run();
   assert.equal(await settledState(departed), 'left');

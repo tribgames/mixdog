@@ -554,7 +554,11 @@ export function useStudioMediaJobs({
       else if (how === 'absent') subscribeFeed(id, true);
       else lose(id);
     };
-    const arm = (id: string) => void timers.set(id, setTimeout(() => recheck(id), MEDIA_RECHECK_MS));
+    const arm = (id: string) =>
+      void timers.set(
+        id,
+        setTimeout(() => recheck(id), MEDIA_RECHECK_MS)
+      );
     const miss = (id: string, how: 'absent' | 'removed') => {
       if (misses.has(id)) return;
       misses.set(id, how);
@@ -587,7 +591,8 @@ export function useStudioMediaJobs({
       unsubscribe();
       unsubscribeFeedErrors();
       // Leaving the feed removes its sections from this window's mirror: a job that has ended is not kept there.
-      for (const id of ids) void Promise.resolve(api.sections?.call('feed/unsubscribe', { feedId: `media:${id}` })).catch(() => undefined);
+      for (const id of ids)
+        void Promise.resolve(api.sections?.call('feed/unsubscribe', { feedId: `media:${id}` })).catch(() => undefined);
     };
   }, [active, api, referenceStore, refreshAssetKind, runningKey, setError]);
 

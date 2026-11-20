@@ -61,7 +61,8 @@ function mount(t) {
   const publishPool = (rows) =>
     act(async () => {
       poolEntry = { section: 'agentPool', key: null, revision: poolEntry.revision + 1, value: rows };
-      for (const push of [...pushes]) push({ kind: 'sections', changes: [{ section: 'agentPool', key: null, entry: poolEntry }] });
+      for (const push of [...pushes])
+        push({ kind: 'sections', changes: [{ section: 'agentPool', key: null, entry: poolEntry }] });
     });
   return { root, document: dom.window.document, window: dom.window, publishPool };
 }

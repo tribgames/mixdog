@@ -10,7 +10,10 @@ import { requestedRowIndex, rowListIndex } from './session-diff-row-index';
 import type { useSessionDiffRefresh } from './use-session-diff-refresh';
 
 /** The row a request names, looked up in the list's index. */
-function findRequestedRow(rows: readonly SessionDiffRow[], request: SessionDiffFileRequest): SessionDiffRow | undefined {
+function findRequestedRow(
+  rows: readonly SessionDiffRow[],
+  request: SessionDiffFileRequest
+): SessionDiffRow | undefined {
   return rows[requestedRowIndex(rowListIndex(rows), sessionDiffRequestPaths(request))];
 }
 

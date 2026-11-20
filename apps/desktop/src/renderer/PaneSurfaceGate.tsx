@@ -277,7 +277,14 @@ export function DesktopBootGate({
     if (revealRequested && !revealed) setRevealed(true);
   }, [revealRequested, revealed]);
   useEffect(() => {
-    if (remote || !enabled || !windowShown || revealed || coreLink === 'opening' || !desktopBootCoverTimeoutAllowed(restorePending))
+    if (
+      remote ||
+      !enabled ||
+      !windowShown ||
+      revealed ||
+      coreLink === 'opening' ||
+      !desktopBootCoverTimeoutAllowed(restorePending)
+    )
       return undefined;
     const timer = window.setTimeout(() => setTimedOut(true), DESKTOP_BOOT_COVER_MAX_MS);
     return () => window.clearTimeout(timer);

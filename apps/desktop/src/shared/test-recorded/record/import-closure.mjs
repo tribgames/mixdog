@@ -24,7 +24,11 @@ for (const line of readFileSync(manifestPath, 'utf8').split(/\r?\n/)) {
   else if (line && !line.startsWith('#') && /^## (DELETE|BLOCKED)/.test(section)) deleted.add(line.trim());
 }
 for (const range of values('--deleted-by')) {
-  const diff = spawnSync('git', ['-C', root, 'diff', '-M', '--name-status', range.replace('..', ' ').split(' ')[0], range.split('..')[1]], { encoding: 'utf8', maxBuffer: 1 << 28 });
+  const diff = spawnSync(
+    'git',
+    ['-C', root, 'diff', '-M', '--name-status', range.replace('..', ' ').split(' ')[0], range.split('..')[1]],
+    { encoding: 'utf8', maxBuffer: 1 << 28 }
+  );
   if (diff.status !== 0) throw new Error(`git diff ${range}: ${diff.stderr}`);
   for (const row of diff.stdout.split('\n')) {
     const [status, from] = row.split('\t');
@@ -36,20 +40,49 @@ const survives = (rel) => rel.startsWith('src/tui/') || rel.startsWith('src/stan
 const desktop = resolve(root, 'apps/desktop');
 const entries = [
   'src/main/index.ts',
-  ...['index', 'computer-overlay', 'remote-window', 'browser-login', 'browser-page', 'desktop-pet', 'remote-webrtc-sender', 'remote-transport-peer'].map((n) => `src/preload/${n}.ts`),
+  ...[
+    'index',
+    'computer-overlay',
+    'remote-window',
+    'browser-login',
+    'browser-page',
+    'desktop-pet',
+    'remote-webrtc-sender',
+    'remote-transport-peer',
+  ].map((n) => `src/preload/${n}.ts`),
   ...['index', 'desktop-pet', 'remote-webrtc-sender', 'remote-transport-peer'].map((n) => `src/renderer/${n}.html`),
 ].map((e) => resolve(desktop, e));
 
-const suffixes = ['', '.ts', '.tsx', '.mts', '.mjs', '.js', '.jsx', '.cjs', '/index.ts', '/index.tsx', '/index.mjs', '/index.js'];
+const suffixes = [
+  '',
+  '.ts',
+  '.tsx',
+  '.mts',
+  '.mjs',
+  '.js',
+  '.jsx',
+  '.cjs',
+  '/index.ts',
+  '/index.tsx',
+  '/index.mjs',
+  '/index.js',
+];
 const isFile = (p) => existsSync(p) && statSync(p).isFile();
 function resolveSpec(from, spec) {
   const base = resolve(dirname(from), spec);
   const bases = [base];
-  if (/\.(m?js|jsx)$/.test(base)) bases.push(base.replace(/\.mjs$/, '.mts'), base.replace(/\.js$/, '.ts'), base.replace(/\.js$/, '.tsx'), base.replace(/\.jsx$/, '.tsx'));
+  if (/\.(m?js|jsx)$/.test(base))
+    bases.push(
+      base.replace(/\.mjs$/, '.mts'),
+      base.replace(/\.js$/, '.ts'),
+      base.replace(/\.js$/, '.tsx'),
+      base.replace(/\.jsx$/, '.tsx')
+    );
   for (const b of bases) for (const s of suffixes) if (isFile(b + s)) return b + s;
   return null;
 }
-const importRe = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\(\s*|new URL\(\s*)['"](\.{1,2}\/[^'"]+|\/[^'"/][^'"]*)['"]|\b(?:src|href)=["'](\.{1,2}\/[^"']+|\/[^"'/][^"']*)["']/g;
+const importRe =
+  /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\(\s*|new URL\(\s*)['"](\.{1,2}\/[^'"]+|\/[^'"/][^'"]*)['"]|\b(?:src|href)=["'](\.{1,2}\/[^"']+|\/[^"'/][^"']*)["']/g;
 
 const seen = new Set();
 const stack = [...entries];

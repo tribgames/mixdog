@@ -15,12 +15,7 @@
  */
 import type { BrowserBlobRef, PageFacts, Precondition } from '../../../../../../packages/protocol/src/index.ts';
 import { redactBrowserText } from '../../browser/redaction';
-import {
-  HOST_INVALID_PARAMS,
-  type HostConnection,
-  HostRpcError,
-  objectParams,
-} from '../connection';
+import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError, objectParams } from '../connection';
 import { MAX_INLINE_RESULT_BYTES, uploadBlob } from './blob-upload';
 import type { EngineContext, EnginePage } from './context';
 import { ENGINE_ERROR, pageGone } from './errors';

@@ -210,7 +210,11 @@ export function useTranscriptWindow<T extends { readonly id?: unknown }>(
 }
 
 /** Grows the window by a page from the rows held now, or (a number) from that many rows. */
-export function useTranscriptHistory(sessionId: string, itemCount: number, hasOlder?: boolean): (heldRows?: unknown) => void {
+export function useTranscriptHistory(
+  sessionId: string,
+  itemCount: number,
+  hasOlder?: boolean
+): (heldRows?: unknown) => void {
   const countRef = useRef(itemCount);
   countRef.current = itemCount;
   const hasOlderRef = useRef(hasOlder);
@@ -235,39 +239,42 @@ export function useTranscriptHistory(sessionId: string, itemCount: number, hasOl
     const paging = pagingRef.current;
     return () => endPage(paging);
   }, [sessionId]);
-  return useCallback((heldRows?: unknown) => {
-    const prefetch = window.mixdogDesktop?.prefetchSession;
-    const paging = pagingRef.current;
-    if (!sessionId || !prefetch || paging.pending) return;
-    const older = hasOlderRef.current;
-    const tail = typeof older === 'boolean';
-    // A click handler hands its event here: only a number names the rows a window is grown from.
-    const count = typeof heldRows === 'number' ? heldRows : countRef.current;
-    const nextLimit = tail
-      ? nextTranscriptTailLimit(count, paging.pagedFrom, older)
-      : nextTranscriptHistoryLimit(count, paging.limit);
-    if (nextLimit === null) return;
-    paging.pending = true;
-    // Background tool-output reads hold off while the page is on its way.
-    endPage(paging);
-    const page = { from: count, release: noteHistoryPageRequest() };
-    paging.page = page;
-    void Promise.resolve()
-      .then(() => prefetch(sessionId, nextLimit))
-      .then((accepted) => {
-        // A refused read brings no page.
-        if (accepted !== true) endPage(paging, page);
-        if (pagingRef.current !== paging || accepted !== true) return;
-        // A window that restarted shorter meanwhile pages again from its tail.
-        if (tail) paging.pagedFrom = countRef.current < count ? -1 : count;
-        else paging.limit = nextLimit;
-      })
-      .catch(() => {
-        // Read-only failures remain retryable on the next boundary gesture.
-        endPage(paging, page);
-      })
-      .finally(() => {
-        if (pagingRef.current === paging) paging.pending = false;
-      });
-  }, [sessionId]);
+  return useCallback(
+    (heldRows?: unknown) => {
+      const prefetch = window.mixdogDesktop?.prefetchSession;
+      const paging = pagingRef.current;
+      if (!sessionId || !prefetch || paging.pending) return;
+      const older = hasOlderRef.current;
+      const tail = typeof older === 'boolean';
+      // A click handler hands its event here: only a number names the rows a window is grown from.
+      const count = typeof heldRows === 'number' ? heldRows : countRef.current;
+      const nextLimit = tail
+        ? nextTranscriptTailLimit(count, paging.pagedFrom, older)
+        : nextTranscriptHistoryLimit(count, paging.limit);
+      if (nextLimit === null) return;
+      paging.pending = true;
+      // Background tool-output reads hold off while the page is on its way.
+      endPage(paging);
+      const page = { from: count, release: noteHistoryPageRequest() };
+      paging.page = page;
+      void Promise.resolve()
+        .then(() => prefetch(sessionId, nextLimit))
+        .then((accepted) => {
+          // A refused read brings no page.
+          if (accepted !== true) endPage(paging, page);
+          if (pagingRef.current !== paging || accepted !== true) return;
+          // A window that restarted shorter meanwhile pages again from its tail.
+          if (tail) paging.pagedFrom = countRef.current < count ? -1 : count;
+          else paging.limit = nextLimit;
+        })
+        .catch(() => {
+          // Read-only failures remain retryable on the next boundary gesture.
+          endPage(paging, page);
+        })
+        .finally(() => {
+          if (pagingRef.current === paging) paging.pending = false;
+        });
+    },
+    [sessionId]
+  );
 }

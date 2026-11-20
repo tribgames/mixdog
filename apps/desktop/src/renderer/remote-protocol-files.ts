@@ -50,20 +50,28 @@ const FILE_CHANGED = 'File changed on disk. Reload or keep your edits before sav
 export function failure(error: unknown): unknown {
   const data = (error as { detail?: { data?: Record<string, unknown> } } | null)?.detail?.data;
   if (!data) return error;
-  if (data.reason === 'capabilityUnavailable' && data.capability === 'desktopHost') return new TypeError(DESKTOP_UNAVAILABLE);
+  if (data.reason === 'capabilityUnavailable' && data.capability === 'desktopHost')
+    return new TypeError(DESKTOP_UNAVAILABLE);
   // A refused argument names its sentence (Node's TypeError text); a stale save is Node's one sentence for it.
   // The core's error stays reachable as the cause (its code and data, whole).
-  if (data.reason === 'invalidParams' && typeof data.expected === 'string' && data.expected) return new TypeError(data.expected, { cause: error });
+  if (data.reason === 'invalidParams' && typeof data.expected === 'string' && data.expected)
+    return new TypeError(data.expected, { cause: error });
   if (data.reason === 'preconditionFailed') return new Error(FILE_CHANGED);
   if (data.reason !== 'domainError') return error;
   const text = data.message;
   if (typeof text !== 'string' || !text) return error;
   // A folder that does not exist: the core gives the path as the caller wrote it, which is all the OS error names.
-  if (data.code === 'pathMissing') return Object.assign(new Error(`ENOENT: no such file or directory, realpath '${text}'`), { code: 'ENOENT' });
+  if (data.code === 'pathMissing')
+    return Object.assign(new Error(`ENOENT: no such file or directory, realpath '${text}'`), { code: 'ENOENT' });
   const rebuilt: Error & { code?: string } = new Error(text);
   // The preview worker's refusals are plain Errors in Node; their code only routes the text through the core.
-  const plainInNode = data.code === 'NO_PREVIEW_FOR_TYPE' || data.code === 'NOT_A_FILE' || data.code === 'PATH_OUTSIDE_PROJECT' || data.code === 'HOST_COMMAND_FAILED';
-  if (!plainInNode && typeof data.code === 'string' && /^([A-Z][A-Z0-9_]+|file-download:[a-z-]+)$/.test(data.code)) rebuilt.code = data.code;
+  const plainInNode =
+    data.code === 'NO_PREVIEW_FOR_TYPE' ||
+    data.code === 'NOT_A_FILE' ||
+    data.code === 'PATH_OUTSIDE_PROJECT' ||
+    data.code === 'HOST_COMMAND_FAILED';
+  if (!plainInNode && typeof data.code === 'string' && /^([A-Z][A-Z0-9_]+|file-download:[a-z-]+)$/.test(data.code))
+    rebuilt.code = data.code;
   return rebuilt;
 }
 
@@ -71,7 +79,11 @@ const rpcClient = async (client: Client, method: string, params: Params): Promis
   try {
     // `nodeErrors` (projectFs calls only; the other methods' params are closed): this is the phone's call, so an entry beyond its project is
     // answered as Node's plain `Error`, not the core's permission refusal.
-    return await phoneTransferCall(client, method, method.startsWith('projectFs/') ? { ...params, nodeErrors: true } : params);
+    return await phoneTransferCall(
+      client,
+      method,
+      method.startsWith('projectFs/') ? { ...params, nodeErrors: true } : params
+    );
   } catch (error) {
     throw failure(error);
   }
@@ -84,7 +96,11 @@ export const rpc = async (host: PhoneProtocolHost, method: string, params: Param
 function fileTarget(projectPath: unknown, relPath: unknown, accessToken: unknown): Params {
   if (typeof accessToken === 'string' && accessToken.length > 0) {
     const token = requiredString(accessToken, 'file access token', 128);
-    return { root: requiredString(projectPath, 'projectPath'), rel: requiredString(relPath, 'relPath'), accessToken: token };
+    return {
+      root: requiredString(projectPath, 'projectPath'),
+      rel: requiredString(relPath, 'relPath'),
+      accessToken: token,
+    };
   }
   return { root: requiredString(projectPath, 'projectPath'), rel: requiredString(relPath, 'relPath', 4_096) };
 }
@@ -150,7 +166,8 @@ type DownloadRequest = { sessionId: string; purpose: FileDownloadPurpose } & (
 /** The render a visualize export names (remote-protocol-visualize.ts `visualizeExport`): the core's `export` transfer source draws it
  *  when the download is authorized. */
 function exportInput(exportId: unknown): Params {
-  if (typeof exportId !== 'string' || !exportId.startsWith(VISUALIZE_EXPORT_ID_PREFIX)) throw new TypeError('download source is invalid.');
+  if (typeof exportId !== 'string' || !exportId.startsWith(VISUALIZE_EXPORT_ID_PREFIX))
+    throw new TypeError('download source is invalid.');
   let named: unknown;
   try {
     named = JSON.parse(exportId.slice(VISUALIZE_EXPORT_ID_PREFIX.length));
@@ -172,14 +189,22 @@ function downloadRequest(value: unknown): DownloadRequest {
     return { kind: 'project', sessionId, relPath, purpose };
   }
   if (source.kind === 'link') {
-    return { kind: 'link', sessionId, itemId: requiredText(source.itemId, 'item id', 256), href: requiredText(source.href, 'href', 4_096), purpose };
+    return {
+      kind: 'link',
+      sessionId,
+      itemId: requiredText(source.itemId, 'item id', 256),
+      href: requiredText(source.href, 'href', 4_096),
+      purpose,
+    };
   }
   if (source.kind === 'attachment') {
-    if (typeof source.attachmentId !== 'string' || !ATTACHMENT_ID.test(source.attachmentId)) throw new TypeError('attachment id is invalid.');
+    if (typeof source.attachmentId !== 'string' || !ATTACHMENT_ID.test(source.attachmentId))
+      throw new TypeError('attachment id is invalid.');
     return { kind: 'attachment', sessionId, attachmentId: source.attachmentId, purpose };
   }
   if (source.kind === 'export') return { kind: 'export', sessionId, input: exportInput(source.exportId), purpose };
-  if (source.kind === 'session' || source.kind === 'folder') return { kind: source.kind, sessionId, path: requiredText(source.path, 'path', 4_096), purpose };
+  if (source.kind === 'session' || source.kind === 'folder')
+    return { kind: source.kind, sessionId, path: requiredText(source.path, 'path', 4_096), purpose };
   if (source.kind === 'media') {
     const assetId = requiredText(source.assetId, 'asset id', 128);
     if (!MEDIA_ASSET_ID.test(assetId)) throw new TypeError('asset id is invalid.');
@@ -211,15 +236,25 @@ function authorizeDownload(host: PhoneProtocolHost, value: unknown): Promise<unk
 
 function downloadRange(transferId: unknown, offset: unknown, length: unknown, version: unknown) {
   const id = downloadId(transferId, 'transfer id');
-  if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset > FILE_DOWNLOAD_MAX_BYTES) throw new TypeError('offset is invalid.');
-  if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 1 || length > FILE_DOWNLOAD_RANGE_MAX_BYTES) throw new TypeError('length is invalid.');
+  if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset > FILE_DOWNLOAD_MAX_BYTES)
+    throw new TypeError('offset is invalid.');
+  if (
+    typeof length !== 'number' ||
+    !Number.isSafeInteger(length) ||
+    length < 1 ||
+    length > FILE_DOWNLOAD_RANGE_MAX_BYTES
+  )
+    throw new TypeError('length is invalid.');
   if (typeof version !== 'string' || !DOWNLOAD_VERSION.test(version)) throw new TypeError('version is invalid.');
   return { transferId: id, offset, length, version };
 }
 
 /** Keep the save sink's range contract while keeping every core reply bounded.
  * The core checks the same transfer owner and version on each page. */
-async function readDownloadRange(host: PhoneProtocolHost, request: ReturnType<typeof downloadRange>): Promise<FileDownloadChunk> {
+async function readDownloadRange(
+  host: PhoneProtocolHost,
+  request: ReturnType<typeof downloadRange>
+): Promise<FileDownloadChunk> {
   const client = host.client();
   if (request.length <= DOWNLOAD_RPC_PAGE_BYTES) return rpcClient(client, 'transfer/readRange', request);
   const parts: string[] = [];
@@ -229,8 +264,15 @@ async function readDownloadRange(host: PhoneProtocolHost, request: ReturnType<ty
     const offset = request.offset + read;
     const length = Math.min(DOWNLOAD_RPC_PAGE_BYTES, request.length - read);
     const page: FileDownloadChunk = await rpcClient(client, 'transfer/readRange', { ...request, offset, length });
-    if (page.transferId !== request.transferId || page.offset !== offset || page.version !== request.version ||
-        !Number.isSafeInteger(page.length) || page.length < 0 || page.length > length || (page.length !== length && !page.eof)) {
+    if (
+      page.transferId !== request.transferId ||
+      page.offset !== offset ||
+      page.version !== request.version ||
+      !Number.isSafeInteger(page.length) ||
+      page.length < 0 ||
+      page.length > length ||
+      (page.length !== length && !page.eof)
+    ) {
       throw new FileDownloadError('changed', 'The file changed on the host.');
     }
     host.transferProgress?.();
@@ -243,7 +285,14 @@ async function readDownloadRange(host: PhoneProtocolHost, request: ReturnType<ty
 
 let nextSearch = 1;
 
-async function searchFiles(host: PhoneProtocolHost, root: string, query: string, limit: number, ignored: boolean, directories: boolean): Promise<string[]> {
+async function searchFiles(
+  host: PhoneProtocolHost,
+  root: string,
+  query: string,
+  limit: number,
+  ignored: boolean,
+  directories: boolean
+): Promise<string[]> {
   const client: Client = host.client();
   const sessionId = `phone-search-${nextSearch++}`;
   let files: string[] = [];
@@ -253,14 +302,24 @@ async function searchFiles(host: PhoneProtocolHost, root: string, query: string,
   const echoed = query.replace(/[\ud800-\udfff]/gu, '\ufffd');
   const off = client.on((event) => {
     if (event.type !== 'notification') return;
-    const { method, params } = event.notification as { method: string; params?: { sessionId?: string; query?: string; files?: Array<{ path: string; matchType: string }> } };
+    const { method, params } = event.notification as {
+      method: string;
+      params?: { sessionId?: string; query?: string; files?: Array<{ path: string; matchType: string }> };
+    };
     if (params?.sessionId !== sessionId) return;
     // A folder's path ends with a slash, as Node's file search names it.
-    if (method === 'search/updated' && params.query === echoed) files = (params.files ?? []).map((row) => (row.matchType === 'directory' ? `${row.path}/` : row.path));
+    if (method === 'search/updated' && params.query === echoed)
+      files = (params.files ?? []).map((row) => (row.matchType === 'directory' ? `${row.path}/` : row.path));
     else if (method === 'search/completed' && params.query === echoed) finish();
   });
   try {
-    await rpc(host, 'search/start', { sessionId, roots: [root], limit, includeIgnored: ignored, includeDirectories: directories });
+    await rpc(host, 'search/start', {
+      sessionId,
+      roots: [root],
+      limit,
+      includeIgnored: ignored,
+      includeDirectories: directories,
+    });
     try {
       await rpc(host, 'search/update', { sessionId, query });
       await completed;
@@ -309,7 +368,11 @@ export const adapter: PhoneProtocolAdapter = {
       return (async () => {
         // One answer carries at most 512 KiB, a file up to 10 MiB: the text comes a window at a time and is joined. The first window reads
         // the file once and names that read (`readId`); the windows after it come from the same read, so the join is one version of the file.
-        let answer = (await rpc(host, 'projectFs/readText', { ...target, authorized: true, maxChars: READ_WINDOW_CHARS })) as Params;
+        let answer = (await rpc(host, 'projectFs/readText', {
+          ...target,
+          authorized: true,
+          maxChars: READ_WINDOW_CHARS,
+        })) as Params;
         let content = String(answer.content);
         while (typeof answer.nextChar === 'number') {
           answer = (await rpc(host, 'projectFs/readText', {
@@ -334,12 +397,24 @@ export const adapter: PhoneProtocolAdapter = {
       const expected = textFileContent(expectedContent, 'expected file content');
       const fileEncoding = textFileEncoding(encoding);
       const target = fileTarget(projectPath, relPath, accessToken);
-      return rpc(host, 'projectFs/writeText', { ...target, content: text, expectedContent: expected, ...(fileEncoding ? { encoding: fileEncoding } : {}) });
+      return rpc(host, 'projectFs/writeText', {
+        ...target,
+        content: text,
+        expectedContent: expected,
+        ...(fileEncoding ? { encoding: fileEncoding } : {}),
+      });
     },
     createProjectEntry: ([projectPath, relDir, name, dir], host) => {
       const root = requiredString(projectPath, 'projectPath');
       const entryName = requiredString(name, 'name');
-      return void_(rpc(host, 'projectFs/create', { root, relDir: typeof relDir === 'string' ? relDir : '', name: entryName, directory: dir === true }));
+      return void_(
+        rpc(host, 'projectFs/create', {
+          root,
+          relDir: typeof relDir === 'string' ? relDir : '',
+          name: entryName,
+          directory: dir === true,
+        })
+      );
     },
     renameProjectEntry: ([projectPath, relPath, newName], host) => {
       const root = requiredString(projectPath, 'projectPath');
@@ -350,12 +425,18 @@ export const adapter: PhoneProtocolAdapter = {
     moveProjectEntry: ([projectPath, relPath, targetDirRel], host) => {
       const root = requiredString(projectPath, 'projectPath');
       const rel = requiredString(relPath, 'relPath');
-      return void_(rpc(host, 'projectFs/move', { root, rel, targetDirRel: typeof targetDirRel === 'string' ? targetDirRel : '' }));
+      return void_(
+        rpc(host, 'projectFs/move', { root, rel, targetDirRel: typeof targetDirRel === 'string' ? targetDirRel : '' })
+      );
     },
     copyProjectEntry: ([projectPath, relPath, targetDirRel], host) => {
       const root = requiredString(projectPath, 'projectPath');
       const rel = requiredString(relPath, 'relPath');
-      return rpc(host, 'projectFs/copy', { root, rel, targetDirRel: typeof targetDirRel === 'string' ? targetDirRel : '' });
+      return rpc(host, 'projectFs/copy', {
+        root,
+        rel,
+        targetDirRel: typeof targetDirRel === 'string' ? targetDirRel : '',
+      });
     },
     // The OS trash is the PC window's: the core confines the path, then asks the window.
     trashProjectEntry: ([projectPath, relPath], host) => {
@@ -365,17 +446,26 @@ export const adapter: PhoneProtocolAdapter = {
     },
     // ── a paired phone's downloads: a grant that expires, then the transfer it is consumed into ──
     fileDownloadAuthorize: ([request], host) => authorizeDownload(host, request),
-    fileDownloadBegin: ([grantId], host) => rpc(host, 'transfer/redeemGrant', { grantId: downloadId(grantId, 'grant id') }),
-    fileDownloadRange: ([transferId, offset, length, version], host) => readDownloadRange(host, downloadRange(transferId, offset, length, version)),
-    fileDownloadFinish: ([transferId], host) => rpc(host, 'transfer/finishRead', { transferId: downloadId(transferId, 'transfer id') }),
+    fileDownloadBegin: ([grantId], host) =>
+      rpc(host, 'transfer/redeemGrant', { grantId: downloadId(grantId, 'grant id') }),
+    fileDownloadRange: ([transferId, offset, length, version], host) =>
+      readDownloadRange(host, downloadRange(transferId, offset, length, version)),
+    fileDownloadFinish: ([transferId], host) =>
+      rpc(host, 'transfer/finishRead', { transferId: downloadId(transferId, 'transfer id') }),
     fileDownloadAbort: ([id], host) =>
-      rpc(host, 'transfer/endRead', { transferId: downloadId(id, 'download id') }).then((answer: { ended: boolean }) => answer.ended),
+      rpc(host, 'transfer/endRead', { transferId: downloadId(id, 'download id') }).then(
+        (answer: { ended: boolean }) => answer.ended
+      ),
     // ── the editor's own storage ──
     readEditorSettings: ([projectPath, relPath, workspaceFile], host) => {
       const root = requiredString(projectPath, 'projectPath');
       const workspace = typeof workspaceFile === 'string' && workspaceFile.trim() ? workspaceFile : undefined;
       const rel = requiredString(relPath, 'relPath', 4_096);
-      return rpc(host, 'projectFs/readEditorSettings', { root, rel, ...(workspace === undefined ? {} : { workspaceFile: workspace }) });
+      return rpc(host, 'projectFs/readEditorSettings', {
+        root,
+        rel,
+        ...(workspace === undefined ? {} : { workspaceFile: workspace }),
+      });
     },
     readEditorBackup: ([projectPath, relPath, accessToken], host) => {
       const target = fileTarget(projectPath, relPath, accessToken);
@@ -409,7 +499,8 @@ export const adapter: PhoneProtocolAdapter = {
       return rpc(host, 'projectFs/workspaceFile/write', { workspaceFile, folders });
     },
     codeGraphQuery: ([projectPath, mode, symbol], host) => {
-      if (mode !== 'find_symbol' && mode !== 'references' && mode !== 'symbols') throw new TypeError('mode is invalid.');
+      if (mode !== 'find_symbol' && mode !== 'references' && mode !== 'symbols')
+        throw new TypeError('mode is invalid.');
       const path = requiredString(projectPath, 'projectPath');
       const query = requiredString(symbol, 'symbol');
       return rpc(host, 'project/codeGraph', { path, mode, query });
@@ -422,7 +513,8 @@ export const adapter: PhoneProtocolAdapter = {
     },
     replaceWorkspaceText: ([projectPath, rawOptions, replacement, relPaths], host) => {
       const root = requiredString(projectPath, 'projectPath');
-      if (typeof replacement !== 'string' || replacement.length > 1_000_000) throw new TypeError('Replacement text is invalid.');
+      if (typeof replacement !== 'string' || replacement.length > 1_000_000)
+        throw new TypeError('Replacement text is invalid.');
       // An optional argument the page left out arrives as the relay's JSON wrote it (`null`): at this boundary it is omitted (the fix of
       // Node's relay method, node-fix-relay-optional-args.patch).
       const files = relPaths == null ? undefined : relativePaths(relPaths);
@@ -445,10 +537,10 @@ export const adapter: PhoneProtocolAdapter = {
     lspRequest: ([rawInput], host) => {
       const input = lspRequestInput(rawInput);
       return rpc(host, 'lsp/request', {
-          projectPath: input.projectPath,
-          root: input.projectPath,
-          request: { relPath: input.relPath, languageId: input.languageId, method: input.method, params: input.params },
-        });
+        projectPath: input.projectPath,
+        root: input.projectPath,
+        request: { relPath: input.relPath, languageId: input.languageId, method: input.method, params: input.params },
+      });
     },
     lspApplyWorkspaceEdit: ([projectPath, rawWrites], host) => {
       const root = requiredString(projectPath, 'projectPath');
@@ -462,7 +554,8 @@ export const adapter: PhoneProtocolAdapter = {
     },
     previewProjectFileRange: ([projectPath, relPath, accessToken, offset, length], host) => {
       // Arguments are checked before any path work.
-      if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0) throw new TypeError('offset is invalid.');
+      if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0)
+        throw new TypeError('offset is invalid.');
       if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 1 || length > 4 * 1024 * 1024) {
         throw new TypeError('length is invalid.');
       }
@@ -471,10 +564,14 @@ export const adapter: PhoneProtocolAdapter = {
     },
     previewDocumentPages: ([projectPath, relPath, accessToken, options], host) => {
       const target = fileTarget(projectPath, relPath, accessToken);
-      const request = options && typeof options === 'object' ? (options as { pages?: unknown; maxWidth?: unknown; password?: unknown }) : {};
+      const request =
+        options && typeof options === 'object'
+          ? (options as { pages?: unknown; maxWidth?: unknown; password?: unknown })
+          : {};
       return (async () => {
         // A one-file permission names a file outside every project: the conversion runs on that file's own folder.
-        const place = target.accessToken === undefined ? { root: target.root, rel: target.rel } : await grantedPlace(host, target);
+        const place =
+          target.accessToken === undefined ? { root: target.root, rel: target.rel } : await grantedPlace(host, target);
         return rpc(host, 'document/previewPages', {
           ...place,
           options:

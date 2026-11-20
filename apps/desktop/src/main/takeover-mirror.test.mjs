@@ -11,7 +11,9 @@ test('the takeover mirror refuses its own session with the core text and nobody 
   const mirror = createTakeoverMirror(async () => state);
   await assert.rejects(
     () => mirror.assertFree('s1'),
-    (error) => error.message.startsWith('Browser Use is paused for this session: the user has taken over (sign-in on a.com)') && error.message.includes('Wait for the handoff_user result')
+    (error) =>
+      error.message.startsWith('Browser Use is paused for this session: the user has taken over (sign-in on a.com)') &&
+      error.message.includes('Wait for the handoff_user result')
   );
   await mirror.assertFree('s2');
   assert.equal(mirror.heldOf('s1')?.takeoverId, '4');

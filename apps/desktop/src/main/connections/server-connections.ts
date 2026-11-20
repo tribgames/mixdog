@@ -26,7 +26,9 @@ export interface ServerConnections<T extends ServerConnection> {
   closeAll(): Promise<void>;
 }
 
-export function createServerConnections<T extends ServerConnection>(deps: ServerConnectionsDeps<T>): ServerConnections<T> {
+export function createServerConnections<T extends ServerConnection>(
+  deps: ServerConnectionsDeps<T>
+): ServerConnections<T> {
   const servers = new Set<string>();
   const detach = async (id: string): Promise<void> => {
     servers.delete(id);

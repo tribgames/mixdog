@@ -50,7 +50,11 @@ function externalSite(request: IncomingMessage, response: ServerResponse): void 
   const url = new URL(request.url ?? '/', 'http://x');
   const tag = url.searchParams.get('r') ?? '?';
   const secure = 'encrypted' in request.socket;
-  externalSeen.push({ tag, path: `${secure ? 'https' : 'http'} ${url.pathname}`, cookie: request.headers.cookie ?? '' });
+  externalSeen.push({
+    tag,
+    path: `${secure ? 'https' : 'http'} ${url.pathname}`,
+    cookie: request.headers.cookie ?? '',
+  });
   response.setHeader('Set-Cookie', `site-${tag}=1; Path=/${secure ? '; SameSite=None; Secure' : ''}`);
   response.setHeader('Access-Control-Allow-Origin', request.headers.origin ?? '*');
   response.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -160,7 +164,10 @@ async function servePage(request: IncomingMessage, response: ServerResponse): Pr
   }
   try {
     const body = await readFile(join(folder, file));
-    response.writeHead(200, { 'Content-Type': PAGE_TYPES[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
+    response.writeHead(200, {
+      'Content-Type': PAGE_TYPES[extname(file)] ?? 'application/octet-stream',
+      'Cache-Control': 'no-store',
+    });
     response.end(body);
   } catch {
     response.writeHead(404).end();
@@ -209,7 +216,8 @@ const workerProbe = (target: string) => `(async () => {
     serviceWorker: await navigator.serviceWorker.register('sw.js').then(() => 'registered', (error) => 'rejected ' + error.name),
   };
 })()`;
-const writeThenRead = (tag: string) => `(async () => { await writeStorage(${JSON.stringify(tag)}); return storageState(); })()`;
+const writeThenRead = (tag: string) =>
+  `(async () => { await writeStorage(${JSON.stringify(tag)}); return storageState(); })()`;
 
 async function run() {
   // The test certificate is trusted for EXTERNAL only, on the renders' session.

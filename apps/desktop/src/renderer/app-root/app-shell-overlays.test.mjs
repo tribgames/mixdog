@@ -219,7 +219,10 @@ function SettingsShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeView, setActiveView] = useState('sessions');
   const [mountedSidebarPanels, setMountedSidebarPanels] = useState(() => new Set());
-  const mountSidebarPanel = React.useCallback((id) => setMountedSidebarPanels((mounted) => new Set([...mounted, id])), []);
+  const mountSidebarPanel = React.useCallback(
+    (id) => setMountedSidebarPanels((mounted) => new Set([...mounted, id])),
+    []
+  );
   useAppFrameBootEffects(true, noop);
   useAppWorkspaceWarmup({
     ready: true,
@@ -231,7 +234,8 @@ function SettingsShell() {
   const openSettings = () => setSettingsOpen(true);
   const renderWorkbenchSideView = (_side, id, active) => {
     if (!active && !mountedSidebarPanels.has(id)) return null;
-    if (id === 'extensions') return React.createElement(ExtensionsPane, { active, section: 'plugins', onSectionChange: noop });
+    if (id === 'extensions')
+      return React.createElement(ExtensionsPane, { active, section: 'plugins', onSectionChange: noop });
     if (id === 'skills') return React.createElement(SkillsPane, { active });
     return null;
   };
@@ -252,11 +256,14 @@ function SettingsShell() {
   );
 }
 
-test('desktop Settings and hidden rail panes wait for a request and stay mounted for warm reopen', { timeout: 10_000 }, async (t) => {
+test('desktop Settings and hidden rail panes wait for a request and stay mounted for warm reopen', {
+  timeout: 10_000,
+}, async (t) => {
   const { window, document, root } = mountShell(t, true);
   const reads = t.mock.fn(async (requests) => requests.map(() => ({ ok: true, value: null })));
   const compactionReads = () =>
-    reads.mock.calls.flatMap(({ arguments: [requests] }) => requests)
+    reads.mock.calls
+      .flatMap(({ arguments: [requests] }) => requests)
       .filter(({ capability }) => capability === 'getCompactionSettings').length;
   window.mixdogDesktop = {
     getSnapshot: async () => ({}),

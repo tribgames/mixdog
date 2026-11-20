@@ -96,11 +96,19 @@ interface Live {
 /** What the launcher recorded when it named a start that cannot succeed (boot-progress.ts), on the error or the one it caused. */
 function launchFailedOf(error: unknown): BootFailure | null {
   const held = error as { coreLaunchFailed?: BootFailure; cause?: unknown } | null;
-  return held?.coreLaunchFailed ?? ((held?.cause as { coreLaunchFailed?: BootFailure } | null | undefined)?.coreLaunchFailed ?? null);
+  return (
+    held?.coreLaunchFailed ??
+    (held?.cause as { coreLaunchFailed?: BootFailure } | null | undefined)?.coreLaunchFailed ??
+    null
+  );
 }
 
 function defaultSocket(url: string, headers: Record<string, string>): RelaySocket {
-  return new WebSocket(url, { headers, maxPayload: MAX_INBOUND_BYTES, perMessageDeflate: false }) as unknown as RelaySocket;
+  return new WebSocket(url, {
+    headers,
+    maxPayload: MAX_INBOUND_BYTES,
+    perMessageDeflate: false,
+  }) as unknown as RelaySocket;
 }
 
 async function defaultChannel(): Promise<RelayChannel> {
@@ -121,7 +129,10 @@ export class CorePortRelay {
   constructor(private readonly options: CorePortRelayOptions) {}
 
   /** Resolves with the generation the delivered port carries; an open superseded before its port is delivered rejects. */
-  async open(webContents: RelayWebContents, slot: CoreSlot = 'primary'): Promise<{ generation: number } | { launchFailed: BootFailure }> {
+  async open(
+    webContents: RelayWebContents,
+    slot: CoreSlot = 'primary'
+  ): Promise<{ generation: number } | { launchFailed: BootFailure }> {
     if (this.disposed) throw new Error('The core relay is closed.');
     const generation = ++this.generation;
     const windowId = windowIdFor(webContents);
@@ -164,7 +175,9 @@ export class CorePortRelay {
         this.log('[mixdog] core-lacks-window-scope: opening the window port without it');
       }
       if (!current()) throw superseded();
-      const endpoint = (await this.options.endpointFor(webContents.id, slot)).find((candidate) => candidate.slot === slot);
+      const endpoint = (await this.options.endpointFor(webContents.id, slot)).find(
+        (candidate) => candidate.slot === slot
+      );
       if (!endpoint) throw new Error(`No core endpoint for slot "${slot}".`);
       if (!current()) throw superseded();
       const socket = (this.options.createSocket ?? defaultSocket)(endpoint.url, {
@@ -186,7 +199,9 @@ export class CorePortRelay {
         entry.ended = true;
         if (this.live.get(key) === entry) this.live.delete(key);
         // Why the link went is known here and nowhere after.
-        this.log(`[mixdog] core socket closed window=${windowId} slot=${slot} code=${code} reason=${JSON.stringify(text.slice(0, 300))}`);
+        this.log(
+          `[mixdog] core socket closed window=${windowId} slot=${slot} code=${code} reason=${JSON.stringify(text.slice(0, 300))}`
+        );
         entry.port.postMessage({ t: 'closed', code, reason: text });
         entry.port.close();
       });

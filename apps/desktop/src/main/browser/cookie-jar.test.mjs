@@ -7,7 +7,9 @@ test('cookie reads release the idle helper without interrupting queued commands 
   let opened = 0;
   let closed = 0;
   let unblock;
-  const deferred = new Promise((resolve) => { unblock = resolve; });
+  const deferred = new Promise((resolve) => {
+    unblock = resolve;
+  });
   let commands = 0;
   class View {
     constructor({ webPreferences }) {
@@ -15,9 +17,15 @@ test('cookie reads release the idle helper without interrupting queued commands 
       opened++;
       let destroyed = false;
       this.webContents = {
-        session: partition, setWindowOpenHandler() {}, async loadURL() {},
+        session: partition,
+        setWindowOpenHandler() {},
+        async loadURL() {},
         isDestroyed: () => destroyed,
-        close() { assert.equal(destroyed, false); destroyed = true; closed++; },
+        close() {
+          assert.equal(destroyed, false);
+          destroyed = true;
+          closed++;
+        },
         debugger: {
           attach() {},
           async sendCommand() {
@@ -30,7 +38,10 @@ test('cookie reads release the idle helper without interrupting queued commands 
     }
   }
   const jar = createBrowserCookieJar(partition, async () => View);
-  t.after(() => { unblock(); return jar.dispose(); });
+  t.after(() => {
+    unblock();
+    return jar.dispose();
+  });
   const tick = () => new Promise((resolve) => setImmediate(resolve));
   await jar.get({});
   const second = jar.get({});
@@ -48,7 +59,10 @@ test('cookie reads release the idle helper without interrupting queued commands 
 
 test('exact removal rejects a missing or empty path before opening a cookie target', async () => {
   let opened = 0;
-  const jar = createBrowserCookieJar({}, async () => { opened++; throw new Error('unexpected target'); });
+  const jar = createBrowserCookieJar({}, async () => {
+    opened++;
+    throw new Error('unexpected target');
+  });
   try {
     for (const scope of [{}, { path: '' }]) {
       await assert.rejects(jar.removeExact({ name: 'sid', domain: 'example.test', ...scope }), /requires a path/);

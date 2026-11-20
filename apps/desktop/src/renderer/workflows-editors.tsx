@@ -132,9 +132,10 @@ export function useWorkflowEditors({
         const submitted = routeWithEditedFallbacks(route, routeEditor.route);
         // Omitting parameters asks resolveRoute for the model's remembered tier.
         // An unchanged Fast primary in a chain edit already has a speed.
-        const selection = submitted.fast === true && submitted.modelParameters == null && Array.isArray(submitted.fallbacks)
-          ? { ...submitted, modelParameters: {} }
-          : submitted;
+        const selection =
+          submitted.fast === true && submitted.modelParameters == null && Array.isArray(submitted.fallbacks)
+            ? { ...submitted, modelParameters: {} }
+            : submitted;
         // setModelRoute discards route/set's value. Read the preset from the
         // write itself, including the chain retained when fallbacks were omitted.
         const result = await api!.invokeCapability!<RecordValue>({

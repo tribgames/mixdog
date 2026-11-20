@@ -127,7 +127,6 @@ async function askOnSurface(
   });
 }
 
-
 /** The person's confirmation to turn on "Allow all actions", resolved true only
  *  when they accept the risk. Text mirrors the runtime registry entry
  *  (src/runtime/shared/developer-options.mjs); a test keeps them equal. */

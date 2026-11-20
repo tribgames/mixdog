@@ -17,7 +17,13 @@ import { connect } from '../../../../packages/protocol-client/src/client.ts';
 import { sessionReducer, sessionStateOf } from '../../../../packages/protocol-client/src/session-state.ts';
 import { parseDiscovery } from '../main/protocol/discovery.ts';
 import { createWsConnector } from '../main/protocol/ws-connector.ts';
-import { ABORT_CASES, ASKED_PROJECT_FILE, DEVICES, HOOK_RULES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
+import {
+  ABORT_CASES,
+  ASKED_PROJECT_FILE,
+  DEVICES,
+  HOOK_RULES,
+  PROJECT_FILE,
+} from './remote-protocol-chat-abort-cases.mjs';
 import { startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
 
 const REPO_ROOT = new URL('../../../../', import.meta.url);
@@ -28,20 +34,47 @@ const REPO_ROOT = new URL('../../../../', import.meta.url);
  */
 export function builtFrom(bin) {
   const depInfo = bin.replace(/\.exe$/i, '') + '.d';
-  if (!existsSync(depInfo)) throw new Error(`${bin} has no dep-info ${depInfo}: build it with cargo (cargo-gate build -p mixdog-app-server-daemon --bin mixdogd)`);
+  if (!existsSync(depInfo))
+    throw new Error(
+      `${bin} has no dep-info ${depInfo}: build it with cargo (cargo-gate build -p mixdog-app-server-daemon --bin mixdogd)`
+    );
   const text = readFileSync(depInfo, 'utf8');
-  const listed = text.slice(text.indexOf(': ') + 2).split('\n')[0].trim();
-  const sources = listed.split(/(?<!\\) /).map((path) => path.replaceAll('\\ ', ' ')).filter(Boolean);
-  const root = decodeURIComponent(REPO_ROOT.pathname.replace(/^\/([A-Za-z]:)/, '$1')).replaceAll('/', '\\').toLowerCase();
+  const listed = text
+    .slice(text.indexOf(': ') + 2)
+    .split('\n')[0]
+    .trim();
+  const sources = listed
+    .split(/(?<!\\) /)
+    .map((path) => path.replaceAll('\\ ', ' '))
+    .filter(Boolean);
+  const root = decodeURIComponent(REPO_ROOT.pathname.replace(/^\/([A-Za-z]:)/, '$1'))
+    .replaceAll('/', '\\')
+    .toLowerCase();
   const built = statSync(bin).mtimeMs;
-  const foreign = sources.filter((path) => path.toLowerCase().includes('\\native\\core\\crates\\') && !path.toLowerCase().startsWith(root));
+  const foreign = sources.filter(
+    (path) => path.toLowerCase().includes('\\native\\core\\crates\\') && !path.toLowerCase().startsWith(root)
+  );
   if (foreign.length) throw new Error(`${bin} was built from another checkout (${foreign[0]}), not ${root}`);
-  const newer = sources.filter((path) => path.toLowerCase().startsWith(root) && (!existsSync(path) || statSync(path).mtimeMs > built));
-  if (newer.length) throw new Error(`${bin} is older than ${newer.length} of its sources (e.g. ${newer.slice(0, 3).join(', ')}): rebuild it`);
+  const newer = sources.filter(
+    (path) => path.toLowerCase().startsWith(root) && (!existsSync(path) || statSync(path).mtimeMs > built)
+  );
+  if (newer.length)
+    throw new Error(
+      `${bin} is older than ${newer.length} of its sources (e.g. ${newer.slice(0, 3).join(', ')}): rebuild it`
+    );
   // The identity of the sources: each one's repo-relative path and content hash, in path order, folded into one digest.
   // A folder in the list (a build script's rerun-if-changed) has no bytes to hash: its age is checked above, its files are listed on their own.
-  const own = sources.filter((path) => path.toLowerCase().startsWith(root) && !statSync(path).isDirectory()).map((path) => `${path.slice(root.length + 1).replaceAll('\\', '/')}\0${createHash('sha256').update(readFileSync(path)).digest('hex')}`).sort();
-  if (!own.length) throw new Error(`${bin}'s dep-info lists no source of this checkout (${root}): it is not evidence of a build of it`);
+  const own = sources
+    .filter((path) => path.toLowerCase().startsWith(root) && !statSync(path).isDirectory())
+    .map(
+      (path) =>
+        `${path.slice(root.length + 1).replaceAll('\\', '/')}\0${createHash('sha256').update(readFileSync(path)).digest('hex')}`
+    )
+    .sort();
+  if (!own.length)
+    throw new Error(
+      `${bin}'s dep-info lists no source of this checkout (${root}): it is not evidence of a build of it`
+    );
   return { sources: own.length, sourceSha256: createHash('sha256').update(own.join('\n')).digest('hex') };
 }
 
@@ -55,7 +88,8 @@ function killCluster(dataDir) {
   const forms = [dataDir, dataDir.replaceAll('\\', '/')].map((p) => `'*${p.replace(/'/g, "''")}*'`).join(', ');
   const script = `Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Where-Object { $c = $_.CommandLine; @(${forms}) | Where-Object { $c -like $_ } } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
   const out = spawnSync('powershell', ['-NoProfile', '-Command', script], { encoding: 'utf8', timeout: 60_000 });
-  if (out.status !== 0) throw new Error(`ending the memory cluster under ${dataDir} failed (${out.status ?? out.error}): ${out.stderr}`);
+  if (out.status !== 0)
+    throw new Error(`ending the memory cluster under ${dataDir} failed (${out.status ?? out.error}): ${out.stderr}`);
 }
 
 /** `only` names one case of ABORT_CASES to run alone; without it every case runs (what the test's full run compares). Each case runs in
@@ -65,8 +99,10 @@ export async function runAbortLive({ only } = {}) {
   if (!chosen.length) throw new Error(`--only names no abort case: ${JSON.stringify(only)}`);
   const bin = process.env.MIXDOGD_EXE;
   const harness = process.env.REAL_TURN_HARNESS;
-  if (!bin || !existsSync(bin)) throw new Error(`MIXDOGD_EXE must name the built mixdogd binary (got ${JSON.stringify(bin)})`);
-  if (!harness || !existsSync(join(harness, 'lib', 'env.mjs'))) throw new Error(`REAL_TURN_HARNESS must name the real-turn harness directory (got ${JSON.stringify(harness)})`);
+  if (!bin || !existsSync(bin))
+    throw new Error(`MIXDOGD_EXE must name the built mixdogd binary (got ${JSON.stringify(bin)})`);
+  if (!harness || !existsSync(join(harness, 'lib', 'env.mjs')))
+    throw new Error(`REAL_TURN_HARNESS must name the real-turn harness directory (got ${JSON.stringify(harness)})`);
   const built = builtFrom(bin);
   process.env.HARNESS_ENV_ROOT = join(harness, 'run', 'env-ph2-chat-abort-live');
   const load = (name) => import(pathToFileURL(join(harness, 'lib', name)).href);
@@ -86,12 +122,31 @@ export async function runAbortLive({ only } = {}) {
   /** The environment Node's recording declares for every case (remote-protocol-chat-abort.record.mjs `freshEnvironment`), made clean. */
   const freshEnvironment = (baseURL) => {
     rmSync(paths.envRoot, { recursive: true, force: true });
-    for (const d of [paths.dataDir, paths.runtimeRoot, paths.appData, paths.localAppData, paths.tmp, paths.workspace]) mkdirSync(d, { recursive: true });
+    for (const d of [paths.dataDir, paths.runtimeRoot, paths.appData, paths.localAppData, paths.tmp, paths.workspace])
+      mkdirSync(d, { recursive: true });
     mkdirSync(project, { recursive: true });
     writeFileSync(join(project, PROJECT_FILE.name), PROJECT_FILE.text);
     writeFileSync(join(project, ASKED_PROJECT_FILE.name), ASKED_PROJECT_FILE.text);
     writeFileSync(join(paths.dataDir, 'hooks.json'), JSON.stringify(HOOK_RULES));
-    writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
+    writeFileSync(
+      join(paths.dataDir, 'mixdog-config.json'),
+      JSON.stringify({
+        agent: {
+          providers: {
+            'custom-harness': {
+              type: 'custom',
+              schemaVersion: 2,
+              name: 'harness',
+              protocol: 'openai-chat',
+              baseURL,
+              auth: 'none',
+              enabled: true,
+              modelOverrides: { 'harness-model': { manual: true } },
+            },
+          },
+        },
+      })
+    );
     seedPgRuntime(paths.dataDir);
   };
 
@@ -102,7 +157,16 @@ export async function runAbortLive({ only } = {}) {
     let core;
     const clients = [];
     let watcher;
-    const deadline = createDeadline(240_000, () => `${c.name}: ${core?.tail() ?? '(core not started)'}\nnotifications: ${notes.slice(-12).map((n) => n.method).join(', ')}\nphone was told last: ${JSON.stringify(told.slice(-3)).slice(-4000)}\nlast row told: ${JSON.stringify(told.findLast((event) => event.kind === 'row') ?? null)}`);
+    const deadline = createDeadline(
+      240_000,
+      () =>
+        `${c.name}: ${core?.tail() ?? '(core not started)'}\nnotifications: ${notes
+          .slice(-12)
+          .map((n) => n.method)
+          .join(
+            ', '
+          )}\nphone was told last: ${JSON.stringify(told.slice(-3)).slice(-4000)}\nlast row told: ${JSON.stringify(told.findLast((event) => event.kind === 'row') ?? null)}`
+    );
     try {
       core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn' }), cwd: paths.envRoot });
       const daemonDoc = () => {
@@ -111,10 +175,15 @@ export async function runAbortLive({ only } = {}) {
         try {
           const d = JSON.parse(readFileSync(file, 'utf8'));
           return d?.core?.state === 'serving' && d.core.rpc?.port ? d : null;
-        } catch { return null; }
+        } catch {
+          return null;
+        }
       };
       const served = latch();
-      watcher = watch(paths.runtimeRoot, () => { const d = daemonDoc(); if (d) served.resolve(d); });
+      watcher = watch(paths.runtimeRoot, () => {
+        const d = daemonDoc();
+        if (d) served.resolve(d);
+      });
       const early = daemonDoc();
       if (early) served.resolve(early);
       await deadline.race(served.promise, 'the core to serve');
@@ -122,26 +191,32 @@ export async function runAbortLive({ only } = {}) {
       // What each phone was told, in order (the same three kinds Node's recording keeps): a reply to one of its calls, a change of a thread's
       // state as its client folds it, a change of a thread's row in a roster its adapter published. Equal consecutive values are no change.
       const waiters = new Set();
-      const wake = () => { for (const check of [...waiters]) check(); };
+      const wake = () => {
+        for (const check of [...waiters]) check();
+      };
       // One phone per paired device: its own client (the core stamps a prompt and a Stop with the connection's `clientInfo.title`), router and adapter.
       const connectPhone = async (title) => {
-        const client = await deadline.race(connect({
-          target: { id: 'core' },
-          connector: createWsConnector(async () => endpoint),
-          // The device a decision is stamped with is the paired device's name, which the relay's pairing gives a phone connection; this
-          // run connects without the relay, so it names the device as a local client does, by its title (the core stamps that).
-          clientInfo: { name: 'mixdog-phone', title, version: '1.4.5', kind: 'tui' },
-          capabilities: { optOutNotificationMethods: [], experimentalApi: false },
-          threadReducer: sessionReducer,
-          // The client sleeps only on its reconnect ladder after a dropped transport; this run never drops one, and a drop fails it.
-          clock: { sleep: () => Promise.reject(new Error('the phone dropped its connection')) },
-          random: Math.random,
-        }), `the client of ${title} to connect`);
+        const client = await deadline.race(
+          connect({
+            target: { id: 'core' },
+            connector: createWsConnector(async () => endpoint),
+            // The device a decision is stamped with is the paired device's name, which the relay's pairing gives a phone connection; this
+            // run connects without the relay, so it names the device as a local client does, by its title (the core stamps that).
+            clientInfo: { name: 'mixdog-phone', title, version: '1.4.5', kind: 'tui' },
+            capabilities: { optOutNotificationMethods: [], experimentalApi: false },
+            threadReducer: sessionReducer,
+            // The client sleeps only on its reconnect ladder after a dropped transport; this run never drops one, and a drop fails it.
+            clock: { sleep: () => Promise.reject(new Error('the phone dropped its connection')) },
+            random: Math.random,
+          }),
+          `the client of ${title} to connect`
+        );
         clients.push(client);
         const lastState = new Map();
         const lastRow = new Map();
         client.on((event) => {
-          if (event.type === 'notification') notes.push({ method: event.notification.method, params: event.notification.params, device: title });
+          if (event.type === 'notification')
+            notes.push({ method: event.notification.method, params: event.notification.params, device: title });
           wake();
         });
         client.store.subscribe((change) => {
@@ -199,7 +274,12 @@ export async function runAbortLive({ only } = {}) {
       };
       const until = (ready, what) => {
         const done = latch();
-        const check = () => { if (ready()) { waiters.delete(check); done.resolve(); } };
+        const check = () => {
+          if (ready()) {
+            waiters.delete(check);
+            done.resolve();
+          }
+        };
         waiters.add(check);
         check();
         return deadline.race(done.promise, what);
@@ -225,14 +305,27 @@ export async function runAbortLive({ only } = {}) {
       const closed = () => state()?.stats?.turns === turns && state()?.busy === false;
       if (c.ready === 'completed') await until(closed, `the turn of ${c.name} to end on its own`);
       else if (c.ready === 'approval' || c.ready === 'ask') {
-        await deadline.race(provider.asked(c.prompt), `the model endpoint to receive the tool-calling turn of ${c.name}`);
+        await deadline.race(
+          provider.asked(c.prompt),
+          `the model endpoint to receive the tool-calling turn of ${c.name}`
+        );
         // As Node's recording waits: the approval is pending and the call's card is shown.
-        await until(() => state()?.toolApproval && state()?.items?.some((item) => item?.kind === 'tool'), `the tool approval of ${c.name} to be pending with its card shown`);
+        await until(
+          () => state()?.toolApproval && state()?.items?.some((item) => item?.kind === 'tool'),
+          `the tool approval of ${c.name} to be pending with its card shown`
+        );
       } else await deadline.race(provider.held(c.prompt), `the model endpoint to receive the held turn of ${c.name}`);
-      if (c.output) await until(() => JSON.stringify(state() ?? {}).includes(c.output), `the streamed text of ${c.name} to reach the phone`);
+      if (c.output)
+        await until(
+          () => JSON.stringify(state() ?? {}).includes(c.output),
+          `the streamed text of ${c.name} to reach the phone`
+        );
       if (c.then) {
         await submitter.call('submitToSession', [id, c.then, { id: `sub-${c.name}-2` }]);
-        await until(() => JSON.stringify(state() ?? {}).includes(c.then), `the queued prompt of ${c.name} to reach the phone`);
+        await until(
+          () => JSON.stringify(state() ?? {}).includes(c.then),
+          `the queued prompt of ${c.name} to reach the phone`
+        );
       }
       const answers = [];
       let shownId;
@@ -247,23 +340,59 @@ export async function runAbortLive({ only } = {}) {
       if (c.stop) reply = await canceller.call('abortSession', [id, c.stop]);
       await until(closed, `the turn(s) of ${c.name} to close${c.stop ? ' after its Stop' : ''}`);
       // As Node's recording waits: a runtime's prompt the Stop put back runs again, up to the model's request.
-      if (c.requeued) await deadline.race(provider.held(c.prompt, 2), `the model endpoint to receive the second, requeued turn of ${c.name}`);
+      if (c.requeued)
+        await deadline.race(
+          provider.held(c.prompt, 2),
+          `the model endpoint to receive the second, requeued turn of ${c.name}`
+        );
       const second = c.again ? await canceller.call('abortSession', [id, c.again]) : undefined;
       // As Node's recording reads the row: once the phone holds the one the turn's close stamped.
       const stampedAfter = c.ready === 'completed' || !c.stop ? since0 : stopAt;
-      const rowOf = () => told.findLast((event) => event.device === viewer && event.kind === 'row' && event.sessionId === id)?.row;
+      const rowOf = () =>
+        told.findLast((event) => event.device === viewer && event.kind === 'row' && event.sessionId === id)?.row;
       // and, as there, once the row no longer marks the turn (unless a requeued turn runs on) and the close's context sync reached the state.
-      await until(() => (rowOf()?.updatedAt ?? 0) >= stampedAfter && (c.requeued || (!rowOf().working && !rowOf().leadWorking)), `the thread row of ${c.name} stamped by its close to be published`);
-      await until(() => !(Number(state()?.contextWindow) > 0) || Number(state()?.displayContextWindow) > 0, `the context sync of ${c.name}'s close to reach the phone`);
+      await until(
+        () => (rowOf()?.updatedAt ?? 0) >= stampedAfter && (c.requeued || (!rowOf().working && !rowOf().leadWorking)),
+        `the thread row of ${c.name} stamped by its close to be published`
+      );
+      await until(
+        () => !(Number(state()?.contextWindow) > 0) || Number(state()?.displayContextWindow) > 0,
+        `the context sync of ${c.name}'s close to reach the phone`
+      );
       // What the turn left, whole, read at the same moment on both surfaces the phone reads: the thread's items and its list row.
-      const read = await deadline.race(submitter.client.call('thread/read', { threadId: id, window: { lastItems: 200 } }), `thread/read after ${c.name}`);
-      const row = (await deadline.race(submitter.list(), `listSessions after ${c.name}`)).find((r) => r.id === id) ?? null;
+      const read = await deadline.race(
+        submitter.client.call('thread/read', { threadId: id, window: { lastItems: 200 } }),
+        `thread/read after ${c.name}`
+      );
+      const row =
+        (await deadline.race(submitter.list(), `listSessions after ${c.name}`)).find((r) => r.id === id) ?? null;
       const promptRestore = plain(state()?.promptRestore ?? null);
-      const stream = told.slice(toldFrom).filter((event) => event.sessionId === id && event.device === viewer || (event.kind === 'reply' && event.sessionId === id)).map(({ sessionId: _s, device, ...event }) => (event.kind === 'reply' ? { ...event, device } : event));
-      return { name: c.name, id, core: { reply, ...(second ? { second } : {}), ...(c.notify ? { answers } : {}), items: read.items, row, promptRestore, stream } };
+      const stream = told
+        .slice(toldFrom)
+        .filter(
+          (event) =>
+            (event.sessionId === id && event.device === viewer) || (event.kind === 'reply' && event.sessionId === id)
+        )
+        .map(({ sessionId: _s, device, ...event }) => (event.kind === 'reply' ? { ...event, device } : event));
+      return {
+        name: c.name,
+        id,
+        core: {
+          reply,
+          ...(second ? { second } : {}),
+          ...(c.notify ? { answers } : {}),
+          items: read.items,
+          row,
+          promptRestore,
+          stream,
+        },
+      };
     } finally {
       deadline.clear();
-      const ended = createDeadline(60_000, () => `ending the world of ${c.name}; core pid ${core?.pid}: ${core?.tail()}`);
+      const ended = createDeadline(
+        60_000,
+        () => `ending the world of ${c.name}; core pid ${core?.pid}: ${core?.tail()}`
+      );
       try {
         watcher?.close();
         for (const client of clients) client.close?.();
@@ -294,13 +423,21 @@ export async function runAbortLive({ only } = {}) {
     for (const c of chosen) cases.push(await runCase(c, provider));
   } finally {
     const closing = createDeadline(60_000, () => 'the model endpoint to close');
-    try { await closing.race(provider.close(), 'the model endpoint to close'); } finally { closing.clear(); }
+    try {
+      await closing.race(provider.close(), 'the model endpoint to close');
+    } finally {
+      closing.clear();
+    }
   }
   return {
     manifest: {
-      binary: bin, binarySha256: createHash('sha256').update(readFileSync(bin)).digest('hex'), binaryBuilt: statSync(bin).mtime.toISOString(), builtFrom: built,
+      binary: bin,
+      binarySha256: createHash('sha256').update(readFileSync(bin)).digest('hex'),
+      binaryBuilt: statSync(bin).mtime.toISOString(),
+      builtFrom: built,
       environment: 'one fresh environment per case (freshEnvironment), its own core',
-      source: 'running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / proc.mjs), model endpoint remote-protocol-chat-abort-provider.mjs, driven through the phone\'s router and chat adapter over the protocol client',
+      source:
+        "running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / proc.mjs), model endpoint remote-protocol-chat-abort-provider.mjs, driven through the phone's router and chat adapter over the protocol client",
     },
     cases,
   };

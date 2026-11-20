@@ -180,15 +180,7 @@ function renderAppShellOverlays({
   tabWorkflow,
   hubs,
 }: Pick<AppShellLayoutProps, 'shell' | 'nav' | 'lifecycle' | 'commands' | 'tabWorkflow' | 'hubs'>) {
-  const {
-    shellPanels,
-    quickAccessMode,
-    setQuickAccessMode,
-    error,
-    connected,
-    setError,
-    snapshot,
-  } = shell;
+  const { shellPanels, quickAccessMode, setQuickAccessMode, error, connected, setError, snapshot } = shell;
   const { sessions, onboardingOpen, setOnboardingOpen } = nav;
   const { taskLifecycle, updateDialogOpen, updaterState, closeDesktopUpdate, installDesktopUpdate } = lifecycle;
   const {

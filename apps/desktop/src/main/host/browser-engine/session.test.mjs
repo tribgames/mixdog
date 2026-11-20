@@ -193,7 +193,10 @@ test('init scripts are added, listed and removed, within the limits', async () =
     method: 'Page.addScriptToEvaluateOnNewDocument',
     params: { source: 'window.x = 1', runImmediately: false },
   });
-  await assert.rejects(h.call('host/browser/initScripts', { pageId: 'p1', op: 'add', source: '  ' }), /requires script/);
+  await assert.rejects(
+    h.call('host/browser/initScripts', { pageId: 'p1', op: 'add', source: '  ' }),
+    /requires script/
+  );
   await assert.rejects(
     h.call('host/browser/initScripts', { pageId: 'p1', op: 'add', source: 'x'.repeat(20_001) }),
     /limited to 20000/
@@ -207,7 +210,10 @@ test('init scripts are added, listed and removed, within the limits', async () =
   for (let index = 0; index < 10; index += 1) {
     await h.call('host/browser/initScripts', { pageId: 'p1', op: 'add', source: `a${index}` });
   }
-  await assert.rejects(h.call('host/browser/initScripts', { pageId: 'p1', op: 'add', source: 'b' }), /already holds 10/);
+  await assert.rejects(
+    h.call('host/browser/initScripts', { pageId: 'p1', op: 'add', source: 'b' }),
+    /already holds 10/
+  );
 });
 
 test('a script Chromium no longer has is dropped; any other removal failure keeps it listed', async () => {
@@ -217,7 +223,10 @@ test('a script Chromium no longer has is dropped; any other removal failure keep
   assert.deepEqual(dropped.scripts, []);
   const broken = harness({}, { 'Page.removeScriptToEvaluateOnNewDocument': new Error('Target closed') });
   await broken.call('host/browser/initScripts', { pageId: 'p1', op: 'add', source: 'a' });
-  await assert.rejects(broken.call('host/browser/initScripts', { pageId: 'p1', op: 'remove', id: 'is1' }), /Target closed/);
+  await assert.rejects(
+    broken.call('host/browser/initScripts', { pageId: 'p1', op: 'remove', id: 'is1' }),
+    /Target closed/
+  );
   assert.equal((await broken.call('host/browser/initScripts', { pageId: 'p1', op: 'list' })).scripts.length, 1);
 });
 
@@ -274,7 +283,10 @@ test('intercept rules are normalised, matched with hit counts and rolled back wh
     h.call('host/browser/intercept', { pageId: 'p1', op: 'remove', id: 'nope' }),
     /unknown intercept rule nope/
   );
-  await assert.rejects(h.call('host/browser/intercept', { pageId: 'p1', op: 'add', rule: { pattern: ' ' } }), /requires url/);
+  await assert.rejects(
+    h.call('host/browser/intercept', { pageId: 'p1', op: 'add', rule: { pattern: ' ' } }),
+    /requires url/
+  );
   const cleared = await h.call('host/browser/intercept', { pageId: 'p1', op: 'clear' });
   assert.deepEqual(cleared.rules, []);
   assert.equal(intercept.hasInterceptRules(h.guest), false);
@@ -457,7 +469,10 @@ test('downloads list what changed since, and take hands the file over as a blob'
     assert.equal(taken.items[0].id, 'd1');
     h.downloads[1].mimeType = 'application/octet-stream';
     h.downloads[1].file = 'report.pdf';
-    assert.equal((await h.call('host/browser/downloads', { sessionId: 's1', op: 'take', id: 'd1' })).items[0].mimeType, 'application/pdf');
+    assert.equal(
+      (await h.call('host/browser/downloads', { sessionId: 's1', op: 'take', id: 'd1' })).items[0].mimeType,
+      'application/pdf'
+    );
     assert.deepEqual(taken.blob, { digest: `sha256:${createHash('sha256').update('hello').digest('hex')}`, size: 5 });
     assert.equal(h.puts[0].method, 'blob/put');
     assert.equal(Buffer.from(h.puts[0].params.bytesB64, 'base64').toString(), 'hello');

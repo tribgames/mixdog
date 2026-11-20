@@ -31,11 +31,14 @@ export function previewSessionTranscript(sessionId: string): Promise<boolean> {
     timer = window.setTimeout(() => resolve(null), TRANSCRIPT_READ_TIMEOUT_MS);
   });
   const request = Promise.race([Promise.resolve().then(() => read(sessionId)), deadline])
-    .then((snapshot) => {
-      if (!snapshot) return false;
-      defaultSessionLaneStore.seedPreview(sessionId, snapshot);
-      return true;
-    }, () => false)
+    .then(
+      (snapshot) => {
+        if (!snapshot) return false;
+        defaultSessionLaneStore.seedPreview(sessionId, snapshot);
+        return true;
+      },
+      () => false
+    )
     .finally(() => {
       window.clearTimeout(timer);
       previewsInFlight.delete(sessionId);

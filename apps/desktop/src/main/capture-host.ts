@@ -82,7 +82,10 @@ export function captureShowcaseAnswers(projectPath: string): object[] {
       calls: [
         { name: 'bash', args: { command: run('tools/typecheck.mjs'), description: 'Typecheck the main process' } },
         { name: 'bash', args: { command: run('tools/test.mjs') } },
-        { name: 'edit', args: { path: file('src/app.ts'), old_string: 'const retries = 1;', new_string: 'const retries = 3;' } },
+        {
+          name: 'edit',
+          args: { path: file('src/app.ts'), old_string: 'const retries = 1;', new_string: 'const retries = 3;' },
+        },
       ],
     },
     {

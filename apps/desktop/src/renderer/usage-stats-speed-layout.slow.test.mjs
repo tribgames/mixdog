@@ -3,7 +3,10 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
-import { UsageLedger, makeUsageRecord } from '../shared/test-recorded/usage-stats-speed-layout.slow.test.0.recorded.mjs';
+import {
+  UsageLedger,
+  makeUsageRecord,
+} from '../shared/test-recorded/usage-stats-speed-layout.slow.test.0.recorded.mjs';
 import { createUsageStatsApi } from '../shared/test-recorded/usage-stats-speed-layout.slow.test.1.recorded.mjs';
 import { resolveUsageStatsPeriod } from '../shared/test-recorded/usage-stats-speed-layout.slow.test.2.recorded.mjs';
 

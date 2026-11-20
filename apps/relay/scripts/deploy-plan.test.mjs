@@ -5,7 +5,13 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 
 import { clearLocalRelay, localRelayCurrent, recordLocalRelay } from './local-relay-marker.mjs';
-import { decideDeployPlan, fingerprint, relayInputs, rendererInputs, rendererManifestForFingerprint } from './deploy-plan.mjs';
+import {
+  decideDeployPlan,
+  fingerprint,
+  relayInputs,
+  rendererInputs,
+  rendererManifestForFingerprint,
+} from './deploy-plan.mjs';
 
 const renderer = { hash: 'renderer-1' };
 const relay = { hash: 'relay-1' };
@@ -93,7 +99,9 @@ test('transitive local codec changes invalidate the renderer, but unrelated test
 });
 
 test('the relay fingerprint covers what the binary is built from and the deploy scripts', async () => {
-  const names = relayInputs.map((input) => relative(join(import.meta.dirname, '..', '..', '..'), input).replaceAll('\\', '/'));
+  const names = relayInputs.map((input) =>
+    relative(join(import.meta.dirname, '..', '..', '..'), input).replaceAll('\\', '/')
+  );
   assert.deepEqual(names, [
     'native/core/crates/mixdog-relay',
     'native/core/crates/mixdog-js',
@@ -118,7 +126,11 @@ test('a CI relay deploy clears the local-build marker, so returning to the local
     recordLocalRelay(marker, { relayHash: 'H1' });
     assert.equal(localRelayCurrent(marker, 'H1'), true, 'H1 is installed: nothing to ship');
     clearLocalRelay(marker); // the CI deploy of H2 replaced the relay
-    assert.equal(localRelayCurrent(marker, 'H1'), false, 'back on H1 with -LocalRelayBuild: the relay is shipped again');
+    assert.equal(
+      localRelayCurrent(marker, 'H1'),
+      false,
+      'back on H1 with -LocalRelayBuild: the relay is shipped again'
+    );
     recordLocalRelay(marker, { relayHash: 'H1' });
     assert.equal(localRelayCurrent(marker, 'H2'), false);
   } finally {
