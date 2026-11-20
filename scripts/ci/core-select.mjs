@@ -104,14 +104,7 @@ export function readWorkspace({ root, metadata }) {
   }));
 }
 
-export function selectCore({ root, changed, all = false, mixdogdDev = false, mixdogdWindows = false, metadata }) {
-  const crates = readWorkspace({ root, metadata });
-  const byName = new Map(crates.map((crate) => [crate.name, crate]));
-  const owner = (path) =>
-    crates
-      .filter((crate) => path === crate.dir || path.startsWith(`${crate.dir}/`))
-      .sort((a, b) => b.dir.length - a.dir.length)[0];
-
+function crateReaders(root, crates) {
   // One read of each crate's sources, split into what its tests alone compile and the rest.
   const texts = new Map();
   const textOf = (crate) => {
@@ -165,7 +158,10 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
     readerCache.set(path, result);
     return result;
   };
+  return { textOf, readers };
+}
 
+function classifyChanges({ changed, all, owner, readers }) {
   let whole = all;
   const direct = new Set();
   const propagate = new Set();
@@ -213,6 +209,50 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
     whole = true;
     reasons.push(`${path}: shared or unowned input; reader inventory is not provably complete`);
   }
+  return { whole, direct, propagate, reasons };
+}
+
+function affectedPackages({ crates, byName, direct, propagate, readers }) {
+  // Reverse dependencies of every changed or reading crate, including dev dependencies.
+  const reached = new Set(propagate);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const name of [...reached]) {
+      const source = byName.get(name);
+      if (!source) continue;
+      const found = readers(source.dir);
+      for (const reader of [...found.product, ...found.testOnly]) {
+        if (!reached.has(reader)) {
+          reached.add(reader);
+          grew = true;
+        }
+      }
+    }
+    for (const crate of crates) {
+      if (!reached.has(crate.name) && crate.deps.some((dep) => reached.has(dep))) {
+        reached.add(crate.name);
+        grew = true;
+      }
+    }
+  }
+  const affected = new Set([...direct, ...reached]);
+  // Core media replays spawn this binary beside deps; include its package so
+  // nextest archives the non-test executable and its CARGO_BIN_EXE metadata.
+  if (affected.size && byName.has('mixdog-exthost-worker')) affected.add('mixdog-exthost-worker');
+  affected.delete(HACK);
+  return [...affected].filter((name) => byName.has(name)).sort();
+}
+
+export function selectCore({ root, changed, all = false, mixdogdDev = false, mixdogdWindows = false, metadata }) {
+  const crates = readWorkspace({ root, metadata });
+  const byName = new Map(crates.map((crate) => [crate.name, crate]));
+  const owner = (path) =>
+    crates
+      .filter((crate) => path === crate.dir || path.startsWith(`${crate.dir}/`))
+      .sort((a, b) => b.dir.length - a.dir.length)[0];
+
+  const { textOf, readers } = crateReaders(root, crates);
+  const { whole, direct, propagate, reasons } = classifyChanges({ changed, all, owner, readers });
 
   let scope = 'none';
   let packages = [];
@@ -220,34 +260,7 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
     scope = 'all';
     packages = crates.map((crate) => crate.name).sort();
   } else {
-    // Reverse dependencies of every changed or reading crate, including dev dependencies.
-    const reached = new Set(propagate);
-    for (let grew = true; grew; ) {
-      grew = false;
-      for (const name of [...reached]) {
-        const source = byName.get(name);
-        if (!source) continue;
-        const found = readers(source.dir);
-        for (const reader of [...found.product, ...found.testOnly]) {
-          if (!reached.has(reader)) {
-            reached.add(reader);
-            grew = true;
-          }
-        }
-      }
-      for (const crate of crates) {
-        if (!reached.has(crate.name) && crate.deps.some((dep) => reached.has(dep))) {
-          reached.add(crate.name);
-          grew = true;
-        }
-      }
-    }
-    const affected = new Set([...direct, ...reached]);
-    // Core media replays spawn this binary beside deps; include its package so
-    // nextest archives the non-test executable and its CARGO_BIN_EXE metadata.
-    if (affected.size && byName.has('mixdog-exthost-worker')) affected.add('mixdog-exthost-worker');
-    affected.delete(HACK);
-    packages = [...affected].filter((name) => byName.has(name)).sort();
+    packages = affectedPackages({ crates, byName, direct, propagate, readers });
     if (packages.length) scope = 'packages';
   }
 

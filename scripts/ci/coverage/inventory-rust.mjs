@@ -164,6 +164,83 @@ function readAttribute(tokens, at) {
   return { inner, path, args: body.slice(k), line: tokens[at].line, next: end + 1 };
 }
 
+/** The `mod` item at `i`: an inline one is parsed in place, a file one is visited. Returns the index after it. */
+function parseMod(tokens, i, attrs, ctx, out) {
+  const token = tokens[i];
+  const name = tokens[i + 1].v;
+  const here = { ...ctx, cfg: [...ctx.cfg, ...cfgOf(attrs)] };
+  const pathAttr = attrs.find((attr) => attr.path.join('::') === 'path');
+  if (tokens[i + 2]?.v === '{') {
+    const end = matching(tokens, i + 2);
+    const dir = pathAttr ? posix.join(ctx.dir, str(pathAttr)) : posix.join(ctx.dir, name);
+    parseItems(tokens, i + 3, end, { ...here, modPath: [...ctx.modPath, name], dir, inline: true }, out);
+    return end + 1;
+  }
+  // a #[path] below an inline module is relative to the directory of that module, a file's own otherwise
+  const wanted = pathAttr
+    ? [posix.join(ctx.inline ? ctx.dir : posix.dirname(ctx.file), str(pathAttr))]
+    : [posix.join(ctx.dir, `${name}.rs`), posix.join(ctx.dir, name, 'mod.rs')];
+  const found = wanted.filter((candidate) => ctx.files.has(candidate));
+  // a module only the owner's machine compiles (cfg(node_twin)) names material that is not tracked
+  if (found.length === 0 && isLocalOnly(here.cfg)) {
+    /* nothing tracked to declare */
+  } else if (found.length !== 1)
+    out.errors.push({
+      code: 'unresolved-mod',
+      path: ctx.file,
+      line: token.line,
+      message: `mod ${name} resolves to ${found.length} files among ${wanted.join(', ')}`,
+    });
+  else {
+    const file = found[0];
+    const isModRs = posix.basename(file) === 'mod.rs' || Boolean(pathAttr);
+    out.visit(file, {
+      ...here,
+      modPath: [...ctx.modPath, name],
+      dir: isModRs ? posix.dirname(file) : posix.join(posix.dirname(file), posix.basename(file, '.rs')),
+      inline: false,
+    });
+  }
+  return i + 3;
+}
+
+/** The index of the last token of the `fn` item at `i`: its signature and body are skipped, as nothing in them declares an item. */
+function skipFn(tokens, i, to) {
+  let j = i + 2;
+  let depth = 0;
+  while (j < to) {
+    const t = tokens[j];
+    if (t.t === 'p' && '([<'.includes(t.v)) {
+      if (t.v === '<') depth += 1;
+      else j = matching(tokens, j);
+    } else if (t.t === 'p' && t.v === '>') depth = Math.max(0, depth - 1);
+    else if (t.t === 'p' && t.v === '{' && depth === 0) {
+      j = matching(tokens, j);
+      break;
+    } else if (t.t === 'p' && t.v === ';' && depth === 0) break;
+    j += 1;
+  }
+  return j;
+}
+
+/** The index of the last token of the ITEM_SKIP_TO_END item at `i`. */
+function skipItem(tokens, i, to) {
+  let j = i + 1;
+  while (j < to) {
+    const t = tokens[j];
+    if (t.t === 'p' && '([{'.includes(t.v)) {
+      const end = matching(tokens, j);
+      if (t.v === '{') {
+        j = end;
+        break;
+      }
+      j = end;
+    } else if (t.t === 'p' && t.v === ';') break;
+    j += 1;
+  }
+  return j;
+}
+
 /** Parse the items of one token range, appending declarations to `out`. */
 function parseItems(tokens, from, to, ctx, out) {
   let i = from;
@@ -210,62 +287,12 @@ function parseItems(tokens, from, to, ctx, out) {
       continue;
     }
     if (token.t === 'id' && token.v === 'mod' && tokens[i + 1]?.t === 'id') {
-      const name = tokens[i + 1].v;
-      const here = { ...ctx, cfg: [...ctx.cfg, ...cfgOf(attrs)] };
-      const pathAttr = attrs.find((attr) => attr.path.join('::') === 'path');
-      if (tokens[i + 2]?.v === '{') {
-        const end = matching(tokens, i + 2);
-        const dir = pathAttr ? posix.join(ctx.dir, str(pathAttr)) : posix.join(ctx.dir, name);
-        parseItems(tokens, i + 3, end, { ...here, modPath: [...ctx.modPath, name], dir, inline: true }, out);
-        i = end + 1;
-      } else {
-        // a #[path] below an inline module is relative to the directory of that module, a file's own otherwise
-        const wanted = pathAttr
-          ? [posix.join(ctx.inline ? ctx.dir : posix.dirname(ctx.file), str(pathAttr))]
-          : [posix.join(ctx.dir, `${name}.rs`), posix.join(ctx.dir, name, 'mod.rs')];
-        const found = wanted.filter((candidate) => ctx.files.has(candidate));
-        // a module only the owner's machine compiles (cfg(node_twin)) names material that is not tracked
-        if (found.length === 0 && isLocalOnly(here.cfg)) {
-          /* nothing tracked to declare */
-        } else if (found.length !== 1)
-          out.errors.push({
-            code: 'unresolved-mod',
-            path: ctx.file,
-            line: token.line,
-            message: `mod ${name} resolves to ${found.length} files among ${wanted.join(', ')}`,
-          });
-        else {
-          const file = found[0];
-          const isModRs = posix.basename(file) === 'mod.rs' || Boolean(pathAttr);
-          out.visit(file, {
-            ...here,
-            modPath: [...ctx.modPath, name],
-            dir: isModRs ? posix.dirname(file) : posix.join(posix.dirname(file), posix.basename(file, '.rs')),
-            inline: false,
-          });
-        }
-        i += 3;
-      }
+      i = parseMod(tokens, i, attrs, ctx, out);
       attrs = [];
       continue;
     }
     if (token.t === 'id' && token.v === 'fn' && tokens[i + 1]?.t === 'id') {
-      // skip the signature and the body
-      let j = i + 2;
-      let depth = 0;
-      while (j < to) {
-        const t = tokens[j];
-        if (t.t === 'p' && '([<'.includes(t.v)) {
-          if (t.v === '<') depth += 1;
-          else j = matching(tokens, j);
-        } else if (t.t === 'p' && t.v === '>') depth = Math.max(0, depth - 1);
-        else if (t.t === 'p' && t.v === '{' && depth === 0) {
-          j = matching(tokens, j);
-          break;
-        } else if (t.t === 'p' && t.v === ';' && depth === 0) break;
-        j += 1;
-      }
-      i = j + 1;
+      i = skipFn(tokens, i, to) + 1;
       attrs = [];
       continue;
     }
@@ -294,20 +321,7 @@ function parseItems(tokens, from, to, ctx, out) {
       continue;
     }
     if (token.t === 'id' && ITEM_SKIP_TO_END.has(token.v)) {
-      let j = i + 1;
-      while (j < to) {
-        const t = tokens[j];
-        if (t.t === 'p' && '([{'.includes(t.v)) {
-          const end = matching(tokens, j);
-          if (t.v === '{') {
-            j = end;
-            break;
-          }
-          j = end;
-        } else if (t.t === 'p' && t.v === ';') break;
-        j += 1;
-      }
-      i = j + 1;
+      i = skipItem(tokens, i, to) + 1;
       attrs = [];
       continue;
     }

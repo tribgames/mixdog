@@ -426,12 +426,8 @@ export async function runNodeTests(nodeArgs, fileArgs, options = {}) {
   }
 }
 
-async function executeRun(
-  nodeArgs,
-  fileArgs,
-  { argBudget = ARG_BUDGET, coverage = false, rerunFailed = 0, testTimeoutMs = DEFAULT_TEST_TIMEOUT_MS },
-  { logPath, failureDir, scratchDir }
-) {
+// The runner's argv and how the files split into batches that fit the argument budget.
+function planBatches(nodeArgs, fileArgs, { argBudget, testTimeoutMs }, logPath) {
   // The explicit entry also accepts Node options alongside its file paths.
   const concurrencyArg = testConcurrencyArg([...nodeArgs, ...fileArgs]);
   const timeoutArg = testTimeoutArg([...nodeArgs, ...fileArgs], process.env, testTimeoutMs);
@@ -462,6 +458,46 @@ async function executeRun(
     const share = Math.max(1, Math.ceil(totalConcurrency / batches.length));
     return [...withoutConcurrency(runArgs), `--test-concurrency=${share}`];
   };
+  return { runArgs, batches, overlapped, batchRunArgs };
+}
+
+// Re-runs the files that failed, up to `rerunFailed` times, merging each attempt's log into the run's.
+async function rerunFailures({ failures, rerunFailed, runArgs, childEnv, batchOptions, logPath, failureDir, hung }) {
+  const attempts = [];
+  let lastAttemptStatus = 0;
+  let pending = failures;
+  for (let attempt = 1; attempt <= rerunFailed && pending.length > 0; attempt += 1) {
+    const files = [...new Set(pending.map((record) => record.file))];
+    console.error(`Re-running ${files.length} failed file(s): attempt ${attempt}/${rerunFailed}`);
+    const attemptLog = `${logPath}.rerun-${attempt}`;
+    const attemptFailures = join(failureDir, `rerun-${attempt}.jsonl`);
+    const outcome = await spawnBatch(
+      [...runArgs, `--test-reporter-destination=${attemptLog}`, ...files],
+      childEnv(attemptFailures),
+      batchOptions(files, attemptFailures)
+    );
+    lastAttemptStatus = outcome.code;
+    if (outcome.hung) hung.push(outcome.hung);
+    await appendFile(logPath, await readFile(attemptLog));
+    await rm(attemptLog, { force: true });
+    attempts.push({ files, failures: await readFailureRecords(attemptFailures) });
+    pending = classifyRerunOutcomes(failures, attempts).failed;
+  }
+  return { attempts, lastAttemptStatus };
+}
+
+async function executeRun(
+  nodeArgs,
+  fileArgs,
+  { argBudget = ARG_BUDGET, coverage = false, rerunFailed = 0, testTimeoutMs = DEFAULT_TEST_TIMEOUT_MS },
+  { logPath, failureDir, scratchDir }
+) {
+  const { runArgs, batches, overlapped, batchRunArgs } = planBatches(
+    nodeArgs,
+    fileArgs,
+    { argBudget, testTimeoutMs },
+    logPath
+  );
   const coverageDir = coverage ? await mkdtemp(join(tmpdir(), 'mixdog-v8-coverage-')) : '';
   // Node 24's test runner rebuilds each test process's execArgv from its option
   // table and drops V8 flags on the way, so a heap cap passed to the runner no
@@ -518,26 +554,16 @@ async function executeRun(
     if (status === 0) status = code;
   }
 
-  const attempts = [];
-  let lastAttemptStatus = 0;
-  let pending = failures;
-  for (let attempt = 1; attempt <= rerunFailed && pending.length > 0; attempt += 1) {
-    const files = [...new Set(pending.map((record) => record.file))];
-    console.error(`Re-running ${files.length} failed file(s): attempt ${attempt}/${rerunFailed}`);
-    const attemptLog = `${logPath}.rerun-${attempt}`;
-    const attemptFailures = join(failureDir, `rerun-${attempt}.jsonl`);
-    const outcome = await spawnBatch(
-      [...runArgs, `--test-reporter-destination=${attemptLog}`, ...files],
-      childEnv(attemptFailures),
-      batchOptions(files, attemptFailures)
-    );
-    lastAttemptStatus = outcome.code;
-    if (outcome.hung) hung.push(outcome.hung);
-    await appendFile(logPath, await readFile(attemptLog));
-    await rm(attemptLog, { force: true });
-    attempts.push({ files, failures: await readFailureRecords(attemptFailures) });
-    pending = classifyRerunOutcomes(failures, attempts).failed;
-  }
+  const { attempts, lastAttemptStatus } = await rerunFailures({
+    failures,
+    rerunFailed,
+    runArgs,
+    childEnv,
+    batchOptions,
+    logPath,
+    failureDir,
+    hung,
+  });
   const { failed, flaky } = classifyRerunOutcomes(failures, attempts);
   // Flaky tolerance applies only to an ordinary test-failure exit that the
   // re-runs fully explained: nothing failed twice and the last re-run itself

@@ -15,6 +15,7 @@ import { isJoinObligation, obligationOf, planDigest } from './plan.mjs';
 import { listedSuites, listedTests } from './adapters.mjs';
 
 const FAILED = new Set(['fail', 'cancelled']);
+const isSkipped = (observation) => ['skip', 'todo', 'xfail', 'ignored'].includes(observation.status);
 
 /**
  * The file or target a case belongs to: `['node', file]`, `['python', file]`, `['shell', file]` (a suite report belongs to its file),
@@ -57,7 +58,35 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
   // ---- 1. artifacts
   const intact = artifacts(receipts, plan.legs, context, fail);
 
-  // ---- 2. observations, per file or target
+  // ---- 2-3. observations, then the Rust targets against the runners' listings
+  const { observed, passed, listings } = observations(intact, fail);
+  const { dropped, promised } = rustListingProblems({
+    manifest,
+    plan,
+    rustLists,
+    byName,
+    listings,
+    expected,
+    required,
+    exempt,
+    at,
+    fail,
+  });
+  for (const [unit, list] of observed) {
+    if (required.has(unit) || exempt.has(unit)) continue;
+    fail(
+      `unknown: ${unit} was reported by ${list[0].leg} slot ${list[0].slot} but the inventory assigns no test file or target of that name`
+    );
+  }
+  const excepted = exceptions.exceptions;
+  const { used, usedAt } = skipProblems(observed, dropped, excepted, fail);
+  routingProblems(required, observed, dropped, fail);
+  replacementProblems({ excepted, used, usedAt, passed, promised, plan, context, at, fail });
+  return [...new Set(problems)].sort(compareKeys);
+}
+
+/** Step 2: every report of every intact receipt, by file or target; failures are problems here, the rest is judged by the later steps. */
+function observations(intact, fail) {
   const observed = new Map();
   /** case → the obligations that passed it */
   const passed = new Map();
@@ -94,8 +123,22 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
       ]);
     }
   }
+  return { observed, passed, listings };
+}
 
-  // ---- 3. Rust targets: the inventory expects each by name; the runners' own listings show which exist and hold tests
+/** Step 3: the Rust targets the inventory expects, against the runners' own listings. Adds listed targets' clauses to `required`. */
+function rustListingProblems({
+  manifest,
+  plan,
+  rustLists,
+  byName,
+  listings,
+  expected,
+  required,
+  exempt,
+  at,
+  fail,
+}) {
   /** per build variant, and per leg slot for the listings of standalone runs: the targets the listing shows */
   const shown = new Map();
   /** a target the plan declares absent from a variant (a platform cfg), by rule and never by what a listing lacks */
@@ -191,23 +234,18 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
       }
     }
   }
-  for (const [unit, list] of observed) {
-    if (required.has(unit) || exempt.has(unit)) continue;
-    fail(
-      `unknown: ${unit} was reported by ${list[0].leg} slot ${list[0].slot} but the inventory assigns no test file or target of that name`
-    );
-  }
+  return { dropped, promised };
+}
 
-  // ---- 4. skips: an exact reviewed exception for every one, and what runs each excepted case instead
-  const excepted = exceptions.exceptions;
+/** Step 4: an exact reviewed exception for every skip; marks the tuples used and which obligations reported them. */
+function skipProblems(observed, dropped, excepted, fail) {
   const used = new Set();
   /** tuple → the obligations that reported the skip it excuses */
   const usedAt = new Map();
-  const skipped = (observation) => ['skip', 'todo', 'xfail', 'ignored'].includes(observation.status);
   for (const list of observed.values()) {
     for (const observation of list) {
       if (
-        !skipped(observation) ||
+        !isSkipped(observation) ||
         (observation.status === 'ignored' && dropped.has(`${observation.key}|${observation.at}`))
       )
         continue;
@@ -237,8 +275,11 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
       }
     }
   }
+  return { used, usedAt };
+}
 
-  // ---- 5. routing clauses: each file or target ran a case on the legs that must run it
+/** Step 5: each file or target ran a case on the legs that must run it. */
+function routingProblems(required, observed, dropped, fail) {
   for (const [unit, clauses] of required) {
     if (clauses.length === 0) {
       fail(`unrouted: ${unit} has no applicable leg`);
@@ -259,15 +300,17 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
       // a leg that only skips a file is not where it runs: its skips must each say where the case runs instead
       const elsewhere =
         here.length > 0 &&
-        here.every((observation) => skipped(observation) && observation.tuple?.replacement.kind === 'runs');
+        here.every((observation) => isSkipped(observation) && observation.tuple?.replacement.kind === 'runs');
       if (!ran && !elsewhere)
         fail(
           `no-cases: ${unit} ran no case in ${clause.anyOf.join(' or ')}: nothing was reported there, or every report was a failure or a skip with no replacement`
         );
     }
   }
+}
 
-  // ---- 6. A − S and the replacement evidence
+/** Step 6: every exception was reported, and what runs its case instead did. */
+function replacementProblems({ excepted, used, usedAt, passed, promised, plan, context, at, fail }) {
   excepted.forEach((tuple, index) => {
     const key = idKey(tuple.id);
     if (!used.has(index)) {
@@ -335,8 +378,8 @@ export function reconcile({ manifest, plan, exceptions, receipts, context, rustL
       fail(
         `no replacement: ${key} is ignored in the ${variant} partitions and a profile leg is to run it, but ${targets.join(' or ')} reported no pass of it`
       );
-  return [...new Set(problems)].sort(compareKeys);
 }
+
 
 /** The manifest is version 1, of this commit, intact, and routed by this plan. */
 function manifestProblems(manifest, plan, context, fail) {
