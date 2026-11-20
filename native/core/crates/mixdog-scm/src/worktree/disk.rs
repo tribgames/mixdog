@@ -8,6 +8,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -55,10 +56,32 @@ pub type Measure = Arc<dyn Fn(&Path) -> (u64, bool) + Send + Sync>;
 /// never measured waits for its walk, which every caller of that path shares. A walk belongs to
 /// the cache, not to the caller that started it: it runs, publishes and settles its slot whether
 /// or not anyone still awaits it. `forget` drops an entry (the worktree was removed or created).
+///
+/// At most one background refresh of a stale entry runs at a time. The walks share the
+/// maintenance lane with the list's own small jobs (each row's existence probe): one walk per
+/// stale row would fill every lane thread and hold the list behind all of them (80 s over 17
+/// worktrees). A stale entry whose refresh is not started is served as is, and a later read starts
+/// it once the running refresh has ended. A path never measured is not held back by this bound.
 #[derive(Default)]
 pub struct SizeCache {
     slots: Mutex<HashMap<String, Slot>>,
     walks: AtomicU64,
+    refreshing: Arc<AtomicBool>,
+}
+
+/// The one background refresh's turn: given back when its walk ends, however it ends.
+struct RefreshTurn(Arc<AtomicBool>);
+
+impl RefreshTurn {
+    fn take(refreshing: &Arc<AtomicBool>) -> Option<Self> {
+        refreshing.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok().then(|| Self(refreshing.clone()))
+    }
+}
+
+impl Drop for RefreshTurn {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 impl Worktrees {
@@ -385,6 +408,40 @@ mod tests {
         assert_eq!(get(FOLDER_SIZE_TTL).await.unwrap().bytes, 5);
         assert_eq!(walks.load(Ordering::SeqCst), 3);
     }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stale_sizes_refresh_one_at_a_time_and_a_passed_over_entry_refreshes_after() {
+        let lane = mixdog_rt::testing::tokens().maintenance_io;
+        let (cache, gates, cancel) = (Arc::new(SizeCache::default()), Arc::new(Gates::default()), CancellationToken::new());
+        let (a, b) = (Path::new("/virtual/worktree-size-bound-a"), Path::new("/virtual/worktree-size-bound-b"));
+        let measure = gates.measure();
+        let refreshing = |path: &Path| cache.slots.lock().unwrap()[&path_key(path)].refresh.is_some();
+        gates.release(2);
+        assert_eq!(cache.get(lane, a, FOLDER_SIZE_TTL, measure.clone(), &cancel).await.unwrap().bytes, 1);
+        assert_eq!(cache.get(lane, b, FOLDER_SIZE_TTL, measure.clone(), &cancel).await.unwrap().bytes, 2);
+        // Both stale in one list pass: the cached values at once, only `a`'s refresh started.
+        assert_eq!(cache.get(lane, a, Duration::ZERO, measure.clone(), &cancel).await.unwrap().bytes, 1);
+        assert_eq!(cache.get(lane, b, Duration::ZERO, measure.clone(), &cancel).await.unwrap().bytes, 2);
+        assert!(refreshing(a) && !refreshing(b), "one background refresh for two stale entries");
+        // A path never measured still gets its own walk while the refresh runs.
+        let unbounded: Measure = Arc::new(|_| (7, true));
+        let fresh = cache.get(lane, Path::new("/virtual/worktree-size-bound-new"), FOLDER_SIZE_TTL, unbounded, &cancel);
+        assert_eq!(fresh.await.unwrap().bytes, 7);
+        gates.started(3).await;
+        gates.release(3);
+        while refreshing(a) || cache.refreshing.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(cache.get(lane, a, FOLDER_SIZE_TTL, measure.clone(), &cancel).await.unwrap().bytes, 3, "the refreshed size");
+        // The entry that was passed over is refreshed by a later read once the turn is back.
+        assert_eq!(cache.get(lane, b, Duration::ZERO, measure.clone(), &cancel).await.unwrap().bytes, 2);
+        assert!(refreshing(b));
+        gates.started(4).await;
+        gates.release(4);
+        while refreshing(b) || cache.refreshing.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(cache.get(lane, b, FOLDER_SIZE_TTL, measure, &cancel).await.unwrap().bytes, 4);
+    }
 }
 
 fn epoch_ms() -> i64 {
@@ -414,11 +471,18 @@ impl SizeCache {
         }
     }
 
-    /// Runs the walk on its own task: it settles the slot and publishes to `flight` on every outcome.
-    fn start(self: &Arc<Self>, lane: MaintenanceIo, path: &Path, key: String, token: u64, measure: Measure, flight: Flight) {
+    /// Runs the walk on its own task: it settles the slot and publishes to `flight` on every outcome,
+    /// and a refresh's `turn` is given back when the walk on the lane ends or is never run.
+    #[allow(clippy::too_many_arguments, reason = "the walk's slot identity, its measure and its result channel are independent inputs")]
+    fn start(self: &Arc<Self>, lane: MaintenanceIo, path: &Path, key: String, token: u64, measure: Measure, flight: Flight, turn: Option<RefreshTurn>) {
         let (cache, folder) = (self.clone(), path.to_path_buf());
         tokio::spawn(async move {
-            let walked = on_lane(lane, &CancellationToken::new(), move || measure(&folder)).await;
+            // The walk itself holds the turn: a lane job runs on after the task awaiting it is dropped.
+            let walk = move || {
+                let _turn = turn;
+                measure(&folder)
+            };
+            let walked = on_lane(lane, &CancellationToken::new(), walk).await;
             let result = walked.map(|(bytes, complete)| Measured { bytes, complete, at: epoch_ms() });
             cache.finish(&key, token, result.as_ref().ok().copied());
             flight.send_replace(Some(result));
@@ -436,27 +500,30 @@ impl SizeCache {
         let key = path_key(path);
         let token = self.walks.fetch_add(1, Ordering::Relaxed) + 1;
         let new_flight = || -> Flight { Arc::new(tokio::sync::watch::channel(None).0) };
-        let (cached, flight, started) = {
+        let (cached, flight, started, turn) = {
             let mut slots = self.slots.lock().expect("size cache");
             match slots.get_mut(&key) {
                 Some(Slot { measured: Some(measured), refresh, flight }) => {
-                    let stale = refresh.is_none() && epoch_ms() - measured.at >= ttl.as_millis() as i64;
+                    let expired = refresh.is_none() && epoch_ms() - measured.at >= ttl.as_millis() as i64;
+                    // Only the read that takes the one refresh turn starts a walk.
+                    let turn = expired.then(|| RefreshTurn::take(&self.refreshing)).flatten();
+                    let stale = turn.is_some();
                     if stale {
                         *refresh = Some(token);
                         *flight = Some(new_flight());
                     }
-                    (Some(*measured), flight.clone().filter(|_| stale), stale)
+                    (Some(*measured), flight.clone().filter(|_| stale), stale, turn)
                 }
-                Some(slot) => (None, slot.flight.clone(), false),
+                Some(slot) => (None, slot.flight.clone(), false, None),
                 None => {
                     let flight = new_flight();
                     slots.insert(key.clone(), Slot { measured: None, refresh: Some(token), flight: Some(flight.clone()) });
-                    (None, Some(flight), true)
+                    (None, Some(flight), true, None)
                 }
             }
         };
         if started && let Some(flight) = &flight {
-            self.start(lane, path, key, token, measure, flight.clone());
+            self.start(lane, path, key, token, measure, flight.clone(), turn);
         }
         if let Some(measured) = cached {
             return Ok(measured);
