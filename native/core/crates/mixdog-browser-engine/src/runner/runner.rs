@@ -265,7 +265,7 @@ fn gone_facts(page_id: &str) -> PageFacts {
     }
 }
 
-// ---- the page facts and snapshots the engine keeps ----
+// the page facts and snapshots the engine keeps
 
 /// The observation a snapshot answer made: its ref set (stamped with the document and revision) and where the page was scrolled.
 struct Observation {
@@ -540,7 +540,7 @@ impl EngineSink for FactsSink {
     }
 }
 
-// ---- the engine ----
+// the engine
 
 /// One session's pages as the engine learned them from the host: the selected page and the named background pages (what the queue
 /// key of a command with no page id is derived from).
@@ -1348,7 +1348,7 @@ impl SignInHints {
     }
 }
 
-// ---- one command on one page ----
+// one command on one page
 
 /// Runs a future that cannot be pending (a reply built without a screenshot waits for nothing).
 fn finish_now<T>(operation: impl Future<Output = T>) -> T {
@@ -1473,7 +1473,7 @@ impl PageProbe for PageCtx {
     }
 }
 
-// ---- what the actions ask of the page ----
+// what the actions ask of the page
 
 #[async_trait]
 impl RecoveryHost for PageCtx {
@@ -1731,7 +1731,7 @@ impl FormContext for FormCtx<'_> {
     }
 }
 
-// ---- the approval ----
+// the approval
 
 /// What an upload's approval is bound to read again: the page's document and URL, and the frame that would receive the files.
 struct PageRebind<'a> {
@@ -3437,7 +3437,7 @@ impl PageCtx {
         }
     }
 
-    // ---- the reply ----
+    // the reply
 
     /// The reply of a command that observed the page (`snapshotResult`): the page settled, its postcondition verified, a snapshot
     /// taken and put into words, and the screenshot the command asked for bound to it.
@@ -3560,7 +3560,7 @@ impl PageCtx {
         Ok(reply)
     }
 
-    // ---- the actions ----
+    // the actions
 
     /// One action on the page, after the command was admitted: the dialog check, the approval, the action itself and its reply. A
     /// step of a sequence comes back through here (`internalStep`), without the approval.

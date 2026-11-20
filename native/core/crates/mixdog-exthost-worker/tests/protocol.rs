@@ -511,7 +511,7 @@ fn the_limits_are_the_pools() {
     assert_eq!(wire::MAX_CHUNK_BYTES, 64 * 1024);
 }
 
-// ---- the approved-path guard ------------------------------------------------------------------------------------------
+// the approved-path guard
 
 #[test]
 fn is_inside_tells_traversal_from_a_name_that_starts_with_dots() {

@@ -294,7 +294,7 @@ fn text_param(value: Option<&Value>) -> String {
     }
 }
 
-// ---- requests ---------------------------------------------------------------------------------
+// requests
 
 /// The pages of a request: `Math.trunc(Number(page))` of each, de-duplicated, the integers from 1 on; none is refused, as are
 /// more than [`MAX_PAGES_PER_CALL`]. A missing list, or a value that is no list, is page 1.
@@ -341,7 +341,7 @@ fn requested_password(value: Option<&Value>) -> Result<String, CodedError> {
     }
 }
 
-// ---- project-relative paths -------------------------------------------------------------------
+// project-relative paths
 
 /// What `fs.stat` or `fs.realpathSync` raises, with its Node code and message.
 fn os_error(error: &io::Error, syscall: &str, path: &Path) -> CodedError {
@@ -573,7 +573,7 @@ mod tests {
         assert_eq!(stat(&dir.path().join("none")).unwrap_err().code, "ENOENT");
     }
 
-    // ---- the handlers over an engine that is scripted ----
+    // the handlers over an engine that is scripted
 
     use crate::ctx::{CallLink, Message, Output};
 
