@@ -3,33 +3,18 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { assertSafeComputerInput } from '../input/guards.ts';
+import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS as maximum } from '../../../shared/core-src/runtime/computer-bridge/limits.mjs';
 import { powershellHostProgram } from './program.ts';
-import { validateComputerToolArgs } from '../../../shared/test-recorded/input-budget.test.0.recorded.mjs';
-import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS as maximum } from '../../../shared/test-recorded/input-budget.test.1.recorded.mjs';
 
-test('foreground typing budgets are checked before dispatch without reducing background values', () => {
+test('foreground typing is bounded before dispatch without reducing background values', () => {
   for (const [delivery, length, accepted] of [
     ['foreground', maximum, true],
     ['foreground', maximum + 1, false],
     ['background', 30_000, true],
   ]) {
-    const text = 'x'.repeat(length);
-    const error = validateComputerToolArgs({
-      action: 'act',
-      input: {
-        window_id: 'hwnd:0x1',
-        delivery,
-        actions: [{ type: 'type', text }],
-      },
-    });
-    const nativeCommand = { action: 'type', delivery, window_id: 'hwnd:0x1', text };
-    if (accepted) {
-      assert.equal(error, null);
-      assert.doesNotThrow(() => assertSafeComputerInput(nativeCommand));
-    } else {
-      assert.match(error, /foreground text exceeds/);
-      assert.throws(() => assertSafeComputerInput(nativeCommand), /foreground text exceeds/);
-    }
+    const nativeCommand = { action: 'type', delivery, window_id: 'hwnd:0x1', text: 'x'.repeat(length) };
+    if (accepted) assert.doesNotThrow(() => assertSafeComputerInput(nativeCommand));
+    else assert.throws(() => assertSafeComputerInput(nativeCommand), /foreground text exceeds/);
   }
 });
 

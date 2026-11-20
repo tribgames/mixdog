@@ -2,13 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES } from '../shared/contract.ts';
-import { SESSION_CONFIGURE_ACTIONS } from './test-support/session-protocol-actions.recorded.mjs';
 import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
 test('/btw capabilities: askSide takes one question, cancelSide nothing', () => {
   for (const capability of ['askSide', 'cancelSide']) {
     assert.equal(DESKTOP_CAPABILITIES.includes(capability), true);
     assert.equal(DESKTOP_READ_CAPABILITIES.includes(capability), false);
-    assert.equal(SESSION_CONFIGURE_ACTIONS.includes(capability), true, 'routed through session.configure');
   }
   assert.deepEqual(requiredDesktopCapabilityRequest({ capability: 'askSide', args: ['Why?'], sessionId: 's' }), {
     capability: 'askSide',

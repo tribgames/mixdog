@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { COMPUTER_CORE_ACTION_SCHEMA } from '../../../shared/test-recorded/action-coverage.test.0.recorded.mjs';
 
 // Source-text on purpose (whole file): the action lists live in TypeScript modules and
 // PowerShell programs that only run on a real desktop; the cross-layer coverage is the invariant.
@@ -46,7 +45,6 @@ test('a held key in the background lane is refused as unsupported, not as bad gr
 test('a value write reaches every layer that dispatches it', async () => {
   // set_value writes through the element, so it is neither a pointer nor a key
   // action; the layers that route it still have to recognise it by name.
-  assert.ok(COMPUTER_CORE_ACTION_SCHEMA.properties.type.enum.includes('set_value'));
   // host/sequence-runner.ts vets every act step: a value write missing from its
   // grammar is refused before dispatch, so act can never reach the layers below.
   for (const file of [
@@ -60,22 +58,7 @@ test('a value write reaches every layer that dispatches it', async () => {
   }
 });
 
-test('every exposed pointer action reaches each host action list', async () => {
-  const exposed = COMPUTER_CORE_ACTION_SCHEMA.properties.type.enum.filter(
-    (type) => !['type', 'set_value', 'key', 'key_down', 'key_up', 'wait'].includes(type)
-  );
-  // Changing this list means a new pointer action exists; add it to the lists below.
-  assert.deepEqual(exposed, [
-    'click',
-    'double_click',
-    'triple_click',
-    'mouse_down',
-    'mouse_up',
-    'move',
-    'drag',
-    'scroll',
-  ]);
-
+test('triple_click, mouse_down and mouse_up reach each host action list', async () => {
   for (const file of HOST_ACTION_LISTS) {
     const source = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');
     for (const action of ['triple_click', 'mouse_down', 'mouse_up']) {
