@@ -22,7 +22,7 @@ const PAGE = `
       <div class="transcript-shell" style="flex: none; height: 400px; position: relative">
         <div class="transcript-scroll-fade" style="--mx-scroll-top: 999"></div>
         <div class="transcript" id="scroller" style="height: 400px; overflow-y: auto"><div class="thread">
-          <div class="transcript-virtual-space" style="height: 3000px">
+          <div class="transcript-virtual-space" style="height: 8000px">
             <div class="transcript-virtual-row" style="transform: translateY(0)">
               <div class="transcript-virtual-row-content" data-tag="AssistantPart">
                 <article class="message assistant settled"><div class="message-body"><div class="markdown">
@@ -50,9 +50,10 @@ async function scrollTo(page, top) {
     const hit = document.elementFromPoint(copy.left + copy.width / 2, copy.top + copy.height / 2);
     return {
       offset: header.top - scroller.top,
-      headerBottom: header.bottom,
       cardTop: box('card').top - scroller.top,
-      cardBottom: box('card').bottom,
+      cardBottom: box('card').bottom - scroller.top,
+      headerBottom: header.bottom - scroller.top,
+      scrollTop: document.getElementById('scroller').scrollTop,
       copyHit: hit?.id === 'copy',
       // A blank point of the band: between the label and the actions.
       probe: { x: Math.round(header.left + header.width / 2), y: Math.round(header.top + header.height / 2) },
@@ -115,8 +116,13 @@ test('code block header: sticks below the top chrome while the block scrolls, an
       assert.equal(await pixel(page, stuck.probe), restInk, `${label}: no code shows through the header (${into}px in)`);
     }
 
-    // At the block's end the header rides out with it, never past the card.
-    const end = await scrollTo(page, 100000);
-    assert.ok(end.headerBottom <= end.cardBottom + 0.5, `${label}: the header stays inside its block`);
+    // Once the card's bottom passes the pinned header, the header leaves with
+    // its block instead of staying at 44px: its bottom rides on the card's.
+    const target = Math.round(rest.cardBottom - 30);
+    const end = await scrollTo(page, target);
+    assert.equal(end.scrollTop, target, `${label}: the fixture has room to scroll the card's end up`);
+    assert.ok(Math.abs(end.cardBottom - 30) < 0.5, `${label}: the card's bottom is 30px below the chat's top`);
+    assert.ok(end.offset < 44 - 1, `${label}: the header has left the 44px line (${end.offset})`);
+    assert.ok(Math.abs(end.headerBottom - end.cardBottom) < 0.5, `${label}: the header ends on its block's bottom`);
   }
 });
