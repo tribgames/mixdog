@@ -135,7 +135,7 @@ async function openMenu(actions, rect) {
 
 test('the ⋯ menu is portalled to body, below and right-aligned to the button, outside every clipping ancestor', async () => {
   const actions = [action('a'), action('b'), action('c')];
-  const { dom, root, restore } = await openMenu(actions, {
+  const { root, restore } = await openMenu(actions, {
     top: 10,
     bottom: 38,
     left: 700,

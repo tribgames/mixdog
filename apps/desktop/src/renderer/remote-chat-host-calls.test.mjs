@@ -12,11 +12,6 @@ import { createChatApi, foldTranscript } from './remote-protocol-chat.ts';
 import { createChatHostApi } from './remote-chat-host.ts';
 
 const S = 'sess_a';
-const ROOT = '/phone/root';
-const at = (value) =>
-  typeof value === 'string'
-    ? value.replaceAll('<ROOT>', ROOT)
-    : JSON.parse(JSON.stringify(value).replaceAll('<ROOT>', ROOT));
 
 const rpcError = (reason, extra = {}) =>
   Object.assign(new Error(reason), {
@@ -86,19 +81,6 @@ function adapter({ replies = {}, state, remoteSession, device = 'Pixel 9' }) {
   const api = createChatHostApi(client, shared, createChatApi(client, shared), { remoteSession: () => remoteSession });
   return { api, sent, unclaimed };
 }
-
-const failure = (error) => ({
-  message: error.message,
-  ...(error.name === 'TypeError' || error.name === 'Error' ? { name: error.name } : {}),
-  ...(error.code ? { code: error.code } : {}),
-});
-const outcome = async (run) => {
-  try {
-    return { result: await run() };
-  } catch (error) {
-    return { error };
-  }
-};
 
 const rows = (...ids) => ids.map((id) => ({ id, kind: 'user', text: id }));
 

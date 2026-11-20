@@ -10,7 +10,6 @@
 // b6f10295a with node-fix-relay-optional-args.patch: its relay methods take an optional argument the app left out as omitted.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import test from 'node:test';
 import { adapter } from './remote-protocol-scm.ts';
 import { callQueueFor, runQueued } from './remote-protocol-queue.ts';

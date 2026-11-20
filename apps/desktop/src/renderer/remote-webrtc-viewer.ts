@@ -419,7 +419,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
 
   const maybeMediaReady = (): void => {
     const attempt = current;
-    if (!attempt || !attempt.verified || state !== 'connected' || attempt.channel?.readyState !== 'open') return;
+    if (!attempt?.verified || state !== 'connected' || attempt.channel?.readyState !== 'open') return;
     if (!geometry || presented?.width !== geometry.pixelWidth || presented.height !== geometry.pixelHeight) return;
     // A screen has no documents: its media-ready names none (null).
     const documentId = options.source.kind === 'screen' ? null : options.documentId();

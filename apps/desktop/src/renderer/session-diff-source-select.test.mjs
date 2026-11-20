@@ -26,7 +26,7 @@ test('a Git root picks its Changes source in the toolbar; each source lists, emp
   const view = await mountPane(
     t,
     {
-      gitReview: async (cwd, source) => {
+      gitReview: async (_cwd, source) => {
         reviews.push(source);
         const files =
           source === 'branch' ? [] : [{ path: 'src/a.ts', status: 'M', additions: 1, deletions: 1, untracked: false }];
@@ -86,7 +86,7 @@ test('a Git row opens against the repository root when the project is a subdirec
           { path: 'docs/readme.md', status: 'M', additions: 1, deletions: 1, untracked: false },
         ],
       }),
-      gitReviewDiff: async (cwd, path) => patchFor(path),
+      gitReviewDiff: async (_cwd, path) => patchFor(path),
       invokeCapability: async () => ({ value: null }),
     },
     { sessionId: 'pane-subdir', cwd: 'C:\\mono\\packages\\app', onOpenFile: (path) => opened.push(path) }
@@ -110,7 +110,7 @@ test('a capped set draws only the selected file (default: first); a header click
         base: 'HEAD',
         files: paths.map((path) => ({ path, status: 'M', additions: 1, deletions: 1, untracked: false })),
       }),
-      gitReviewDiffs: async (cwd, files) => {
+      gitReviewDiffs: async (_cwd, files) => {
         batches.push(files.map((file) => file.path));
         return { patches: files.map((file) => ({ path: file.path, patch: patchFor(file.path) })), omitted: [] };
       },
@@ -157,7 +157,7 @@ test('an uncapped set reads all patches in one batch; deleted files start folded
           { path: 'long.txt', status: 'M', additions: 1, deletions: 0, untracked: false },
         ],
       }),
-      gitReviewDiffs: async (cwd, files) => {
+      gitReviewDiffs: async (_cwd, files) => {
         batches.push(files.map((file) => file.path));
         // One changed line past 1 MiB.
         const long = `diff --git a/long.txt b/long.txt\n--- a/long.txt\n+++ b/long.txt\n@@ -0,0 +1 @@\n+${'y'.repeat(1024 * 1024 + 1)}\n`;

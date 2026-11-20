@@ -98,7 +98,7 @@ test('"Open in tab" moves the panel session to a tab', async (t) => {
 });
 
 test('a session already open in a pane is revealed there, never mounted in the panel', async (t) => {
-  const { shell, render } = await mountShell(t, [
+  const { shell } = await mountShell(t, [
     { id: 'leaf-1', tabs: ['lead'], active: 'lead' },
     { id: 'leaf-2', tabs: ['other', 'sub-1'], active: 'other' },
   ]);

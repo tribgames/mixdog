@@ -86,7 +86,7 @@ test('auxiliary sidebars omit duplicate lists while a visited Sessions surface k
 });
 
 test('the header + starts a task and no launcher rows remain', async () => {
-  const { dom, restore } = installDom();
+  const { restore } = installDom();
 
   const { SessionSidebar } = await import('./session-sidebar.tsx');
   const root = createRoot(document.getElementById('root'));

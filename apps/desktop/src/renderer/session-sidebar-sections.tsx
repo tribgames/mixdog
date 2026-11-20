@@ -621,7 +621,6 @@ function projectFolderGroup(
   );
   const { branches } = splitBranchRows(group.rows);
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop target; the keyboard path is the session menu's Move to project
     <section
       className="sidebar-recent project-group"
       key={group.key}

@@ -256,7 +256,7 @@ test('a grant is dropped if the run or the surface changed while it was being si
     epoch: () => state.epoch,
     active: () => state.active,
     send: (message) => sent.push(message) > 0,
-    sign: async (...args) => {
+    sign: async (..._args) => {
       reached?.();
       await new Promise((done) => setTimeout(done, 5));
       return 'c2ln';

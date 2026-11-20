@@ -1000,7 +1000,7 @@ test('departure: several probes with traffic between them resolve in order, each
     const end = buffer.total();
     departed.then(
       () => order.push(id),
-      () => order.push('failed ' + id)
+      () => order.push(`failed ${id}`)
     );
     return end;
   };

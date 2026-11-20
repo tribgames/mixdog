@@ -50,10 +50,14 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
   // section changes, so only a ready after that one is a leg that came back. Set after the first open's own status push.
   let opened = connection.client() !== null;
   void connection.whenSynced().then(
-    () => void (opened = true),
+    () => {
+      opened = true;
+    },
     () => undefined
   );
-  connection.onReplaced(() => void (opened = true));
+  connection.onReplaced(() => {
+    opened = true;
+  });
 
   // The whole store at once, then the status: a store refolded from another core (a restarted one numbers its revisions
   // again and drops what it no longer holds) is taken whole, never through the revision guard of single changes.

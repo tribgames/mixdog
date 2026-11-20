@@ -14,7 +14,7 @@ test('a reset event clears the view, writes the replay as a replay write and ack
     term: { reset: () => calls.push('term.reset') },
     localEcho: { onIncoming: (d) => d, reset: () => calls.push('echo.reset') },
     writer: {
-      push: (id, data) => calls.push(`push:${data}`),
+      push: (_id, data) => calls.push(`push:${data}`),
       writeReplay: async (data, before) => {
         before?.();
         calls.push(`replay:${data}`);

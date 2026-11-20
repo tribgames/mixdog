@@ -9,7 +9,7 @@ import { terminalResizeRequest } from '../shared/terminal-protocol.ts';
 const golden = JSON.parse(
   readFileSync(new URL('../../../mobile/fixtures/terminal-resize/golden.json', import.meta.url), 'utf8')
 );
-const valueOf = (name) => {
+const goldenValue = (name) => {
   const input = golden.values.find((value) => value.name === name).value;
   return input?.absent ? undefined : input;
 };
@@ -17,7 +17,7 @@ const valueOf = (name) => {
 test("termResize sends the size Node's manager took for every recorded value, a release where Node released", () => {
   assert.equal(golden.cases.length, golden.values.length * 4);
   for (const { claim, axis, input, owners, sizes } of golden.cases) {
-    const [cols, rows] = axis === 'cols' ? [valueOf(input), 24] : [100, valueOf(input)];
+    const [cols, rows] = axis === 'cols' ? [goldenValue(input), 24] : [100, goldenValue(input)];
     const sent = terminalResizeRequest('term_resize', cols, rows, claim);
     const what = `${claim ? 'claim' : 'resize'} ${axis} ${input}`;
     if (claim) {

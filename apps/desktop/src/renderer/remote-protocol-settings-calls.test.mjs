@@ -246,7 +246,7 @@ test('the phone pages a stubbed config subtree it reads (settings, pins, convers
       'config:notifications': { value: null },
     },
     replies: {
-      'config/read': ({ keys }) => ({
+      'config/read': ({ keys: _keys }) => ({
         config: {
           desktop: { keepAwake: false, activityRailPins: { pins: ['skills'], revision: 2 } },
           notifications: {},
@@ -275,7 +275,7 @@ test('a live change of a stubbed agent or desktop subtree is paged, and a read a
       section: (section, key) => (section === 'config' ? { value: key === 'agent' ? agent : null } : undefined),
       subscribe: (listener) => (subscribers.add(listener), () => subscribers.delete(listener)),
     },
-    call: (method, params) => new Promise((resolve) => answers.push({ params, resolve })),
+    call: (_method, params) => new Promise((resolve) => answers.push({ params, resolve })),
     on: () => () => {},
   };
   const fan = (set, value) => {
@@ -291,16 +291,14 @@ test('a live change of a stubbed agent or desktop subtree is paged, and a read a
   });
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   // Startup reads: pins (desktop stub) and the mode (agent stub).
-  answers
-    .splice(0)
-    .forEach(({ params, resolve }) =>
-      resolve({
-        config:
-          params.keys[0] === 'agent'
-            ? { agent: { orchestrationMode: 'focused' } }
-            : { desktop: { activityRailPins: { pins: ['sessions'], revision: 1 } } },
-      })
-    );
+  answers.splice(0).forEach(({ params, resolve }) =>
+    resolve({
+      config:
+        params.keys[0] === 'agent'
+          ? { agent: { orchestrationMode: 'focused' } }
+          : { desktop: { activityRailPins: { pins: ['sessions'], revision: 1 } } },
+    })
+  );
   await settle();
   const change = (key) => subscribers.forEach((s) => s({ type: 'section', section: 'config', key }));
   change('agent');

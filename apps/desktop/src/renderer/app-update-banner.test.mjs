@@ -74,7 +74,7 @@ test('android banner follows the native event and drives the bridge', async (t) 
   const native = {
     platform: 'android',
     version: '1',
-    call: (method, args) => {
+    call: (method, _args) => {
       calls.push(method);
       if (method === 'startAppUpdate') state = { ...base, status: 'downloading', receivedBytes: 1, totalBytes: 2 };
       return Promise.resolve(method === 'openAppUpdateInBrowser' ? true : state);

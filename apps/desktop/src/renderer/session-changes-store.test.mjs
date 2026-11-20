@@ -107,7 +107,7 @@ test('switching the source reads that source: review, index, worktree and the la
     ],
   };
   const view = mount(t, {
-    gitReview: async (cwd, source) => {
+    gitReview: async (_cwd, source) => {
       calls.push(['review', source]);
       return {
         repository: true,
@@ -116,7 +116,7 @@ test('switching the source reads that source: review, index, worktree and the la
         files: [reviewFile(`${source}.ts`)],
       };
     },
-    gitStatus: async (cwd, options) => {
+    gitStatus: async (_cwd, options) => {
       calls.push(['status', options?.skipLineStats ? 'skip' : 'lines']);
       return status;
     },
@@ -793,7 +793,7 @@ test('staged and unstaged count lines afresh on evidence and refresh; nothing re
   let reused = 0;
   const options = [];
   const view = mount(t, {
-    gitStatus: async (cwd, request) => {
+    gitStatus: async (_cwd, request) => {
       options.push(request?.reuseLineStats);
       const additions = request?.reuseLineStats ? (reused ||= lines) : (reused = lines);
       return {
@@ -853,7 +853,7 @@ function mountTree(t, root, count, { omit = () => false, patchOf: patchFor } = {
       calls.reviews += 1;
       return { repository: true, root, base: 'HEAD', files };
     },
-    gitReviewDiffs: async (cwd, requested, source) => {
+    gitReviewDiffs: async (_cwd, requested, source) => {
       calls.batches.push(requested.map((file) => file.path));
       assert.equal(source, 'uncommitted');
       const patches = [];
@@ -864,7 +864,7 @@ function mountTree(t, root, count, { omit = () => false, patchOf: patchFor } = {
       }
       return { patches, omitted };
     },
-    gitReviewDiff: async (cwd, path) => {
+    gitReviewDiff: async (_cwd, path) => {
       calls.singles.push(path);
       return patchOf(path);
     },
@@ -957,7 +957,7 @@ test('staged and unstaged carry no revision: Git evidence re-reads the drawn fil
   });
   const view = mount(t, {
     gitStatus: async () => ({ repository: true, root: 'C:/index', files: [stagedFile('a.ts'), stagedFile('b.ts')] }),
-    gitDiff: async (cwd, path, staged) => {
+    gitDiff: async (_cwd, path, staged) => {
       reads.push([path, staged]);
       return `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+${text[path]}\n`;
     },

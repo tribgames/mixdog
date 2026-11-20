@@ -241,7 +241,7 @@ test('a stalled Goal is dismissed from its segment in one click, with no oversho
       assert.deepEqual(calls.at(-1).args, [{ action: 'dismiss', expectedGoalId: `goal-${status}` }]);
     }
     await render(spent);
-    assert.ok(host.textContent.includes(t('{{hours}}h {{minutes}}m', { hours: 21, minutes: 23 }) + ' / '));
+    assert.ok(host.textContent.includes(`${t('{{hours}}h {{minutes}}m', { hours: 21, minutes: 23 })} / `));
     assert.equal(host.textContent.includes(t('{{hours}}h {{minutes}}m', { hours: 23, minutes: 26 })), false);
     await render({ ...spent, id: 'goal-running', status: 'active' });
     assert.equal(host.querySelector('.session-goal-dismiss'), null, 'running work is stopped, never dismissed');

@@ -527,7 +527,9 @@ export function StarterGuide({
       window.setTimeout(() => setNoticePhase('leaving'), NOTICE_LEAVE_MS),
       window.setTimeout(() => setNotice(null), NOTICE_END_MS),
     ];
-    return () => timers.forEach((timer) => window.clearTimeout(timer));
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer);
+    };
   }, [notice]);
   const noticeLabel = notice ? steps.find((step) => step.id === notice.step)?.label : undefined;
   // The last step's notice plays over the pill, which folds away as it ends.
