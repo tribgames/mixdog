@@ -16,11 +16,14 @@ the hidden or mutable state the reader has to keep in mind.
 - One responsibility scattered over small functions, files or re-exports
   costs a hop per piece; one long unit doing several jobs makes the reader
   hold them all at once. Each responsibility gets one home, named so a reader
-  finds it.
+  finds it. Split by what a part owns, not by execution order: prepare, run
+  and finish pieces that pass most of their state along or repeat the same
+  rules add hops and take no load off.
 - State kept wider than its use (a field for a local, module state for a
   field, a stored copy of something derivable) adds things to remember.
-- A comment is read too: one that restates the code, or runs longer than the
-  fact it carries, adds load.
+- A comment is read too. One that explains our own code means the code should
+  say it: rename, extract or retype, then the comment goes. A shorter
+  justification keeps the problem.
 - Line counts and complexity scores are proxies; a short file can still be
   hard to follow.
 
@@ -32,6 +35,8 @@ without leaving the unit? A change that lowers neither cost is not a cleanup.
 Remove what is not needed, then shape what is left. A smaller base makes the
 next change smaller, and often makes the right structure obvious.
 
+- Look first for the reframing that makes whole branches, modes or layers
+  disappear by using the existing structure better, then tidy what is left.
 - Look for a removal before a rewrite; the deletion ladder is this principle
   as a procedure.
 - Speculative guards, parsers and options go before the code they protect is
@@ -155,8 +160,10 @@ and tests that exercise the touched behavior. It holds for an automated fix
 exactly as for a hand edit, and for anything else that depends on a file
 (its exact content, its position, its identity), not only for its callers.
 
-- No evidence for a unit means SAFE changes only, and a note that it is
-  uncovered.
+- A structural change to a unit no test covers is pinned first: an
+  old-versus-new check on the same inputs, or a characterization test driven
+  through the unit's entry. A typecheck or lint is not a pin. Without a pin,
+  SAFE changes only, and a note that it is uncovered.
 - A large reshape is compared old against new on the same inputs.
 
 Test: what would have to be true for this change to alter an outcome, and

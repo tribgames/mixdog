@@ -60,7 +60,7 @@ focus excludes.
 
 | Category             | Flag                                                                                                                                                        | Keep                                                                                                   | Fix                                                                                                                    |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| Comments             | restating the code, step narration, history or changelog notes, dividers, commented-out code, a comment the code contradicts, a TODO with no owner or issue, a comment longer than the fact it carries | a non-obvious why (external constraint, invariant, tradeoff), directives, public API docs, issue links | delete, correct, or cut to its fact; a "do not change" comment gets a proposed test or type that enforces it, applied only with approval |
+| Comments             | every comment outside the keep list: restating the code, step narration, history or changelog notes, dividers, commented-out code, a comment the code contradicts, a TODO with no owner or issue, a justification of our own surprising code | license headers, directives, public API contract docs, issue or RFC links, behavior forced by an external dependency, platform, vendor or protocol, the source of a value the code uses | delete; in doubt, delete. Never shorten an unkept comment into a briefer justification: our own surprising code is the finding (rename, extract, retype). A kept comment keeps its facts in the fewest words; a "do not change" comment gets a proposed test or type that enforces it, applied only with approval |
 | Over-defensive code  | checks on guaranteed values, try/catch around code that cannot throw, duplicated validation                                                                 | I/O handling, trust boundaries, a logging top-level catch                                              | remove when the edge or a type guarantees the value, or a test proves the guard redundant; changing which errors propagate is RISKY                           |
 | Fake resilience      | a fallback turning missing input or failure into a plausible value; a catch that only rethrows or swallows                                                  | a default the contract names, documented retry or degraded mode                                        | remove only proven redundant behavior; changing the error contract is RISKY                                            |
 | Heuristics | sniffing error or message text; special cases keyed on names, paths, vendors or versions; a fallback guessing the caller's intent; a threshold, limit, sleep or retry with no stated source | a documented format or a user-specified query; a limit whose source is named | decide on the exact signal (type, error kind, producer field, platform value) when within reach; a change to observable behavior is RISKY unless the current behavior is a shown defect; otherwise report what the signal needs |
@@ -69,7 +69,7 @@ focus excludes.
 | Boundary violations  | wrong-layer imports, cycles, logic in handlers, reading another module's private state                                                                      | an established pattern                                                                                 | move to the owning layer; flag when unsure                                                                             |
 | Dead code            | unused imports/locals/private functions, unreachable branches, debug leftovers                                                                              | the never-dead list                                                                                    | follow `dead-code.md`                                                                                                  |
 | Duplication          | copy-pasted branches, two helpers doing one thing, redeclared types                                                                                         | similarity serving different intents                                                                   | consolidate only when intents match                                                                                    |
-| Type escapes         | `any`, unexplained ignores and suppressions, redundant coercions                                                                                            | an escape whose comment names the upstream bug                                                         | narrow with a guard or precise type; fix the warning or record why silenced                                            |
+| Type escapes         | `any`, redundant coercions, a suppression (`eslint-disable`, `@ts-ignore`, `@ts-expect-error`, `#[allow]`) of a rule that protects correctness or safety                                                                                            | an escape whose comment names the upstream bug                                                         | narrow with a guard or precise type; fix the warning or record why silenced                                            |
 | Hardcoded config     | environment-specific URLs, ids, absolute paths                                                                                          | fixtures, docs, contract-fixed literals                                                                | use the project's config accessor; name the literal. A credential in source is a defect: report it                     |
 | Placeholder naming   | `data2`, `tmp`, `handleStuff` on new code                                                                                                                   | the project's own idioms                                                                               | rename locals; an exported rename is RISKY                                                                             |
 | Oversized modules    | files past the review threshold mixing responsibilities                                                                                                     | a cohesive module                                                                                      | split confirmed independent responsibilities; no `utils`/`common` dumps (see Structural findings)                      |
@@ -94,8 +94,9 @@ ones. What counts:
   returns that no caller varies, and `unknown`/`any`-typed or cast-heavy
   contracts where a precise type is available. Question each; a boundary that
   truly receives untyped input stays.
-- **Wrong seam** — a split that moves a body elsewhere or cuts it into
-  numbered chunks resolves nothing.
+- **Wrong seam** — a split that moves a body elsewhere, cuts it into
+  numbered chunks, or follows execution order with pieces that pass most of
+  their state along resolves nothing; split by what each part owns.
 
 Structural findings rank above cosmetic ones in every report. Applying them
 stays under the tiers: a confirmed responsibility split that preserves
@@ -116,6 +117,10 @@ outputs and errors) before it counts as done.
   compile. Adding it is SAFE only where the member set is closed and the
   default currently does nothing observable; replacing a real fallback is
   CAREFUL.
+- **Casts and escapes** — TypeScript `as` outside a validating boundary,
+  non-null `!` the type could prove, `as` where `satisfies` checks; Rust
+  `unwrap`/`expect` outside tests where the type could carry the guarantee,
+  and `as` numeric casts that can truncate. Flag each; narrowing is CAREFUL.
 - **Import placement** — imports sit at module top. An inline or dynamic
   import stays only with a comment naming the cycle or lazy-load reason that
   forces it; otherwise move it, after checking module initialization order
@@ -160,13 +165,12 @@ sections, not the nits.
 - Anything on the never-dead list in `dead-code.md`.
 - Complexity serving a current compatibility obligation, staged migration, or
   vendored-code isolation.
-- Tool directives, public API docs, and security or compatibility
-  explanations, cut to their facts like any comment; comments that may
-  separate tokens or carry significant line breaks go to manual review.
-- The reason a comment carries (a measured number, an incident, a platform
-  quirk, why an alternative was rejected): a trimmed or rewritten comment
-  still states it, or it moves to a name or the nearest remaining comment.
-  Compare each removed comment with what remains.
+- The comment keep list (slop table, Comments) and security or compatibility
+  explanations; comments that may separate tokens or carry significant line
+  breaks go to manual review.
+- A kept comment's facts (a measured value, a platform quirk, a protocol
+  rule) survive any rewrite; compare each rewritten comment with what
+  remains.
 - The project's own idioms (`AGENTS.md`/`CLAUDE.md`/lint config) over generic
   ones; clarity over fewer lines.
 
