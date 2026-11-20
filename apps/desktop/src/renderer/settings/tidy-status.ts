@@ -85,7 +85,7 @@ function engineStatusOf(value: unknown): TidyEngineSnapshot | null {
 /** `optional` engines are the ones nothing is waiting on: a host toolchain
  *  that is simply absent, or a managed engine that downloads on first use.
  *  The panel folds those away so the list shows what is actually there. */
-export type TidyEngineRowState = 'installed' | 'downloading' | 'failed' | 'pending' | 'optional';
+type TidyEngineRowState = 'installed' | 'downloading' | 'failed' | 'pending' | 'optional';
 
 type TidyEngineRow = {
   tag: SidebarResourceTag | null;

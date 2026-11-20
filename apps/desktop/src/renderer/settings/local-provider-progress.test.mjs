@@ -27,7 +27,10 @@ window.mixdogDesktop = {
   rendererDiagnostic() {},
   sections: {
     snapshot: async () => ({ status: 'ready', entries: [] }),
-    subscribe: (listener) => ((pushSections = listener), () => {}),
+    subscribe: (listener) => {
+      pushSections = listener;
+      return () => {};
+    },
   },
 };
 const { sectionStoreFor } = await import('../section-store.ts');
@@ -48,14 +51,6 @@ const pushToolModules = (value) =>
 
 const { createRoot } = await import('react-dom/client');
 const { BuiltInFeaturesPanel } = await import('./built-in-features-panel.tsx');
-
-function deferred() {
-  let resolve;
-  const promise = new Promise((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
 
 function status(overrides = {}) {
   return {
@@ -191,7 +186,7 @@ test('context picker offers supported sizes from the agent minimum and applies o
 });
 
 test('changing idle release keeps context controls stable while the request is pending', async () => {
-  const request = deferred();
+  const request = Promise.withResolvers();
   const current = status({
     installed: true,
     runtime: { installed: true },
@@ -256,7 +251,7 @@ test('reopened settings recover model progress from the pushed runtime state wit
   }
 });
 test('late status responses do not resurrect an unmounted settings panel', async () => {
-  const read = deferred();
+  const read = Promise.withResolvers();
   const mounted = await mount({ readCapabilities: async () => read.promise }, status(), async () => ({}));
   await mounted.dispose();
   await act(async () =>

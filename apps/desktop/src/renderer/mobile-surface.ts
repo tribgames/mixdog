@@ -1,24 +1,29 @@
 // Phone surface detection + pre-paint root marker. The Chrome-toolbar,
 // drawer, and popup CSS all key on `html[data-mixdog-mobile-tabs]`; every
 // browser lays out at device-width, so phone CSS is written in native CSS
-// pixels. Installing the marker in a mount effect meant the FIRST paint used the desktop grammar
-// and the phone visibly re-arranged itself a frame later (user: 처음
-// 들어가면 레이아웃 시프트가 심하다). bootstrap.tsx installs the marker
-// synchronously BEFORE React renders, so the phone lays out correctly
-// exactly once.
+// pixels. Installing the marker in a mount effect meant the FIRST paint used
+// the desktop grammar and the phone visibly re-arranged itself a frame later.
+// bootstrap.tsx installs the marker synchronously BEFORE React renders, so the
+// phone lays out correctly exactly once.
 import { useSyncExternalStore } from 'react';
 import { nativeAppInfo } from '../shared/native-app';
 import { remoteWindowInfo } from '../shared/remote-window';
 import { isIosDevice, isPhoneDevice, isTouchDevice, readSurfaceProbe, usesPhoneLayout } from '../shared/surface-class';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
 
-export function isIOSWebSurface(): boolean {
+/** A remote-browser-only check: false elsewhere, and false when probing the
+ *  host environment throws. */
+function inRemoteBrowser(read: () => boolean): boolean {
   if (!isRemoteBrowserRenderer()) return false;
   try {
-    return isIosDevice(readSurfaceProbe(navigator, window));
+    return read();
   } catch {
     return false;
   }
+}
+
+export function isIOSWebSurface(): boolean {
+  return inRemoteBrowser(() => isIosDevice(readSurfaceProbe(navigator, window)));
 }
 
 /** Current layout viewport width (device-width on every browser). */
@@ -47,8 +52,7 @@ export function usePhoneSurfaceMarked(): boolean {
 
 /** Phone layout predicate (layout only; see `isRemoteHostRenderer` for the host role). */
 export function isMobileRemoteSurface(): boolean {
-  if (!isRemoteBrowserRenderer()) return false;
-  try {
+  return inRemoteBrowser(() => {
     const probe = readSurfaceProbe(navigator, window);
     // A phone keeps the phone layout at any width, so it never reads the
     // width: `innerWidth` flushes style and layout, and this runs inside
@@ -56,9 +60,7 @@ export function isMobileRemoteSurface(): boolean {
     // session, that flush laid out the half-built transcript mid-render
     // (30-54ms tasks at a phone's CPU in the open trace).
     return isPhoneDevice(probe) || usesPhoneLayout(probe, surfaceViewportWidth());
-  } catch {
-    return false;
-  }
+  });
 }
 
 /** Device class, independent of layout width: phones, tablets and other
@@ -66,12 +68,7 @@ export function isMobileRemoteSurface(): boolean {
  *  this; the phone LAYOUT keys on `isMobileRemoteSurface` (width-based), so a
  *  landscape iPad gets the desktop layout yet is still an installable device. */
 export function isMobileDeviceSurface(): boolean {
-  if (!isRemoteBrowserRenderer()) return false;
-  try {
-    return isTouchDevice(readSurfaceProbe(navigator, window));
-  } catch {
-    return false;
-  }
+  return inRemoteBrowser(() => isTouchDevice(readSurfaceProbe(navigator, window)));
 }
 
 /** Subscribe to anything that can flip the phone/tablet layout at runtime. */
@@ -93,15 +90,11 @@ export function useMobileRemoteSurface(): boolean {
 }
 
 export function isInstalledWebAppSurface(): boolean {
-  if (!isRemoteBrowserRenderer()) return false;
-  try {
-    return (
+  return inRemoteBrowser(
+    () =>
       window.matchMedia?.('(display-mode: standalone)').matches === true ||
       (navigator as Navigator & { standalone?: boolean }).standalone === true
-    );
-  } catch {
-    return false;
-  }
+  );
 }
 
 /** The relay UI is a phone/tablet installed app or a second PC's dedicated
@@ -129,21 +122,16 @@ export function markDirectBrowserSurface(): void {
 }
 
 function isDirectBrowserSurface(): boolean {
-  if (!isRemoteBrowserRenderer()) return false;
-  try {
-    return localStorage.getItem(DIRECT_BROWSER_KEY) === '1';
-  } catch {
-    return false;
-  }
+  return inRemoteBrowser(() => localStorage.getItem(DIRECT_BROWSER_KEY) === '1');
 }
 
 /** Keeps the phone markers current across rotation/PWA restore. */
 export function installMobileSurfaceMarker(): () => void {
   // The phone marker feeds nearly every phone rule, so toggling it makes the
   // engine recalculate the WHOLE document. Android fires visualViewport
-  // resize continuously while the URL bar collapses and the keyboard animates
-  // (user: 버튼 반응성이 너무 안 좋다), so the sync is coalesced into one frame
-  // and only touches the DOM when a value actually changed.
+  // resize continuously while the URL bar collapses and the keyboard animates,
+  // so the sync is coalesced into one frame and only touches the DOM when a
+  // value actually changed.
   let frame = 0;
   let appliedMobile: boolean | null = null;
   let appliedIOS: boolean | null = null;

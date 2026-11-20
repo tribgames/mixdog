@@ -12,7 +12,7 @@ import { markWhatsNewSeen, peekWhatsNew, reportWhatsNew, type WhatsNewStatus } f
 
 type NoticeDialog = ComponentType<{ release: ChangelogRelease; onClose(): void; onViewAll(): void }>;
 
-export interface WhatsNewDialogModule {
+interface WhatsNewDialogModule {
   default: NoticeDialog;
   prepareWhatsNew(): Promise<ChangelogRelease | undefined>;
 }

@@ -13,6 +13,7 @@ type ParsedModelRef = {
 /** `+noauto` route suffix: this route opts out of Auto reasoning (the stored
  *  form of `autoEffort: false`, next to `+fast`). */
 const NO_AUTO_EFFORT_SUFFIX = '+noauto';
+const FAST_SUFFIX = '+fast';
 
 export function parseModelRef(ref: string): ParsedModelRef {
   const raw = String(ref || '');
@@ -25,9 +26,9 @@ export function parseModelRef(ref: string): ParsedModelRef {
     route = route.slice(0, -NO_AUTO_EFFORT_SUFFIX.length);
   }
   let fast = false;
-  if (route.endsWith('+fast')) {
+  if (route.endsWith(FAST_SUFFIX)) {
     fast = true;
-    route = route.slice(0, -5);
+    route = route.slice(0, -FAST_SUFFIX.length);
   }
   let effort = '';
   const slash = route.indexOf('/');
@@ -71,16 +72,12 @@ export function effortForModelChoice({
 
 export function preferredModelEffort(model: DesktopModelOption | undefined): string | undefined {
   if (!model?.effortOptions.length) return undefined;
-  if (model.savedEffort && model.effortOptions.some((entry) => entry.value === model.savedEffort)) {
-    return model.savedEffort;
-  }
-  if (model.defaultEffort && model.effortOptions.some((entry) => entry.value === model.defaultEffort)) {
-    return model.defaultEffort;
-  }
-  for (const value of EFFORT_FALLBACK_ORDER) {
-    if (model.effortOptions.some((entry) => entry.value === value)) return value;
-  }
-  return model.effortOptions[0]?.value;
+  return effortForModelChoice({
+    values: model.effortOptions.map((entry) => entry.value),
+    sameModel: false,
+    saved: model.savedEffort,
+    remembered: model.defaultEffort,
+  });
 }
 
 export type RouteSpeed = 'standard' | 'fast' | 'ultrafast';

@@ -157,7 +157,7 @@ export const SECTION_READS: ReadonlyArray<readonly [string, DesktopCapability, u
   ['developer', 'getDeveloperSettings'],
 ];
 
-export interface CachedCapabilitySettings {
+interface CachedCapabilitySettings {
   data: Record<string, unknown>;
   error: string;
   loadedAt: number;
@@ -337,8 +337,7 @@ async function readAllCapabilitySettings(
     }
     // The engine runs a batch as one ordered sweep, so a single batch only
     // lands when its slowest getter finishes. Small batches keep that sweep
-    // semantics per group; the groups themselves go out TOGETHER (user: 설정값
-    // 반응성) — sending them one after another let a slow getter (provider
+    // semantics per group; the groups themselves go out TOGETHER — sending them one after another let a slow getter (provider
     // setup, MCP/plugin/skill status) hold back every group queued behind it.
     try {
       const chunks: (typeof prepared)[] = [];
@@ -542,6 +541,10 @@ export function rows(value: unknown, ...keys: string[]): RecordValue[] {
     if (Array.isArray(source[key])) return (source[key] as unknown[]).map(record);
   }
   return [];
+}
+
+export function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 export function bool(value: unknown, fallback = true): boolean {

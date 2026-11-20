@@ -4,8 +4,9 @@ type ProjectFileChangeListener = () => void;
 type Bridge = NonNullable<typeof window.mixdogDesktop>;
 
 let unsubscribeBridge: (() => void) | null = null;
-// A window on a core connection watches through the core's `fs/watch` (the Node host's folder watcher does not exist
-// there: `folderWatch` is an operation the core connection does not carry), one watch id per project.
+// A window on a core connection watches through the core's `fs/watch` (the
+// Node host's folder watcher does not exist there: `folderWatch` is an
+// operation the core connection does not carry), one watch id per project.
 const coreWatches = new Map<string, () => void>();
 const legacyWatches = new Set<ProjectWatchTarget>();
 let unsubscribeFsChanged: (() => void) | null = null;
@@ -36,8 +37,10 @@ function ensureBridge(): boolean {
   return true;
 }
 
-// Each bridge listener lives exactly as long as the started watches that use it: it is dropped with the last of them, or when
-// a start fails or finds itself released, so a watch released while it was still starting leaves no listener behind.
+// Each bridge listener lives exactly as long as the started watches that use
+// it: it is dropped with the last of them, or when a start fails or finds
+// itself released, so a watch released while it was still starting leaves no
+// listener behind.
 function leaveLegacy(target: ProjectWatchTarget): void {
   legacyWatches.delete(target);
   if (legacyWatches.size > 0) return;
@@ -52,7 +55,7 @@ function leaveCore(watchId: string): void {
   unsubscribeFsChanged = null;
 }
 
-async function startWatch(api: Bridge, target: ProjectWatchTarget): Promise<(() => unknown) | void> {
+async function startWatch(api: Bridge, target: ProjectWatchTarget): Promise<(() => unknown) | undefined> {
   const { sections } = api;
   if (sections && (await isCoreWindow(sections))) {
     if (target.released()) return;

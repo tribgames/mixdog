@@ -34,8 +34,8 @@ export interface ProjectListSectionProps {
 }
 
 // Project list (Projects panel → Project tab): the Schedules grammar — a
-// compact list with per-row actions hosted in the session-panel area (user
-// decision — no main-pane takeover). Add project opens a small popup dialog
+// compact list with per-row actions hosted in the session-panel area (no
+// main-pane takeover). Add project opens a small popup dialog
 // (Name + folder via the native chooser) portaled above the workspace. The
 // hosting ProjectsPane owns the surface wrapper and the section toolbar.
 export function ProjectListSection({
@@ -90,7 +90,7 @@ export function ProjectListSection({
     if (!active || !memoriesSupported) return;
     editor.ref.current?.warm();
   }, [active, projectPathsKey, memoriesSupported, editor.ref]);
-  // No search field (user: 프로젝트 목록은 짧다 — 서치창 제거).
+  // No search field: the project list is expected to be short.
   const projectOrder = usePersistedListOrder(
     'mixdog.sidebar-order.projects.v1',
     projects.map((project) => project.path)
@@ -101,9 +101,8 @@ export function ProjectListSection({
 
   return (
     <>
-      {/* The panel header names this view and hosts its action (user: 타이틀
-          이 2번 나옴). */}
-      {/* Plain + like every other rail panel action (user: 프로젝트도 + 통일). */}
+      {/* The panel header names this view and hosts its action. */}
+      {/* Plain + like every other rail panel action. */}
       <SidebarPanelAction
         active={active}
         label={t('Add project')}

@@ -1,15 +1,15 @@
 // Android back-button (ABB) grammar for the projected phone surface: every
 // transient layer (session drawer, tab overview, bottom panel, utility dock)
 // claims the hardware/gesture back while it is open, so back closes the
-// topmost layer instead of leaving the PWA (user: 백버튼 처리 — 지금은 그냥
-// 닫히는데). With no layer open, back falls through to the browser default.
+// topmost layer instead of leaving the PWA. With no layer open, back falls
+// through to the browser default.
 // Desktop/Electron surfaces never register: the helper no-ops unless the
 // mobile-tabs marker is present.
 //
 // Browsers with CloseWatcher (Android Chrome) get one watcher per layer opened
 // by a user gesture and history is never touched: a pushState/back pair on
-// every open and close flashed the Android navigation bar white (user: 창을
-// 열고 닫을 때 네비게이션 바가 잠시 흰색으로 반전). Browsers without it keep
+// every open and close flashed the Android navigation bar white. Browsers
+// without it keep
 // one history sentinel per layer.
 //
 // A CloseWatcher created WITHOUT transient user activation (a layer the app

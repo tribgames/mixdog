@@ -97,7 +97,7 @@ const CATEGORY_ICONS = {
 } satisfies Record<SettingsCategory, typeof Settings>;
 
 export const SettingsView = memo(function SettingsView({
-  api = (window as unknown as { mixdogDesktop: DesktopApi }).mixdogDesktop,
+  api = window.mixdogDesktop,
   open = true,
   initialSection = null,
   onCompose,
@@ -151,8 +151,8 @@ export const SettingsView = memo(function SettingsView({
     void preloadCapabilitySettings(api).catch(() => undefined);
   }, [open, api]);
 
-  // Every (re)open starts fresh: explicit section when given, else General
-  // (user: the kept-mounted dialog must not resume the last-visited page).
+  // Every (re)open starts fresh: explicit section when given, else General;
+  // the kept-mounted dialog must not resume the last-visited page.
   // biome-ignore lint/correctness/useExhaustiveDependencies: remoteSettings is the trigger (resolveCategory depends on it); resolveCategory is recreated every render.
   useEffect(() => {
     if (!open) return;
@@ -173,8 +173,7 @@ export const SettingsView = memo(function SettingsView({
   }, [open]);
   // Warm the Connection pairing card as soon as the dialog opens (one cached
   // IPC): entering Connection later paints the complete QR card instead of
-  // flashing the empty placeholder square first (user: 커넥션 들어갈 때 빈
-  // 칸이 거슬린다).
+  // flashing the empty placeholder square first.
   useEffect(() => {
     if (!open) return;
     void preloadGitPanelInfo(api);
@@ -322,7 +321,7 @@ export const SettingsView = memo(function SettingsView({
               ))}
             </div>
           </nav>
-          {/* No brand/version footer (user decision): the nav ends with its
+          {/* No brand/version footer: the nav ends with its
             last category. */}
         </aside>
         <div className="mixdog-settings__panel">

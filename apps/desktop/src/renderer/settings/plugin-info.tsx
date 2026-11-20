@@ -1,10 +1,6 @@
 import { t, uiFormatLocale } from '../i18n';
-import type { RecordValue } from './capability-data';
+import { text, type RecordValue } from './capability-data';
 import { ExtensionFacts, ExtensionSection } from './extension-detail';
-
-function text(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 function formatInstallDate(value: unknown): string {
   const stamp = typeof value === 'number' ? value : Date.parse(text(value));

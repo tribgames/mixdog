@@ -16,8 +16,14 @@ window.matchMedia ??= () => ({ matches: false, addEventListener() {}, removeEven
 const updates = new Set();
 const losses = new Set();
 const feed = {
-  push: (flowId, state) => updates.forEach((listener) => listener({ flowId, state })),
-  lose: (flowId) => losses.forEach((listener) => listener({ flowId })),
+  push: (flowId, state) =>
+    updates.forEach((listener) => {
+      listener({ flowId, state });
+    }),
+  lose: (flowId) =>
+    losses.forEach((listener) => {
+      listener({ flowId });
+    }),
 };
 window.mixdogDesktop = {
   sections: {

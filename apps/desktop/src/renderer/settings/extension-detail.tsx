@@ -14,8 +14,7 @@ import type { CapabilityApi, PanelContext, RecordValue } from './capability-data
 
 /** One list row for every extension kind — built-in feature, plugin, skill,
  *  MCP server: icon, title line, one-line description. The row has no switch;
- *  enabling lives in the detail dialog (user: 아이템 레이아웃은 아이콘 제목줄
- *  설명줄 한줄로 가고 토글버튼 빼고). A disabled entry only dims its icon so
+ *  enabling lives in the detail dialog. A disabled entry only dims its icon so
  *  the list still reads as one column. */
 export function ExtensionRow({
   icon,
@@ -76,8 +75,7 @@ type ExtensionDialogWidth = 'compact' | 'detail' | 'editor';
  *  the 16px section rhythm, and a footer only when the entry has real
  *  actions. Editors pass `onSubmit`; the body and footer then live inside a
  *  form so the footer's submit button posts it. Rows drill IN here instead
- *  of exposing their actions in the list (user: 다른것들처럼 클릭해서 들어가서
- *  설정하는 걸로). Portaled because the list lives inside the sidebar's
+ *  of exposing their actions in the list. Portaled because the list lives inside the sidebar's
  *  clipped box. */
 export function ExtensionDetailDialog({
   title,
@@ -281,8 +279,7 @@ export function ExtensionItemRow({
   control?: ReactNode;
   dataAttributes?: Record<`data-${string}`, string>;
 }) {
-  // Same anatomy as the Settings dialog's resource row (user: 옵션쪽이랑
-  // 맞춰): title with its status pill on one line, the meta line under it,
+  // Same anatomy as the Settings dialog's resource row: title with its status pill on one line, the meta line under it,
   // and the control on the trailing edge.
   return (
     <div className="extensions-item" data-tone={tone} data-extension-item={title} {...dataAttributes}>
@@ -341,7 +338,7 @@ export function ExtensionAction({
 
 /** Read-only state on a row's trailing edge (engine not detected, install on
  *  demand): a compact rectangular box, not a control, so the row reads as a
- *  status box rather than a sidebar pill tag (user: 태그가 아니라 박스). */
+ *  status box rather than a sidebar pill tag. */
 export function ExtensionItemBadge({ tag }: { tag?: SidebarResourceTag | null }) {
   if (!tag?.label) return null;
   return (
@@ -417,8 +414,7 @@ export function projectDisplayName(project: DesktopProjectSummary): string {
 const SHARED_SCOPE = '';
 
 /** "Applies to": one dropdown choosing Shared (every project) or a single
- *  project from the catalog (user: 프로젝트 선택은 드롭다운으로 공용이나 개별
- *  프로젝트 중 하나 선택). Saves on change through `setExtensionScope`; the
+ *  project from the catalog. Saves on change through `setExtensionScope`; the
  *  list re-reads from the refreshed status, so `scope` is the source of truth
  *  between edits. A legacy multi-project scope shows its first project and
  *  collapses to that one on the next change. */

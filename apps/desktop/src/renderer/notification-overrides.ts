@@ -167,7 +167,7 @@ export function resolveNotificationState(
 ): ConversationNotificationState {
   const chain = chainOf(target);
   for (const link of chain) {
-    const override = snap.overrides.find((entry) => same(entry.target, link) && stillActive(entry, now));
+    const override = ownNotificationOverride(snap, link, now);
     if (!override) continue;
     return override.setting.mode === 'muted'
       ? { kind: 'muted', until: override.setting.until, source: override.target }

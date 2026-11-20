@@ -158,7 +158,10 @@ test('an open Connection panel follows relay descriptors and roster changes, inc
   const snapshot = async () => ({ status: 'ready', entries: [] });
   installSectionStore({
     snapshot,
-    subscribe: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
   });
   t.after(() => installSectionStore({ snapshot, subscribe: () => () => undefined }));
   const { document, state } = await mount(t, { info: null });
@@ -301,7 +304,10 @@ test('a paged roster stays manageable offline and a late page cannot restore rem
   });
   installSectionStore({
     snapshot,
-    subscribe: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
   });
   t.after(() =>
     installSectionStore({ snapshot: async () => ({ status: 'ready', entries: [] }), subscribe: () => () => undefined })
@@ -647,7 +653,10 @@ test('the unsupported state arrives in the remote section, not as a second answe
   const empty = { snapshot: async () => ({ status: 'ready', entries: [] }), subscribe: () => () => undefined };
   installSectionStore({
     snapshot: async () => ({ status: 'ready', entries: [] }),
-    subscribe: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
   });
   t.after(() => installSectionStore(empty));
   const { document } = await mount(t, { pairCode: () => Promise.resolve(null) });
@@ -666,7 +675,10 @@ test('a pending code request shows the loading tile; the code and its replacemen
   const empty = { snapshot: async () => ({ status: 'ready', entries: [] }), subscribe: () => () => undefined };
   installSectionStore({
     snapshot: async () => ({ status: 'ready', entries: [] }),
-    subscribe: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
   });
   t.after(() => installSectionStore(empty));
   let revision = 0;

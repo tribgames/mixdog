@@ -35,14 +35,6 @@ window.mixdogDesktop = {
 
 const { CategoryPanel } = await import('./capability-panels.tsx');
 
-function deferred() {
-  let resolve;
-  const promise = new Promise((next) => {
-    resolve = next;
-  });
-  return { promise, resolve };
-}
-
 function context({ run, snapshot = null, voice = {}, api = {}, toolModules = {}, feed = true, writable = true }) {
   const heldModules = {
     webSearch: { enabled: true },
@@ -130,7 +122,7 @@ test('voice installs inline with live progress and enables on completion', async
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
-  const install = deferred();
+  const install = Promise.withResolvers();
   const calls = [];
   const run = async (capability, args) => {
     calls.push([capability, args]);
@@ -259,7 +251,7 @@ test('missing Git dependency installs inline and enables the tool on completion'
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
-  const dependency = deferred();
+  const dependency = Promise.withResolvers();
   const calls = [];
   const run = async (capability, args) => {
     calls.push([capability, args]);
@@ -335,7 +327,7 @@ test('missing LibreOffice dependency installs inline before the Office feature',
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
-  const dependency = deferred();
+  const dependency = Promise.withResolvers();
   const calls = [];
   const apiCalls = [];
   // Each render builds a fresh api object, which re-runs the status effect —

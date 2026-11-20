@@ -114,7 +114,7 @@ export function ModelRouteEditor({
     value.autoEffort,
     (enabled) => {
       if (!selected) return;
-      onChange(selectionFor(selected, enabled ? { autoEffort: true } : { autoEffort: false }));
+      onChange(selectionFor(selected, { autoEffort: enabled }));
     },
     (composerParity || autoEffortSwitch) && selected !== undefined
   );

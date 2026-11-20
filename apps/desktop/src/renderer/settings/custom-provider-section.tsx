@@ -501,7 +501,7 @@ function CustomProviderForm({
   onClose(): void;
 }) {
   const uid = useId();
-  const [rows, setRows] = useState<CustomModel[]>(provider ? customModels(provider) : []);
+  const [modelRows, setModelRows] = useState<CustomModel[]>(provider ? customModels(provider) : []);
   // A saved model edit (or any other change of the provider's effective
   // models) refreshes the rows; the other form fields keep their drafts.
   const modelsKey = provider ? JSON.stringify(customModels(provider)) : '';
@@ -509,7 +509,7 @@ function CustomProviderForm({
   useEffect(() => {
     if (shownModelsKey.current === modelsKey) return;
     shownModelsKey.current = modelsKey;
-    setRows(provider ? customModels(provider) : []);
+    setModelRows(provider ? customModels(provider) : []);
   }, [modelsKey, provider]);
   // A model save stores that model's override at once, but `provider` keeps
   // the earlier overrides until the panel's reload lands; saving the provider
@@ -567,7 +567,7 @@ function CustomProviderForm({
     run,
     uid,
     buildInput,
-    setRows,
+    setRows: setModelRows,
     openManualEntry: () => setManualOpen(true),
     onSaved: onClose,
   });
@@ -734,7 +734,7 @@ function CustomProviderForm({
           <CustomProviderModelsList
             open={manualOpen}
             editable={Boolean(provider)}
-            rows={rows}
+            rows={modelRows}
             models={models}
             modelDraft={modelDraft}
             disabled={disabled}
@@ -804,11 +804,11 @@ function CustomProviderForm({
           </button>
         </footer>
       </section>
-      {provider && editingModel !== null && rows.some((row) => row.id === editingModel) && (
+      {provider && editingModel !== null && modelRows.some((row) => row.id === editingModel) && (
         <CustomModelEditor
           providerId={String(provider.id)}
           protocol={protocol}
-          row={rows.find((row) => row.id === editingModel) as unknown as RecordValue}
+          row={modelRows.find((row) => row.id === editingModel) as unknown as RecordValue}
           override={record(overrides[editingModel])}
           run={run}
           onSaved={(saved) => {

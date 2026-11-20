@@ -52,8 +52,8 @@ export const SETTINGS_ITEMS = [
   { value: 'mcp', label: 'MCP servers', description: '0/0 connected', kind: 'open' },
   { value: 'plugins', label: 'Plugins', description: '0 detected', kind: 'open' },
   { value: 'skills', label: 'Skills', description: '0 available', kind: 'open' },
-  // Voice transcription graduated from the retired Channels page into General
-  // (user: 음성전사만 일반으로): the managed Whisper runtime powers voice input.
+  // Only voice transcription moved from the retired Channels page into General;
+  // the managed Whisper runtime powers voice input.
   {
     value: 'voice',
     label: 'Voice transcription',

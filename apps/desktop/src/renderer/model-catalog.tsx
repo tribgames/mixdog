@@ -130,7 +130,7 @@ function coarsePointer(): boolean {
   }
 }
 
-function modelKey(option: DesktopModelOption, scope = ''): string {
+function modelRowKey(option: DesktopModelOption, scope = ''): string {
   return `${scope}model:${option.provider}:${option.model}`;
 }
 
@@ -205,8 +205,8 @@ export function ModelCatalog({
   useEffect(() => {
     // The composer's flyout keeps this catalog MOUNTED while it is hidden, so
     // the typed filter outlived its close and still trimmed the list at the
-    // next open (user: 모델 선택하고 닫았는데 타이핑한게 남아있지 않게). The
-    // close drops the query; the open re-reads recents and re-centers.
+    // next open. The close drops the query; the open re-reads recents and
+    // re-centers.
     if (!active) {
       setQuery('');
       setRowMenu(null);
@@ -214,8 +214,7 @@ export function ModelCatalog({
     }
     setRecentModelKeys(readRecentModelKeys());
     // Opening the list must not summon the keyboard on a phone: it covered
-    // half the catalog before a single row was read (user: 검색창 터치도 안
-    // 했는데 바로 타이핑창 열리게 하지 말고). The field waits for a tap.
+    // half the catalog before a single row was read. The field waits for a tap.
     if (!coarsePointer()) search.current?.focus({ preventScroll: true });
     modelList.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'center' });
   }, [active]);
@@ -260,13 +259,13 @@ export function ModelCatalog({
     )
     .filter(([, options]) => options.length > 0);
   const recentModels = recentModelKeys.flatMap((key) => {
-    const option = models.find((entry) => modelKey(entry) === key);
+    const option = models.find((entry) => modelRowKey(entry) === key);
     return option && matchesQuery(option) ? [option] : [];
   });
   const renderedKeys = [
-    ...favoriteModels.map((option) => modelKey(option, 'favorite:')),
-    ...recentModels.map((option) => modelKey(option, 'recent:')),
-    ...visibleProviderEntries.flatMap(([, options]) => options.map((option) => modelKey(option))),
+    ...favoriteModels.map((option) => modelRowKey(option, 'favorite:')),
+    ...recentModels.map((option) => modelRowKey(option, 'recent:')),
+    ...visibleProviderEntries.flatMap(([, options]) => options.map((option) => modelRowKey(option))),
   ];
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: the derived lists are recomputed each render; the primitive inputs (normalizedQuery, models, recentModelKeys) are the intended triggers.
@@ -275,24 +274,24 @@ export function ModelCatalog({
     const current = (option: DesktopModelOption) => option.provider === provider && option.model === model;
     const favorite = favoriteModels.find(current);
     if (favorite) {
-      setActiveRowKey(modelKey(favorite, 'favorite:'));
+      setActiveRowKey(modelRowKey(favorite, 'favorite:'));
       return;
     }
     const recent = recentModels.find(current);
     if (recent) {
-      setActiveRowKey(modelKey(recent, 'recent:'));
+      setActiveRowKey(modelRowKey(recent, 'recent:'));
       return;
     }
     const visibleModels = visibleProviderEntries.flatMap(([, options]) => options);
     const preferred =
       visibleModels.find((option) => option.provider === provider && option.model === model) || visibleModels[0];
-    setActiveRowKey(preferred ? modelKey(preferred) : '');
+    setActiveRowKey(preferred ? modelRowKey(preferred) : '');
   }, [active, model, normalizedQuery, models, provider, recentModelKeys]);
 
+  const listOptions = () =>
+    Array.from(dialog.current?.querySelectorAll<HTMLButtonElement>('.model-list [role="option"]') || []);
   const focusRow = (index: number) => {
-    const options = Array.from(
-      dialog.current?.querySelectorAll<HTMLButtonElement>('.model-list [role="option"]') || []
-    );
+    const options = listOptions();
     const target = options[Math.max(0, Math.min(index, options.length - 1))];
     if (!target) return;
     setActiveRowKey(target.dataset.rowKey || '');
@@ -301,9 +300,7 @@ export function ModelCatalog({
   };
   const navigateRows = (event: React.KeyboardEvent, fromSearch = false) => {
     if (event.key === 'Enter' && fromSearch && !event.nativeEvent.isComposing) {
-      const target = Array.from(
-        dialog.current?.querySelectorAll<HTMLButtonElement>('.model-list [role="option"]') || []
-      ).find((option) => option.dataset.rowKey === activeRowKey);
+      const target = listOptions().find((option) => option.dataset.rowKey === activeRowKey);
       if (target) {
         event.preventDefault();
         target.click();
@@ -311,9 +308,7 @@ export function ModelCatalog({
       return;
     }
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-    const options = Array.from(
-      dialog.current?.querySelectorAll<HTMLButtonElement>('.model-list [role="option"]') || []
-    );
+    const options = listOptions();
     if (!options.length) return;
     event.preventDefault();
     event.stopPropagation();
@@ -335,7 +330,7 @@ export function ModelCatalog({
     try {
       const selected = await onSelect(option);
       if (selected === false || token !== latestModelChoice) return;
-      const key = modelKey(option);
+      const key = modelRowKey(option);
       const next = [key, ...readRecentModelKeys().filter((entry) => entry !== key)].slice(0, RECENT_MODELS_LIMIT);
       writeRecentModelKeys(next);
     } catch {
@@ -383,7 +378,7 @@ export function ModelCatalog({
   };
   const renderModelOption = (option: DesktopModelOption, scope = '') => {
     const selected = option.provider === provider && option.model === model;
-    const key = modelKey(option, scope);
+    const key = modelRowKey(option, scope);
     return (
       <button
         type="button"

@@ -1,7 +1,7 @@
 // Settings pages: last known desktop-side values (settings file, quota
 // auto-resume, Git / LibreOffice status) so a page paints its complete groups
 // on entry instead of inserting them after an IPC round trip and shoving the
-// rows below (user: 옵션창 항목전환시 레이아웃 튐). Stale-while-revalidate:
+// rows below. Stale-while-revalidate:
 // every read refreshes the snapshot, and writes publish their results here
 // (see `Held` for how confirmed values and pending writes are kept apart).
 import type { DesktopApi, DesktopGitCliStatus, DesktopLibreOfficeStatus, DesktopSettings } from '../../shared/contract';
@@ -28,9 +28,7 @@ const readers: { [K in StatusKey]: (api: StatusApi, refresh: boolean) => Promise
 };
 
 /** A write's own change, shown until the write ends: the fields it sets of the settings object, or the whole value. */
-export type OptimisticChange<K extends WritableKey> = K extends 'settings'
-  ? Partial<DesktopSettings>
-  : DesktopStatus[K];
+type OptimisticChange<K extends WritableKey> = K extends 'settings' ? Partial<DesktopSettings> : DesktopStatus[K];
 type WritableKey = 'settings' | 'quotaAutoResume';
 
 // Per api and key, two things kept apart:

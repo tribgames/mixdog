@@ -9,7 +9,7 @@ import type { CapabilityApi } from './capability-data';
 import { formatPairCode, remainingFraction, remainingLabel } from './pair-code-format';
 import { startSettingsReadRecovery } from './read-recovery';
 
-export type PairCodeState = {
+type PairCodeState = {
   code: DesktopRemotePairCode | null;
   unsupported: boolean;
   now: number;

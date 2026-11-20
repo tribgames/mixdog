@@ -411,5 +411,8 @@ export function commitPaneDropAction(current: PaneWorkspaceModel, action: PaneDr
       return;
     case 'split-leaf':
       current.splitLeafAt(action.targetLeafId, action.zone, action.selection, action.sourceLeafId);
+      return;
+    default:
+      action satisfies never;
   }
 }

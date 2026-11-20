@@ -20,8 +20,8 @@ import {
   RequestOptionsSection,
 } from './custom-request-options';
 
-export const REASONING_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
-export type ReasoningLevel = (typeof REASONING_LEVELS)[number];
+const REASONING_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+type ReasoningLevel = (typeof REASONING_LEVELS)[number];
 
 const isLevel = (value: unknown): value is ReasoningLevel => REASONING_LEVELS.includes(value as ReasoningLevel);
 
@@ -67,6 +67,7 @@ export function CustomModelEditor({
   protocol: string;
   row: RecordValue;
   override?: RecordValue;
+  // biome-ignore lint/suspicious/noExplicitAny: callers pass any capability runner, down to a bare async callback.
   run: (capability: any, args?: unknown[], key?: string, refresh?: boolean, ...rest: any[]) => Promise<unknown>;
   onClose(): void;
   /** Receives the save's answer: the provider row as stored. */

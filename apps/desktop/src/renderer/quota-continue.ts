@@ -78,8 +78,7 @@ export function quotaPanelVisible(state: {
   dismissedKey: string;
 }): boolean {
   const { failure, sessionId, busy, dismissedKey } = state;
-  if (!failure || !sessionId || busy || dismissedKey === quotaDismissKey(sessionId, failure.turnKey)) return false;
-  return true;
+  return Boolean(failure && sessionId && !busy && dismissedKey !== quotaDismissKey(sessionId, failure.turnKey));
 }
 
 /** Local HH:mm, prefixed with month/day when the reset is not today. */

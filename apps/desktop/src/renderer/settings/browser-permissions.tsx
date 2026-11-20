@@ -22,7 +22,7 @@ import { useDesktopStatus } from './use-desktop-status';
 
 type PermissionsApi = Partial<Pick<DesktopApi, 'readSettings' | 'setBrowserPermissions' | 'subscribeSettingsChanged'>>;
 
-export function browserPermissionKindLabel(kind: BrowserPermissionKind): string {
+function browserPermissionKindLabel(kind: BrowserPermissionKind): string {
   switch (kind) {
     case 'notifications':
       return t('Notifications');

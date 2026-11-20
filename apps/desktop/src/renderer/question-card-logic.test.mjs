@@ -21,9 +21,18 @@ const questions = [
 
 test('a plain composer message answers the question and is not sent again', async () => {
   const calls = [];
-  const submit = async (content, options) => (calls.push(['submit', content, options]), 'sent');
-  const answer = async (reply) => (calls.push(['answer', reply]), true);
-  const dismiss = async () => (calls.push(['dismiss']), true);
+  const submit = async (content, options) => {
+    calls.push(['submit', content, options]);
+    return 'sent';
+  };
+  const answer = async (reply) => {
+    calls.push(['answer', reply]);
+    return true;
+  };
+  const dismiss = async () => {
+    calls.push(['dismiss']);
+    return true;
+  };
   const wrapped = questionAwareSubmit(submit, answer, dismiss);
   assert.equal(await wrapped('  hello  ', { id: 'x' }), true);
   assert.deepEqual(calls, [['answer', 'hello']]);
@@ -35,9 +44,18 @@ test('a plain composer message answers the question and is not sent again', asyn
 test('a reply over the 4000-character cap goes out whole as a message instead of being cut', async () => {
   const calls = [];
   const wrapped = questionAwareSubmit(
-    async (content) => (calls.push(['submit', content.length]), 'sent'),
-    async (reply) => (calls.push(['answer', reply.length]), true),
-    async () => (calls.push(['dismiss']), true)
+    async (content) => {
+      calls.push(['submit', content.length]);
+      return 'sent';
+    },
+    async (reply) => {
+      calls.push(['answer', reply.length]);
+      return true;
+    },
+    async () => {
+      calls.push(['dismiss']);
+      return true;
+    }
   );
   assert.equal(await wrapped('x'.repeat(4000)), true);
   assert.equal(await wrapped('y'.repeat(4001)), 'sent');
@@ -53,9 +71,18 @@ test('attachments and slash commands dismiss the question, then submit', async (
   ]) {
     const calls = [];
     const wrapped = questionAwareSubmit(
-      async (c, o) => (calls.push(['submit', c, o]), 'sent'),
-      async () => (calls.push(['answer']), true),
-      async () => (calls.push(['dismiss']), true)
+      async (c, o) => {
+        calls.push(['submit', c, o]);
+        return 'sent';
+      },
+      async () => {
+        calls.push(['answer']);
+        return true;
+      },
+      async () => {
+        calls.push(['dismiss']);
+        return true;
+      }
     );
     assert.equal(await wrapped(content, options), 'sent');
     assert.deepEqual(calls, [['dismiss'], ['submit', content, options]]);
@@ -71,9 +98,15 @@ test('send path: a failed or throwing answer never enqueues the text', async () 
   ]) {
     const calls = [];
     const wrapped = questionAwareSubmit(
-      async () => (calls.push('submit'), true),
+      async () => {
+        calls.push('submit');
+        return true;
+      },
       answer,
-      async () => (calls.push('dismiss'), true)
+      async () => {
+        calls.push('dismiss');
+        return true;
+      }
     );
     const outcome = await wrapped('plain', { id: 'q1' }).catch((error) => error.message);
     assert.ok(outcome === false || outcome === 'offline');
@@ -93,7 +126,10 @@ test('steer path: Steer now answers the question instead of interrupting', async
   const answers = [];
   const ok = await steerQueuedAsAnswer(
     async () => ' go ',
-    async (reply) => (answers.push(reply), true)
+    async (reply) => {
+      answers.push(reply);
+      return true;
+    }
   );
   assert.deepEqual(ok, { text: 'go', answered: true });
   assert.deepEqual(answers, ['go']);

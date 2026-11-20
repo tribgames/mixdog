@@ -8,7 +8,7 @@ import { errorMessage } from '../editor-pane-session-errors';
 import { record } from '../record-utils';
 import type { SidebarResourceTagTone } from '../sidebar-resource-row';
 import { CompactSwitch } from './capability-controls';
-import type { RecordValue } from './capability-data';
+import type { PanelContext, RecordValue } from './capability-data';
 import {
   ExtensionAction,
   ExtensionDetailDialog,
@@ -156,6 +156,61 @@ function McpPairListEditor({
   );
 }
 
+/** Asks a not yet saved HTTP server how it authenticates once its URL settles;
+ *  `recheck` runs the check at once (the URL field lost focus). */
+function useAuthProbe(
+  probeUrl: string,
+  onProbe: ((config: RecordValue) => Promise<RecordValue | undefined>) | undefined
+) {
+  const [probe, setProbe] = useState<{ url: string; auth: string; error: string } | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [blurTick, setBlurTick] = useState(0);
+  const flushProbeRef = useRef(false);
+  const probedUrlRef = useRef('');
+  const onProbeRef = useRef(onProbe);
+  onProbeRef.current = onProbe;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: blurTick re-runs the check immediately when the URL field loses focus.
+  useEffect(() => {
+    const flush = flushProbeRef.current;
+    flushProbeRef.current = false;
+    setProbing(false);
+    if (!probeUrl) {
+      probedUrlRef.current = '';
+      setProbe(null);
+      return undefined;
+    }
+    if (probedUrlRef.current === probeUrl) return undefined;
+    let cancelled = false;
+    const timer = window.setTimeout(
+      async () => {
+        setProbing(true);
+        let result: RecordValue | undefined;
+        try {
+          result = await onProbeRef.current?.({ type: 'http', url: probeUrl });
+        } catch (reason) {
+          result = { auth: 'unreachable', error: errorMessage(reason) };
+        }
+        if (cancelled) return;
+        setProbing(false);
+        if (!result) return;
+        probedUrlRef.current = probeUrl;
+        setProbe({ url: probeUrl, auth: String(result.auth || ''), error: String(result.error || '') });
+      },
+      flush ? 0 : PROBE_TYPING_DELAY_MS
+    );
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [probeUrl, blurTick]);
+  const probeResult = probeUrl && probe?.url === probeUrl ? probe : null;
+  const recheck = () => {
+    flushProbeRef.current = true;
+    setBlurTick((tick) => tick + 1);
+  };
+  return { probing, probeResult, recheck };
+}
+
 export function McpEditorDialog({
   server,
   busy: busyProp,
@@ -213,61 +268,19 @@ export function McpEditorDialog({
   // An enabled HTTP server that carries no credentials of its own signs in
   // with explicit OAuth. Anything not connected can retry with Connect, so a
   // failed first login never leaves the server without a way back in.
-  const oauthEligible =
+  const oauthActions =
     editing &&
     initialTransport === 'http' &&
     server?.enabled !== false &&
     !mcpHasConfiguredAuth(config) &&
     (signedIn || !connection?.connected);
-  const oauthActions = oauthEligible;
 
   // Add dialog: once the URL settles, ask the server how it authenticates.
   const authFilled =
     bearer.trim() !== '' || [...headers, ...envHeaders].some((row) => row.key.trim() !== '' || row.value.trim() !== '');
   const probeUrl =
     !editing && onProbe && transport === 'http' && !authFilled && validHttpUrl(url.trim()) ? url.trim() : '';
-  const [probe, setProbe] = useState<{ url: string; auth: string; error: string } | null>(null);
-  const [probing, setProbing] = useState(false);
-  const [blurTick, setBlurTick] = useState(0);
-  const flushProbeRef = useRef(false);
-  const probedUrlRef = useRef('');
-  const onProbeRef = useRef(onProbe);
-  onProbeRef.current = onProbe;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: blurTick re-runs the check immediately when the URL field loses focus.
-  useEffect(() => {
-    const flush = flushProbeRef.current;
-    flushProbeRef.current = false;
-    setProbing(false);
-    if (!probeUrl) {
-      probedUrlRef.current = '';
-      setProbe(null);
-      return undefined;
-    }
-    if (probedUrlRef.current === probeUrl) return undefined;
-    let cancelled = false;
-    const timer = window.setTimeout(
-      async () => {
-        setProbing(true);
-        let result: RecordValue | undefined;
-        try {
-          result = await onProbeRef.current?.({ type: 'http', url: probeUrl });
-        } catch (reason) {
-          result = { auth: 'unreachable', error: errorMessage(reason) };
-        }
-        if (cancelled) return;
-        setProbing(false);
-        if (!result) return;
-        probedUrlRef.current = probeUrl;
-        setProbe({ url: probeUrl, auth: String(result.auth || ''), error: String(result.error || '') });
-      },
-      flush ? 0 : PROBE_TYPING_DELAY_MS
-    );
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [probeUrl, blurTick]);
-  const probeResult = probeUrl && probe?.url === probeUrl ? probe : null;
+  const { probing, probeResult, recheck } = useAuthProbe(probeUrl, onProbe);
   const save = (form: HTMLFormElement, connectAfter: boolean) => {
     if (autoDetect) return;
     const data = new FormData(form);
@@ -417,26 +430,24 @@ export function McpEditorDialog({
         {!autoDetect && (
           // biome-ignore lint/a11y/useSemanticElements: a div button group; <fieldset> would change the element tag.
           <div className="mx-segmented extensions-mcp-transport" role="group" aria-label={t('Transport')}>
-            <button
-              type="button"
-              className={transport === 'stdio' ? 'active' : ''}
-              aria-pressed={transport === 'stdio'}
-              disabled={busy}
-              onClick={() => setTransport('stdio')}
-            >
-              <Check size={12} aria-hidden="true" />
-              <span>{t('stdio')}</span>
-            </button>
-            <button
-              type="button"
-              className={transport === 'http' ? 'active' : ''}
-              aria-pressed={transport === 'http'}
-              disabled={busy}
-              onClick={() => setTransport('http')}
-            >
-              <Check size={12} aria-hidden="true" />
-              <span>{t('Streamable HTTP')}</span>
-            </button>
+            {(
+              [
+                ['stdio', t('stdio')],
+                ['http', t('Streamable HTTP')],
+              ] as const
+            ).map(([value, text]) => (
+              <button
+                key={value}
+                type="button"
+                className={transport === value ? 'active' : ''}
+                aria-pressed={transport === value}
+                disabled={busy}
+                onClick={() => setTransport(value)}
+              >
+                <Check size={12} aria-hidden="true" />
+                <span>{text}</span>
+              </button>
+            ))}
           </div>
         )}
       </ExtensionField>
@@ -499,10 +510,7 @@ export function McpEditorDialog({
                 disabled={busy}
                 spellCheck={false}
                 onChange={(event) => setUrl(event.currentTarget.value)}
-                onBlur={() => {
-                  flushProbeRef.current = true;
-                  setBlurTick((tick) => tick + 1);
-                }}
+                onBlur={recheck}
               />
             </ExtensionField>
             {probeUrl && probing && <ExtensionNote role="status">{t('Checking…')}</ExtensionNote>}
@@ -601,11 +609,33 @@ export function McpEditorDialog({
   );
 }
 
+/** Asks a not yet saved HTTP server how it authenticates. Probing is a read: no busy state, no list refresh, and a
+ *  failure comes back as the result instead of a toast. */
+export async function probeMcpAuth(run: PanelContext['run'], config: RecordValue): Promise<RecordValue | undefined> {
+  try {
+    return await run<RecordValue>('probeMcpServerAuth', [config], 'probeMcpServerAuth', false, true, 'throw');
+  } catch (reason) {
+    return { auth: 'unreachable', error: errorMessage(reason) };
+  }
+}
+
+/** The editor's server with the live list row's connection state: a finished sign-in or sign-out changes it while the
+ *  editor stays open. */
+export function withLiveMcpStatus(server: RecordValue, row: RecordValue | undefined): RecordValue {
+  if (!row) return server;
+  return {
+    ...server,
+    status: row.status,
+    error: row.error,
+    connected: row.connected,
+    authRequired: row.authRequired,
+    oauth: row.oauth,
+  };
+}
+
 /** THE connection state for one MCP server: the list row's tag, the editor's
  *  title badge, and a plugin card's bundled-server row all read it, so the same
- *  server can never show two different labels or tones (user: 실패태그 바깥쪽
- *  이랑 팝업안쪽이랑 다르네 — a failure was `danger` in the list and `warn` in
- *  the editor). `connected` lets the list drop the tag on the normal case while
+ *  server can never show two different labels or tones. `connected` lets the list drop the tag on the normal case while
  *  the editor still states it. Transport/endpoint or failure details stay in
  *  the editor body. */
 export function mcpStatus(server: RecordValue): { label: string; tone: SidebarResourceTagTone; connected: boolean } {

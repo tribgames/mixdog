@@ -11,10 +11,16 @@ async function mountCard(t, entries, fallback) {
   let push = () => {};
   const asked = [];
   window.mixdogDesktop = {
-    invokeCapability: async (request) => (asked.push(request), { value: {} }),
+    invokeCapability: async (request) => {
+      asked.push(request);
+      return { value: {} };
+    },
     sections: {
       snapshot: async () => ({ status: 'ready', entries }),
-      subscribe: (listener) => ((push = listener), () => {}),
+      subscribe: (listener) => {
+        push = listener;
+        return () => {};
+      },
     },
   };
   const { useAutoEffortStatus } = await import('./auto-effort-status.ts');

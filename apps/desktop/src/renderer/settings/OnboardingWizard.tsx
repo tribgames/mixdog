@@ -25,6 +25,7 @@ import { providerDisplayName } from '../provider-display';
 import { rows } from '../record-utils';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import { AppearanceChoice } from './appearance-choice';
+import type { RecordValue } from './capability-data';
 import { ClientManagedProviders } from './client-managed-providers';
 import { OAuthControl } from './CapabilitySettings';
 import { OnboardingFooter, OnboardingProgress } from './onboarding-wizard-chrome';
@@ -35,8 +36,8 @@ import { useGithubLoginPolling } from './github-login-polling';
 import { probeGithubStarred, readGithubStarred, rememberGithubStarred } from './github-star-storage';
 import '../desktop/21-onboarding.css';
 import { errorMessage } from '../editor-pane-session-errors';
+import { openExternalOn, openExternalUrl } from './desktop-bridge';
 
-type RecordValue = Record<string, unknown>;
 type RunCapability = <T = unknown>(
   capability: DesktopCapability,
   args?: unknown[],
@@ -362,6 +363,11 @@ function ProviderStep({
   if (setup.managedByClient === true) return <ClientManagedProviders setup={setup} />;
   const apiProviders = rows(setup.api).filter((provider) => provider.id !== 'vertex-ai');
   const oauthProviders = rows(setup.oauth);
+  const forget = (provider: RecordValue) => {
+    void run('forgetProviderAuth', [provider.id], `forget-${provider.id}`).then((result) => {
+      if (result !== undefined) onReload();
+    });
+  };
   return (
     <>
       {oauthProviders.length > 0 && (
@@ -369,7 +375,7 @@ function ProviderStep({
           <h3>{t('OAuth')}</h3>
           <div className="onboarding-provider-list">
             {/* One status slot for every provider kind: the state reads under the
-          name, never above the row's actions (user: 커넥티드 위치가 제각각).
+          name, never above the row's actions.
           The token file/store location is plumbing, not setup guidance. */}
             {oauthProviders.map((provider) => {
               const connected =
@@ -400,11 +406,7 @@ function ProviderStep({
                       type="button"
                       className="ghost"
                       disabled={Boolean(pending)}
-                      onClick={() => {
-                        void run('forgetProviderAuth', [provider.id], `forget-${provider.id}`).then((result) => {
-                          if (result !== undefined) onReload();
-                        });
-                      }}
+                      onClick={() => forget(provider)}
                     >
                       {t('Forget')}
                     </button>
@@ -434,11 +436,7 @@ function ProviderStep({
                     type="button"
                     className="ghost"
                     disabled={Boolean(pending)}
-                    onClick={() =>
-                      void (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop
-                        ?.openExternal?.(String(provider.url))
-                        .catch(() => undefined)
-                    }
+                    onClick={() => openExternalUrl(String(provider.url))}
                   >
                     {t('Get API key ↗')}
                   </button>
@@ -456,16 +454,7 @@ function ProviderStep({
                   {provider.authenticated ? t('Replace') : t('Connect')}
                 </button>
                 {Boolean(provider.stored || (!provider.env && provider.authenticated)) && (
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={Boolean(pending)}
-                    onClick={() => {
-                      void run('forgetProviderAuth', [provider.id], `forget-${provider.id}`).then((result) => {
-                        if (result !== undefined) onReload();
-                      });
-                    }}
-                  >
+                  <button type="button" className="ghost" disabled={Boolean(pending)} onClick={() => forget(provider)}>
                     {t('Forget')}
                   </button>
                 )}
@@ -527,7 +516,7 @@ function GitStep({ api }: { api: DesktopApi }) {
   const flowId = flow?.flowId || '';
   const flowState = flow?.state || '';
   useGithubLoginPolling({ host: api, flowId, flowState, setFlow, setStatus, refreshStatus: refresh });
-  const deviceCode = useGithubDeviceCode(api, flow, (url) => void api.openExternal?.(url).catch(() => undefined));
+  const deviceCode = useGithubDeviceCode(api, flow, (url) => openExternalOn(api, url));
 
   const authenticated = status?.authenticated === true;
   useEffect(() => {
@@ -548,9 +537,9 @@ function GitStep({ api }: { api: DesktopApi }) {
     };
   }, [api, authenticated, supported]);
 
-  // No identity UI (same rule as Settings → Git, user decision: 연동하면
-  // 자동으로): the commit identity follows the connected account — on a
-  // machine with no identity yet, and after every sign-in completed here.
+  // No identity UI (same rule as Settings → Git): the commit identity follows
+  // the connected account — on a machine with no identity yet, and after every
+  // sign-in completed here.
   const syncIdentity = useCallback(async () => {
     setIdentityBusy(true);
     setGitError('');
@@ -615,7 +604,7 @@ function GitStep({ api }: { api: DesktopApi }) {
       .catch((reason) => setGitError(errorMessage(reason)))
       .finally(() => setBusy(''));
   };
-  const open = (url: string) => void api.openExternal?.(url).catch(() => undefined);
+  const open = (url: string) => openExternalOn(api, url);
   const loading = status === null;
   const busyAny = Boolean(busy) || identityBusy;
   const flowLive = flowState === 'pending' || flowState === 'code';
@@ -777,7 +766,7 @@ function StarStep({ api }: { api: DesktopApi }) {
       live = false;
     };
   }, [api]);
-  const open = (url: string) => void api.openExternal?.(url).catch(() => undefined);
+  const open = (url: string) => openExternalOn(api, url);
   const star = () => {
     if (starred || !ghReady || !api.starGithub) {
       open(MIXDOG_REPO_URL);
@@ -791,7 +780,7 @@ function StarStep({ api }: { api: DesktopApi }) {
       .finally(() => setBusy(false));
   };
   // A GitHub-repo-card composition (familiar, concrete) instead of a glowing
-  // poster tile (user: AI slop 같다).
+  // poster tile.
   return (
     <div className="onboarding-card">
       <div className="onboarding-card-head">

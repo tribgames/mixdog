@@ -1,3 +1,4 @@
+import { errorMessage } from './editor-pane-session-errors';
 import { Check, ChevronDown, ChevronUp, GripVertical, Pencil, RefreshCw } from 'lucide-react';
 import {
   useCallback,
@@ -407,8 +408,7 @@ export function useProviderPoolsReady(api: UsageApi | undefined, providers: stri
 
 /** Pointer-driven reorder: the grabbed row lifts and follows the pointer; the
  *  rows it passes slide out of its way; release commits the new order. HTML5
- *  drag left the row in place under a translucent ghost (user: 아이템이
- *  들리는 게 아니다), so this owns the gesture itself. */
+ *  drag left the row in place under a translucent ghost, so this owns the gesture itself. */
 type DragState = {
   id: string;
   from: number;
@@ -437,7 +437,7 @@ function usePointerReorder(
   // to the DOM inside one animation frame per pointer sample. React state only
   // changes when the TARGET SLOT changes (once per row crossed) — re-rendering
   // every row on every pointermove is what made this list drag sluggishly
-  // while the rest of the app felt fine (user: 프로바이더창만 유독 드래그가 느리네).
+  // while the rest of the app felt fine.
   const gesture = useRef<DragState | null>(null);
   const liftedRow = useRef<HTMLElement | null>(null);
   const frame = useRef(0);
@@ -600,7 +600,7 @@ export function ProviderAccountsList({
         setError('');
       }
     } catch (cause) {
-      if (generation.current === stamp) setError(cause instanceof Error ? cause.message : String(cause));
+      if (generation.current === stamp) setError(errorMessage(cause));
     }
   }, [invoke, provider, setPool]);
   useEffect(() => {
@@ -641,7 +641,7 @@ export function ProviderAccountsList({
       }
       onChange?.();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
     } finally {
       mutating.current = false;
       setPending(false);
@@ -663,7 +663,7 @@ export function ProviderAccountsList({
       // reset credits) and the shared dashboard re-measures to settle `checking`.
       void refreshUsageDashboard(api, { force: true, providers: [provider] });
     } catch (cause) {
-      if (generation.current === stamp) setError(cause instanceof Error ? cause.message : String(cause));
+      if (generation.current === stamp) setError(errorMessage(cause));
     } finally {
       setRefreshing(false);
     }

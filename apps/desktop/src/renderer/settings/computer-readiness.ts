@@ -21,7 +21,7 @@ export type ComputerReadinessIcon =
   | 'accessibility'
   | 'shield';
 
-export type ComputerReadinessAction =
+type ComputerReadinessAction =
   | { kind: 'approve_pc_access'; label: string }
   | { kind: 'allow_input'; label: string }
   | { kind: 'retry'; label: string }

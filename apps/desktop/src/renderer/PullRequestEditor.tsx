@@ -1,4 +1,5 @@
 // Pull request editor surface: overview, conversation, files and checks.
+import { errorMessage } from './editor-pane-session-errors';
 import { ArrowUpRight, Check, FileText, GitMerge, ListChecks, MessageSquare, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { DesktopPullRequestDetail } from '../shared/contract';
@@ -73,7 +74,7 @@ export function PullRequestEditor({
         setDiffs(splitPrDiff(diffText ?? ''));
         setCurrentBranch((branches ?? []).find((branch) => branch.current)?.name ?? '');
       } catch (cause) {
-        if (live) setDetailError(cause instanceof Error ? cause.message : String(cause));
+        if (live) setDetailError(errorMessage(cause));
       }
     })();
     return () => {
@@ -88,7 +89,7 @@ export function PullRequestEditor({
       setDetailError('');
       setRefresh((value) => value + 1);
     } catch (cause) {
-      setDetailError(cause instanceof Error ? cause.message : String(cause));
+      setDetailError(errorMessage(cause));
     } finally {
       setBusy('');
     }

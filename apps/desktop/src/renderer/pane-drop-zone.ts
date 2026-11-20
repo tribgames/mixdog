@@ -23,10 +23,10 @@ function edgeReach(size: number): number {
 
 /** Inner drop zone inside one pane — the drop-overlay positioning
  *  grammar (preferSplitVertically, the default openSideBySideDirection=
- *  "right"): an edge band offers a split — tab drags use 15% (user: the
- *  stock 10% felt too tight; the ONE sanctioned deviation from the refs
- *  numbers); group drags widen only the HORIZONTAL band to 30% while the
- *  vertical band stays 10%. Everything inside merges. A band hit resolves
+ *  "right"): an edge band offers a split — tab drags use 15% (the one
+ *  deviation from the reference's stock 10%, which felt too tight); group
+ *  drags widen only the HORIZONTAL band to 30% while the vertical band stays
+ *  10%. Everything inside merges. A band hit resolves
  *  its direction by THIRDS — the full left/right third aims a horizontal
  *  split; only the middle third splits up/down by vertical half. */
 export function paneInnerDropZone(

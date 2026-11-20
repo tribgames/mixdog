@@ -21,16 +21,6 @@ window.mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {} };
 const { createRoot } = await import('react-dom/client');
 const { AboutPanel } = await import('./about-panel.tsx');
 
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((a, b) => {
-    resolve = a;
-    reject = b;
-  });
-  return { promise, resolve, reject };
-}
-
 async function setup(t, submitFeedback) {
   const previous = window.mixdogDesktop;
   window.mixdogDesktop = { ...previous, ...(submitFeedback ? { submitFeedback } : {}) };
@@ -120,7 +110,7 @@ test('validation blocks empty, oversized and malformed input', async (t) => {
 });
 
 test('submit sends a normalized payload, blocks duplicates while pending, and reports receipt', async (t) => {
-  const pending = deferred();
+  const pending = Promise.withResolvers();
   const calls = [];
   const { opener } = await setup(t, (input) => {
     calls.push(input);
@@ -381,7 +371,7 @@ test('images: an unreadable file shows an error and adds nothing', async (t) => 
 test('images: draft survives failure, retry keeps id, image edits rotate it, sending disables edits', async (t) => {
   const reader = controlReader(t);
   const calls = [];
-  const gate = deferred();
+  const gate = Promise.withResolvers();
   let mode = 'fail';
   const { opener } = await setup(t, (input) => {
     calls.push(input);

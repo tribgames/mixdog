@@ -112,7 +112,10 @@ test('a mounted picker follows model and effort route feeds, not the running ses
   const lane = createSessionLane({
     protocol: {
       client: () => client,
-      onStoreChange: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+      onStoreChange: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
       onEvent: () => () => {},
       onReplaced: () => () => {},
       call: async () => ({ threads: [] }),
@@ -196,7 +199,10 @@ async function mountedStreamPicker(id, state, body) {
   const lane = createSessionLane({
     protocol: {
       client: () => client,
-      onStoreChange: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+      onStoreChange: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
       onEvent: () => () => {},
       onReplaced: () => () => {},
       call: async () => ({ threads: [] }),

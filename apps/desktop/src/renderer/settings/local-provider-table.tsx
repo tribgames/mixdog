@@ -15,7 +15,7 @@ type Tone = 'ok' | 'warn' | 'danger' | 'muted';
 /** One table row: an installed model, a model with an installation job, or
  *  the runtime download. Installing and failed work sits in the same list as
  *  the installed models, marked by its status. */
-export interface LocalProviderTableRow {
+interface LocalProviderTableRow {
   key: string;
   model: RecordValue | null;
   job: RecordValue | null;

@@ -12,11 +12,10 @@ import { waitForDesktopProviders } from '../desktop-provider-retry';
 import { errorMessage } from '../editor-pane-session-errors';
 import { record } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
+import type { RecordValue } from './capability-data';
 import { FOCUSABLE_SELECTOR, openModal, portaledMenuOpen, trapTab } from './dialog-modality';
 import { friendlyCapabilityError } from './remote-capability-guard';
 import { invokeOrHeld, readOrHeld } from '../section-capabilities';
-
-type RecordValue = Record<string, unknown>;
 
 async function readCapabilityBatch(
   api: DesktopApi,

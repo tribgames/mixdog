@@ -16,9 +16,10 @@ import { record } from '../record-utils';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { settingsStatus } from './capability-controls';
 import type { PanelContext, RecordValue } from './capability-data';
+import { openExternalUrl } from './desktop-bridge';
 
 function openSignInPage(url: unknown) {
-  if (typeof url === 'string' && url) void window.mixdogDesktop?.openExternal?.(url).catch(() => undefined);
+  if (typeof url === 'string' && url) openExternalUrl(url);
 }
 
 type OAuthLoginFlowOptions = {
@@ -221,7 +222,7 @@ function loginHost(url: string): string {
   }
 }
 
-export type OAuthPaste = {
+type OAuthPaste = {
   title: string;
   placeholder: string;
   ariaLabel: string;

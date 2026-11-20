@@ -7,8 +7,9 @@ import { t } from '../i18n';
 import { Group, ToggleRow } from './capability-controls';
 import { writeDesktopStatus } from './desktop-status-cache';
 import { useDesktopStatus } from './use-desktop-status';
+import { desktopBridge } from './desktop-bridge';
 
-const desktopApi = () => (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
+const desktopApi = () => desktopBridge<Partial<DesktopApi>>();
 
 export function QuotaAutoResumeToggle() {
   const api = desktopApi();

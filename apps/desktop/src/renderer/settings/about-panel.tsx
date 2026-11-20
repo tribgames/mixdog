@@ -1,9 +1,9 @@
 import { useEffect, useState, type ComponentType } from 'react';
-import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
 import { ActionButton, Group, ResourceRow } from './capability-controls';
 import { FeedbackDialog } from './feedback-dialog';
 import { rememberGithubStarred } from './github-star-storage';
+import { desktopBridge } from './desktop-bridge';
 
 const MIXDOG_REPO_URL = 'https://github.com/tribgames/mixdog';
 const MIXDOG_ISSUES_URL = 'https://github.com/tribgames/mixdog/issues';
@@ -11,7 +11,7 @@ const MIXDOG_SPONSOR_URL = 'https://github.com/sponsors/JYP8877';
 type ChangelogDialogComponent = ComponentType<{ onClose(): void }>;
 
 export function AboutPanel({ active = true }: { active?: boolean } = {}) {
-  const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
+  const host = desktopBridge();
   const [ghReady, setGhReady] = useState(false);
   const [starred, setStarred] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -29,7 +29,7 @@ export function AboutPanel({ active = true }: { active?: boolean } = {}) {
       })
       .catch(() => setActionError(t('Could not open the changelog.')));
   };
-  // biome-ignore lint/correctness/useExhaustiveDependencies: host is the window bridge read per render; it is kept as the re-query trigger.
+  // host is the window bridge read per render; it is kept as the re-query trigger.
   useEffect(() => {
     if (!active) return;
     setGhReady(false);
