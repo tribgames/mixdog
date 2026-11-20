@@ -60,7 +60,8 @@ export function GitDiffPane({
   selection: GitDiffSelection;
   active: boolean;
   onOpenFile?(project: string, rel: string): void;
-  /** Pane-dock host: the diff owns its close affordance. */
+  /** Pane-dock host: the diff owns its close affordance
+   *  because it has no Diff tab to close. */
   onClose?(): void;
   onReady?(): void;
 }) {

@@ -84,9 +84,8 @@ const near = (actual, expected, label) => {
   const a = numbers(actual.flat?.() ?? actual);
   const b = numbers(expected.flat?.() ?? expected);
   assert.equal(a.length, b.length, `${label}: ${JSON.stringify(actual)} vs ${JSON.stringify(expected)}`);
-  a.forEach((value, index) =>
-    assert.ok(Math.abs(value - b[index]) < 0.05, `${label}: ${JSON.stringify(actual)} vs ${JSON.stringify(expected)}`)
-  );
+  for (const [index, value] of a.entries())
+    assert.ok(Math.abs(value - b[index]) < 0.05, `${label}: ${JSON.stringify(actual)} vs ${JSON.stringify(expected)}`);
 };
 
 // What the former timelines produced at scroll position `top` of `max`

@@ -13,7 +13,7 @@ import { closeOnUserScroll } from './menu-dismiss';
 import { useMobileBack } from './mobile-back';
 import { RailPinIcon } from './RailPinIcon';
 
-const ENABLED_MENU_ITEM_SELECTOR =
+export const ENABLED_MENU_ITEM_SELECTOR =
   "[role='menuitem']:not(:disabled), [role='menuitemradio']:not(:disabled), [role='menuitemcheckbox']:not(:disabled)";
 
 export interface ScmContextMenuItem {

@@ -304,7 +304,8 @@ export function WorkbenchSideIconBar({
             }}
             onClick={() => onSelect(root)}
           >
-            {/* Horizontal bars share the status island's 20px lucide tier. */}
+            {/* Horizontal bars share the status island's 20px lucide tier;
+                they looked thinner beside the status icons at a smaller size. */}
             <Icon size={orientation === 'vertical' ? 24 : 20} aria-hidden="true" />
           </button>
         );

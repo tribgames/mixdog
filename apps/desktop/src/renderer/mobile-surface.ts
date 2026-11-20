@@ -131,7 +131,8 @@ export function installMobileSurfaceMarker(): () => void {
   // engine recalculate the WHOLE document. Android fires visualViewport
   // resize continuously while the URL bar collapses and the keyboard animates,
   // so the sync is coalesced into one frame and only touches the DOM when a
-  // value actually changed.
+  // value actually changed. Recalculating the phone layout on every repeated
+  // viewport event made buttons slow to respond.
   let frame = 0;
   let appliedMobile: boolean | null = null;
   let appliedIOS: boolean | null = null;

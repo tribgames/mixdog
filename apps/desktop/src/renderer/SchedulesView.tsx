@@ -163,7 +163,7 @@ const scheduleSortOptions = (): Array<{ value: ScheduleSort; label: string }> =>
   { value: 'bot', label: t('By bot') },
 ];
 
-/** A 주기 group's title. */
+/** A cadence group's title. */
 function cadenceLabel(cadence: Cadence): string {
   if (cadence === 'custom') return t('Other');
   return frequencyOptions().find((option) => option.value === cadence)?.label ?? cadence;
@@ -186,7 +186,8 @@ function cadenceTime(schedule: RecordValue): string {
 // onto editable form state. Results always deliver to the app session.
 function scheduleDraft(schedule: RecordValue | undefined, defaultAgent: string): ScheduleDraft {
   const source = record(schedule);
-  const parsedAt = source.whenAt ? new Date(String(source.whenAt)) : null;
+  const whenAt = source.whenAt ? new Date(String(source.whenAt)) : null;
+  const parsedAt = whenAt && !Number.isNaN(whenAt.getTime()) ? whenAt : null;
   const cron = String(source.whenCron || '');
   const parsed = frequencyFromCron(cron);
   let frequency: FrequencyKind = parsed.kind;
@@ -198,8 +199,8 @@ function scheduleDraft(schedule: RecordValue | undefined, defaultAgent: string):
     minute: parsed.minute,
     clock: parsed.clock,
     weekday: parsed.weekday,
-    at: parsedAt && !Number.isNaN(parsedAt.getTime()) ? datetimeLocalValue(parsedAt) : '',
-    whenAt: parsedAt && !Number.isNaN(parsedAt.getTime()) ? parsedAt.toISOString() : '',
+    at: parsedAt ? datetimeLocalValue(parsedAt) : '',
+    whenAt: parsedAt ? parsedAt.toISOString() : '',
     cwd: String(source.cwd || ''),
     attachments: attachmentsFromRecords(source.attachments),
     agent: automationAgentOf(schedule, defaultAgent),
@@ -314,7 +315,7 @@ function ScheduleEditor({
               maxLength={64}
             />
           </label>
-          {/* Field order (user decision): composer right under Name, then
+          {/* Field order: composer right under Name, then
             Project → Delivery → Frequency as labeled fields. */}
           <div className="schedules-composer">
             <textarea
@@ -530,7 +531,7 @@ export function SchedulesPane({
     currentEditorId.current = null;
     setEditor(null);
   };
-  // A bot room's "루틴 만들기": the new-schedule editor with that bot preselected.
+  // A bot room's "Create routine": the new-schedule editor with that bot preselected.
   useNewScheduleRequest(active, (agentId) => {
     openEditor('', scheduleDraft(undefined, agentId));
   });

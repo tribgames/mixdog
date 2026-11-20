@@ -65,7 +65,8 @@ type ReadContext = {
 /** The session's turn scope. A long turn's prompt row can fall out of the
  *  transcript tail the daemon sends. The rows left are still that turn, so it
  *  keeps its scope: the shared `none` scope held an unrelated earlier review
- *  and skipped the checkpoint check. */
+ *  and skipped the checkpoint check. Reusing an unrelated review made the diff
+ *  above the composer briefly show the wrong change count before it vanished. */
 function useTurnReviewScope(items: TranscriptItem[], sessionId: string | undefined) {
   const reviewSession = String(sessionId || 'draft');
   const rememberedScope = useRef<{ session: string; key: string } | null>(null);

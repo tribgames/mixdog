@@ -780,7 +780,8 @@ function StarStep({ api }: { api: DesktopApi }) {
       .finally(() => setBusy(false));
   };
   // A GitHub-repo-card composition (familiar, concrete) instead of a glowing
-  // poster tile.
+  // poster tile; the glowing poster treatment looked like generic AI-generated
+  // artwork.
   return (
     <div className="onboarding-card">
       <div className="onboarding-card-head">
