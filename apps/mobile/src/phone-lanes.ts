@@ -1,4 +1,4 @@
-// Node's `setRemoteLanes`: the page names the push lanes it reads (terminal, files, editor, visualize) so the desktop stops sending
+// The page names the push lanes it reads (terminal, files, editor, visualize) so the desktop stops sending
 // the rest. The protocol has no lane registry: what a lane carries is a set of scoped feeds, opened with `feed/subscribe` and
 // closed with `feed/unsubscribe`. The adapter that owns a lane declares its feed ids; this module keeps exactly the feeds of the
 // lanes in use open, and opens them again on every new connection (a connection starts with none).

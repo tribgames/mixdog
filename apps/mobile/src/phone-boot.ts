@@ -1,7 +1,6 @@
-// The relay web app's connection to the PC, on `phone-client`. It replaces the Node shim's socket, liveness, view-sync and call
-// modules: credentials and registration run before the dial, the protocol client carries everything after it, and the existing
-// connection indicator (`data-mixdog-remote-connection` / `-phase`, read by the banner and the gates) is driven from the client's
-// status so nothing that reads it changes.
+// The relay web app's connection to the PC, on `phone-client`. Credentials and registration run before the dial, the
+// protocol client carries everything after it, and the connection indicator (`data-mixdog-remote-connection` / `-phase`, read by the
+// banner and the gates) is driven from the client's status.
 import { ladderDelay, type ProtocolClient, type SessionFold } from '../../../packages/protocol-client/src/index.ts';
 import { earlyUiT } from '../../desktop/src/renderer/early-ui-i18n.ts';
 import {
@@ -60,7 +59,7 @@ export interface PhoneBoot {
   useLanes(lanes: Iterable<string>): void;
   declareLane(lane: string, feedIds: readonly string[]): void;
   readonly link: PhoneClient['link'] | undefined;
-  /** Node's wakeProbe: what an overdue or silent call asks of the connection. */
+  /** The wake probe: what an overdue or silent call asks of the connection. */
   wakeProbe(): void;
   /** Nothing has arrived since `since` and no probe is out. */
   silentSince(since: number): boolean;
@@ -105,9 +104,9 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     for (const listener of pairingResetListeners) listener();
     void retired?.client.close();
   };
-  // The page told the PC it is in the background (Node's `reportedBackground`).
+  // The page told the PC it is in the background.
   let background = false;
-  // Node's resyncOnWake / resyncAfterWakeProbe: a page that was away, or whose connection ended, resyncs on its next wake, and only once the relay
+  // A page that was away, or whose connection ended, resyncs on its next wake, and only once the relay
   // has answered that wake's probe (a leg that does not answer is replaced by a connection that syncs on its own).
   let resyncOnWake = false;
   let resyncAfterProbe = false;
@@ -144,7 +143,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     switch (next.state) {
       case 'connecting':
       case 'reconnecting':
-        // Node's finishClose: no connection is ready, and until a host's challenge says otherwise there is no host to read capabilities from.
+        // No connection is ready, and until a host's challenge says otherwise there is no host to read capabilities from.
         ctx.connectionReady = false;
         ctx.peerBrowserWebrtc = 0;
         ctx.peerBrowserFit = null;
@@ -155,7 +154,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
         background = hidden();
         resyncOnWake = false;
         ctx.connectionReady = true;
-        // Node's finishOpen: connection history is recorded at once, so a first connection that dies before its first sync completes still
+        // Connection history is recorded at once, so a first connection that dies before its first sync completes still
         // makes its replacement a reconnection; the notice is told after that replacement syncs (onSynced).
         ctx.pendingReconnectNotification = ctx.everConnected;
         ctx.everConnected = true;
@@ -306,7 +305,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       },
       resyncHint: (word) => {
         if (generation !== pairingGeneration) return;
-        // A `frame-too-large` notice carries the ceiling the relay enforces: learned, and told to the user (Node: handleClearResync).
+        // A `frame-too-large` notice carries the ceiling the relay enforces: learned, and told to the user.
         const rejected = readRelayPayloadRejection(word, false);
         if (rejected) ctx.limits.applyRelayPayloadRejection(rejected);
         wakeView(true);

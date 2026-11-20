@@ -15,7 +15,7 @@ import {
 
 type Client = ProtocolClient<SessionFold>;
 
-/** The sections the page's store carries. Not `notice`: Node showed a phone a desktop notice only as it was raised, never one standing
+/** The sections the page's store carries. Not `notice`: a phone is shown a desktop notice only as it is raised, never one standing
  *  when it connected, so the phone's notices come from the notifications adapter (remote-protocol-notifications.ts) as raises the
  *  connected client hears, through `subscribeDesktopNotices`, not from held entries. */
 const NAMES = SECTION_NAMES.filter((name) => name !== 'notice');

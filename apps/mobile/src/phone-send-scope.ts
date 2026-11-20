@@ -1,5 +1,4 @@
-// Which call a request frame belongs to. Node ties a call's deadline restart and silence probe to that call's own `sendApplicationFrame`
-// promise (remote-shim-calls.ts:258-273). Here the call's claim travels with its request as the `sent` option of the client method, down to the
+// Which call a request frame belongs to. A call's deadline restart and silence probe hang on its own frame's departure: the call's claim travels with its request as the `sent` option of the client method, down to the
 // `TransportWriter.send(text, sent)` of that exact frame, however long the method waits before writing (the connection, a digest). A call that
 // never sends registers nothing, and no frame is ever claimed by a call other than the one whose method wrote it.
 import type { SentClaim } from '../../../packages/protocol-client/src/index.ts';

@@ -8,25 +8,15 @@
 // the client library; a closed socket is reported once through the sink.
 //
 // When the desktop offers the MXT transport (challenge `transportWebrtc` +
-// `binaryFrames`) and the page can run WebRTC, the session upgrades exactly as
-// before: the stream core in `remote-transport-peer` carries every message over
-// the relay lane and, once negotiated, the direct data-channel carrier. The
-// desktop side of that negotiation is the core's carrier (SPEC §4.7); this side
-// is unchanged on the wire (DS-REM-9).
+// `binaryFrames`) and the page can run WebRTC, the session upgrades: the stream
+// core in `remote-transport-peer` carries every message over the relay lane and,
+// once negotiated, the direct data-channel carrier (the desktop side of that
+// negotiation is the core's carrier, SPEC §4.7). One socket's life lives in
+// `relay-session.ts`; this module owns what outlives a socket: the page
+// lifecycle hooks, the hold while the page is away, and the parked socket.
 import type { Connector, Target, TransportWriter } from '../../../packages/protocol-client/src/index.ts';
-import {
-  createRelayE2EEClientHandshake,
-  isRelayE2EEChallenge,
-  type RelayE2EEChannel,
-  type RelayE2EEChallenge,
-  type RelayE2EEPairingMaterial,
-} from '../../desktop/src/shared/remote-e2ee.ts';
-import {
-  createRemoteTransportPeer,
-  remoteTransportOptIn,
-  CarrierDeparture,
-  type RemoteTransportPeer,
-} from '../../desktop/src/renderer/remote-transport-peer.ts';
+import type { RelayE2EEPairingMaterial } from '../../desktop/src/shared/remote-e2ee.ts';
+import { CLOSE_NORMAL, RelaySession, closeParked, type ConnectorState } from './relay-session.ts';
 
 /** The browser WebSocket surface this connector uses. */
 export interface RelaySocket {
@@ -87,7 +77,7 @@ export interface RelayConnector extends Connector {
   hidden(): void;
   /** Visible again: release a suspension and probe the live socket (and both transport paths) at once. True when a socket was probed. */
   wake(): boolean;
-  /** Nothing has arrived on the live socket since `since`, and no probe is out: a call sent then is worth a probe (Node: remote-shim-calls.ts:264-267). */
+  /** Nothing has arrived on the live socket since `since`, and no probe is out: a call sent then is worth a probe. */
   silentSince(since: number): boolean;
   /** The page stayed in the background: end the socket with 1000 `background` once what was handed to it is sent, and hold every open until `wake`. */
   suspend(): void;
@@ -96,65 +86,17 @@ export interface RelayConnector extends Connector {
   retire(): void;
 }
 
-/** Challenges a joining socket may answer again after its first one: each is one desktop leg replaced mid-handshake. */
-const MAX_HANDSHAKE_RESTARTS = 2;
-/** Socket opening and the E2EE handshake must each finish within these (today's deadlines). */
-const OPEN_DEADLINE_MS = 12_000;
-const HANDSHAKE_DEADLINE_MS = 10_000;
-const CLOSE_PROTOCOL_ERROR = 1002;
-const CLOSE_HANDSHAKE_TIMEOUT = 4408;
-const CLOSE_NORMAL = 1000;
-/** The logical end of a session whose desktop leg went away while the relay kept the socket. */
-const CLOSE_DESKTOP_LEG_GONE = 1012;
-/** Keepalive: the relay answers a cleartext `{"ping":1}` with `{"pong":1}`; a socket silent this long is probed, and one
- *  whose probe stays unanswered is recycled. */
-const KEEPALIVE_TICK_MS = 5_000;
-const SILENCE_BEFORE_PING_MS = 25_000;
-const PONG_DEADLINE_MS = 10_000;
-/** A foreground wake probes at once; frames still arriving this long after the probe prove a live leg, earlier ones may be a frozen page's backlog. */
-const WAKE_PROBE_MS = 2_500;
-const WAKE_TRAFFIC_PROOF_MS = 1_000;
-const PING = '{"ping":1}';
-
-const timers = {
-  setTimeout: (callback: () => void, ms: number): unknown => setTimeout(callback, ms),
-  clearTimeout: (handle: unknown): void => clearTimeout(handle as ReturnType<typeof setTimeout>),
-};
-
 export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
-  let active: RemoteTransportPeer | null = null;
-  // The session that owns the socket now: the page lifecycle hooks act on it.
-  let current: Session | null = null;
-  // A socket whose desktop leg went away while the relay kept it: the relay re-challenges it when the desktop returns, so the
-  // next open takes it over instead of dialing again. Frames that arrive meanwhile (the new challenge) wait here.
-  let parked: { readonly ws: RelaySocket; readonly inbox: unknown[] } | null = null;
+  const state: ConnectorState = { active: null, current: null, parked: null };
   let suspended = false;
   let release: (() => void) | null = null;
   let held: Promise<void> | null = null;
-
-  interface Session {
-    /** False for a socket that is still opening or handshaking: nothing to prove yet, and a wake must not recycle a healthy first dial. */
-    probe(): boolean;
-    silentSince(since: number): boolean;
-    unprove(): void;
-    recycle(code: number, reason: string): void;
-    retire(): void;
-    suspend(): void;
-  }
 
   const away = (): boolean => suspended || (deps.visible ? !deps.visible() : false);
   deps.signal?.addEventListener('abort', () => {
     release?.();
     // The abort ends every socket the connector still owns, a parked one (no session, no listener of its own) included.
-    if (parked) {
-      const { ws } = parked;
-      parked = null;
-      try {
-        ws.close();
-      } catch {
-        // already gone
-      }
-    }
+    closeParked(state);
   });
   const hold = (): Promise<void> => {
     held ??= new Promise<void>((resolve) => {
@@ -163,10 +105,10 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
     return held;
   };
 
-  const connector: RelayConnector = {
+  return {
     hidden: () => {
-      active?.hidden();
-      current?.unprove();
+      state.active?.hidden();
+      state.current?.unprove();
     },
     wake: () => {
       if (suspended || held) {
@@ -177,387 +119,35 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
         resume?.();
         return false;
       }
-      const probing = current?.probe() ?? false;
-      active?.wake();
+      const probing = state.current?.probe() ?? false;
+      state.active?.wake();
       return probing;
     },
-    retire: () => current?.retire(),
-    silentSince: (since) => current?.silentSince(since) ?? false,
+    retire: () => state.current?.retire(),
+    silentSince: (since) => state.current?.silentSince(since) ?? false,
     suspend: () => {
       suspended = true;
       hold();
-      current?.suspend();
+      state.current?.suspend();
       // A socket parked on `desktop-gone` has no session; the background ends it too.
-      if (parked) {
-        const { ws } = parked;
-        parked = null;
-        try {
-          ws.close(CLOSE_NORMAL, 'background');
-        } catch {
-          // already gone
-        }
-      }
+      closeParked(state, CLOSE_NORMAL, 'background');
     },
     get suspended() {
       return suspended;
     },
     open: async (target, sink) => {
-      // Rule B: no socket while the page is hidden or suspended; the wake that brings it back (or an abort) ends the hold.
+      // No socket while the page is hidden or suspended; the wake that brings it back (or an abort) ends the hold.
       while (away() && !deps.signal?.aborted) await hold();
       if (deps.signal?.aborted) throw new Error('aborted');
       deps.dialing?.();
       return new Promise<TransportWriter>((resolve, reject) => {
-        const reuse = parked;
-        parked = null;
+        const reuse = state.parked;
+        state.parked = null;
         const ws = reuse?.ws ?? deps.createSocket(deps.socketUrl(target));
         ws.binaryType = 'arraybuffer';
-        const pairing = deps.pairing(target);
-        let channel: RelayE2EEChannel | null = null;
-        let mediaSid = '';
-        let binaryFrames = false;
-        let peer: RemoteTransportPeer | null = null;
-        // The current challenge offered the transport: a transcript in `e2ee-ready` is then expected, and without the offer forbidden.
-        let offerSeen = false;
-        let ready = false;
-        let finished = false;
-        let quiet = false;
-        // Hidden or probed since it last proved itself: its death is the cost of the background, not an outage.
-        let unproven = false;
-        // Requests sent and not yet answered: a keepalive recycle is invisible only while nothing waits on the socket.
-        const inflight = new Set<unknown>();
-        let challengesSeen = 0;
-        let generation = 0;
-        let lastTrafficAt = Date.now();
-        let pingSentAt = 0;
-        let awaitingPong = false;
-        let wakeTimer: ReturnType<typeof setTimeout> | undefined;
-        let deadline: ReturnType<typeof setTimeout> | undefined = setTimeout(
-          () => fail(CLOSE_HANDSHAKE_TIMEOUT, 'relay connection timed out'),
-          reuse ? HANDSHAKE_DEADLINE_MS : OPEN_DEADLINE_MS
-        );
-        const arm = (ms: number): void => {
-          clearTimeout(deadline);
-          deadline = setTimeout(() => fail(CLOSE_HANDSHAKE_TIMEOUT, 'relay handshake timed out'), ms);
-        };
-        const stopTimers = (): void => {
-          clearTimeout(deadline);
-          deadline = undefined;
-          clearTimeout(wakeTimer);
-          wakeTimer = undefined;
-          clearInterval(keepalive);
-          if (current === session) current = null;
-        };
-        // Ends this attempt exactly once: before ready it rejects the open, after ready it is the sink's one `closed`.
-        const finish = (code: number, reason: string, remote: boolean): void => {
-          if (finished) return;
-          finished = true;
-          deps.signal?.removeEventListener('abort', onAbort);
-          stopTimers();
-          closePeer();
-          if (unproven) quiet = true;
-          deps.closed?.(code, reason, { ready, remote, quiet });
-          if (ready) sink.closed(code, reason);
-          else reject(new Error(`relay socket closed before ready (${code}${reason ? ` ${reason}` : ''})`));
-        };
-        // An aborted attempt closes its socket and reports nothing further than the one close.
-        const onAbort = (): void => fail(CLOSE_NORMAL, 'aborted', true);
-        deps.signal?.addEventListener('abort', onAbort, { once: true });
-        // A new handshake or the end of the socket ends the transport stream with it.
-        const closePeer = (): void => {
-          peer?.close();
-          if (active === peer) active = null;
-          peer = null;
-        };
-        // With `bare`, closes without a status, as the page's own recycles always did (the relay then reads 1005).
-        const fail = (code: number, reason: string, bare = false): void => {
-          if (finished) return;
-          try {
-            // A browser WebSocket throws on any code but 1000 and 3000-4999 (1002 included), leaving the socket open.
-            if (bare || (code !== CLOSE_NORMAL && (code < 3000 || code > 4999))) ws.close();
-            else ws.close(code, reason);
-          } catch {
-            // the socket is already gone; finish() below still ends the attempt
-          }
-          finish(code, reason, false);
-        };
-        // The desktop leg behind this ready session is gone but the relay kept the socket: the session ends (its calls fail
-        // as for any lost connection) and the socket waits for the desktop's next challenge.
-        const park = (waiting: unknown[]): void => {
-          if (finished || !ready) return;
-          finished = true;
-          deps.signal?.removeEventListener('abort', onAbort);
-          quiet = waiting.length > 0;
-          stopTimers();
-          closePeer();
-          const mine = { ws, inbox: [...waiting] };
-          parked = mine;
-          ws.onmessage = (event) => {
-            if (typeof event.data === 'string') mine.inbox.push(event.data);
-          };
-          ws.onclose = (event) => {
-            // A socket the connector no longer owns (taken over, or closed by a suspension) says nothing.
-            if (parked !== mine) return;
-            parked = null;
-            deps.closed?.(event.code, event.reason, { ready: false, remote: true, quiet: false });
-          };
-          const reason = quiet ? 'desktop leg replaced' : 'desktop leg gone';
-          deps.closed?.(CLOSE_DESKTOP_LEG_GONE, reason, { ready: true, remote: false, quiet });
-          sink.closed(CLOSE_DESKTOP_LEG_GONE, reason);
-        };
-        const recycle = (code: number, reason: string): void => {
-          if (inflight.size === 0) quiet = true;
-          fail(code, reason, true);
-        };
-
-        let inbound: Promise<void> = Promise.resolve();
-        // One authenticated application message, whichever lane carried it.
-        const deliver = (message: unknown): void => {
-          if (finished) return;
-          if (!ready) {
-            const hello = message as { type?: unknown; version?: unknown; transcript?: unknown } | null;
-            if (hello?.type !== 'e2ee-ready' || hello.version !== 1) throw new Error('relay data before encryption was ready');
-            // A transcript answers an offer; one with no offer means the relay stripped the offer.
-            if (hello.transcript !== undefined && !offerSeen) throw new Error('relay encryption handshake transcript mismatch');
-            channel!.confirmHandshake(hello);
-            peer?.confirm();
-            ready = true;
-            clearTimeout(deadline);
-            deadline = undefined;
-            const key = channel!.mediaKey;
-            deps.ready?.(hello as Record<string, unknown>, key ? { sid: mediaSid, key } : undefined);
-            resolve(writer);
-            return;
-          }
-          const answered = message as { id?: unknown; method?: unknown } | null;
-          if (answered && answered.id !== undefined && answered.method === undefined) inflight.delete(answered.id);
-          sink.frame(JSON.stringify(message));
-        };
-        // The relay's own cleartext words: a pong answers a probe, `resync: desktop-gone` says the desktop leg left.
-        const clearWord = (word: Record<string, unknown>): boolean => {
-          awaitingPong = false;
-          if ('pong' in word) {
-            if (wakeTimer !== undefined) {
-              clearTimeout(wakeTimer);
-              wakeTimer = undefined;
-              proven();
-            }
-            return true;
-          }
-          if ('resync' in word) {
-            if (word.resync === 'desktop-gone') park([]);
-            else deps.resyncHint?.(word);
-            return true;
-          }
-          return false;
-        };
-        // The leg answered a wake probe: it is live again.
-        const proven = (): void => {
-          unproven = false;
-          deps.probeAnswered?.();
-        };
-        const handle = async (data: unknown): Promise<void> => {
-          let sealed: unknown = data;
-          if (typeof data === 'string') {
-            const parsed: unknown = JSON.parse(data);
-            if (parsed && typeof parsed === 'object' && clearWord(parsed as Record<string, unknown>)) return;
-            if (isRelayE2EEChallenge(parsed)) {
-              // A challenge after ready means the desktop leg was replaced: the session ends and the next open answers it.
-              if (ready) {
-                park([data]);
-                return;
-              }
-              await answerChallenge(parsed);
-              return;
-            }
-            sealed = parsed;
-          } else if (peer) {
-            peer.receiveRelay(data);
-            return;
-          }
-          if (!channel) throw new Error('relay data before the encryption handshake');
-          if (peer) throw new Error('relay sent a plain frame on a transport session');
-          deliver(await channel.decryptJson(sealed));
-        };
-        const answerChallenge = async (challenge: RelayE2EEChallenge): Promise<void> => {
-          challengesSeen += 1;
-          if (reuse && challengesSeen === 1) deps.reused?.();
-          deps.encrypting?.();
-          if (challengesSeen > MAX_HANDSHAKE_RESTARTS + 1) throw new Error('duplicate relay encryption challenge');
-          const mine = ++generation;
-          channel = null;
-          closePeer();
-          binaryFrames = challenge.binaryFrames === 1;
-          offerSeen = challenge.transportWebrtc === 1 && challenge.binaryFrames === 1;
-          arm(HANDSHAKE_DEADLINE_MS);
-          const optIn = deps.webrtc !== undefined && remoteTransportOptIn(challenge, true);
-          const handshake = await createRelayE2EEClientHandshake(pairing, challenge, optIn ? { transportWebrtc: true } : {});
-          // A newer challenge arrived while this one was being answered.
-          if (finished || mine !== generation) return;
-          channel = handshake.channel;
-          mediaSid = challenge.challenge;
-          if (channel.transportEnabled) {
-            const webrtc = deps.webrtc!;
-            const created = createRemoteTransportPeer({
-              channel,
-              sessionId: challenge.challenge,
-              relay: { send: (bytes) => ws.send(bytes), bufferedAmount: () => ws.bufferedAmount },
-              deliver,
-              // Each newly authenticated record of a message still arriving is the core's progress (the peer reports it once, before
-              // assembly); the relay's pong and the transport's acknowledgements never reach here.
-              progress: () => {
-                if (!finished) sink.progress?.();
-              },
-              fatal: (error) => {
-                if (peer === created) fail(CLOSE_PROTOCOL_ERROR, `transport failed: ${error.message}`);
-              },
-              createPeer: webrtc.createPeer,
-              visible: webrtc.visible,
-              timers,
-              log: webrtc.log,
-            });
-            peer = created;
-            active = created;
-          }
-          ws.send(JSON.stringify(handshake.hello));
-        };
-
-        // The plain (untransported) leg's own queue: a frame has left once the socket's buffer holds no more than what was sent after it.
-        const wsDeparture = new CarrierDeparture(() => ws.bufferedAmount, () => !finished, timers);
-        const sendPlain = (data: string | Uint8Array): void => {
-          ws.send(data);
-          wsDeparture.enqueue(typeof data === 'string' ? new TextEncoder().encode(data).byteLength : data.byteLength);
-        };
-        let outbound: Promise<void> = Promise.resolve();
-        const writer: TransportWriter = {
-          send: (text, claim) => {
-            // The call that wrote this request frame handed its own claim down with it; that call alone learns when the frame left.
-            // "Left" is local departure: the frame handed to the carrier and the carrier's own buffer empty again (the socket's
-            // `bufferedAmount`, or the peer's carrier), never the admission of the frame to a queue and never the core's answer.
-            const request = JSON.parse(text) as { id?: unknown; method?: unknown } | null;
-            const isRequest = request !== null && request.id !== undefined && request.method !== undefined;
-            let left: (() => void) | undefined;
-            let notLeft: ((error: Error) => void) | undefined;
-            if (isRequest && claim) {
-              const receipt = new Promise<void>((resolve, reject) => {
-                left = resolve;
-                notLeft = reject;
-              });
-              receipt.catch(() => {});
-              claim(receipt);
-            }
-            // Sealing is asynchronous: chaining keeps wire order equal to send order.
-            outbound = outbound
-              .then(async () => {
-                if (finished || !channel) return notLeft?.(new Error('The connection ended before the frame was sent.'));
-                if (isRequest) inflight.add(request?.id);
-                if (peer) {
-                  // Admission resolves here, so later frames keep their order; the departure follows on its own.
-                  const { departed } = await peer.sendDeparting(request);
-                  if (left) departed.then(left, notLeft);
-                } else {
-                  const sealed = binaryFrames ? await channel.encryptBinary(request) : await channel.encryptJson(request);
-                  // The leg may have ended while the frame was sealing: it never reaches the relay, and its call is not told it left.
-                  if (finished) return notLeft?.(new Error('The connection ended before the frame was sent.'));
-                  sendPlain(sealed);
-                  if (left) wsDeparture.since(wsDeparture.position()).then(left, notLeft);
-                }
-              })
-              .catch((error: unknown) => {
-                notLeft?.(error instanceof Error ? error : new Error(String(error)));
-                fail(CLOSE_PROTOCOL_ERROR, 'frame failed');
-              });
-          },
-          close: (code, reason) => fail(code, reason),
-          // The receive work already accepted: this connector's own chain, then the transport peer's (authentication, assembly).
-          settled: async () => {
-            for (let chain = inbound; ; chain = inbound) {
-              await chain.catch(() => undefined);
-              await peer?.settled().catch(() => undefined);
-              if (chain === inbound) return;
-            }
-          },
-        };
-
-        const sendPing = (): void => {
-          try {
-            sendPlain(PING);
-          } catch {
-            // surfaces as a close
-          }
-        };
-        // A socket silent for a while is probed; one whose probe stays unanswered is half dead and is recycled.
-        const keepalive = setInterval(() => {
-          if (finished || !(deps.visible?.() ?? true)) {
-            awaitingPong = false;
-            return;
-          }
-          const now = Date.now();
-          if (awaitingPong) {
-            if (now - pingSentAt >= PONG_DEADLINE_MS) {
-              awaitingPong = false;
-              deps.unresponsive?.();
-              recycle(CLOSE_NORMAL, 'keepalive timed out');
-            }
-            return;
-          }
-          if (now - Math.max(lastTrafficAt, pingSentAt) >= SILENCE_BEFORE_PING_MS) {
-            pingSentAt = now;
-            awaitingPong = true;
-            sendPing();
-          }
-        }, KEEPALIVE_TICK_MS);
-        const session: Session = {
-          unprove: () => {
-            if (!finished) unproven = true;
-          },
-          probe: () => {
-            if (finished || !ready) return false;
-            unproven = true;
-            pingSentAt = Date.now();
-            awaitingPong = true;
-            sendPing();
-            clearTimeout(wakeTimer);
-            const sentAt = pingSentAt;
-            wakeTimer = setTimeout(() => {
-              wakeTimer = undefined;
-              // A leg still delivering a backlog queues the pong behind it.
-              if (lastTrafficAt - sentAt >= WAKE_TRAFFIC_PROOF_MS) {
-                proven();
-                return;
-              }
-              awaitingPong = false;
-              deps.unresponsive?.();
-              recycle(CLOSE_NORMAL, 'wake probe unanswered');
-            }, WAKE_PROBE_MS);
-            return true;
-          },
-          silentSince: (since) => wakeTimer === undefined && lastTrafficAt < since,
-          recycle,
-          retire: () => fail(CLOSE_NORMAL, 'view sync failed', true),
-          // What was handed to the socket (the background report) leaves first, then the transport says it is suspended.
-          suspend: () => {
-            quiet = true;
-            outbound = outbound
-              .then(() => peer?.suspend())
-              .catch(() => undefined)
-              .finally(() => fail(CLOSE_NORMAL, 'background'));
-          },
-        };
-        current = session;
-
-        ws.onmessage = (event) => {
-          lastTrafficAt = Date.now();
-          inbound = inbound.then(() => (finished ? undefined : handle(event.data))).catch(() => fail(CLOSE_PROTOCOL_ERROR, 'frame failed', true));
-        };
-        ws.onclose = (event) => finish(event.code, event.reason, true);
-        ws.onerror = () => {};
-        ws.onopen = () => {
-          arm(HANDSHAKE_DEADLINE_MS);
-          deps.encrypting?.();
-        };
-        if (reuse) for (const data of reuse.inbox) ws.onmessage({ data });
+        new RelaySession({ state, deps, ws, pairing: deps.pairing(target), reuse, sink, resolve, reject });
       });
     },
   };
-  return connector;
 }
+

@@ -1,7 +1,7 @@
 // What the phone tells the core about its own screen: the same `ui/screenSessions/changed` notification the desktop sends, with
 // the visibility rules applied here. The set is empty while the page is hidden or the app is in the background, so the core
 // needs no phone-specific frames and decides "is the user already looking at this thread" for push suppression from this alone.
-// Two more fields are Node's `setForeground` and `setVisualizePanels`: the core counts this phone as viewing a session's
+// Two more fields are the foreground flag and the visualize panels: the core counts this phone as viewing a session's
 // visualize panel only in the foreground and for the panels reported here.
 import type { ClientEvent, ConnectionStatus, Json } from '../../../packages/protocol-client/src/index.ts';
 
@@ -31,7 +31,7 @@ export interface ScreenSink {
 export interface ScreenReporter {
   /** The page or the shown threads changed: send the new set if it differs from the last one the core has. */
   refresh(): void;
-  /** The connection that is up finished its view sync: state the screen on it (Node's setForeground leaves on the connection-ready event, after the sync). */
+  /** The connection that is up finished its view sync: state the screen on it (after the sync, not on the connection-ready event). */
   synced(): void;
   stop(): void;
 }

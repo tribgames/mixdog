@@ -1,7 +1,6 @@
-// What the phone has open on the core: the threads its panes show, plus the app feed. This replaces Node's `setVisibleSessions` /
-// `synchronizeViews` pair. A thread is subscribed with `thread/resume` and dropped with `thread/unsubscribe`.
+// What the phone has open on the core: the threads its panes show, plus the app feed. A thread is subscribed with `thread/resume` and dropped with `thread/unsubscribe`.
 //
-// The state machine that decides when the app's calls may leave is Node's, ported whole (phone-view-sync.ts): this file only says what one
+// The state machine that decides when the app's calls may leave is `phone-view-sync.ts`: this file only says what one
 // "sync" is in the protocol's dialect -- the app feed and every wanted thread attached on the connection that is up -- and tells the machine
 // when a connection began and ended. Nothing else (no subscription event, no status of the client) opens or closes the gate.
 //
@@ -51,7 +50,7 @@ export type ViewClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'uns
 };
 
 export interface ViewManager {
-  /** The page names the threads it shows. Resolves true once they are open; rejects as interrupted when the connection ends first (Node: viewSync.close() rejects its waiters, remote-view-sync.ts:97). */
+  /** The page names the threads it shows. Resolves true once they are open; rejects as interrupted when the connection ends first. */
   set(threadIds: readonly string[]): Promise<boolean>;
   /** Asks the core again for the app feed and every open thread (they resume from where they were): the page doubts the stream, e.g. after a wake. Settles like `set`. */
   resync(): Promise<boolean>;
@@ -60,7 +59,7 @@ export interface ViewManager {
   /** The gate of what needs only the app feed (the conversation list): the connection's app subscription is attached, whatever its
    *  threads are doing. Rejects as interrupted when the connection ends first. */
   appSynced(): Promise<void>;
-  /** The gate of the app's calls (Node: `viewSync.ready()` after `connect()`): a caller that arrives while no connection is up waits for the next one; then it waits for everything asked of the core to be attached, retries included, and rejects as interrupted when that connection ends first. */
+  /** The gate of the app's calls: a caller that arrives while no connection is up waits for the next one; then it waits for everything asked of the core to be attached, retries included, and rejects as interrupted when that connection ends first. */
   synced(): Promise<void>;
   stop(): void;
 }
@@ -70,9 +69,9 @@ export function createViewManager(
   options: {
     /** Threads of the last visit: opened with the first connection, whatever the panes name first. */
     restored: readonly string[];
-    /** Threads the page names now (Node: ctx.lastVisibleSessionIds, which the first sync reads). */
+    /** Threads the page names now, which the first sync reads. */
     wanted: readonly string[];
-    /** Called each time everything asked of the core has been attached (Node: createRemoteViewSync's `state('connected')`). */
+    /** Called each time everything asked of the core has been attached. */
     onSynced(): void;
     /** A sync of the view began on the connection that is up (a change of the view, a resync): the indicator shows it until `onSynced`. */
     syncing(): void;
@@ -80,7 +79,7 @@ export function createViewManager(
     error(error: unknown): void;
     /** The connection is alive but cannot sync: replace it. */
     recycle(): void;
-    /** A sync overdue is probed like any call (Node: invoke('synchronizeViews') arms the call deadline, remote-shim-calls.ts:239). */
+    /** A sync overdue is probed like any call. */
     probe(): void;
     /** Nothing arrived since a call was sent and no probe is out (the silent-call probe's condition). */
     silentSince(since: number): boolean;
@@ -165,7 +164,7 @@ export function createViewManager(
             open.add(id);
           },
           (error: unknown) => {
-            // A remembered thread deleted on the PC is gone, not a failed sync (Node delivered the rest and marked it gone).
+            // A remembered thread deleted on the PC is gone, not a failed sync: the rest is delivered and it is marked gone.
             if (wanted.includes(id) || !restored.includes(id) || !threadGone(error)) throw error;
             restored = restored.filter((kept) => kept !== id);
           }
@@ -228,7 +227,7 @@ export function createViewManager(
     recycle: options.recycle,
   });
 
-  // Node's `connect()`: a caller that finds no connection up waits for the next one.
+  // A caller that finds no connection up waits for the next one.
   const connected = async (): Promise<void> => {
     while (!live() && !stopped) await new Promise<void>((resolve) => readyWaiters.add(resolve));
     if (stopped) throw remoteConnectionInterruptedError();
@@ -252,7 +251,7 @@ export function createViewManager(
     for (const wake of [...readyWaiters]) wake();
     readyWaiters.clear();
   };
-  // The first connection's sync leaves a turn after the connection resolved (Node: its preparation awaits, remote-shim-sync.ts:60-66), so the
+  // The first connection's sync leaves a turn after the connection resolved, so the
   // reads that need no sync -- sent by the callers the connection wakes -- are on the wire before it.
   let firstTurn: ReturnType<typeof setTimeout> | undefined;
   const offStatus = client.on((event: ClientEvent) => {
