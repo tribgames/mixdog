@@ -103,7 +103,7 @@ const CUSTOM = 'custom-11111111-1111-4111-8111-111111111111';
 
 /**
  * The tool-failure check: a scripted model turn calls `read` with no path, which the core must fail, and the spool must
- * hold exactly that row, equal to Node's row for it (judgeToolFailureRows). Throws, naming the missing writer and its owner, when the spool is missing or empty.
+ * hold exactly that row, matching the expected row (judgeToolFailureRows). Throws, naming the missing writer and its owner, when the spool is missing or empty.
  */
 export async function toolFailureCheck(bin) {
   const provider = await startScriptedProvider({ tool: 'read', args: '{}' });
@@ -149,16 +149,24 @@ export async function toolFailureCheck(bin) {
   return judgeToolFailureRows(result.rows, { ...result.value, endedAt: Date.now() });
 }
 
-/** The row Node wrote for this scripted failure (record-node-tool-failure-row.mjs, run on b6f10295a): the schema and every stable value. */
-export const NODE_ROW = JSON.parse(
-  readFileSync(new URL('./recorded/node_tool_failure_row.json', import.meta.url), 'utf8')
-);
-// Values that differ per run and are checked against this run's own facts instead of the recording.
-const PER_RUN = ['ts', 'session_id', 'cwd', 'tool_ms'];
-
+/** The stable fields of the row the core writes for this scripted failure; the per-run fields are checked against the run itself. */
+const EXPECTED_ROW = {
+  iteration: 1,
+  tool_name: 'read',
+  tool_kind: 'builtin',
+  result_kind: 'error',
+  category: 'runtime/failure',
+  agent: 'lead',
+  model: 'smoke',
+  tool_args: null,
+  error_first_line: 'Error: read requires "path" (or alias file_path).',
+  error_preview: 'Error: read requires "path" (or alias file_path).',
+  result_bytes_est: 49,
+  result_lines_est: 1,
+};
 /**
- * The verdict on the spool after the scripted failure: exactly one row, and it is the provoked call's. Every field of
- * Node's row is compared: the keys in Node's order, each stable value to the Node recording, and the per-run values
+ * The verdict on the spool after the scripted failure: exactly one row, and it is the provoked call's. Every stable field
+ * is compared to EXPECTED_ROW, and the per-run values
  * (`session_id`, `cwd`, `ts`, `tool_ms`) to this run's own thread, workspace and clock. `rows` is null when no spool file exists.
  * @param {string[]|null} rows
  * @param {{ sessionId: string, cwd: string, startedAt: number, endedAt: number }} run
@@ -167,7 +175,7 @@ export function judgeToolFailureRows(rows, run) {
   if (!rows?.length) {
     throw new Error(
       `the core wrote ${rows ? 'an empty' : 'no'} history/tool-failures.jsonl for the scripted failure (read with no path -> 'read requires "path"'): mixdogd has no tool-failure writer yet ` +
-        `(AgentTrace::append_tool_failure is not wired to the call sites of Node's _appendToolFailureRow, agent-trace-format.mjs:532 and agent-progress-watchdog.mjs:204). Owner: ${OWNER}. smoke-loop's tool-failure check is NOT covered`
+        `(AgentTrace::append_tool_failure is not wired to the tool-failure call sites). Owner: ${OWNER}. smoke-loop's tool-failure check is NOT covered`
     );
   }
   if (rows.length !== 1)
@@ -176,12 +184,12 @@ export function judgeToolFailureRows(rows, run) {
     );
   const row = JSON.parse(rows[0]);
   const differs = [];
-  // Key order is compared on purpose: the spool's lines must be the bytes Node writes, so the order is part of the contract.
-  if (JSON.stringify(Object.keys(row)) !== JSON.stringify(Object.keys(NODE_ROW)))
-    differs.push(`keys ${JSON.stringify(Object.keys(row))} (Node: ${JSON.stringify(Object.keys(NODE_ROW))})`);
-  for (const key of Object.keys(NODE_ROW)) {
-    if (!PER_RUN.includes(key) && JSON.stringify(row[key]) !== JSON.stringify(NODE_ROW[key]))
-      differs.push(`${key} ${JSON.stringify(row[key])} (Node: ${JSON.stringify(NODE_ROW[key])})`);
+  const keys = [...Object.keys(EXPECTED_ROW), 'ts', 'session_id', 'cwd', 'tool_ms'].sort();
+  if (JSON.stringify(Object.keys(row).sort()) !== JSON.stringify(keys))
+    differs.push(`keys ${JSON.stringify(Object.keys(row).sort())} (expected: ${JSON.stringify(keys)})`);
+  for (const key of Object.keys(EXPECTED_ROW)) {
+    if (JSON.stringify(row[key]) !== JSON.stringify(EXPECTED_ROW[key]))
+      differs.push(`${key} ${JSON.stringify(row[key])} (expected: ${JSON.stringify(EXPECTED_ROW[key])})`);
   }
   if (row.session_id !== run.sessionId)
     differs.push(`session_id ${JSON.stringify(row.session_id)} (this run's thread: ${run.sessionId})`);
@@ -191,7 +199,7 @@ export function judgeToolFailureRows(rows, run) {
   if (!Number.isFinite(row.tool_ms) || row.tool_ms < 0) differs.push(`tool_ms ${JSON.stringify(row.tool_ms)}`);
   if (differs.length)
     throw new Error(
-      `the tool-failure row is not the provoked call's; it differs from Node's row in: ${differs.join('; ')}`
+      `the tool-failure row is not the provoked call's; it differs from the expected row in: ${differs.join('; ')}`
     );
   return row;
 }

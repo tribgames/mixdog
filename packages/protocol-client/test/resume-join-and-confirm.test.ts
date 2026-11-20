@@ -355,6 +355,69 @@ test('a joiner observes the original request\'s actual departure, not the moment
   await client.close();
 });
 
+// The core answers a resume of a thread this connection already follows with a new lane: the old lane's frames written before the
+// answer, the answer, then the replay `(resumeFrom.seq, S]` and live frames on the new lane (server.rs `finish_subscribe`, writer.rs
+// write order). `resumeFrom` is the folded position, so a frame the old lane delivered past it while the resume was out comes again.
+test('a replay that repeats frames the old subscription already delivered is not a gap, and nothing folds twice', async (t) => {
+  const { conn, client } = await setup();
+  t.after(() => client.close());
+  const violations: string[] = [];
+  client.on((e) => {
+    if (e.type === 'protocolViolation') violations.push(e.what);
+  });
+  const opened = client.resumeThread('t1', { lastItems: 50 });
+  conn.serverSend(reply(JSON.parse(await conn.nextSent()).id, 'snapshot', 'te', 1));
+  await opened;
+  conn.serverSend({ method: 'thread/snapshot', params: {}, feed: { id: 't1', epoch: 'te', seq: 0 } });
+  conn.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq: 1 } });
+  await tick();
+  const folds: number[] = [];
+  client.store.subscribe((change) => {
+    if (change.type === 'thread') folds.push(client.store.thread('t1')!.feed.seq);
+  });
+
+  const again = client.resumeThread('t1', { lastItems: 50 });
+  const request = JSON.parse(await conn.nextSent());
+  assert.equal(request.params.resumeFrom.seq, 1);
+  conn.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq: 2 } }); // the old lane, before the answer
+  conn.serverSend(reply(request.id, 'replay', 'te', 2, 3));
+  conn.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq: 2 } }); // the replay
+  conn.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq: 3 } }); // live
+  await again;
+  await tick();
+  assert.deepEqual(violations, []);
+  assert.equal(conn.clientClose, undefined, 'the connection stays open');
+  assert.deepEqual(folds, [2, 3], 'each event folds once, in order');
+  assert.deepEqual(client.feedPosition('t1'), { epoch: 'te', seq: 3, order: client.feedPosition('t1')!.order });
+
+  // After the repeated range the feed is held to continuity again.
+  conn.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq: 5 } });
+  assert.deepEqual(violations, ['feed gap on t1']);
+});
+
+test('a repeated range that a coalesced frame only partly covers is a gap', async (t) => {
+  const { conn, client } = await setup();
+  t.after(() => client.close());
+  const violations: string[] = [];
+  client.on((e) => {
+    if (e.type === 'protocolViolation') violations.push(e.what);
+  });
+  const opened = client.resumeThread('t1', { lastItems: 50 });
+  conn.serverSend(reply(JSON.parse(await conn.nextSent()).id, 'snapshot', 'te', 1));
+  await opened;
+  conn.serverSend({ method: 'thread/snapshot', params: {}, feed: { id: 't1', epoch: 'te', seq: 0 } });
+  await tick();
+  const again = client.resumeThread('t1', { lastItems: 50 });
+  const request = JSON.parse(await conn.nextSent());
+  for (const seq of [1, 2]) conn.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq } });
+  conn.serverSend(reply(request.id, 'replay', 'te', 1, 3));
+  conn.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq: 1 } });
+  assert.deepEqual(violations, []);
+  conn.serverSend({ method: 'item/agentMessage/delta', params: {}, feed: { id: 't1', epoch: 'te', from: 2, seq: 3 } });
+  assert.deepEqual(violations, ['feed gap on t1'], 'event 2 is folded already and 3 cannot be taken without it');
+  await again.catch(() => undefined);
+});
+
 async function attachedFeeds() {
   const { conn, client } = await setup();
   const app = client.subscribeApp();

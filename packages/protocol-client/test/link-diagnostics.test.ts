@@ -101,6 +101,12 @@ test('a protocol violation is logged under a fixed category, never with the feed
   conn.serverSend({ method: 'thread/runtime/updated', params: {}, feed: { id: 'secret-feed-id', epoch: 'e1', seq: 9 } });
   await violation;
   assert.equal(of('link-violation')[0]!.fields.category, 'feed gap');
+  const { feedKind, method, hadPosition, epochChanged, expectedSeq, receivedSeq } = of('link-violation')[0]!.fields;
+  assert.deepEqual(
+    { feedKind, method, hadPosition, epochChanged, expectedSeq, receivedSeq },
+    { feedKind: 'thread', method: 'thread/runtime/updated', hadPosition: true, epochChanged: false, expectedSeq: 1, receivedSeq: 9 },
+    'what identifies the gap: the kind of feed, the notification, the positions'
+  );
   assert.equal(JSON.stringify(of('link-violation')).includes('secret-feed-id'), false);
   await client.close();
 });

@@ -316,6 +316,10 @@ class Engine implements ProtocolClient<Json> {
   private readonly cursorReset = new Set<string>();
   private readonly serverRequests = new Map<string, ServerRequest>();
   private readonly recv = new Map<string, { epoch: string; seq: number; order: number }>();
+  /** A replay answered at or before the position already received (`attached`): the core's new subscription repeats `next..=through`,
+   *  which the subscription it replaced delivered before the answer (or, `resumeFrom` being the folded position, before the request).
+   *  Those frames are dropped in order, never folded twice; the first frame outside the range ends it. */
+  private readonly repeated = new Map<string, { next: number; through: number }>();
   /** Orders connection-scoped notifications. */
   private chain: Promise<void> = Promise.resolve();
   /** Orders the folds of one feed. */
@@ -491,6 +495,7 @@ class Engine implements ProtocolClient<Json> {
     this.health.stop();
     this.generation++;
     this.recv.clear();
+    this.repeated.clear();
     this.awaitingSnapshot.clear();
     this.replayThrough.clear();
     this.resuming.clear();
@@ -629,6 +634,7 @@ class Engine implements ProtocolClient<Json> {
     this.lostWindows.set(threadId, window);
     this.subs.delete(threadId);
     this.subToken.delete(threadId);
+    this.repeated.delete(threadId);
     this.replayThrough.delete(threadId);
     this.store.threads.delete(threadId);
     this.foldedWindow.delete(threadId);
@@ -753,11 +759,39 @@ class Engine implements ProtocolClient<Json> {
     return () => void this.listeners.delete(listener);
   }
 
-  /** `category` is what the host's log gets: a fixed name, never `what`, which may carry feed ids or exception text. */
-  private violation(code: number, what: string, category = what): void {
+  /** `category` and `detail` are what the host's log gets: fixed names, kinds and numbers, never `what`, which may carry feed ids or
+   *  exception text. */
+  private violation(code: number, what: string, category = what, detail?: Record<string, string | number | boolean>): void {
     this.emit({ type: 'protocolViolation', what });
-    this.diag('link-violation', { linkSeq: this.connSeq, code, category });
+    this.diag('link-violation', { linkSeq: this.connSeq, code, category, ...detail });
     this.dropLink(code, what);
+  }
+
+  /** A frame of `f`'s feed that does not continue the position received: which kind of feed and notification, and the positions. */
+  private feedGap(n: JsonRpcNotification, f: FeedStamp, feedKind: 'app' | 'thread' | 'control' | 'scoped'): void {
+    const cur = this.recv.get(f.id);
+    this.violation(1002, `feed gap on ${f.id}`, 'feed gap', {
+      feedKind,
+      method: n.method,
+      hadPosition: cur !== undefined,
+      ...(cur ? { epochChanged: cur.epoch !== f.epoch, expectedSeq: cur.seq + 1 } : {}),
+      receivedSeq: firstOf(f),
+      ...(f.from !== undefined ? { receivedThroughSeq: f.seq } : {}),
+    });
+  }
+
+  /** Whether `f` (not a snapshot) is the next frame of its feed's repeated range (`repeated`): it is dropped and the range advances. */
+  private repeats(f: FeedStamp): boolean {
+    const range = this.repeated.get(f.id);
+    if (!range) return false;
+    const cur = this.recv.get(f.id);
+    if (cur?.epoch === f.epoch && firstOf(f) === range.next && f.seq <= range.through) {
+      range.next = f.seq + 1;
+      if (range.next > range.through) this.repeated.delete(f.id);
+      return true;
+    }
+    this.repeated.delete(f.id);
+    return false;
   }
 
   /** Ends this connection from this side and goes on to the ladder. A transport that closes the socket when asked need not report
@@ -886,9 +920,11 @@ class Engine implements ProtocolClient<Json> {
     const tracked = f.id === WIRE.appFeedId ? this.appSubscribed : this.subs.has(f.id);
     if (!tracked && !this.held.has(f.id)) return;
     const snapshot = n.method === WIRE.threadSnapshot || n.method === WIRE.appSnapshot;
+    if (snapshot) this.repeated.delete(f.id);
+    else if (this.repeats(f)) return;
     const cur = this.recv.get(f.id);
     if (!snapshot && (!cur || cur.epoch !== f.epoch || firstOf(f) !== cur.seq + 1)) {
-      return this.violation(1002, `feed gap on ${f.id}`, 'feed gap');
+      return this.feedGap(n, f, f.id === WIRE.appFeedId ? 'app' : tracked ? 'thread' : 'control');
     }
     const order = this.received(f.id, f.epoch, f.seq);
     if (snapshot) this.awaitingSnapshot.delete(f.id);
@@ -908,9 +944,11 @@ class Engine implements ProtocolClient<Json> {
   /** A scoped feed has no store: its notifications are events. The first one seen (or `feed/snapshot`) sets the position; after that
    * the feed must run on without a gap, as a thread feed does. */
   private onScoped(n: JsonRpcNotification, f: FeedStamp, gen: number): void {
+    if (n.method === 'feed/snapshot') this.repeated.delete(f.id);
+    else if (this.repeats(f)) return;
     const cur = this.recv.get(f.id);
     if (n.method !== 'feed/snapshot' && cur && (cur.epoch !== f.epoch || firstOf(f) !== cur.seq + 1)) {
-      return this.violation(1002, `feed gap on ${f.id}`, 'feed gap');
+      return this.feedGap(n, f, 'scoped');
     }
     this.received(f.id, f.epoch, f.seq);
     if (n.method === 'feed/snapshot') this.awaitingSnapshot.delete(f.id);
@@ -1120,9 +1158,14 @@ class Engine implements ProtocolClient<Json> {
   private attached(feedId: string, r: Json, window?: ResumeWindow): void {
     const s = (r as unknown as ThreadResumeResponse).subscription;
     // A reply that arrives after its feed already ran past the position it names is a stale read: it resets nothing, so the
-    // events already folded stay in order and no gap is seen (the transcript is the feed's, not the reply's).
+    // events already received stay in order (the transcript is the feed's, not the reply's). A replay then repeats them: the core
+    // replaced the subscription that delivered them, and the new one starts at `startSeq` (`repeated`). A snapshot resets the position.
+    this.repeated.delete(feedId);
     const ahead = this.recv.get(feedId);
-    if (ahead && ahead.epoch === s.epoch && ahead.seq >= s.startSeq) return;
+    if (ahead && ahead.epoch === s.epoch && ahead.seq >= s.startSeq) {
+      if (s.mode === 'replay') this.repeated.set(feedId, { next: s.startSeq, through: ahead.seq });
+      return;
+    }
     if (window) {
       const boundary = s.liveSeq - 1;
       const folded = this.store.threads.get(feedId)?.feed;
@@ -1288,6 +1331,7 @@ class Engine implements ProtocolClient<Json> {
     this.releaseHeld(threadId);
     this.subToken.delete(threadId);
     this.recv.delete(threadId);
+    this.repeated.delete(threadId);
     this.awaitingSnapshot.delete(threadId);
     this.replayThrough.delete(threadId);
     this.resuming.delete(threadId);
@@ -1322,6 +1366,7 @@ class Engine implements ProtocolClient<Json> {
         : method === 'feed/unsubscribe' && feedId
           ? () => {
               this.recv.delete(feedId);
+              this.repeated.delete(feedId);
               this.awaitingSnapshot.delete(feedId);
               this.subToken.delete(feedId);
             }
