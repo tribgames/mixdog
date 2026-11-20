@@ -61,7 +61,18 @@ export function wiringProblems(workflows, plan) {
   const problems = [];
   const fail = (text) => problems.push(text);
 
-  // -- the publication graph, closed: in every workflow that calls the gate each job is a reviewed sink or a reviewed non-sink
+  publicationProblems(workflows, plan, fail);
+  gateCallProblems(workflows, plan, fail);
+  gateJobProblems(workflows, plan, fail);
+  verdictProblems(workflows, plan, fail);
+  artifactProblems(workflows, fail);
+  refProblems(workflows, plan, fail);
+  releaseProblems(workflows, fail);
+  return problems;
+}
+
+/** The publication graph, closed: in every workflow that calls the gate each job is a reviewed sink or a reviewed non-sink. */
+function publicationProblems(workflows, plan, fail) {
   const listed = new Map();
   for (const entry of [...(plan.sinks ?? []), ...(plan.nonSinks ?? [])]) {
     const key = `${entry.workflow}#${entry.job}`;
@@ -111,6 +122,10 @@ export function wiringProblems(workflows, plan) {
     if (JSON.stringify(triggers) !== JSON.stringify(['workflow_call']))
       fail(`${file} must be reachable only through workflow_call (it has ${triggers.join(', ') || 'no trigger'})`);
   }
+}
+
+/** Callers of the full gate. */
+function gateCallProblems(workflows, plan, fail) {
   // callers of the full gate pass an immutable SHA and a name of their own, which with the SHA names every artifact of the call
   const gateNames = new Map();
   for (const [file, workflow] of Object.entries(workflows)) {
@@ -134,7 +149,10 @@ export function wiringProblems(workflows, plan) {
         fail(`${file} ${name}: the gate call has an \`if\``);
     }
   }
-  // -- the gate itself: legs have producers, and the aggregator reconciles
+}
+
+/** The gate itself: legs have producers, and the aggregator reconciles. */
+function gateJobProblems(workflows, plan, fail) {
   const gate = workflows['release-gate.yml'];
   if (!gate) fail('release-gate.yml is missing');
   else {
@@ -181,10 +199,10 @@ export function wiringProblems(workflows, plan) {
       if (gate.on?.[event]?.paths || gate.on?.[event]?.['paths-ignore'])
         fail(`release-gate.yml ${event} is path filtered`);
   }
-  verdictProblems(workflows, plan, fail);
-  artifactProblems(workflows, fail);
-  refProblems(workflows, plan, fail);
-  // -- release.yml publication
+}
+
+/** release.yml publishes only through the gate. */
+function releaseProblems(workflows, fail) {
   const release = workflows['release.yml'];
   if (release) {
     const publish = release.jobs.publish;
@@ -203,7 +221,6 @@ export function wiringProblems(workflows, plan) {
     if (Object.hasOwn(release.on?.workflow_call?.inputs ?? {}, 'run_critical'))
       fail('release.yml still has a run_critical input: no input may stand for a verified gate');
   }
-  return problems;
 }
 
 /** The one name a release's join evidence has: uploaded by the Windows package job, downloaded by name by the join. */
