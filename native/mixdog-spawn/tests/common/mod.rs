@@ -17,6 +17,9 @@ use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_protocol::ProcessHandle;
 use mixdog_spawn::LocalProcessManager;
 use mixdog_spawn::ProcessConfig;
+use mixdog_spawn::terminal::Integration;
+use mixdog_spawn::terminal::SpawnProfile;
+use mixdog_spawn::terminal::plan_shell_integration;
 
 pub const WAIT: Duration = Duration::from_secs(60);
 
@@ -40,6 +43,33 @@ pub fn scratch_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("mixdog-spawn-{name}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+/// Whether `profile` reports activity (its first prompt marker included) once Mixdog's integration runs it with startup files: the
+/// integration's own plan decides whether the shell gets markers (PowerShell, zsh, bash, cmd's prompt), and a bash is asked its
+/// version, since its markers need 4.4 and its path (a link, `$SHELL`) says nothing of that.
+pub fn reports_activity(profile: &SpawnProfile) -> bool {
+    let plan = plan_shell_integration(profile, Some(&scratch_dir("activity-check")), &|name| std::env::var(name).ok(), cfg!(windows));
+    match plan.integration {
+        None => false,
+        Some(Integration::Bash) => bash_has_markers(&profile.path),
+        Some(_) => true,
+    }
+}
+
+/// The bash at `path` is 4.4 or later (`PS0`, which the integration's command marker needs). `bash -c` would source `$BASH_ENV`,
+/// which the interactive shell a tab runs does not, so the probe runs without it: nothing but the version reaches its output.
+fn bash_has_markers(path: &str) -> bool {
+    let probe = std::process::Command::new(path)
+        .args(["-c", "echo \"${BASH_VERSINFO[0]} ${BASH_VERSINFO[1]}\""])
+        .env_remove("BASH_ENV")
+        .output();
+    let Some(out) = probe.ok().filter(|out| out.status.success()) else {
+        return false;
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut parts = text.split_whitespace().map(str::parse::<u32>);
+    matches!((parts.next(), parts.next()), (Some(Ok(major)), Some(Ok(minor))) if major > 4 || (major == 4 && minor >= 4))
 }
 
 /// `script` for the platform's plain shell (`cmd` on Windows, `sh` elsewhere).

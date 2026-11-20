@@ -532,6 +532,18 @@ async fn rig(name: &str) -> Rig {
     rig_with(name, |_| {}).await
 }
 
+/// A shell of this machine that reports activity ([`reports_activity`]); the default one may not (macOS's /bin/bash).
+async fn reporting_profile(tabs: &TerminalTabs) -> SpawnProfile {
+    let mut listed = Vec::new();
+    for profile in tabs.profiles().await {
+        listed.push(tabs.resolve_profile(&profile.id).await.expect("a listed profile resolves"));
+    }
+    listed
+        .into_iter()
+        .find(reports_activity)
+        .expect("this machine has a shell with terminal integration (PowerShell, bash, zsh or cmd)")
+}
+
 async fn rig_with(name: &str, set: impl FnOnce(&mut TerminalConfig)) -> Rig {
     let manager = manager();
     let events = Arc::new(Events::default());
@@ -581,38 +593,51 @@ impl Rig {
     /// - plain text `\r\n PS <cwd>>` + `ESC[1C` (the space as a cursor move).
     /// The shell writes its prompt as the last thing before it blocks reading input and the
     /// screen does not change again, so ConPTY has nothing further to paint until the next input
-    /// arrives. The feed carries the replay window's text and the window is appended first, so
-    /// what this saw is already visible to `snapshot`.
+    /// arrives. Elsewhere there is no ConPTY and no prompt is awaited: the command prints
+    /// the [`UNIX_SENTINEL`] line and then blocks reading input with nothing more to write ([`print_lines`]).
+    /// The feed carries the replay window's text and the window is appended first, so what this saw
+    /// is already visible to `snapshot`. The deadline fails a frame that never comes.
     async fn wait_prompt_frame_after(&self, id: &str, needle: &str) {
         use mixdog_core_api::domain::process::ProcessEvent;
         const HIDE: &str = "\u{1b}[?25l";
         const SHOW: &str = "\u{1b}[?25h";
         let mut events = self.manager.subscribe(&mixdog_protocol::ProcessHandle::from(id), Some(0)).expect("subscribe");
         let mut text = String::new();
-        loop {
-            match events.next().await.expect("the shell outlives the wait") {
-                ProcessEvent::Output { bytes, .. } => text.push_str(&String::from_utf8_lossy(&bytes)),
-                ProcessEvent::Exited { .. } => panic!("the shell exited before it drew its prompt"),
-            }
-            let Some(after) = text.rfind(needle).map(|at| &text[at..]) else { continue };
-            // A cursor-hide with no show after it is a frame still being drawn.
-            if after.rfind(HIDE) > after.rfind(SHOW) {
-                continue;
-            }
-            let Some(prompt) = after.rfind("\nPS ").map(|at| &after[at + 1..]) else { continue };
-            let repainted = prompt.strip_suffix(SHOW).is_some_and(|body| {
-                body.rfind("\u{1b}[").is_some_and(|at| {
-                    body[at + 2..].strip_suffix('H').is_some_and(|rc| {
-                        rc.split_once(';').is_some_and(|(r, c)| {
-                            !r.is_empty() && !c.is_empty() && r.bytes().chain(c.bytes()).all(|b| b.is_ascii_digit())
+        let drawn = tokio::time::timeout(EVENT_DEADLINE, async {
+            loop {
+                match events.next().await.expect("the shell outlives the wait") {
+                    ProcessEvent::Output { bytes, .. } => text.push_str(&String::from_utf8_lossy(&bytes)),
+                    ProcessEvent::Exited { .. } => panic!("the shell exited before it drew its prompt"),
+                }
+                let Some(after) = text.rfind(needle).map(|at| &text[at..]) else { continue };
+                if !cfg!(windows) {
+                    // The whole line, its end included: only then is the command waiting for input.
+                    if after.contains(&format!("{UNIX_SENTINEL}\n")) || after.contains(&format!("{UNIX_SENTINEL}\r\n")) {
+                        return;
+                    }
+                    continue;
+                }
+                // A cursor-hide with no show after it is a frame still being drawn.
+                if after.rfind(HIDE) > after.rfind(SHOW) {
+                    continue;
+                }
+                let Some(prompt) = after.rfind("\nPS ").map(|at| &after[at + 1..]) else { continue };
+                let repainted = prompt.strip_suffix(SHOW).is_some_and(|body| {
+                    body.rfind("\u{1b}[").is_some_and(|at| {
+                        body[at + 2..].strip_suffix('H').is_some_and(|rc| {
+                            rc.split_once(';').is_some_and(|(r, c)| {
+                                !r.is_empty() && !c.is_empty() && r.bytes().chain(c.bytes()).all(|b| b.is_ascii_digit())
+                            })
                         })
                     })
-                })
-            });
-            if repainted || prompt.ends_with("> ") || prompt.ends_with(">\u{1b}[1C") {
-                return;
+                });
+                if repainted || prompt.ends_with("> ") || prompt.ends_with(">\u{1b}[1C") {
+                    return;
+                }
             }
-        }
+        })
+        .await;
+        assert!(drawn.is_ok(), "{id}: no prompt after {needle:?} within {EVENT_DEADLINE:?}");
     }
 
     /// Returns once the tab's output feed has carried `needle` (its exit line included: the exit hook's bytes are the feed's last output).
@@ -767,7 +792,9 @@ async fn a_claim_made_while_a_disposal_is_announced_is_not_undone_by_it() {
 /// disposal the tab's end came between the claim's change and its announcement, and the forgetting wiped the owner just announced.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_dispose_during_a_claims_announcement_waits_for_it() {
-    let rig = rig("dispose-gate").await;
+    let mut rig = rig("dispose-gate").await;
+    // The tab's end is an activity change only for a shell that reported one.
+    rig.profile = reporting_profile(&rig.tabs).await;
     rig.tabs.ensure(Some("term_dgate"), rig.request()).await.unwrap();
     rig.events.wait_for("the tab's first prompt", |log| log.iter().any(|e| matches!(e, Ev::Activity(id, Some(_)) if id == "term_dgate")));
     let (held, open) = rig.events.hold_next_owner();
@@ -1083,7 +1110,8 @@ async fn tabs_under_a_removed_worktree_are_disposed() {
     let removed = rig.tabs.dispose_under(&inner.display().to_string());
     assert_eq!(removed, vec!["term_inside".to_owned()]);
     assert!(rig.tabs.snapshot("term_outside", None).is_some());
-    assert!(is_path_under_root("C:\\Work\\Tree", "c:/work/tree/sub") == cfg!(windows));
+    // Case-folded where the file system is case-insensitive by default.
+    assert!(is_path_under_root("C:\\Work\\Tree", "c:/work/tree/sub") == cfg!(any(windows, target_os = "macos")));
     rig.tabs.dispose_all();
 }
 
@@ -1216,11 +1244,18 @@ impl TerminalBridgeHost for Host {
     }
 }
 
+/// The line the bridge test's command prints on Unix after its last line (`printf 'bridge %s\n' sentinel`: the echo of the command
+/// line does not contain it), without its end: the PTY writes it `\r\n`, or `\n` when the shell's startup turned `onlcr` off.
+const UNIX_SENTINEL: &str = "bridge sentinel";
+
+/// On Unix the command ends by waiting for a line of input (`head -n 1`), so after its sentinel the terminal is quiet whatever the
+/// interactive shell (`$SHELL`: bash, zsh, fish …) would paint at its next prompt; the shell gets its prompt back only at the next
+/// Enter.
 fn print_lines(count: u32) -> String {
     if cfg!(windows) {
         format!("1..{count} | ForEach-Object {{ \"bridge line $_\" }}")
     } else {
-        format!("seq 1 {count} | sed 's/^/bridge line /'")
+        format!("seq 1 {count} | sed 's/^/bridge line /'; printf 'bridge %s\\n' sentinel; head -n 1 >/dev/null")
     }
 }
 
@@ -1314,8 +1349,8 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
     assert_eq!(call(json!({ "action": "list" })).await.text.starts_with("1 "), true);
     let other = bridge.execute(&json!({ "action": "list" }), "other-session", &options).await;
     assert_eq!(other.text, "No terminal tabs open for this session.");
-    // Only now does the shell leave, on its own.
-    let _ = rig.tabs.write("session-terminal:sess8", "exit\r");
+    // Only now does the shell leave, on its own (on Unix the first Enter ends the command's wait for input).
+    let _ = rig.tabs.write("session-terminal:sess8", if cfg!(windows) { "exit\r" } else { "\rexit\r" });
     let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from("session-terminal:sess8")).await;
     assert!(exit.killed.is_none(), "the shell left on its own");
     rig.tabs.dispose_all();
@@ -1360,7 +1395,12 @@ async fn terminal_operation_failure_paths_equal_nodes_recording() {
     // The recording's `{cwd}` is the directory the tabs were opened in.
     let cwd = serde_json::to_string(&rig.dir.display().to_string()).unwrap();
     let cwd = &cwd[1..cwd.len() - 1];
-    let placed = |value: &Value| -> Value { serde_json::from_str(&value.to_string().replace(recorded["cwd"].as_str().unwrap(), cwd)).unwrap() };
+    // Node recorded on Windows, where the scripted shell is PowerShell; elsewhere it is `sh`, and a tab's label is its shell's.
+    let label = std::path::Path::new(&rig.profile.path).file_stem().unwrap().to_string_lossy().into_owned();
+    let placed = |value: &Value| -> Value {
+        let text = value.to_string().replace(recorded["cwd"].as_str().unwrap(), cwd).replace(r#""shell":"powershell""#, &format!(r#""shell":"{label}""#));
+        serde_json::from_str(&text).unwrap()
+    };
     let payload = |attached: Option<Attached>| match attached {
         None => Value::Null,
         Some(attached) => {

@@ -79,8 +79,9 @@ async fn os_socket_table_lists_another_programs_listener() {
             shell: Some("powershell".to_owned()),
         }
     } else {
+        // `exec`: the listener is the spawned process itself, whether or not this `sh` (dash on Ubuntu) runs a lone command in place.
         CommandSpec::Shell {
-            script: "python3 -c \"import socket,time; s=socket.socket(); s.bind(('127.0.0.1',0)); s.listen(); \
+            script: "exec python3 -c \"import socket,time; s=socket.socket(); s.bind(('127.0.0.1',0)); s.listen(); \
                      print('PORT=%d' % s.getsockname()[1], flush=True); time.sleep(60)\""
                 .to_owned(),
             shell: None,
