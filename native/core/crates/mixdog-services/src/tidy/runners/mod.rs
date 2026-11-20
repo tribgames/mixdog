@@ -9,6 +9,7 @@ pub mod mago;
 pub mod psscriptanalyzer;
 pub mod ruff;
 pub mod rustfmt;
+mod rustfmt_modules;
 pub mod shared;
 pub mod stdin;
 pub mod stdin_formatters;
