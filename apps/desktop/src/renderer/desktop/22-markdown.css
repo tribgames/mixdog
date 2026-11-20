@@ -108,6 +108,12 @@
   overflow-wrap: anywhere;
   word-break: normal;
 }
+/* A reply's code is held in stretches of lines, each a box that can leave the
+   DOM for one of its height (markdown-code-lines). */
+.markdown-code code[data-md-lines],
+.markdown-code-lines {
+  display: block;
+}
 /* The code card is a hairline frame like every other container. */
 :root .markdown-code {
   background: var(--mx-code-surface, color-mix(in srgb, var(--mx-text) 4%, transparent));
