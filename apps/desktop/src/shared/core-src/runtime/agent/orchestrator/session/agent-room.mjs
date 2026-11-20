@@ -247,7 +247,7 @@ const finiteTime = (value) => (typeof value === 'number' && Number.isFinite(valu
  *  an item without one is a quota stop by its quota metadata alone). `route`
  *  names the provider and model when the item carries none. */
 export function roomUsageLimit(done, route = {}) {
-  if (!done || done.status !== 'failed') return null;
+  if (done?.status !== 'failed') return null;
   const quota = done.quota && typeof done.quota === 'object' ? done.quota : null;
   const described = done.errorKind && typeof done.errorKind === 'object' ? done.errorKind : null;
   const kind = described?.kind

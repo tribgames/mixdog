@@ -37,11 +37,9 @@ class Fake:
                 if self.group_post:
                     raise self.group_post
                 return {}
-            return (
-                self.members.pop(0)
-                if len(self.members) > 1
-                else (self.members[0] if self.members else {"data": []})
-            )
+            if len(self.members) > 1:
+                return self.members.pop(0)
+            return self.members[0] if self.members else {"data": []}
         if path.endswith("/betaAppReviewSubmissions"):
             if isinstance(self.review, BaseException):
                 raise self.review
