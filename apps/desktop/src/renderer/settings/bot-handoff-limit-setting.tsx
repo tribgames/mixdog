@@ -30,6 +30,7 @@ export function BotHandoffLimitRow({ disabled }: { disabled?: boolean }) {
   // That choice's save. Two choices of one limit are two saves, so it is told by identity.
   const last = useRef<object | null>(null);
   const [error, setError] = useState('');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so the read follows a replaced bridge
   useEffect(() => {
     let live = true;
     const read = () =>

@@ -308,7 +308,10 @@ export class CorePortRelay {
       off = null;
     };
     const tell = (report: BootReport): void => {
-      if (!current() || webContents.isDestroyed?.()) return stop();
+      if (!current() || webContents.isDestroyed?.()) {
+        stop();
+        return;
+      }
       webContents.send?.(CORE_BOOT_CHANNEL, report);
     };
     const now = source.current();
@@ -328,7 +331,10 @@ export class CorePortRelay {
       if (this.parked.get(key) === stop) this.parked.delete(key);
     };
     const tell = (report: BootReport): void => {
-      if (webContents.isDestroyed?.()) return stop();
+      if (webContents.isDestroyed?.()) {
+        stop();
+        return;
+      }
       webContents.send?.(CORE_BOOT_CHANNEL, report);
       if (!report.failure) stop();
     };

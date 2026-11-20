@@ -261,6 +261,7 @@ export async function fillBoundLogin(
       registry.bind(fillId, { ...binding, document, targets }, LOGIN_FILL_BINDING_MS);
     }
     const passwordStep = targets[0].type === 'password';
+    // biome-ignore lint/correctness/useHookAtTopLevel: useCredential is a vault method in the main process, not a React hook
     result = await host.useCredential(
       url,
       credentialId,

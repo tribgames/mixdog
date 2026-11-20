@@ -134,7 +134,7 @@ async function resolve(host: PagesHost, ctx: EngineContext, params: Record<strin
   await lifecycle.restoreSession(sessionId);
   const known = new Set(sessionPages(host, sessionId).map((entry) => entry.guest));
   const previous = sessions.liveGuest(sessionId);
-  let target;
+  let target: ReturnType<typeof host.tabs.resolveTargetGuest>;
   try {
     target = host.tabs.resolveTargetGuest(sessionId, background, tabRef);
   } catch (error) {

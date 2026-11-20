@@ -63,6 +63,7 @@ export function usePairCode(api: CapabilityApi, enabled: boolean): PairCodeState
       })
       .catch(() => undefined);
   };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: accept only calls state setters and reads the latestSection ref, so any render's copy acts the same
   useEffect(() => {
     if (!request || !enabled || !linkUp) return undefined;
     let live = true;

@@ -149,6 +149,7 @@ async function mount(t, { ua = ELECTRON_UA, local = null, desktop, lifecycle = f
   const renders = [];
   function Harness() {
     const workspace = usePaneWorkspaceState(null);
+    // biome-ignore lint/correctness/useHookAtTopLevel: `lifecycle` is fixed for the harness's whole mount, so every render calls the same hooks
     if (lifecycle) useLifecycle(workspace);
     renders.push(workspace);
     return null;

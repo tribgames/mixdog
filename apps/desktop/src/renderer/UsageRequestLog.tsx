@@ -168,6 +168,7 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
   loadMore.current = () => {
     if (!busy && cursor) load(question, cursor, statsNumber(answer?.generatedAt) || undefined);
   };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the end row exists only while there is a cursor, so each cursor re-observes it
   useEffect(() => {
     const target = end.current;
     if (!target || typeof IntersectionObserver === 'undefined') return undefined;

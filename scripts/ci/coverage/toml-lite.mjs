@@ -19,7 +19,7 @@ function readString(text, at) {
     if (end < 0) throw new Error('unterminated multi-line string');
     let body = text.slice(at + 3, end);
     if (body.startsWith('\n')) body = body.slice(1);
-    return [quote === '"' ? unescape(body) : body, end + 3];
+    return [quote === '"' ? unescapeBasic(body) : body, end + 3];
   }
   let i = at + 1;
   let raw = '';
@@ -31,10 +31,10 @@ function readString(text, at) {
     } else raw += text[i++];
   }
   if (text[i] !== quote) throw new Error('unterminated string');
-  return [quote === '"' ? unescape(raw) : raw, i + 1];
+  return [quote === '"' ? unescapeBasic(raw) : raw, i + 1];
 }
 
-function unescape(raw) {
+function unescapeBasic(raw) {
   return raw.replace(/\\(?:u([0-9a-fA-F]{4})|(.))/gs, (_, hex, char) =>
     hex
       ? String.fromCharCode(Number.parseInt(hex, 16))

@@ -206,6 +206,7 @@ export function useSkillCatalog(
   useEffect(() => {
     void refreshSkillCatalog(session, project).catch(() => undefined);
   }, [session, project]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: key is made from session and project and changes exactly when they do
   useEffect(() => {
     const mounted = mountedCatalogs.get(key);
     if (mounted) mounted.count += 1;

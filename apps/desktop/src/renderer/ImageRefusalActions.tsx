@@ -63,6 +63,7 @@ function useImageRecovery(sessionId: string, poll = false) {
   );
   const { state, busy, problem } = useSyncExternalStore(subscribe, () => entryOf(sessionId).snapshot);
   const api = window.mixdogDesktop;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so the callback follows a replaced bridge
   const call = useCallback(
     async (request: ImageRecoveryRequest) => {
       const entry = entryOf(sessionId);
@@ -83,6 +84,7 @@ function useImageRecovery(sessionId: string, poll = false) {
     if (sessionId) void call({ type: 'state' });
   }, [call, sessionId]);
   const checking = poll && state?.gate.state === 'checking';
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each new state answer re-arms the one-second poll while the check runs
   useEffect(() => {
     if (!checking) return;
     const timer = window.setTimeout(() => void call({ type: 'state' }), 1000);

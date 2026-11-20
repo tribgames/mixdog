@@ -46,6 +46,7 @@ function page(html, { width = 375, height = 812 } = {}) {
 
 // A JSON round trip: results of the jsdom realm are not reference-equal to ours.
 const run = (window, options) => JSON.parse(JSON.stringify(window.eval(visualizeInspectScript(options))));
+// biome-ignore lint/security/noGlobalEval: the library under test is page-side source text, run as the page would
 const lib = () => (0, eval)(VISUALIZE_INSPECT_LIB_SOURCE);
 
 const FIXTURE = `<html data-sw="500" data-cw="375" data-box="0,0,375,812"><body data-box="0,0,375,812">

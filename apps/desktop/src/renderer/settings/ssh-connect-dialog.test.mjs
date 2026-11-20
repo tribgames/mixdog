@@ -95,6 +95,7 @@ function makeApi({ check = { status: 'trusted' }, summary, ...overrides } = {}) 
   const ask = (question) => {
     for (const listener of questionListeners) listener(question);
   };
+  // biome-ignore lint/correctness/useHookAtTopLevel: useConnectionsCore is a test mock setter, not a React hook
   useConnectionsCore(api);
   return { api, calls, progress, requests, ask };
 }
@@ -927,6 +928,7 @@ async function mountPanel(t, extra = {}) {
     ...extra,
   };
   setCachedConnectionInfo(api, info);
+  // biome-ignore lint/correctness/useHookAtTopLevel: useConnectionsCore is a test mock setter, not a React hook
   useConnectionsCore(api);
   t.after(() => updateClaimQueue(() => []));
   await act(async () => dom.root.render(React.createElement(ConnectionPanel, { api })));

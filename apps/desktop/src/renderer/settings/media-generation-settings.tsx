@@ -99,6 +99,7 @@ export function useMediaGeneration(api: StudioApi | undefined, active: boolean):
   const optimistic = useRef<Record<MediaKind, boolean>>({ image: false, video: false });
   const confirmed = useRef<MediaPins>(NO_PINS);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: laneRevision is the retry's trigger to read the lanes again
   useEffect(() => {
     if (!active) return undefined;
     let live = true;
@@ -142,6 +143,7 @@ export function useMediaGeneration(api: StudioApi | undefined, active: boolean):
     };
   }, [api, active, laneRevision]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pinRevision is the retry's trigger to read the pins again
   useEffect(() => {
     if (!active) return undefined;
     let live = true;

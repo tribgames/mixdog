@@ -22,14 +22,14 @@ function bootT(key) {
 var mixdogSurface = null;
 if (!/Electron/i.test(navigator.userAgent)) {
   mixdogSurface = readSurfaceProbe(navigator, window);
-  var mixdogViewport = document.querySelector('meta[name="viewport"]');
+  const mixdogViewport = document.querySelector('meta[name="viewport"]');
   if (mixdogViewport) {
     mixdogViewport.setAttribute(
       'content',
       'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content'
     );
   }
-  var mixdogLayoutWidth = Number(window.innerWidth) || Number(document.documentElement.clientWidth) || 0;
+  const mixdogLayoutWidth = Number(window.innerWidth) || Number(document.documentElement.clientWidth) || 0;
   if (usesPhoneLayout(mixdogSurface, mixdogLayoutWidth)) {
     document.documentElement.dataset.mixdogMobileTabs = '';
     if (isIosDevice(mixdogSurface)) document.documentElement.dataset.mixdogIosWeb = '';
@@ -40,9 +40,10 @@ if (!/Electron/i.test(navigator.userAgent)) {
 // Pin the dark default before reading storage: the document also accepts light,
 // so Android can otherwise show light system chrome until the app mounts.
 document.documentElement.style.colorScheme = 'dark';
+var mixdogLight = false;
 try {
-  var mixdogThemePref = localStorage.getItem('mixdog.desktop-theme-preference');
-  var mixdogLight =
+  const mixdogThemePref = localStorage.getItem('mixdog.desktop-theme-preference');
+  mixdogLight =
     mixdogThemePref === 'white' ||
     (mixdogThemePref === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
   // Match App's default: only an explicit System choice follows the OS.
@@ -65,13 +66,13 @@ try {
 // another appearance apart: such a record is ignored, never half-applied.
 var mixdogBootSig = '';
 try {
-  var mixdogSigHost = document.getElementById('mixdog-first-screen');
-  var mixdogSigLinks =
+  const mixdogSigHost = document.getElementById('mixdog-first-screen');
+  const mixdogSigLinks =
     mixdogSigHost && mixdogSigHost.content ? mixdogSigHost.content.querySelectorAll('link[rel="modulepreload"]') : [];
-  var mixdogSigHash = 0;
-  for (var mixdogSigIndex = 0; mixdogSigIndex < mixdogSigLinks.length; mixdogSigIndex += 1) {
-    var mixdogSigHref = mixdogSigLinks[mixdogSigIndex].getAttribute('href') || '';
-    for (var mixdogSigChar = 0; mixdogSigChar < mixdogSigHref.length; mixdogSigChar += 1) {
+  let mixdogSigHash = 0;
+  for (let mixdogSigIndex = 0; mixdogSigIndex < mixdogSigLinks.length; mixdogSigIndex += 1) {
+    const mixdogSigHref = mixdogSigLinks[mixdogSigIndex].getAttribute('href') || '';
+    for (let mixdogSigChar = 0; mixdogSigChar < mixdogSigHref.length; mixdogSigChar += 1) {
       mixdogSigHash = (mixdogSigHash * 31 + mixdogSigHref.charCodeAt(mixdogSigChar)) | 0;
     }
   }
@@ -96,21 +97,24 @@ window.mixdogThemeInputs = () => {
 var mixdogSkinned = false;
 var mixdogUserThemed = false;
 try {
-  var mixdogBootRaw = localStorage.getItem('mixdog.desktop.skin-boot.v1');
-  var mixdogBoot = mixdogBootRaw ? JSON.parse(mixdogBootRaw) : null;
-  var mixdogBootSkin = mixdogBoot && mixdogBoot.skin;
-  var mixdogBootTheme = mixdogBoot && mixdogBoot.userTheme;
-  var mixdogBootPicture = '';
-  var mixdogBootValid =
+  const mixdogBootRaw = localStorage.getItem('mixdog.desktop.skin-boot.v1');
+  const mixdogBoot = mixdogBootRaw ? JSON.parse(mixdogBootRaw) : null;
+  const mixdogBootSkin = mixdogBoot && mixdogBoot.skin;
+  const mixdogBootTheme = mixdogBoot && mixdogBoot.userTheme;
+  let mixdogBootPicture = '';
+  let mixdogBootAttributes = null;
+  let mixdogBootVars = null;
+  let mixdogBootImage = null;
+  let mixdogBootValid =
     Boolean(mixdogBoot) &&
     mixdogBoot.v === 1 &&
     mixdogBoot.sig === mixdogBootSig &&
     mixdogBoot.inputs === window.mixdogThemeInputs() &&
     Boolean(mixdogBootSkin || mixdogBootTheme);
   if (mixdogBootValid && mixdogBootSkin) {
-    var mixdogBootAttributes = mixdogBootSkin.attributes;
-    var mixdogBootVars = mixdogBootSkin.vars;
-    var mixdogBootImage = mixdogBootSkin.image;
+    mixdogBootAttributes = mixdogBootSkin.attributes;
+    mixdogBootVars = mixdogBootSkin.vars;
+    mixdogBootImage = mixdogBootSkin.image;
     mixdogBootValid =
       Boolean(mixdogBootAttributes) &&
       typeof mixdogBootAttributes['data-mixdog-skin'] === 'string' &&
@@ -127,7 +131,7 @@ try {
         mixdogBootPicture = mixdogBootImage.url;
       } else {
         // A custom picture stays under its own key (a data URL too large to copy).
-        var mixdogBootCustom =
+        const mixdogBootCustom =
           mixdogBootImage.custom === 'mixdog.desktop.skin-custom-image.v1'
             ? localStorage.getItem(mixdogBootImage.custom)
             : null;
@@ -141,7 +145,7 @@ try {
       typeof mixdogBootTheme.id === 'string' && typeof mixdogBootTheme.css === 'string' && mixdogBootTheme.id !== '';
   }
   if (mixdogBootValid) {
-    var mixdogBootRoot = document.documentElement;
+    const mixdogBootRoot = document.documentElement;
     // The appearance the recorded values were computed for (a single-appearance
     // user theme can differ from the stored preference).
     if (mixdogBoot.themeId === 'basic' || mixdogBoot.themeId === 'light') {
@@ -159,7 +163,7 @@ try {
       if (mixdogBootPicture) {
         mixdogBootRoot.style.setProperty('--mx-skin-image', mixdogBootPicture);
         // Fetch and decode the picture now, not when the bundle's CSS first asks for it.
-        var mixdogPictureImage = new Image();
+        const mixdogPictureImage = new Image();
         mixdogPictureImage.src = mixdogBootPicture.slice(5, -2);
         if (mixdogPictureImage.decode) mixdogPictureImage.decode().catch(() => {});
         window.mixdogBootPictureImage = mixdogPictureImage;
@@ -167,7 +171,7 @@ try {
       // The picture needs its plates in the SAME frame: until the app mounts
       // (#root is empty) the frame and veil plates are drawn over it here. The
       // boot cover (19-studio.css) wears the identical wash once it exists.
-      var mixdogWashSheet = document.createElement('style');
+      const mixdogWashSheet = document.createElement('style');
       mixdogWashSheet.id = 'mixdog-boot-skin';
       mixdogWashSheet.textContent =
         'html[data-mixdog-skin] body::after{content:"";position:fixed;z-index:-1;inset:0;pointer-events:none;opacity:0;' +
@@ -178,7 +182,7 @@ try {
     }
     if (mixdogBootTheme) {
       mixdogBootRoot.dataset.mixdogUserTheme = mixdogBootTheme.id;
-      var mixdogThemeSheet = document.createElement('style');
+      const mixdogThemeSheet = document.createElement('style');
       mixdogThemeSheet.id = 'mixdog-user-theme';
       mixdogThemeSheet.textContent = mixdogBootTheme.css;
       document.head.appendChild(mixdogThemeSheet);
@@ -193,12 +197,12 @@ try {
 // so a phone never fetches them ahead of its relay transport; Electron
 // promotes them here, at the point in the parse where the markup used to.
 if (/Electron/i.test(navigator.userAgent)) {
-  var mixdogDesktopHintHost = document.getElementById('mixdog-first-screen');
-  var mixdogDesktopHints =
+  const mixdogDesktopHintHost = document.getElementById('mixdog-first-screen');
+  const mixdogDesktopHints =
     mixdogDesktopHintHost && mixdogDesktopHintHost.content
       ? mixdogDesktopHintHost.content.querySelectorAll('link[data-mixdog-surface="desktop"]')
       : [];
-  for (var mixdogDesktopIndex = 0; mixdogDesktopIndex < mixdogDesktopHints.length; mixdogDesktopIndex += 1) {
+  for (let mixdogDesktopIndex = 0; mixdogDesktopIndex < mixdogDesktopHints.length; mixdogDesktopIndex += 1) {
     document.head.appendChild(document.importNode(mixdogDesktopHints[mixdogDesktopIndex], true));
   }
 }
@@ -231,16 +235,16 @@ try {
   /* storage this origin cannot read holds no direct-connect mark */
 }
 if (mixdogInstalledApp) {
-  var mixdogHintHost = document.getElementById('mixdog-first-screen');
-  var mixdogHints = mixdogHintHost && mixdogHintHost.content ? mixdogHintHost.content.querySelectorAll('link') : [];
+  const mixdogHintHost = document.getElementById('mixdog-first-screen');
+  const mixdogHints = mixdogHintHost && mixdogHintHost.content ? mixdogHintHost.content.querySelectorAll('link') : [];
   // Locale chunks stay inert in the template; only this device's catalog
   // joins the first network fan-out.
-  for (var mixdogHintIndex = 0; mixdogHintIndex < mixdogHints.length; mixdogHintIndex += 1) {
-    var mixdogHint = mixdogHints[mixdogHintIndex];
-    var mixdogHintLocale = mixdogHint.getAttribute('data-mixdog-locale');
+  for (let mixdogHintIndex = 0; mixdogHintIndex < mixdogHints.length; mixdogHintIndex += 1) {
+    const mixdogHint = mixdogHints[mixdogHintIndex];
+    const mixdogHintLocale = mixdogHint.getAttribute('data-mixdog-locale');
     if (mixdogHintLocale && mixdogHintLocale !== mixdogUiLanguage) continue;
     if (mixdogHint.hasAttribute('data-mixdog-surface')) continue;
-    var mixdogLink = document.createElement('link');
+    const mixdogLink = document.createElement('link');
     mixdogLink.rel = mixdogHint.getAttribute('rel');
     if (mixdogHint.hasAttribute('crossorigin')) mixdogLink.crossOrigin = 'anonymous';
     if (mixdogHint.hasAttribute('fetchpriority')) {
@@ -253,14 +257,14 @@ if (mixdogInstalledApp) {
     mixdogLink.href = new URL(mixdogHint.getAttribute('href'), document.baseURI).href;
     document.head.appendChild(mixdogLink);
   }
-  var mixdogGate = document.createElement('style');
+  const mixdogGate = document.createElement('style');
   mixdogGate.id = 'mixdog-boot-gate';
   // --mx-window-band of each theme (desktop/01-tokens.css) — the gate paints
   // the color the settled app keeps, so releasing it never changes the backdrop.
   // A recorded skin or user theme already painted above: the gate then holds
   // the window in THEIR colours (the skin's picture under its frame and veil
   // plates, never bare; the user theme's band), not the built-in ones.
-  var mixdogGateBand = mixdogLight ? '#f7f7f7' : '#181818';
+  const mixdogGateBand = mixdogLight ? '#f7f7f7' : '#181818';
   mixdogGate.textContent =
     'html[data-mixdog-booting]{background:' +
     (mixdogSkinned
@@ -279,7 +283,7 @@ if (mixdogInstalledApp) {
     '#root{transition:opacity 160ms ease-out}';
   document.documentElement.dataset.mixdogBooting = '';
   document.head.appendChild(mixdogGate);
-  var mixdogGateTimer = 0;
+  let mixdogGateTimer = 0;
   window.mixdogRevealApp = () => {
     if (mixdogGateTimer) {
       clearTimeout(mixdogGateTimer);
@@ -308,7 +312,7 @@ if (mixdogInstalledApp) {
   function clearOverlay() {
     var layer = document.getElementById('mixdog-boot-error');
     if (layer) {
-      var restoreFocus = layer.contains(document.activeElement);
+      const restoreFocus = layer.contains(document.activeElement);
       layer.remove();
       if (restoreFocus && previousFocus && previousFocus.isConnected) previousFocus.focus();
     }
@@ -349,7 +353,7 @@ if (mixdogInstalledApp) {
         'position:fixed;inset:0;z-index:99999;padding:24px;overflow:auto;' +
         'display:grid;place-items:center;background:rgba(0,0,0,.45);' +
         'color:#e9e9e9;font:400 14px/22px system-ui,sans-serif;';
-      var card = document.createElement('div');
+      const card = document.createElement('div');
       card.setAttribute('role', 'alertdialog');
       card.setAttribute('aria-modal', 'true');
       card.setAttribute('aria-labelledby', 'mixdog-boot-title');
@@ -357,22 +361,22 @@ if (mixdogInstalledApp) {
       card.style.cssText =
         'box-sizing:border-box;width:100%;max-width:400px;' +
         'padding:24px;border:1px solid #444;border-radius:16px;background:#202024;';
-      var title = document.createElement('h2');
+      const title = document.createElement('h2');
       title.id = 'mixdog-boot-title';
       title.style.cssText = 'margin:0 0 12px;font-size:18px;';
       title.textContent = bootT('Connection is taking longer than expected');
-      var description = document.createElement('p');
+      const description = document.createElement('p');
       description.id = 'mixdog-boot-description';
       description.textContent = bootT('The app could not start within 30 seconds. You can keep waiting or try again.');
-      var details = document.createElement('details');
+      const details = document.createElement('details');
       details.hidden = true;
-      var summary = document.createElement('summary');
+      const summary = document.createElement('summary');
       summary.textContent = bootT('Error details');
-      var errorText = document.createElement('pre');
+      const errorText = document.createElement('pre');
       errorText.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;';
       details.appendChild(summary);
       details.appendChild(errorText);
-      var retry = document.createElement('button');
+      const retry = document.createElement('button');
       retry.type = 'button';
       retry.textContent = bootT('Try again');
       retry.style.cssText =
@@ -428,7 +432,7 @@ if (mixdogInstalledApp) {
         // overlay (user: qr로 연동하려고하니 저게뜸). A genuinely broken build
         // fails on the SAME url twice and still stops here.
         try {
-          var failedUrl = String(target.src || target.href);
+          const failedUrl = String(target.src || target.href);
           if (sessionStorage.getItem('mixdog.shell-recovered') !== failedUrl && window.caches) {
             sessionStorage.setItem('mixdog.shell-recovered', failedUrl);
             caches.delete('mixdog-shell-v1').then(() => {

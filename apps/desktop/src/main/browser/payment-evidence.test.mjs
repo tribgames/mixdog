@@ -12,6 +12,7 @@ function evidenceOf({ inputs = [], frames = [] }) {
     querySelectorAll: (selector) => (selector.startsWith('iframe') ? frames.map((src) => ({ src })) : inputs),
   };
   try {
+    // biome-ignore lint/security/noGlobalEval: the expression under test is page-side source text, run as the page would
     return (0, eval)(PAYMENT_EVIDENCE_EXPRESSION);
   } finally {
     delete globalThis.document;

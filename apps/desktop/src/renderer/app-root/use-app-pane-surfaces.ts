@@ -86,6 +86,7 @@ export function useAppPaneSurfaces(
   });
   // A server window reveals files in the focused pane's Files tree.
   const openFolderInDock = paneSideDocks.openFolder;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: focusedLeafIdRef is a ref, read for the pane focused when the callback runs
   const revealServerFile = useCallback(
     (project: string, rel: string) => openFolderInDock(focusedLeafIdRef.current, project, rel),
     [openFolderInDock]

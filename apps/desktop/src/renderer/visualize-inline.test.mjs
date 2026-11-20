@@ -14,6 +14,7 @@ import {
   useInlinePurifier,
 } from './visualize-inline.ts';
 
+// biome-ignore lint/correctness/useHookAtTopLevel: useInlinePurifier is a module's test seam setter, not a React hook
 useInlinePurifier(createDOMPurify(new JSDOM('').window));
 
 const dark = {

@@ -252,6 +252,7 @@ export async function captureTiledDocument(
       await cdp.call(guest, 'Runtime.releaseObject', { objectId });
     } catch (error) {
       failures.push(error);
+      // biome-ignore lint/correctness/noUnsafeFinally: a failed restore must surface, carrying the capture's own error in `failures`
       throw new BrowserScreenshotRestoreError('scroll', failures);
     }
   }

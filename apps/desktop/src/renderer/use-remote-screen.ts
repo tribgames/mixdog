@@ -292,6 +292,7 @@ export function useRemoteScreen({
   // Any change of the signing surface (shown ↔ not shown) ends the challenges
   // begun before it, whichever way it went.
   const grantSurface = screenGrantSurfaceActive(view, document.visibilityState);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a change of grantSurface is what ends the challenges, see above
   useEffect(() => {
     grants.invalidate();
   }, [grantSurface, grants]);

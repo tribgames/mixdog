@@ -30,6 +30,7 @@ export function usePhoneDrawerInert(
   /** False while the element is not rendered, so it is picked up when it is. */
   rendered = true
 ): void {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: rendered picks up the element once it is rendered
   useLayoutEffect(() => {
     const sidebar = ref.current;
     if (!phone || !sidebar) return undefined;

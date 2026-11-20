@@ -344,6 +344,7 @@ export function StarterGuide({
 
   // Merge the config copy with localStorage and write the merge back once
   // when the config copy lacks any of it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so the read follows a replaced bridge
   useEffect(() => {
     let live = true;
     Promise.resolve(invokeOrHeld(api, { capability: 'getOnboardingStatus' }))
@@ -535,6 +536,7 @@ export function StarterGuide({
   // The last step's notice plays over the pill, which folds away as it ends.
   const lastNotice = notice !== null && notice.to === steps.length;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so the save follows a replaced bridge
   useEffect(() => {
     // Finishing retires the guide for good: a provider disconnected later
     // must not resurrect a checklist the user already completed.

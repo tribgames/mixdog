@@ -43,6 +43,7 @@ export function useBrowserFeatureInstalled(): boolean | null {
   const api = window.mixdogDesktop;
   const fallbackNeeded = !browserPaneUnavailable && !windowSectionStore();
   const settings = useDesktopStatus(api, 'settings', fallbackNeeded);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so the listeners follow a replaced bridge
   useEffect(() => {
     if (!fallbackNeeded) return;
     const refresh = () => void readDesktopStatus(api, 'settings')?.catch(() => undefined);

@@ -120,6 +120,7 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
     const shown = new Set(sessionIdsOf(state.layout));
     for (const id of [...pending]) if (!shown.has(id)) pending.delete(id);
   }, [state.layout]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: bootstrap validation runs once; setState is a useCallback with no dependencies
   useEffect(() => {
     const pending = unresolved.current!;
     if (!pending.size) return undefined;

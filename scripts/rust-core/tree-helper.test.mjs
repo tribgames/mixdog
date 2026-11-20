@@ -26,14 +26,15 @@ async function withDir(body) {
   const dir = mkdtempSync(join(tmpdir(), 'tree-helper-'));
   const tracked = [];
   const members = () => JSON.parse(readFileSync(join(dir, 'pids.json'), 'utf8'));
+  const failures = [];
   try {
     await body(dir, members, (child) => tracked.push(child));
   } finally {
-    const failures = [];
     for (const child of tracked) await endTree(child).catch((error) => failures.push(error.message));
     rmSync(dir, { recursive: true, force: true });
-    if (failures.length) throw new Error(`last-resort end of a tracked helper failed: ${failures.join('; ')}`);
   }
+  // After the finally block, so a failure of the body is never replaced by this one.
+  if (failures.length) throw new Error(`last-resort end of a tracked helper failed: ${failures.join('; ')}`);
 }
 
 const within = (promise, what, ms = 60_000) => {

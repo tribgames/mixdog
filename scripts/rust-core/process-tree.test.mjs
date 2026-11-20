@@ -84,6 +84,7 @@ async function withTree(body) {
       return extra;
     }
   };
+  const failures = [];
   try {
     await body(
       dir,
@@ -92,11 +93,11 @@ async function withTree(body) {
       (child) => tracked.push(child)
     );
   } finally {
-    const failures = [];
     for (const child of tracked) await endTree(child).catch((error) => failures.push(error.message));
     rmSync(dir, { recursive: true, force: true });
-    if (failures.length) throw new Error(`last-resort end of a tracked helper failed: ${failures.join('; ')}`);
   }
+  // After the finally block, so a failure of the body is never replaced by this one.
+  if (failures.length) throw new Error(`last-resort end of a tracked helper failed: ${failures.join('; ')}`);
 }
 test('at the deadline the child and the grandchild it started are both gone', () =>
   withTree(async (dir, members, _remember, track) => {

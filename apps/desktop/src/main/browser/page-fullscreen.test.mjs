@@ -49,7 +49,7 @@ const setup = (shellOptions) => {
   return { shell, guest, other, current, changes, fullscreen };
 };
 
-const escape = (shell) => {
+const pressEscape = (shell) => {
   let prevented = false;
   shell.webContents.emit(
     'before-input-event',
@@ -82,7 +82,7 @@ test('the page leaving fullscreen restores the window and the pane', () => {
 test('Escape exits the page fullscreen and is not passed on', () => {
   const { shell, guest, changes } = setup();
   guest.emit('enter-html-full-screen');
-  assert.equal(escape(shell), true);
+  assert.equal(pressEscape(shell), true);
   assert.deepEqual(guest.scripts, ['document.exitFullscreen()']);
   assert.equal(shell.fullscreen, false);
   assert.deepEqual(changes, [
@@ -90,7 +90,7 @@ test('Escape exits the page fullscreen and is not passed on', () => {
     ['s1', false],
   ]);
   // Back to normal: Escape is the page's again.
-  assert.equal(escape(shell), false);
+  assert.equal(pressEscape(shell), false);
 });
 
 test('leaving the window fullscreen by hand leaves the page fullscreen', () => {
