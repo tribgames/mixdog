@@ -32,10 +32,10 @@ test('a model the catalog does not list is never Auto-capable: the card shows th
   assert.equal(cachedAutoEffortCapable('openai-oauth', 'gpt-6.2-astra'), false);
 });
 
-test('the effort sheet says Auto is unavailable and keeps the level in force checked', () => {
+test('the effort sheet of a model without Auto lists only the levels and keeps the level in force checked', () => {
   const html = pane({ enabled: false, pending: false, unavailable: true });
-  assert.match(html, /data-effort-option="auto-unavailable"/);
-  assert.match(html, /Auto is not available for this model/);
+  assert.doesNotMatch(html, /data-effort-option="auto/);
+  assert.doesNotMatch(html, /not available/);
   assert.match(html, /aria-checked="true"[^>]*>\s*<span>Low/);
 });
 

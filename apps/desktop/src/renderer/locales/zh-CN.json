@@ -732,7 +732,6 @@
   "Auto": "自动",
   "Auto commit message": "自动提交消息",
   "Auto effort is not supported on Intel Macs.": "Intel Mac 不支持自动推理强度。",
-  "Auto is not available for this model": "此模型不支持自动模式",
   "Auto login": "自动登录",
   "Auto login, saving and reset": "自动登录、保存与重置",
   "Auto reasoning": "自动推理",

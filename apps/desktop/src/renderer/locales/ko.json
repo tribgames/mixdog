@@ -732,7 +732,6 @@
   "Auto": "자동",
   "Auto commit message": "커밋 메시지 자동 생성",
   "Auto effort is not supported on Intel Macs.": "Intel Mac에서는 자동 추론 강도를 지원하지 않습니다.",
-  "Auto is not available for this model": "이 모델에서는 자동을 사용할 수 없습니다",
   "Auto login": "자동 로그인",
   "Auto login, saving and reset": "자동 로그인·저장·초기화",
   "Auto reasoning": "자동 추론 조절",

@@ -732,7 +732,6 @@
   "Auto": "自動",
   "Auto commit message": "自動コミットメッセージ",
   "Auto effort is not supported on Intel Macs.": "Intel Mac では推論の強さの自動調整に対応していません。",
-  "Auto is not available for this model": "このモデルでは Auto を使用できません",
   "Auto login": "自動ログイン",
   "Auto login, saving and reset": "自動ログイン・保存・リセット",
   "Auto reasoning": "自動推論",
