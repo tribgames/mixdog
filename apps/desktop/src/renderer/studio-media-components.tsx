@@ -302,8 +302,7 @@ export function StudioDetailViewer({
               }}
             >
               {/* alt stays empty: a prompt here painted as a wall of text in the
-                  image's place until the display rendition landed (user: 섬네일
-                  자리에 긴 글자가 뜸). The button above carries the label and the
+                  image's place until the display rendition landed. The button above carries the label and the
                   side rail already shows the prompt itself. */}
               <img src={displayUrl} alt="" onError={() => onUrlBroken(asset.id, 'display')} />
             </button>

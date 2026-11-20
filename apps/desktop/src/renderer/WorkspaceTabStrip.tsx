@@ -134,7 +134,7 @@ function tabGlyph(tab: WorkspaceTab, size = 14) {
     case 'session':
       return sessionTabGlyph(tab.selection.id, size);
     default:
-      // Chat/new-task tabs keep the bubble icon (user: 탭 앞 아이콘은 롤백).
+      // Chat/new-task tabs keep the bubble icon.
       return <MessageCircle size={size} />;
   }
 }
@@ -147,10 +147,9 @@ function menuFileTarget(selection: WorkspaceTab['selection']) {
   return null;
 }
 
-/** Phone home slot: the brand mark opens the session drawer (user: 로고를
- *  구글 홈버튼 위치에, 누르면 사이드탭) — the desktop reaches the same drawer
- *  through its activity rail, which the phone has no room for. Frameless,
- *  currentColor strokes. */
+/** Phone home slot: the brand mark opens the session drawer the desktop
+ *  reaches through its activity rail, which the phone has no room for.
+ *  Frameless, currentColor strokes. */
 function workspaceTabHomeButton() {
   return (
     <button
@@ -165,7 +164,7 @@ function workspaceTabHomeButton() {
   );
 }
 
-/** Phone title pill (user decision (a): 제목 알약은 그대로): the run of tabs
+/** Phone title pill: the run of tabs
  *  has no room on a phone, so ONE label names the active tab — sessions live
  *  in the left drawer. Tapping re-selects the active tab (on an agent's home
  *  thread that opens its profile); long-press keeps the tab menu for
@@ -429,7 +428,7 @@ function workspaceTabNode(
       >
         {/* The tab GLYPH carries the strongest status: the needs-you or
               failure mark, else the progress spinner while the session works
-              (user decision) — no extra dot. */}
+              — no extra dot. */}
         <TabStatusMark tab={tab} attention={attention} working={working} />
         <span className="workspace-tab-title">{tab.title}</span>
         {attention === 'unread' && (
@@ -583,7 +582,7 @@ export function WorkspaceTabStrip({
   const closeTabEvent = useStableEvent(onCloseTab);
   const pinTabEvent = useStableEvent((tab: WorkspaceTab) => onPinTab?.(tab));
   // The mobile root marker + device-scale factor install in main.tsx BEFORE
-  // the first render (user: 첫 진입 레이아웃 시프트) — nothing to do here.
+  // the first render — nothing to do here.
   const selectTab = useCallback(
     (tab: WorkspaceTab) => {
       prefetchTabSurface(tab);
@@ -608,8 +607,7 @@ export function WorkspaceTabStrip({
   // Every renderer follows ONE tab-strip layout —
   // tabs shrink to sliver floors and never switch to a device-specific mode.
   const shellNode = useRef<HTMLDivElement>(null);
-  // The phone draws the SAME strip as the desktop (user: PC에 최대한 맞춰서 —
-  // 헤더가 완전 다르다): real tabs, X, + and the dock toggles. Its only
+  // The phone draws the SAME strip as the desktop: real tabs, X, + and the dock toggles. Its only
   // addition is the brand mark at the front, which opens the session drawer
   // the desktop reaches through its activity rail.
   const mobile = useMobileRemoteSurface();
@@ -774,10 +772,9 @@ export function WorkspaceTabStrip({
         onClick={tapNewTask}
       >
         {/* Same lucide family and weight as the tab glyphs and dock toggles
-              beside it; the codicon + read as a foreign mark (user: + 버튼이
-              이질감이 있네). */}
+              beside it; the codicon + read as a foreign mark. */}
         {/* 15px → a ~8.8px cross on the strip's 1.5px line: at 18px the +
-              out-sized the 14px tab labels (user: +가 너무 크다). The mark is
+              out-sized the 14px tab labels. The mark is
               the dock toggles' own 28px plate (22-markdown.css), centred in
               this full-height hit slot. */}
         <span className="workspace-tab-new-mark">

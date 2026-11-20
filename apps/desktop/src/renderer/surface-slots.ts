@@ -90,10 +90,10 @@ export function placeFixedSurface(container: HTMLElement, rect: SurfaceRect, slo
 const SHEET_SLIDE_FOLLOW_ID = 'mx-sheet-slide-follow';
 
 /** The phone sheet slides in through a compositor `transform` transition, and
- *  a fixed surface over its slot used to chase the slot's rect frame by frame
- *  from the main thread: every step was a layout shift, the surface lagged the
- *  sheet behind each long task, and a terminal focused while still half
- *  off-screen panned the visual viewport. The surface now sits at the slot's
+ *  a fixed surface chasing the slot's rect frame by frame from the main thread
+ *  would shift layout on every step, lag the sheet behind each long task, and
+ *  pan the visual viewport when a terminal is focused while still half
+ *  off-screen. The surface sits at the slot's
  *  settled rect (the slide's current offset taken out) and runs the sheet's
  *  own transition as a copy started at the same time, so both move as one
  *  layer. Returns the sheet's current horizontal offset. */

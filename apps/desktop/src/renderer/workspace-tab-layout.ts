@@ -8,7 +8,7 @@ import type { WorkspaceTab } from './nav-types';
  * sliver. The rounded-down remainder is re-granted +1px
  * left-to-right. */
 /* 160px: square cells with hairline seams made the empty run beside a short
- * title read loud at 200px (user: 탭 칸이 넓다 → 160). */
+ * title read loud at 200px. */
 const TAB_STANDARD_WIDTH = 160;
 const TAB_MIN_ACTIVE_WIDTH = 56;
 const TAB_MIN_INACTIVE_WIDTH = 28;
@@ -54,8 +54,7 @@ export function calculateChromeTabWidths(count: number, activeIndex: number, ava
   }
   // Hard fit: past the sliver floor the run exceeded the strip, and
   // reveal-active then scrolled it right, leaving the leading tab sliced in
-  // half against the rail edge (user: 창 크기를 줄이면 위쪽 라벨 왼쪽이 잘려
-  // 보인다). Inactive cells surrender the surplus evenly, down to the glyph
+  // half against the rail edge. Inactive cells surrender the surplus evenly, down to the glyph
   // floor, so the whole run stays inside the strip.
   const room = Math.floor(available);
   const inactiveCount = count - 1;
@@ -120,7 +119,7 @@ export function tabsWithClosingGhosts(
         (ghost) =>
           ghost.after === null || slotOf(ghost.after) >= 0 || !pending.some((other) => other.tab.key === ghost.after)
       );
-      const [ghost] = pending.splice(next < 0 ? 0 : next, 1);
+      const [ghost] = pending.splice(Math.max(next, 0), 1);
       // The anchor can be gone without becoming a ghost (a replaced tab): the
       // ghost then keeps its place before the entry that followed it.
       const anchor = slotOf(ghost.after);

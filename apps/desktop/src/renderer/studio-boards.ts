@@ -138,10 +138,6 @@ export function useStudioBoardsWatch(api: StudioApi | undefined, active: boolean
   }, [active, api]);
 }
 
-export function useOpenStudioBoardId(): string {
-  return useSyncExternalStore(subscribe, () => snapshot().openId);
-}
-
 /** A Studio tab's title: the open board's name, "전체" when none is open. A
  *  remembered board reads the list once so the restored tab names it. */
 export function useStudioBoardTitle(api: StudioApi | undefined = window.mixdogDesktop): string {

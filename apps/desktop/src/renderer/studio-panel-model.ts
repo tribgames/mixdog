@@ -25,8 +25,8 @@ export function groupStudioAssets(assets: readonly MediaAsset[], now = Date.now(
   ];
   for (const asset of assets) {
     const created = Number(asset.createdAt) || 0;
-    const index = created >= today ? 0 : created >= today - DAY_MS ? 1 : created >= today - 6 * DAY_MS ? 2 : 3;
-    groups[index]?.assets.push(asset);
+    const index = [today, today - DAY_MS, today - 6 * DAY_MS].findIndex((start) => created >= start);
+    groups[index < 0 ? 3 : index]?.assets.push(asset);
   }
   return groups.filter((group) => group.assets.length > 0);
 }

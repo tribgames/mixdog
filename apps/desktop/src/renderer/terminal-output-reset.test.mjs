@@ -59,7 +59,10 @@ test('a parked terminal redraws after queued writes and receives only the relay 
   };
   let notify;
   let answer;
-  attachTerminalOutput(view, (listener) => ((notify = listener), () => {}));
+  attachTerminalOutput(view, (listener) => {
+    notify = listener;
+    return () => {};
+  });
   const output = followTerminalOutput(
     () =>
       new Promise((resolve) => {

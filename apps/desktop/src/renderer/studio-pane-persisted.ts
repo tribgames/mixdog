@@ -22,7 +22,7 @@ export function useStudioTileSize(): [number, (next: number) => void] {
 /** Aspect ratios drive the justified rows; measured from the rendered thumb
  *  so no extra decode is needed. Ratios persist: without them the first paint
  *  lays every tile out square and then snaps once each thumbnail decodes
- *  (user: 처음 들어갈 때 튄다). */
+ */
 export function useStudioThumbRatios(): [Record<string, number>, (asset: MediaAsset) => void] {
   const [ratios, setRatios] = useState<Record<string, number>>(() => {
     try {

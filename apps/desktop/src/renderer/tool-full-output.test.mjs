@@ -386,7 +386,19 @@ test('Copy on a cut row asks for the whole output and copies that, never the pre
       { value: gate },
       React.createElement(ToolPanel, { copyValue: value }, 'body')
     );
-  await act(async () => root.render(panel({ load: () => void (loads += 1), failed: false }, 'preview')));
+  await act(async () =>
+    root.render(
+      panel(
+        {
+          load: () => {
+            loads += 1;
+          },
+          failed: false,
+        },
+        'preview'
+      )
+    )
+  );
   await act(async () => host.querySelector('button').dispatchEvent(new window.MouseEvent('click', { bubbles: true })));
   assert.equal(loads, 1, 'the click asks for the whole output');
   assert.deepEqual(written, [], 'the preview was not copied');

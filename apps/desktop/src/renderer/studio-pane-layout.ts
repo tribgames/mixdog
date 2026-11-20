@@ -30,8 +30,7 @@ export function useStudioGridRows({
   visibleAssets: MediaAsset[];
 }) {
   // Every queued run holds its own slot in the grid, sized from its REQUESTED
-  // aspect ratio so the finished asset lands without the tile changing shape
-  // (user: 비율이 기존 비율이랑 다르다).
+  // aspect ratio so the finished asset lands without the tile changing shape.
   const pendingJobs = useMemo(
     () => jobs.filter((entry) => shouldKeepMediaJobSlot(entry, visibleAssets, kind)),
     [jobs, visibleAssets, kind]

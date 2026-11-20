@@ -359,7 +359,10 @@ globalThis.ResizeObserver = class {
     resizeObservers.delete(this);
   }
 };
-const reportResize = () => act(async () => resizeObservers.forEach((observer) => observer.callback([])));
+const reportResize = () =>
+  act(async () => {
+    for (const observer of resizeObservers) observer.callback([]);
+  });
 
 const toast = () => document.querySelector('.starter-guide-toast');
 const toastMeter = () => toast().querySelector('.starter-guide-meter > span').style.width;

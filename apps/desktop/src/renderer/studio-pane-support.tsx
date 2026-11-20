@@ -96,7 +96,7 @@ export function startStudioThumbnailHydration({
 }): () => void {
   let stopped = false;
   const controller = new AbortController();
-  // The active mode owns this queue. The old global first-24 cutoff stranded
+  // The active mode owns this queue: a global first-24 cutoff would strand
   // older clips whenever newer images occupied those slots.
   const queue = visibleAssets.filter(
     (asset, assetIndex) =>

@@ -25,7 +25,9 @@ function mediaCore({ snapshotFails = false, snapshotFailsLate = false, refuse = 
   // A snapshot read that is still in flight while the pushes arrive, and fails afterwards.
   let failLate = () => undefined;
   const lateGate = snapshotFailsLate
-    ? new Promise((_, reject) => void (failLate = () => reject(new Error('core unreachable'))))
+    ? new Promise((_, reject) => {
+        failLate = () => reject(new Error('core unreachable'));
+      })
     : null;
   const listeners = new Set();
   const held = new Map();
@@ -42,7 +44,10 @@ function mediaCore({ snapshotFails = false, snapshotFailsLate = false, refuse = 
         if (lateGate) await lateGate;
         return { status: 'ready', entries: [...held.values()] };
       },
-      subscribe: (next) => (listeners.add(next), () => void listeners.delete(next)),
+      subscribe: (next) => {
+        listeners.add(next);
+        return () => void listeners.delete(next);
+      },
       call: async (method, params) => {
         // Main answers `absent` for a feed the core does not hold and rejects when the request itself failed.
         if (method === 'feed/subscribe' && transportFails.includes(params.feedId)) throw new Error('core unreachable');

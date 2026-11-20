@@ -6,8 +6,7 @@
 // picker removes itself from the context row when a workspace has a single
 // pack, so the count has to be known in the FIRST painted frame. A reserved
 // placeholder that later resolves to "one pack" would shift the whole row —
-// exactly the movement hiding the control is meant to avoid (user: 자리
-// 예약되었다가 사라져도 시프트 생기는 거 아님). Only a never-seen workspace
+// exactly the movement hiding the control is meant to avoid. Only a never-seen workspace
 // starts without an answer; it paints nothing and gains the control if a
 // second pack really exists.
 import { catalogStorageKey } from './catalog-storage-scope';

@@ -94,19 +94,15 @@ export function StudioBoardPicker({
   const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
     const items = [...(menu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [])];
     const at = items.indexOf(document.activeElement as HTMLButtonElement);
-    const next =
-      event.key === 'ArrowDown'
-        ? (at + 1) % items.length
-        : event.key === 'ArrowUp'
-          ? (at - 1 + items.length) % items.length
-          : event.key === 'Home'
-            ? 0
-            : event.key === 'End'
-              ? items.length - 1
-              : -1;
-    if (next < 0) return;
+    const targets: Record<string, number> = {
+      ArrowDown: (at + 1) % items.length,
+      ArrowUp: (at - 1 + items.length) % items.length,
+      Home: 0,
+      End: items.length - 1,
+    };
+    if (!Object.hasOwn(targets, event.key)) return;
     event.preventDefault();
-    items[next]?.focus();
+    items[targets[event.key]]?.focus();
   };
   const choose = (id: string) => {
     setBox(null);

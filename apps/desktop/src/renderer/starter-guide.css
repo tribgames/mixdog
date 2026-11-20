@@ -27,8 +27,7 @@
 }
 
 /* Checklist card: the rail's own card surface and outline, so the guide reads
-   as one more card in the panel above it (user: 온보딩 UI도 너무 튄다 —
-   다른 레이아웃이랑 같이). */
+   as one more card in the panel above it. */
 .starter-guide-list {
   margin: 0;
   padding: 4px;
@@ -56,8 +55,7 @@
   background: var(--mx-hover);
 }
 /* Marks are bare glyphs in the rail's icon ink: no ringed circle, no green
-   disc — a done step is a quiet check (user: 체크박스 원이랑 아이콘도 너무
-   튄다). */
+   disc — a done step is a quiet check. */
 .starter-guide-step-mark {
   width: 20px;
   height: 20px;
@@ -233,7 +231,7 @@
   height: 100%;
   display: block;
   border-radius: inherit;
-  /* Progress carries the accent (user: 강조색도 써야 하는 곳은 쓰고) — the
+  /* Progress carries the accent — the
      one bit of colour in the pill; not success green, it is not an alert. */
   background: var(--mx-accent);
   transition: width 300ms var(--mx-ease-standard);

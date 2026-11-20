@@ -85,7 +85,7 @@ export function StudioCleanupBar({
   };
   return (
     <div className="studio-cleanup" ref={menuNode}>
-      {/* Icon-only trash trigger (user: 클린업 말고 휴지통 아이콘); the
+      {/* Icon-only trash trigger; the
             name rides the tooltip and the accessible label. */}
       <button
         type="button"

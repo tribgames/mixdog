@@ -347,7 +347,9 @@ export function installEdgeSwipe(
     const sheet = current.element.style;
     sheet.transition = animate ? '' : 'none';
     const slid = `translateX(${shift}%)`;
-    const rest = position >= 1 ? 'open' : position <= 0 ? 'closed' : null;
+    let rest: 'open' | 'closed' | null = null;
+    if (position >= 1) rest = 'open';
+    else if (position <= 0) rest = 'closed';
     sheet.transform = current.declaresRest && rest ? `var(--mx-drawer-${rest}-transform, ${slid})` : slid;
     sheet.visibility = animate && hidden ? 'hidden' : 'visible';
     const scrim = current.drawer.backdrop?.()?.style;

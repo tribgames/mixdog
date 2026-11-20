@@ -38,11 +38,10 @@ interface TooltipPosition {
 const VIEWPORT_PADDING = 8;
 const TARGET_GAP = 6;
 /* Hover hints are opt-in (`data-tooltip`). The only automatic fallback is an
-   ICON-ONLY button or link, whose aria-label is the one name it has. The old
-   fallback covered every labelled control — rows, cards, tabs, text links,
-   inputs, textareas, selects — so ~500 screen-reader labels surfaced as
-   bubbles that merely repeated the visible text (user: 모든 버튼에 다 붙어서
-   개판). Those controls now stay silent unless a screen opts in. */
+   ICON-ONLY button or link, whose aria-label is the one name it has. Rows,
+   cards, tabs, text links, inputs, textareas and selects stay silent unless a
+   screen opts in: their screen-reader labels would surface as bubbles that
+   merely repeat the visible text. */
 const ICON_CONTROLS = ['button[aria-label]', 'a[href][aria-label]', '[role="button"][aria-label]'].join(',');
 /* Hover waits a beat longer than the OS default so a pointer merely passing
    over a control never summons a bubble; keyboard focus stays quick because
@@ -121,8 +120,7 @@ export function TooltipLayer() {
 
   useEffect(() => {
     let watchdog: number | null = null;
-    /* Help answers the person's own gesture only (user: 호버도 안 했는데
-       팁이 뜬다). Hover needs a pointer that MOVED over the control: content
+    /* Help answers the person's own gesture only. Hover needs a pointer that MOVED over the control: content
        sliding under a resting pointer — a streaming transcript, a scroll, a
        row re-rendered by a click — fires pointerover but never pointermove.
        Keyboard help needs focus a navigation key moved: script focus (a menu
@@ -216,7 +214,7 @@ export function TooltipLayer() {
     const onFocusIn = (event: FocusEvent) => {
       const target = tooltipTarget(event.target);
       // Pointer clicks move focus too and re-summoned the tooltip right after
-      // the pointerdown dismissal (user: lingering description bubbles); only
+      // the pointerdown dismissal; only
       // focus a navigation key moved reveals help.
       if (target && navigating) reveal(target, FOCUS_DELAY_MS);
     };

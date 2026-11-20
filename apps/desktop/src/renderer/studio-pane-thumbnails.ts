@@ -25,7 +25,7 @@ export function useStudioThumbnailState() {
   const loadedThumbsRef = useRef<Record<string, boolean>>({});
   /** A thumbnail failure is terminal for ONE pass, not for the pane: a cold
    *  rendition that timed out once otherwise left a permanent glyph until the
-   *  whole app restarted (user: 섬네일이 안 나온다). Entering Studio again, or
+   *  whole app restarted. Entering Studio again, or
    *  pressing Retry, starts those tiles over. */
   const reset = useCallback(() => {
     failedThumbsRef.current = {};

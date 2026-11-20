@@ -161,10 +161,8 @@ export function StudioPane({
   // its prompt, mode, references, selected asset, queue, and scroll position.
   useLayoutEffect(() => {
     if (!active) return;
-    // No unfold on entry (user): display:none → visible restarts CSS
-    // animations. The entry frame renders animation-free.
-    // Chat-composer parity (user): entering Studio lands the caret in the
-    // prompt so typing starts immediately, like the session composer.
+    // Entering Studio lands the caret in the prompt so typing starts
+    // immediately, like the session composer.
     promptRef.current?.focus();
   }, [active]);
   useEffect(() => {
@@ -357,7 +355,7 @@ export function StudioPane({
     onReady: onReadyRef,
   });
   // Only a missing lane disables the composer: a run in flight must not, since
-  // Generate queues the next one (user: 큐에 올리는 방식이라 버튼 막지 말고).
+  // Generate queues the next one.
   const disabled = !lane;
   // Justified rows: the density step is a COLUMN count, mapped to Task's
   // composer-aligned inner width (gaps included).
