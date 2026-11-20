@@ -29,10 +29,38 @@ public static class LeaseFixture {
     };
   }
   public static void UseHost() { MixForegroundLock.Host = new MixForegroundLockHost(); }
-  // Writes the lines into the worker's stdin after a delay, as the host would.
-  public static void Feed(System.IO.Stream pipe, string[] lines, int delayMs) {
+  static readonly object requestSync = new object();
+  static int requests;
+  static int fedAt;
+  // Called once the call a Feed answers has returned: if that call wrote no
+  // request, the answer would never be sent, so fail instead of blocking.
+  public static void Expect() {
+    lock (requestSync) {
+      if (requests == fedAt) throw new System.InvalidOperationException("the worker wrote no request for the fed answer");
+    }
+  }
+  sealed class RequestWatcher : System.IO.TextWriter {
+    readonly System.IO.TextWriter inner;
+    public RequestWatcher(System.IO.TextWriter inner) { this.inner = inner; }
+    public override System.Text.Encoding Encoding { get { return inner.Encoding; } }
+    public override void Write(char value) { inner.Write(value); }
+    public override void Write(string value) { inner.Write(value); }
+    public override void WriteLine(string value) {
+      inner.WriteLine(value);
+      if (value != null && value.StartsWith(MixForegroundLockHost.LinePrefix)) {
+        lock (requestSync) { requests++; System.Threading.Monitor.PulseAll(requestSync); }
+      }
+    }
+    public override void Flush() { inner.Flush(); }
+  }
+  public static void WatchRequests() { System.Console.SetOut(new RequestWatcher(System.Console.Out)); }
+  // Writes the lines into the worker's stdin once the next request line has
+  // been written, so the host's answer never precedes the wait it answers.
+  public static void Feed(System.IO.Stream pipe, string[] lines) {
+    int seen;
+    lock (requestSync) { seen = requests; fedAt = seen; }
     var thread = new System.Threading.Thread(delegate () {
-      System.Threading.Thread.Sleep(delayMs);
+      lock (requestSync) { while (requests == seen) System.Threading.Monitor.Wait(requestSync); }
       byte[] bytes = System.Text.Encoding.UTF8.GetBytes(string.Join("\n", lines) + "\n");
       pipe.Write(bytes, 0, bytes.Length);
       pipe.Flush();
@@ -49,7 +77,7 @@ $p = $env:REPLY_PREFIX
 function At($offset) { return ([MixLeaseClock]::Now() + $offset).ToString('0.000', [Globalization.CultureInfo]::InvariantCulture) }
 function Facts() { $copy = @{}; foreach ($key in [MixForegroundLock]::LastFacts.Keys) { $copy[$key] = [MixForegroundLock]::LastFacts[$key] }; return $copy }
 $rows = [ordered]@{}
-[LeaseFixture]::RefuseOwnLock(); [LeaseFixture]::UseHost()
+[LeaseFixture]::WatchRequests(); [LeaseFixture]::RefuseOwnLock(); [LeaseFixture]::UseHost()
 # Only the answer naming this request counts; a command line between them
 # still reaches the request loop.
 $deadline = At 300
@@ -61,23 +89,28 @@ $deadline = At 300
   "$p",
   '{"id":7,"action":"snapshot"}',
   "$($p)ack 7 1 12 locked $deadline"
-), 30)
+))
 $locked = [MixForegroundLock]::Acquire(100, 7)
-$rows.matching = @{ locked = $locked; held = [MixForegroundLock]::Held; facts = (Facts); command = $stdin.ReadLine() }
+[LeaseFixture]::Expect()
+$rows.matching =@{ locked = $locked; held = [MixForegroundLock]::Held; facts = (Facts); command = $stdin.ReadLine() }
 # A release answer for another lease is ignored; the one naming lease 12 ends it.
-[LeaseFixture]::Feed($server, @("$($p)released 7 1 13 released", "$($p)released 7 1 12 released"), 30)
+[LeaseFixture]::Feed($server, @("$($p)released 7 1 13 released", "$($p)released 7 1 12 released"))
 $rows.matching.release = [MixForegroundLock]::Release()
+[LeaseFixture]::Expect()
 $rows.matching.again = [MixForegroundLock]::Release()
 # Nothing naming the request in time: no lock, and an unanswered release is
 # no_ack, since the host may still hold a lease it granted late.
-[LeaseFixture]::Feed($server, @("$($p)ack 7 3 14 locked $(At 300)"), 30)
+[LeaseFixture]::Feed($server, @("$($p)ack 7 3 14 locked $(At 300)"))
 $locked = [MixForegroundLock]::Acquire(100, 7)
+[LeaseFixture]::Expect()
 $rows.unanswered = @{ locked = $locked; held = [MixForegroundLock]::Held; release = [MixForegroundLock]::Release(); facts = (Facts) }
 # A lease whose deadline passed before its answer arrived protects nothing.
-[LeaseFixture]::Feed($server, @("$($p)ack 7 3 15 locked $(At -1)"), 30)
+[LeaseFixture]::Feed($server, @("$($p)ack 7 3 15 locked $(At -1)"))
 $locked = [MixForegroundLock]::Acquire(100, 7)
-[LeaseFixture]::Feed($server, @("$($p)released 7 3 15 released"), 30)
+[LeaseFixture]::Expect()
+[LeaseFixture]::Feed($server, @("$($p)released 7 3 15 released"))
 $rows.expired = @{ locked = $locked; release = [MixForegroundLock]::Release(); facts = (Facts) }
+[LeaseFixture]::Expect()
 # The worker's own lock: an unlock that answers false is unknown, one that
 # throws is failed, and only a successful one is released.
 foreach ($mode in 0, 1, 2) {
@@ -96,11 +129,13 @@ $rows.retry = @{ first = $first; second = [MixForegroundLock]::Release(); third 
 $null = [MixForegroundLock]::Acquire(1000, 7)
 $falseRelease = [MixForegroundLock]::Release()
 [LeaseFixture]::LockRefused = $true
-[LeaseFixture]::Feed($server, @("$($p)ack 7 4 21 locked $(At 300)"), 30)
+[LeaseFixture]::Feed($server, @("$($p)ack 7 4 21 locked $(At 300)"))
 $locked = [MixForegroundLock]::Acquire(100, 7)
+[LeaseFixture]::Expect()
 $hostFacts = Facts
-[LeaseFixture]::Feed($server, @("$($p)released 7 4 21 released"), 30)
+[LeaseFixture]::Feed($server, @("$($p)released 7 4 21 released"))
 $rows.afterFalse = @{ release = $falseRelease; locked = $locked; facts = $hostFacts; hostRelease = [MixForegroundLock]::Release() }
+[LeaseFixture]::Expect()
 # The next request retries it too, before anything new starts...
 [LeaseFixture]::GrantOwnLock(2)
 $null = [MixForegroundLock]::Acquire(1000, 7)
