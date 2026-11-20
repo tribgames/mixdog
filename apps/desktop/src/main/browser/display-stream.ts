@@ -76,7 +76,8 @@ export function createBrowserDisplayStream(
     clearTimeout(stream.idle);
     // No pane reads means no retained pixels or display listeners. Do not
     // stop Chromium painting: independent agent observations still need it.
-    stream.idle = setTimeout(() => stream!.close(), STREAM_IDLE_MS);
+    const live = stream;
+    stream.idle = setTimeout(() => live.close(), STREAM_IDLE_MS);
     stream.idle.unref();
     if (stream.key !== key) {
       stream.key = key;
@@ -91,11 +92,13 @@ export function createBrowserDisplayStream(
       // overwriting (and orphaning) each other's waiter.
       let next = stream.waiting?.promise;
       if (!next) {
-        const entry = stream;
-        next = new Promise<NativeImage>((resolve, reject) => {
-          entry.waiting = { resolve, reject, promise: undefined as unknown as Promise<NativeImage> };
+        let resolve!: (image: NativeImage) => void;
+        let reject!: (error: Error) => void;
+        next = new Promise<NativeImage>((res, rej) => {
+          resolve = res;
+          reject = rej;
         });
-        stream.waiting!.promise = next;
+        stream.waiting = { resolve, reject, promise: next };
         guest.invalidate();
       }
       image = await next;

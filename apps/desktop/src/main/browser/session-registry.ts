@@ -119,6 +119,11 @@ export class BrowserSessionRegistry {
     for (const listener of this.lastPageGoneListeners) listener(sessionId);
   }
 
+  private setActiveGuest(sessionId: string, guest: WebContents | null | undefined): void {
+    if (guest) this.activeBySession.set(sessionId, guest);
+    else this.activeBySession.delete(sessionId);
+  }
+
   registerVisibleGuest(guest: WebContents): void {
     if (!this.visibleOrder.includes(guest)) this.visibleOrder.push(guest);
   }
@@ -134,8 +139,7 @@ export class BrowserSessionRegistry {
       const fallback =
         this.visibleGuests(sessionId)[0] ??
         [...this.backgroundPages(sessionId).values()].find((page) => !page.guest.isDestroyed())?.guest;
-      if (fallback) this.activeBySession.set(sessionId, fallback);
-      else this.activeBySession.delete(sessionId);
+      this.setActiveGuest(sessionId, fallback);
     }
     this.notifyIfLastPageGone(sessionId);
   }
@@ -149,8 +153,7 @@ export class BrowserSessionRegistry {
     if (previousSessionId && previousSessionId !== sessionId) this.forgetAgentPage(guest);
     if (previousSessionId && previousSessionId !== sessionId && this.activeBySession.get(previousSessionId) === guest) {
       const fallback = this.visibleGuests(previousSessionId).find((candidate) => candidate !== guest);
-      if (fallback) this.activeBySession.set(previousSessionId, fallback);
-      else this.activeBySession.delete(previousSessionId);
+      this.setActiveGuest(previousSessionId, fallback);
     }
     this.sessionByGuest.set(guest, sessionId);
 
@@ -160,8 +163,7 @@ export class BrowserSessionRegistry {
       webContentsId,
       active
     );
-    if (selected) this.activeBySession.set(sessionId, selected);
-    else this.activeBySession.delete(sessionId);
+    this.setActiveGuest(sessionId, selected);
     this.notifyGuestWaiters(sessionId, guest);
     return selected ?? guest;
   }
@@ -324,8 +326,7 @@ export class BrowserSessionRegistry {
         opener ??
         this.visibleGuests(sessionId)[0] ??
         [...pages.values()].find((page) => !page.guest.isDestroyed())?.guest;
-      if (fallback) this.activeBySession.set(sessionId, fallback);
-      else this.activeBySession.delete(sessionId);
+      this.setActiveGuest(sessionId, fallback);
     }
     if (!pages.size) this.backgroundsBySession.delete(sessionId);
     if (removed) this.notifyIfLastPageGone(sessionId);

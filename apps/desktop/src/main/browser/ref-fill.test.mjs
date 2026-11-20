@@ -2,12 +2,11 @@
 // run in JSDOM the way the engine runs them: declared with the editability check spliced in, applied to the ref's element. What
 // the engine does around them (typed insertion into an editor, reading it back) is covered by its own Rust tests.
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 
-const ASSETS = new URL('../../../../../native/core/crates/mixdog-browser-engine/assets/page/', import.meta.url);
-const asset = (name) => fs.readFileSync(new URL(name, ASSETS), 'utf8');
+import { asset } from './page-assets.test-helper.mjs';
+
 const EDITABILITY = asset('editability.js');
 
 /** The function as the engine sends it to the element, applied to `element` with `args`. */

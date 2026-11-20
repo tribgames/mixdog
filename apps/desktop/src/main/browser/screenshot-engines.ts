@@ -1,6 +1,5 @@
 /** Viewport capture engines; full documents are assembled from painted tiles. */
-import type { WebContents } from 'electron';
-import { nativeImage } from 'electron';
+import { nativeImage, type WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
 import { type EncodedBrowserScreenshot, type ScreenshotCropInput, validatedScreenshot } from './screenshot-image';

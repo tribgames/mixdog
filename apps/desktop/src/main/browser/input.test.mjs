@@ -212,7 +212,7 @@ test('dropping files announces the payload before delivering it', async () => {
 
 test('a drop check runs before the payload is announced and again right before the drop; a late refusal cancels', async () => {
   const calls = [];
-  const driver = createBrowserInputDriver(async (_guest, method, params) => {
+  const driver = createBrowserInputDriver(async (_guest, _method, params) => {
     calls.push(params.type);
     return 'completed';
   });

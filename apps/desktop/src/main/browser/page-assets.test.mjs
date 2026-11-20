@@ -24,10 +24,7 @@ import { BROWSER_REF_RECT, browserRefRectExpression } from './ref-rect.ts';
 import { browserScrollTextApplyExpression, browserScrollTextMatchExpression } from './scroll-text.ts';
 import { BROWSER_STABLE_RECT } from './stable-rect.ts';
 import { browserVisualLocatorExpression } from './visual-locator.ts';
-
-const ASSETS = new URL('../../../../../native/core/crates/mixdog-browser-engine/assets/page/', import.meta.url);
-
-const asset = (name) => fs.readFileSync(new URL(name, ASSETS), 'utf8');
+import { ASSETS, asset } from './page-assets.test-helper.mjs';
 
 /** A file holding several sources starts each with a `//@@ <export name>` line. */
 function sections(name) {

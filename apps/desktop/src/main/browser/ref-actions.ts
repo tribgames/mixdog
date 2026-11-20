@@ -10,23 +10,15 @@ import type { WebContents } from 'electron';
 import type { BrowserCdpPort } from './cdp';
 import type { PendingFileChooser } from './host-types';
 import type { createBrowserInputDriver } from './input';
-import { createBrowserRefAccess } from './ref-access';
+import { type BrowserRefAccessHost, createBrowserRefAccess } from './ref-access';
 import { createRefControlState } from './ref-control-state';
 import { createBrowserRefSelection } from './ref-select';
 import { createRefTextEntry } from './ref-text-entry';
 import { createRefUpload } from './ref-upload';
 
-export interface BrowserRefActionsHost {
-  /** Run a function against the ref through the accessibility snapshot. */
-  callAccessibilityRef<T>(
-    guest: WebContents,
-    ref: string,
-    functionDeclaration: string,
-    args: unknown[],
-    signal?: AbortSignal
-  ): Promise<{ handled: false } | { handled: true; value: T }>;
-  /** The page-side fallback for a ref the accessibility snapshot lost. */
-  evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
+/** callAccessibilityRef runs a function against the ref through the accessibility snapshot; evaluate is the
+ *  page-side fallback for a ref the snapshot lost. */
+export interface BrowserRefActionsHost extends BrowserRefAccessHost {
   /** The same expression in every attached frame. A drop zone can live in
    *  one, and its drop never reaches the top document's listeners. */
   evaluateInFrames<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T[]>;

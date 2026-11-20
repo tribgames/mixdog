@@ -8,10 +8,9 @@ import type { WebContents } from 'electron';
 
 import { BrowserActionabilityError, waitForBrowserActionable } from './actionability';
 import type { BrowserCdpPort } from './cdp';
-import type { BrowserCommand } from './host-types';
-import type { GuestSlot } from './host-types';
+import type { BrowserCommand, GuestSlot } from './host-types';
 import { createBrowserHitTarget } from './hit-target';
-import { browserRefElementSource } from './ref-access';
+import { type BrowserRefAccessHost, browserRefElementSource } from './ref-access';
 import { probeRefPoint } from './ref-point-probe';
 import { probeRefRect } from './ref-rect-probe';
 import type { BrowserRefSet } from './ref-recovery';
@@ -22,15 +21,7 @@ import { timedBrowserOperation } from './timing';
 
 export type { VisualGrounding } from './ref-visual-grounding';
 
-export interface BrowserRefPointHost {
-  callAccessibilityRef<T>(
-    guest: WebContents,
-    ref: string,
-    functionDeclaration: string,
-    args: unknown[],
-    signal?: AbortSignal
-  ): Promise<{ handled: false } | { handled: true; value: T }>;
-  evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
+export interface BrowserRefPointHost extends BrowserRefAccessHost {
   cdp: BrowserCdpPort;
   /** Offset of the frame a ref lives in, relative to the top document. */
   frameOffsetForSession(

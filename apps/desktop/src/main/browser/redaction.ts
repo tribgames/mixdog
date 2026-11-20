@@ -6,7 +6,7 @@
  * every platform), loaded at the first call by native-module.ts; this file holds
  * the types and the exports, no rule. url-policy.ts shares the loaded module.
  */
-import { cargoLibraryFile, loadNativeModule, type NativeModuleSpec, nativeModulePath } from '../native-module';
+import { cargoLibraryFile, loadNativeModule, type NativeModuleSpec } from '../native-module';
 
 export interface BrowserUrlPolicy {
   allowPrivateNetwork?: boolean;
@@ -49,9 +49,6 @@ export const browserPolicyModule: NativeModuleSpec<BrowserPolicyModule> = {
     }
   },
 };
-
-/** Where the module file is (a test skips when it is not there). */
-export const browserPolicyModulePath = (): string => nativeModulePath(browserPolicyModule);
 
 export const browserPolicy = (): BrowserPolicyModule => loadNativeModule(browserPolicyModule);
 

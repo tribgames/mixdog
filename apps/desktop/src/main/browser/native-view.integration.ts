@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
+import { setTimeout as pause } from 'node:timers/promises';
 import {
   app,
   BrowserWindow,
@@ -37,7 +38,6 @@ if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features
 const log = (text: string) => appendFileSync(logPath, `${text}\n`);
 const { readDiscovery } = createPolling({ timeoutMs: 5_000, intervalMs: 25 });
 const { eventually } = createPolling({ timeoutMs: 8_000, intervalMs: 25 });
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const deadline = setTimeout(() => {
   log('native view timed out');
   app.exit(1);

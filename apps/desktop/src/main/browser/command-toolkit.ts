@@ -49,6 +49,14 @@ type ToolkitSessions = Pick<BrowserSessionRegistry, 'sessionIdForGuest' | 'curre
 
 type DownloadsForSession = ReturnType<typeof createBrowserPartition>['downloadLedger']['downloadsForSession'];
 
+/** The working set of the guest's renderer process in MB; undefined when the page is gone or the figure unknown. */
+export function guestProcessMemoryMb(guest: WebContents): number | undefined {
+  if (guest.isDestroyed()) return undefined;
+  const pid = guest.getOSProcessId();
+  const workingSetKb = app.getAppMetrics().find((entry) => entry.pid === pid)?.memory?.workingSetSize;
+  return Number.isFinite(Number(workingSetKb)) ? Number(workingSetKb) / 1024 : undefined;
+}
+
 /** Input into the page and the reads that locate what to act on. */
 function createBrowserReadingTools(state: BrowserGuestStateStore, cdp: Cdp, documents: Documents) {
   const diagnosticsFor = (guest: WebContents) => state.for(guest);
@@ -167,13 +175,7 @@ function createBrowserActionTools(
     pause,
     traceDirectory: () => join(app.getPath('userData'), 'browser-traces'),
     redactText: (guest, value) => state.redactText(guest, value),
-    processMemoryMb: (guest) => {
-      if (guest.isDestroyed()) return undefined;
-      const pid = guest.getOSProcessId();
-      const metrics = app.getAppMetrics().find((entry) => entry.pid === pid);
-      const workingSetKb = metrics?.memory?.workingSetSize;
-      return Number.isFinite(Number(workingSetKb)) ? Number(workingSetKb) / 1024 : undefined;
-    },
+    processMemoryMb: guestProcessMemoryMb,
   });
   const initScripts = createBrowserInitScripts({ cdp });
   return { reply, refActions, dialogs, downloads, network, performance, initScripts };

@@ -114,9 +114,10 @@ export function createBrowserCommandRunner(options: BrowserCommandRunnerOptions)
           ...input
         } = command;
         if (internalStep !== undefined) throw new Error('internalStep is not a bridge input');
+        const fields = input as Record<string, unknown>;
         // Runtime-only lifecycle messages: deliberately absent from tool schemas.
         if (command.action === 'begin_turn') {
-          assertBrowserTaskCleanupContext(session_id, turn_id, input as Record<string, unknown>);
+          assertBrowserTaskCleanupContext(session_id, turn_id, fields);
           options.beginTurn(browserSessionId(session_id), Number(turn_id));
           return { text: 'Browser turn started.' };
         }
@@ -124,8 +125,8 @@ export function createBrowserCommandRunner(options: BrowserCommandRunnerOptions)
         if (command.action !== 'finish_turn') options.beginTurn(browserSessionId(session_id), Number(turn_id) || 0);
         if (command.action === 'finish_turn') {
           const owner = browserSessionId(session_id);
-          assertBrowserTaskCleanupContext(session_id, turn_id, input as Record<string, unknown>);
-          const aborted = (input as Record<string, unknown>).aborted === true;
+          assertBrowserTaskCleanupContext(session_id, turn_id, fields);
+          const aborted = fields.aborted === true;
           const pending = pendingSessionWork(`session:${owner}:`, chains, pendingReads);
           return Promise.allSettled(pending).then(() => ({
             text: `Browser task cleanup complete: ${options.finishTurn(owner, Number(turn_id), { aborted })} temporary page(s) closed.`,
@@ -134,7 +135,6 @@ export function createBrowserCommandRunner(options: BrowserCommandRunnerOptions)
         // Runtime-only, from the core that holds the user's value: check the bound page with no value
         // on the wire (`secret_precheck`), then fill it (`secret_fill`); each answers its outcome only.
         if (command.action === 'secret_precheck' || command.action === 'secret_fill') {
-          const fields = input as Record<string, unknown>;
           const requestId = String(fields.request_id || '');
           if (command.action === 'secret_precheck')
             return options.secretFill.precheck(browserSessionId(session_id), requestId);
@@ -150,24 +150,18 @@ export function createBrowserCommandRunner(options: BrowserCommandRunnerOptions)
         // Runtime-only, from the core that runs a Computer Use saved-login fill: admit the fill, hand over its
         // one value (exact origin, admitted fill only), release it when its turn settles.
         if (command.action === 'saved_login_admit')
-          return options.savedLogin.admit(browserSessionId(session_id), input as Record<string, unknown>);
+          return options.savedLogin.admit(browserSessionId(session_id), fields);
         if (command.action === 'saved_login_release')
-          return options.savedLogin.release(browserSessionId(session_id), input as Record<string, unknown>);
+          return options.savedLogin.release(browserSessionId(session_id), fields);
         if (command.action === 'saved_login_check')
-          return options.savedLogin.check(browserSessionId(session_id), input as Record<string, unknown>);
-        if (command.action === 'saved_login_type')
-          return options.savedLogin.type(browserSessionId(session_id), input as Record<string, unknown>);
+          return options.savedLogin.check(browserSessionId(session_id), fields);
+        if (command.action === 'saved_login_type') return options.savedLogin.type(browserSessionId(session_id), fields);
         if (command.action === 'saved_login_value')
-          return options.savedLogin.value(browserSessionId(session_id), input as Record<string, unknown>);
+          return options.savedLogin.value(browserSessionId(session_id), fields);
         // Runtime-only: bind a secret request to its page, list a sign-in page's
         // masked saved logins, or say where a page is now; no value moves.
         if (HANDOFF_PAGE_ACTIONS.has(String(command.action))) {
-          return options.handoffPage(
-            browserSessionId(session_id),
-            String(command.action),
-            input as Record<string, unknown>,
-            signal
-          );
+          return options.handoffPage(browserSessionId(session_id), String(command.action), fields, signal);
         }
         const validated = validateBrowserToolArgs(input);
         if (!validated.ok) throw new Error(validated.error);

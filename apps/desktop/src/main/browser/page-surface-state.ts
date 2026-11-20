@@ -22,7 +22,7 @@ export function createPageSurfaceState(host: PageSurfaceStateHost) {
   >();
   const geometryRevisions = new WeakMap<WebContents, number>();
   const viewportChanges = new WeakMap<WebContents, number>();
-  const paneSizes = new Map<string, { width: number; height: number }>();
+  const paneSizes = new Map<string, Size>();
   /** The zoom factor the pane last asked for, kept while a phone drives. */
   const paneZooms = new Map<string, number>();
   const presentedGuests = new Map<string, WebContents>();

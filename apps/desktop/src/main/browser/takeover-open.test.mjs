@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
+import { setImmediate as tick } from 'node:timers/promises';
 import { beginComputerOperation } from '../human-only-approval.ts';
 import { createTakeoverGate, TAKEOVER_EXPIRY_MS } from '../takeover-gate.ts';
 
-const tick = () => new Promise((resolve) => setImmediate(resolve));
 const login = (id = 't1') => ({
   id,
   kind: 'takeover',

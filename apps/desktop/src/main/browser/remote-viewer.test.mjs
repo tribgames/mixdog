@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
+import { setImmediate as flush } from 'node:timers/promises';
 
 import { BrowserGuestStateStore, browserDocumentId } from './host-state.ts';
 import { createBrowserRemoteControl } from './remote-control.ts';
 
-const flush = () => new Promise((resolve) => setImmediate(resolve));
 async function settle() {
   for (let index = 0; index < 8; index++) await flush();
 }

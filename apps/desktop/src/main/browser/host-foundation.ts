@@ -199,7 +199,7 @@ export interface EngineLaneBinding {
  * belongs to a connection, so everything the browser reads from the lane goes through here: bound while the
  * connection is claimed, and a plain "no lane" (nothing routed, no engine mode) otherwise.
  */
-export function createEngineLane() {
+function createEngineLane() {
   let bound: EngineLaneBinding | null = null;
   const current = (): EngineLaneBinding => {
     if (!bound) throw new Error('The browser engine lane is not connected.');
@@ -240,8 +240,6 @@ export function createEngineLane() {
     visibilityChanged: (guest: WebContents): void => bound?.visibilityChanged(guest),
   };
 }
-
-export type EngineLane = ReturnType<typeof createEngineLane>;
 
 /** CDP over the guest state, with the document readers and settle built on it. */
 function createBrowserHostDevtools(

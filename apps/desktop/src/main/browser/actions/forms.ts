@@ -19,10 +19,81 @@ async function afterEdit(
   return services.reply.decorateRecovery(await actionSnapshot(), refRecovery);
 }
 
+/** Several fields in one call: every item is addressed by ref or every one by target, and a
+ *  failure part-way reports how far it got without replaying any input. */
+async function fillFields(
+  context: BrowserActionContext,
+  fields: NonNullable<BrowserActionContext['command']['fields']>
+): Promise<void> {
+  const { guest, command, signal, services } = context;
+  const { refActions, state } = services;
+  if (fields.length > 30) throw new Error('fill requires at most 30 fields');
+  // Targets are resolved against ONE fresh observation before any field
+  // changes; refs and targets cannot mix because that observation would
+  // retire the caller's refs.
+  const targeted = fields.filter((field) => field?.target !== undefined && field?.target !== null);
+  if (targeted.length && targeted.length !== fields.length) {
+    throw new Error('fill.fields must address every item by ref or every item by target, not a mix');
+  }
+  let fieldRefs = fields.map((field) => String(field?.ref || ''));
+  if (targeted.length) {
+    const resolved = await services.targets.resolveTargetRefs(
+      guest,
+      fields.map((field) => field.target),
+      signal
+    );
+    adoptResolvedTargets(context, resolved);
+    fieldRefs = resolved.map((entry) => entry.ref);
+  }
+  let completed = 0;
+  try {
+    for (const [index, field] of fields.entries()) {
+      const fieldRef = fieldRefs[index];
+      const hasText = typeof field?.text === 'string';
+      const hasValue = typeof field?.value === 'string';
+      const hasValues =
+        Array.isArray(field?.values) &&
+        field.values.length > 0 &&
+        field.values.every((value) => typeof value === 'string');
+      const hasChecked = typeof field?.checked === 'boolean';
+      const payloadCount = Number(hasText || hasValue) + Number(hasValues) + Number(hasChecked);
+      if (!fieldRef || payloadCount !== 1 || (hasText && hasValue)) {
+        throw new Error('each fill field requires ref or target and exactly one of text/value, values, or checked');
+      }
+      let operation: (ref: string) => Promise<unknown> = (ref) =>
+        refActions.fillRef(guest, ref, String(field.text ?? field.value), signal);
+      if (hasValues) operation = (ref) => refActions.selectRef(guest, ref, field.values as string[], signal);
+      else if (hasChecked) {
+        operation = (ref) => refActions.setCheckedRef(guest, ref, field.checked as boolean, signal);
+      }
+      await mutateRef(context, fieldRef, operation, !hasValues && !hasChecked);
+      completed++;
+    }
+  } catch (error) {
+    if (completed) state.invalidateInteraction(guest);
+    if (signal?.aborted) throw signal.reason || error;
+    const observation = await services.reply
+      .snapshotResult(guest, { action: 'snapshot', maxChars: command.maxChars }, signal, {
+        targetIsBackground: context.targetIsBackground,
+      })
+      .catch((snapshotError) => {
+        if (signal?.aborted) throw signal.reason || snapshotError;
+        return {
+          text: `Fresh observation failed: ${String(snapshotError instanceof Error ? snapshotError.message : snapshotError)}`,
+        };
+      });
+    throw new Error(
+      `Fill stopped at field ${completed + 1} of ${fields.length}; ${completed} field(s) completed. ` +
+        'Input was not replayed. Do not repeat completed fields; inspect the failing field before continuing. ' +
+        `${error instanceof Error ? error.message : String(error)}\n\n${observation.text}`
+    );
+  }
+}
+
 export const formActions = defineBrowserActions({
   async fill(context) {
     const { guest, command, signal, services } = context;
-    const { refActions, state } = services;
+    const { refActions } = services;
     if (typeof command.savedAccount === 'string') {
       // A stored login: the host matches the account to the page origin and
       // writes the password itself; the handler only learns whether the
@@ -67,67 +138,7 @@ export const formActions = defineBrowserActions({
       );
       return afterEdit(context, Boolean(command.submit));
     }
-    if (fields.length > 30) throw new Error('fill requires at most 30 fields');
-    // Targets are resolved against ONE fresh observation before any field
-    // changes; refs and targets cannot mix because that observation would
-    // retire the caller's refs.
-    const targeted = fields.filter((field) => field?.target !== undefined && field?.target !== null);
-    if (targeted.length && targeted.length !== fields.length) {
-      throw new Error('fill.fields must address every item by ref or every item by target, not a mix');
-    }
-    let fieldRefs = fields.map((field) => String(field?.ref || ''));
-    if (targeted.length) {
-      const resolved = await services.targets.resolveTargetRefs(
-        guest,
-        fields.map((field) => field.target),
-        signal
-      );
-      adoptResolvedTargets(context, resolved);
-      fieldRefs = resolved.map((entry) => entry.ref);
-    }
-    let completed = 0;
-    try {
-      for (const [index, field] of fields.entries()) {
-        const fieldRef = fieldRefs[index];
-        const hasText = typeof field?.text === 'string';
-        const hasValue = typeof field?.value === 'string';
-        const hasValues =
-          Array.isArray(field?.values) &&
-          field.values.length > 0 &&
-          field.values.every((value) => typeof value === 'string');
-        const hasChecked = typeof field?.checked === 'boolean';
-        const payloadCount = Number(hasText || hasValue) + Number(hasValues) + Number(hasChecked);
-        if (!fieldRef || payloadCount !== 1 || (hasText && hasValue)) {
-          throw new Error('each fill field requires ref or target and exactly one of text/value, values, or checked');
-        }
-        let operation: (ref: string) => Promise<unknown> = (ref) =>
-          refActions.fillRef(guest, ref, String(field.text ?? field.value), signal);
-        if (hasValues) operation = (ref) => refActions.selectRef(guest, ref, field.values as string[], signal);
-        else if (hasChecked) {
-          operation = (ref) => refActions.setCheckedRef(guest, ref, field.checked as boolean, signal);
-        }
-        await mutateRef(context, fieldRef, operation, !hasValues && !hasChecked);
-        completed++;
-      }
-    } catch (error) {
-      if (completed) state.invalidateInteraction(guest);
-      if (signal?.aborted) throw signal.reason || error;
-      const observation = await services.reply
-        .snapshotResult(guest, { action: 'snapshot', maxChars: command.maxChars }, signal, {
-          targetIsBackground: context.targetIsBackground,
-        })
-        .catch((snapshotError) => {
-          if (signal?.aborted) throw signal.reason || snapshotError;
-          return {
-            text: `Fresh observation failed: ${String(snapshotError instanceof Error ? snapshotError.message : snapshotError)}`,
-          };
-        });
-      throw new Error(
-        `Fill stopped at field ${completed + 1} of ${fields.length}; ${completed} field(s) completed. ` +
-          'Input was not replayed. Do not repeat completed fields; inspect the failing field before continuing. ' +
-          `${error instanceof Error ? error.message : String(error)}\n\n${observation.text}`
-      );
-    }
+    await fillFields(context, fields);
     return afterEdit(context, Boolean(command.submit));
   },
 

@@ -82,6 +82,16 @@ function cardThumbnail(image: NativeImage, anchor: 'top' | 'center'): string | n
   return `data:image/jpeg;base64,${thumbnail.toJPEG(72).toString('base64')}`;
 }
 
+async function readPreviewThumbnail(
+  fetch: Parameters<typeof fetchDeclaredFavicon>[0],
+  imageUrl: string,
+  pageUrl: string
+): Promise<string | null> {
+  const data = await fetchDeclaredFavicon(fetch, imageUrl, pageUrl, { maxBytes: PREVIEW_IMAGE_MAX_BYTES });
+  const image = data ? nativeImage.createFromBuffer(data.bytes) : null;
+  return image && !image.isEmpty() ? cardThumbnail(image, 'center') : null;
+}
+
 /** What the page at `url` declares about itself, as identity facts the
  *  store does not have yet (`known`): its preview image as a thumbnail, its
  *  icon and its title. Read through the browser session; null when nothing
@@ -95,12 +105,7 @@ export async function readBrowserPagePreview(
   const markup = await fetchPagePreviewMarkup(fetch, url);
   if (!markup) return null;
   const [thumbnail, favicon] = await Promise.all([
-    markup.image
-      ? fetchDeclaredFavicon(fetch, markup.image, markup.url, { maxBytes: PREVIEW_IMAGE_MAX_BYTES }).then((data) => {
-          const image = data ? nativeImage.createFromBuffer(data.bytes) : null;
-          return image && !image.isEmpty() ? cardThumbnail(image, 'center') : null;
-        })
-      : null,
+    markup.image ? readPreviewThumbnail(fetch, markup.image, markup.url) : null,
     markup.icon && !known?.favicon ? readBrowserFavicon(session, markup.icon, markup.url) : null,
   ]);
   const title = known?.title ? undefined : markup.title;

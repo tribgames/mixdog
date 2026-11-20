@@ -1,5 +1,8 @@
-import type { BrowserScreenshotOptions, BrowserScreenshotRect } from './screenshot-policy';
-import { browserScreenshotBytesFitBudget } from './screenshot-policy';
+import {
+  type BrowserScreenshotOptions,
+  type BrowserScreenshotRect,
+  browserScreenshotBytesFitBudget,
+} from './screenshot-policy';
 
 export interface EncodedBrowserScreenshot {
   bytes: Buffer;

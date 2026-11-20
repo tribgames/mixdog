@@ -14,6 +14,7 @@ import {
   applyViewportOverride,
   type BrowserDeviceMetrics,
   resetEmulation,
+  screenOrientation,
 } from './emulation-overrides';
 import { validateEmulationCommand } from './emulation-validation';
 
@@ -140,7 +141,6 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
     viewport: { width: number; height: number; deviceScaleFactor: number }
   ): Promise<void> {
     const base = baseMetrics.get(guest);
-    const landscape = viewport.width > viewport.height;
     await changeMetrics(guest, async () => {
       await cdp.call(guest, 'Emulation.setDeviceMetricsOverride', {
         width: viewport.width,
@@ -149,7 +149,7 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
         mobile: base?.mobile ?? false,
         screenWidth: viewport.width,
         screenHeight: viewport.height,
-        screenOrientation: landscape ? { type: 'landscapePrimary', angle: 90 } : { type: 'portraitPrimary', angle: 0 },
+        screenOrientation: screenOrientation(viewport.width > viewport.height),
       } satisfies BrowserDeviceMetrics);
       return { width: viewport.width, height: viewport.height };
     });

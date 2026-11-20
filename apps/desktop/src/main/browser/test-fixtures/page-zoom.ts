@@ -7,6 +7,7 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
+import { setTimeout as pause } from 'node:timers/promises';
 
 import { app, BrowserWindow, screen, session, type WebContents } from 'electron';
 
@@ -39,7 +40,6 @@ const MEASURE = `({
   screen: [screen.width, screen.height],
   dpr: devicePixelRatio,
 })`;
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const measure = (guest: WebContents) => guest.executeJavaScript(MEASURE);
 /** The pane's zoom, the way the pane sets it (page-surface-control.ts). */
 const paneZoom = (guest: WebContents, factor: number) =>

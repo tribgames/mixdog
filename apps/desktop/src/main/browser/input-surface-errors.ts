@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import type { WebContents } from 'electron';
 import type { BrowserHost } from './host-types';
 import { createPolling } from '../host-harness-poll';
+import { clickShellAt } from './input-surface-click';
 
 /** Exercise the actual renderer/preload/IPC path, without OS input or live tabs. */
 export async function exerciseBrowserErrorNotice(
@@ -32,15 +33,7 @@ export async function exerciseBrowserErrorNotice(
         rect: r.toJSON(), width: innerWidth, height: innerHeight };
     })()`);
     assert.ok(point.reachable, `Notice control is not reachable: ${selector} ${JSON.stringify(point)}`);
-    for (const type of ['mousePressed', 'mouseReleased']) {
-      await shell.debugger.sendCommand('Input.dispatchMouseEvent', {
-        type,
-        x: point.x,
-        y: point.y,
-        button: 'left',
-        clickCount: 1,
-      });
-    }
+    await clickShellAt(shell, point);
   };
   const type = async (text: string) => {
     await shell.executeJavaScript(`document.querySelector('.browser-isolated-input').focus()`);

@@ -13,6 +13,7 @@ import type { PageSurfaceState } from './page-surface-state';
 // keeps the last good frame on screen; only a capture that stays broken past
 // STALE_FRAME_MS reaches the client as a failure.
 const STALE_FRAME_MS = 3000;
+const PAGE_CHANGED = 'Browser page changed during capture.';
 
 type FrameMemory = WeakMap<WebContents, { frame: DesktopBrowserPageFrame; zoom: number }>;
 
@@ -42,7 +43,7 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
 
   const assertPresenting = (sessionId: string, guest: WebContents, token: string, signal?: AbortSignal): void => {
     signal?.throwIfAborted();
-    if (!presenting(sessionId, guest, token)) throw new Error('Browser page changed during capture.');
+    if (!presenting(sessionId, guest, token)) throw new Error(PAGE_CHANGED);
   };
   /** A GPU frame crosses to the client through the compositor, so the document
    *  it belongs to is revalidated once that transfer lands. */
@@ -99,7 +100,7 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
       return shot;
     } catch (error) {
       if (signal?.aborted) throw error;
-      if (String((error as Error)?.message || error) === 'Browser page changed during capture.') throw error;
+      if (String((error as Error)?.message || error) === PAGE_CHANGED) throw error;
       const cached = images.get(guest);
       const since = captureFaults.get(guest) ?? Date.now();
       captureFaults.set(guest, since);
@@ -159,7 +160,7 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
         // A popup's first navigation can replace the renderer target while
         // native metadata is in flight. Discard it like any other old frame.
         if (!guest.isDestroyed() && String(error?.message || error) === 'target closed while handling command') {
-          throw new Error('Browser page changed during capture.');
+          throw new Error(PAGE_CHANGED);
         }
         throw error;
       }) as Promise<{
@@ -180,7 +181,7 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
     signal?: AbortSignal
   ): Promise<DesktopBrowserPageFrame> {
     const debuggerInstance = await host.cdp.guestDebugger(guest);
-    if (viewportChanges.get(guest)) throw new Error('Browser page changed during capture.');
+    if (viewportChanges.get(guest)) throw new Error(PAGE_CHANGED);
     const token = documentId(guest);
     const nativeViewport = host.viewport(guest);
     const revision = geometryRevisions.get(guest) ?? 0;
@@ -223,7 +224,7 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
         viewportChanges.get(guest) ||
         (geometryRevisions.get(guest) ?? 0) !== revision
       ) {
-        throw new Error('Browser page changed during capture.');
+        throw new Error(PAGE_CHANGED);
       }
       assertPresenting(sessionId, guest, token, signal);
       let image = images.get(guest);

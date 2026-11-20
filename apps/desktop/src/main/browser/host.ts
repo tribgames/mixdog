@@ -56,7 +56,7 @@ import type { BrowserSurfaceSource } from '../host/browser-surface-report';
 import type { BrowserApprovalRequest } from './action-approval';
 import type { createBrowserCommandRunner } from './agent-bridge';
 import { BACKGROUND_RECLAIM_INTERVAL_MS } from './command';
-import { createBrowserCommandToolkit } from './command-toolkit';
+import { createBrowserCommandToolkit, guestProcessMemoryMb } from './command-toolkit';
 import type { BrowserCredentialFillResult } from './credential-autofill';
 import { createBrowserHostAgent } from './host-agent';
 import type { SavedLoginWorkerPort } from './saved-login-host';
@@ -368,7 +368,7 @@ export function createBrowserHost(
   // restore when the panel or an agent command returns — unless something only
   // the live document holds is in use (see reclaimIdleUserSessions).
   // The agents' background pages ride the same timer: it lives and dies with this
-  // browser, not with the bridge connection that used to start and stop it.
+  // browser, not with the bridge connection.
   const userReclaimTimer = setInterval(() => {
     lifecycle.reclaimIdleBackgroundPages();
     reclaimIdleUserSessions({
@@ -554,12 +554,7 @@ export function createBrowserHost(
         drivePage: agent.drivePage,
         emulation: emulationOwner,
         traceDirectory: () => join(app.getPath('userData'), 'browser-traces'),
-        processMemoryMb: (guest) => {
-          if (guest.isDestroyed()) return undefined;
-          const pid = guest.getOSProcessId();
-          const workingSetKb = app.getAppMetrics().find((entry) => entry.pid === pid)?.memory?.workingSetSize;
-          return Number.isFinite(Number(workingSetKb)) ? Number(workingSetKb) / 1024 : undefined;
-        },
+        processMemoryMb: guestProcessMemoryMb,
       },
     }),
     ...createBrowserHostLifecycleMethods({

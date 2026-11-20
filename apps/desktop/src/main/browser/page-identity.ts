@@ -71,6 +71,11 @@ function boundedMap<V>(limit: number) {
   };
 }
 
+interface PageFacts {
+  title?: string;
+  favicon?: string;
+}
+
 export interface BrowserPageIdentityPatch {
   title?: string;
   favicon?: string;
@@ -78,7 +83,7 @@ export interface BrowserPageIdentityPatch {
 }
 
 export interface BrowserPageIdentitySnapshot {
-  pages: [string, { title?: string; favicon?: string }][];
+  pages: [string, PageFacts][];
   origins: [string, string][];
   thumbnails: [string, string][];
 }
@@ -93,7 +98,7 @@ const snapshotImage = (value: unknown, max: number): string | undefined => {
 };
 
 export function createBrowserPageIdentityStore(options: { onChange?(origin: string): void } = {}) {
-  const pages = boundedMap<{ title?: string; favicon?: string }>(PAGE_LIMIT);
+  const pages = boundedMap<PageFacts>(PAGE_LIMIT);
   const originFavicons = boundedMap<string>(ORIGIN_LIMIT);
   const thumbnails = boundedMap<string>(THUMBNAIL_LIMIT);
 
@@ -117,7 +122,7 @@ export function createBrowserPageIdentityStore(options: { onChange?(origin: stri
   function lookup(url: string): DesktopBrowserPageIdentity | null {
     const key = pageIdentityKey(url);
     if (!key) return null;
-    let page: { title?: string; favicon?: string } | undefined;
+    let page: PageFacts | undefined;
     let thumbnail: string | undefined;
     for (const variant of keyVariants(key)) {
       page ??= pages.get(variant);
@@ -143,7 +148,7 @@ export function createBrowserPageIdentityStore(options: { onChange?(origin: stri
   function restore(saved: unknown): string[] {
     const data = (saved && typeof saved === 'object' ? saved : {}) as Record<string, unknown>;
     const filled = new Set<string>();
-    const savedPages: [string, { title?: string; favicon?: string }][] = [];
+    const savedPages: [string, PageFacts][] = [];
     for (const [url, value] of snapshotList(data.pages)) {
       const key = typeof url === 'string' ? pageIdentityKey(url) : null;
       if (!key || key !== url || pages.has(key)) continue;

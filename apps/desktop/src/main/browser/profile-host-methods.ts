@@ -3,12 +3,12 @@
  * itself with its progress, history search, stored credentials, and the
  * signed-in sites with their sign-out.
  */
-import type {
-  DesktopBrowserImportProgress,
-  DesktopCookieAutoImportRequest,
-  DesktopCookieAutoImportStatus,
+import {
+  DESKTOP_IPC,
+  type DesktopBrowserImportProgress,
+  type DesktopCookieAutoImportRequest,
+  type DesktopCookieAutoImportStatus,
 } from '../../shared/contract';
-import { DESKTOP_IPC } from '../../shared/contract';
 import type { BrowserCredentialFillResult, createBrowserCredentialFill } from './credential-autofill';
 import type { CredentialVault, VaultLoginSummary } from './credential-vault';
 import type { LinkedSignIn } from './linked-sign-in';

@@ -66,18 +66,18 @@ function fixture({ vaultError = new Error('The stored browser credential vault c
       ensureGuest: async () => shown,
       recoverCrashedGuest: async () => {},
       discardUntouchedBlank() {},
-      revealPage: async (sessionId, guest) => {
+      revealPage: async (_sessionId, guest) => {
         calls.lifecycle.push(['reveal', guest.id]);
         return 'shown';
       },
       reportOpenFailure: (_sessionId, error) => calls.lifecycle.push(['failure', error]),
-      discardCreatedPage: (sessionId, guest) => {
+      discardCreatedPage: (_sessionId, guest) => {
         calls.lifecycle.push(['discard', guest.id]);
         return true;
       },
     },
     tabs: {
-      resolveTargetGuest: (sessionId, background, tab) => {
+      resolveTargetGuest: (sessionId, _background, tab) => {
         if (!tab) return null;
         sessions.setBackgroundPage(sessionId, tab, {
           guest: fresh,

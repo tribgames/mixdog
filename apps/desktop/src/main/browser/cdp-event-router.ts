@@ -99,6 +99,10 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     state.endTargetSession(guest, ended);
     host.targetDetached(guest, ended);
   };
+  const noteDismissedDialog = (
+    guest: WebContents,
+    dismissed: NonNullable<ReturnType<typeof parseDialogBridgeNotice>>
+  ) => state.noteDismissedDialog(guest, { ...dismissed, message: redactBrowserText(dismissed.message) }, 'unreachable');
   // Only the page's own session crashing is a page crash. A child target
   // (ad iframe, worker) that dies leaves the page alive: its session ends and
   // the page keeps its state.
@@ -174,13 +178,8 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     'Runtime.consoleAPICalled': ({ guest, params, sessionId, diagnostics }) => {
       if (!freshEntry(diagnostics, `${sessionId ?? ''}|runtime`, params.timestamp)) return;
       const dismissed = parseDialogBridgeNotice(params);
-      if (dismissed) {
-        state.noteDismissedDialog(
-          guest,
-          { ...dismissed, message: redactBrowserText(dismissed.message) },
-          'unreachable'
-        );
-      } else onConsoleApiCalled(state, guest, params, sessionId);
+      if (dismissed) noteDismissedDialog(guest, dismissed);
+      else onConsoleApiCalled(state, guest, params, sessionId);
     },
     'Log.entryAdded': ({ guest, params, sessionId, diagnostics }) => {
       const entry = params.entry as { timestamp?: unknown } | undefined;
@@ -227,13 +226,8 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
       case 'Runtime.consoleAPICalled': {
         if (!freshEntry(diagnostics, `${sessionId ?? ''}|runtime`, params.timestamp)) return true;
         const dismissed = parseDialogBridgeNotice(params);
-        if (dismissed) {
-          state.noteDismissedDialog(
-            guest,
-            { ...dismissed, message: redactBrowserText(dismissed.message) },
-            'unreachable'
-          );
-        } else if (!component(params.executionContextId)) engine.forward(guest, name, params, sessionId);
+        if (dismissed) noteDismissedDialog(guest, dismissed);
+        else if (!component(params.executionContextId)) engine.forward(guest, name, params, sessionId);
         return true;
       }
       case 'Runtime.exceptionThrown': {

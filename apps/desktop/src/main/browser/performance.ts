@@ -89,113 +89,123 @@ const TRACE_COMPLETION_TIMEOUT_MS = 10_000;
 export function createBrowserPerformanceCommands(host: BrowserPerformanceCommandHost) {
   const { cdp, tracesByGuest, settleAfterAction, pause } = host;
 
+  async function metricsResult(guest: WebContents, signal?: AbortSignal): Promise<{ text: string }> {
+    await cdp.call(guest, 'Performance.enable', {}, signal);
+    const result = await cdp.call<{ metrics?: Array<{ name?: string; value?: number }> }>(
+      guest,
+      'Performance.getMetrics',
+      {},
+      signal
+    );
+    return { text: formatPerformanceMetrics(result.metrics || [], host.processMemoryMb?.(guest)) };
+  }
+
+  async function startTraceResult(
+    guest: WebContents,
+    command: { reload?: boolean; saveTrace?: boolean },
+    signal?: AbortSignal
+  ): Promise<{ text: string }> {
+    if (tracesByGuest.has(guest)) {
+      throw new Error('a performance trace is already running for this page');
+    }
+    let resolveComplete = () => {};
+    const complete = new Promise<void>((resolve) => {
+      resolveComplete = resolve;
+    });
+    if (command.saveTrace && !host.traceDirectory) throw new Error('browser trace export is unavailable');
+    const raw = command.saveTrace
+      ? new BrowserTraceExport((value) => host.redactText?.(guest, value) ?? value)
+      : undefined;
+    const active: ActiveBrowserPerformanceTrace = {
+      trace: new BrowserPerformanceTrace(200_000, 2_000, raw),
+      complete,
+      resolveComplete,
+      raw,
+    };
+    tracesByGuest.set(guest, active);
+    let tracingStarted = false;
+    try {
+      await cdp.call(
+        guest,
+        'Tracing.start',
+        {
+          categories: 'devtools.timeline,v8.execute,blink.user_timing,loading,disabled-by-default-v8.cpu_profiler',
+          options: 'sampling-frequency=10000',
+          transferMode: 'ReportEvents',
+        },
+        signal
+      );
+      tracingStarted = true;
+      if (command.reload) {
+        guest.reload();
+        await settleAfterAction(guest, signal);
+      }
+    } catch (error) {
+      if (tracingStarted) {
+        try {
+          // Cancellation may be the reason setup failed, but cleanup must
+          // still reach Chromium instead of inheriting the cancelled signal.
+          await cdp.call(guest, 'Tracing.end');
+          tracesByGuest.delete(guest);
+        } catch (cleanupError) {
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)}; ` +
+              `trace cleanup also failed (${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}). ` +
+              'Run performance with operation:"stop" to retry cleanup.'
+          );
+        }
+      } else {
+        tracesByGuest.delete(guest);
+      }
+      throw error;
+    }
+    return {
+      text: `Performance trace started${command.reload ? ' and page reloaded' : ''}. Run performance with operation:"stop" after the scenario.`,
+    };
+  }
+
+  async function stopTraceResult(guest: WebContents, signal?: AbortSignal): Promise<{ text: string }> {
+    const active = tracesByGuest.get(guest);
+    if (!active) return { text: 'No performance trace is running for this page.' };
+    // Aborting this releases the timeout timer once the trace completes first.
+    const timeout = new AbortController();
+    try {
+      await cdp.call(guest, 'Tracing.end', {}, signal);
+      const timeoutSignal = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal;
+      await Promise.race([
+        active.complete,
+        pause(TRACE_COMPLETION_TIMEOUT_MS, timeoutSignal).then(
+          () => {
+            throw new Error('performance trace completion timed out');
+          },
+          (error) => {
+            // Our own release is not a failure; a caller cancellation is.
+            if (!timeout.signal.aborted) throw error;
+            return new Promise<never>(() => {});
+          }
+        ),
+      ]);
+      let saved = '';
+      if (active.raw) {
+        const file = active.raw.save(host.traceDirectory!());
+        saved = `\nRedacted Chrome trace written to ${file.path} (${file.bytes} bytes).`;
+      }
+      return { text: `Performance trace stopped.\n${active.trace.summary()}${saved}` };
+    } finally {
+      timeout.abort();
+      tracesByGuest.delete(guest);
+    }
+  }
+
   async function performanceResult(
     guest: WebContents,
     command: { operation?: string; reload?: boolean; saveTrace?: boolean },
     signal?: AbortSignal
   ): Promise<{ text: string }> {
     const operation = String(command.operation || 'metrics').toLowerCase();
-    if (operation === 'metrics') {
-      await cdp.call(guest, 'Performance.enable', {}, signal);
-      const result = await cdp.call<{ metrics?: Array<{ name?: string; value?: number }> }>(
-        guest,
-        'Performance.getMetrics',
-        {},
-        signal
-      );
-      return { text: formatPerformanceMetrics(result.metrics || [], host.processMemoryMb?.(guest)) };
-    }
-    if (operation === 'start') {
-      if (tracesByGuest.has(guest)) {
-        throw new Error('a performance trace is already running for this page');
-      }
-      let resolveComplete = () => {};
-      const complete = new Promise<void>((resolve) => {
-        resolveComplete = resolve;
-      });
-      if (command.saveTrace && !host.traceDirectory) throw new Error('browser trace export is unavailable');
-      const raw = command.saveTrace
-        ? new BrowserTraceExport((value) => host.redactText?.(guest, value) ?? value)
-        : undefined;
-      const active: ActiveBrowserPerformanceTrace = {
-        trace: new BrowserPerformanceTrace(200_000, 2_000, raw),
-        complete,
-        resolveComplete,
-        raw,
-      };
-      tracesByGuest.set(guest, active);
-      let tracingStarted = false;
-      try {
-        await cdp.call(
-          guest,
-          'Tracing.start',
-          {
-            categories: 'devtools.timeline,v8.execute,blink.user_timing,loading,disabled-by-default-v8.cpu_profiler',
-            options: 'sampling-frequency=10000',
-            transferMode: 'ReportEvents',
-          },
-          signal
-        );
-        tracingStarted = true;
-        if (command.reload) {
-          guest.reload();
-          await settleAfterAction(guest, signal);
-        }
-      } catch (error) {
-        if (tracingStarted) {
-          try {
-            // Cancellation may be the reason setup failed, but cleanup must
-            // still reach Chromium instead of inheriting the cancelled signal.
-            await cdp.call(guest, 'Tracing.end');
-            tracesByGuest.delete(guest);
-          } catch (cleanupError) {
-            throw new Error(
-              `${error instanceof Error ? error.message : String(error)}; ` +
-                `trace cleanup also failed (${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}). ` +
-                'Run performance with operation:"stop" to retry cleanup.'
-            );
-          }
-        } else {
-          tracesByGuest.delete(guest);
-        }
-        throw error;
-      }
-      return {
-        text: `Performance trace started${command.reload ? ' and page reloaded' : ''}. Run performance with operation:"stop" after the scenario.`,
-      };
-    }
-    if (operation === 'stop') {
-      const active = tracesByGuest.get(guest);
-      if (!active) return { text: 'No performance trace is running for this page.' };
-      // Aborting this releases the timeout timer once the trace completes first.
-      const timeout = new AbortController();
-      try {
-        await cdp.call(guest, 'Tracing.end', {}, signal);
-        const timeoutSignal = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal;
-        await Promise.race([
-          active.complete,
-          pause(TRACE_COMPLETION_TIMEOUT_MS, timeoutSignal).then(
-            () => {
-              throw new Error('performance trace completion timed out');
-            },
-            (error) => {
-              // Our own release is not a failure; a caller cancellation is.
-              if (!timeout.signal.aborted) throw error;
-              return new Promise<never>(() => {});
-            }
-          ),
-        ]);
-        let saved = '';
-        if (active.raw) {
-          const file = active.raw.save(host.traceDirectory!());
-          saved = `\nRedacted Chrome trace written to ${file.path} (${file.bytes} bytes).`;
-        }
-        return { text: `Performance trace stopped.\n${active.trace.summary()}${saved}` };
-      } finally {
-        timeout.abort();
-        tracesByGuest.delete(guest);
-      }
-    }
+    if (operation === 'metrics') return metricsResult(guest, signal);
+    if (operation === 'start') return startTraceResult(guest, command, signal);
+    if (operation === 'stop') return stopTraceResult(guest, signal);
     throw new Error('performance operation must be metrics, start, or stop');
   }
 
