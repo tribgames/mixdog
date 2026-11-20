@@ -132,7 +132,7 @@ function cryptoApi(): Crypto {
   return value;
 }
 
-function base64UrlEncode(bytes: Uint8Array): string {
+export function base64UrlEncode(bytes: Uint8Array): string {
   let binary = '';
   const chunkSize = 0x8000;
   for (let offset = 0; offset < bytes.length; offset += chunkSize) {
@@ -158,7 +158,7 @@ function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.slice().buffer as ArrayBuffer;
 }
 
-function binaryBytes(value: unknown): Uint8Array | null {
+export function binaryBytes(value: unknown): Uint8Array | null {
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
   if (ArrayBuffer.isView(value)) {
     return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
@@ -314,19 +314,25 @@ async function deriveAesGcmKey(
   );
 }
 
-async function deriveChannelKey(input: {
+interface SessionKeyMaterial {
   privateKey: CryptoKey;
   peerPublicKey: string;
   pairingSecret: string;
   challenge: string;
   serverPublicKey: string;
   clientPublicKey: string;
-}): Promise<CryptoKey> {
+}
+
+/** `key` is the session's frame key. `media` is a second key from the same
+ *  ECDH secret, separated by its HKDF info: it protects HTTP media bytes and
+ *  never touches the relay. Non-extractable, so it can be handed to the
+ *  service worker (structured clone) but not read. */
+async function deriveSessionKey(label: 'key' | 'media', input: SessionKeyMaterial): Promise<CryptoKey> {
   return deriveAesGcmKey(
     input.privateKey,
     input.peerPublicKey,
     base64UrlDecode(input.pairingSecret),
-    encoder.encode(`${E2EE_CONTEXT}\0key\0${input.challenge}\0${input.serverPublicKey}\0${input.clientPublicKey}`)
+    encoder.encode(`${E2EE_CONTEXT}\0${label}\0${input.challenge}\0${input.serverPublicKey}\0${input.clientPublicKey}`)
   );
 }
 
@@ -342,25 +348,6 @@ function isBox(value: unknown): value is RelayE2EEBox {
     typeof row.ciphertext === 'string' &&
     /^[A-Za-z0-9_-]{22,}$/u.test(row.ciphertext) &&
     row.ciphertext.length % 4 !== 1
-  );
-}
-
-/** A second key from the same ECDH secret, separated by its HKDF info: it
- *  protects HTTP media bytes and never touches the relay. Non-extractable, so
- *  it can be handed to the service worker (structured clone) but not read. */
-async function deriveMediaKey(input: {
-  privateKey: CryptoKey;
-  peerPublicKey: string;
-  pairingSecret: string;
-  challenge: string;
-  serverPublicKey: string;
-  clientPublicKey: string;
-}): Promise<CryptoKey> {
-  return deriveAesGcmKey(
-    input.privateKey,
-    input.peerPublicKey,
-    base64UrlDecode(input.pairingSecret),
-    encoder.encode(`${E2EE_CONTEXT}\0media\0${input.challenge}\0${input.serverPublicKey}\0${input.clientPublicKey}`)
   );
 }
 
@@ -455,14 +442,7 @@ function transportInfo(
 }
 
 async function deriveTransportKeys(
-  input: {
-    privateKey: CryptoKey;
-    peerPublicKey: string;
-    pairingSecret: string;
-    challenge: string;
-    serverPublicKey: string;
-    clientPublicKey: string;
-  },
+  input: SessionKeyMaterial,
   role: 'client' | 'server'
 ): Promise<RelayE2EETransportKeys> {
   const salt = base64UrlDecode(input.pairingSecret);
@@ -893,27 +873,6 @@ export async function generateRelayE2EEServerIdentity(): Promise<RelayE2EEServer
   };
 }
 
-export async function validateRelayE2EEServerIdentity(value: RelayE2EEServerIdentity): Promise<boolean> {
-  try {
-    if (
-      value.version !== E2EE_VERSION ||
-      typeof value.serverPublicKey !== 'string' ||
-      typeof value.pairingSecret !== 'string' ||
-      !value.privateKeyJwk ||
-      !value.publicKeyJwk
-    )
-      return false;
-    const publicKey = await cryptoApi().subtle.importKey('jwk', value.publicKeyJwk, ECDH_P256, true, []);
-    await importEcdhPrivateKey(value.privateKeyJwk, false);
-    return (
-      (await exportRawPublicKey(publicKey)) === value.serverPublicKey &&
-      base64UrlDecode(value.pairingSecret).byteLength === 32
-    );
-  } catch {
-    return false;
-  }
-}
-
 export function relayE2EEPairingMaterial(identity: RelayE2EEServerIdentity): RelayE2EEPairingMaterial {
   return {
     version: E2EE_VERSION,
@@ -1230,8 +1189,8 @@ export async function createRelayE2EEClientHandshake(
     serverPublicKey: pairing.serverPublicKey,
     clientPublicKey,
   };
-  const key = await deriveChannelKey(material);
-  const mediaKey = challenge.mediaE2ee === 1 ? await deriveMediaKey(material) : null;
+  const key = await deriveSessionKey('key', material);
+  const mediaKey = challenge.mediaE2ee === 1 ? await deriveSessionKey('media', material) : null;
   const transport = selectTransport ? await deriveTransportKeys(material, 'client') : null;
   const handshake: RelayE2EEHandshakeState =
     transcript === null ? {} : { expect: { transcript, offered: challenge.transportWebrtc === 1 } };
@@ -1269,8 +1228,8 @@ export async function acceptRelayE2EEClientHello(
     serverPublicKey: identity.serverPublicKey,
     clientPublicKey: hello.clientPublicKey,
   };
-  const key = await deriveChannelKey(material);
-  const mediaKey = expectedChallenge.mediaE2ee === 1 ? await deriveMediaKey(material) : null;
+  const key = await deriveSessionKey('key', material);
+  const mediaKey = expectedChallenge.mediaE2ee === 1 ? await deriveSessionKey('media', material) : null;
   const transport = selected ? await deriveTransportKeys(material, 'server') : null;
   return new RelayE2EEChannel(
     key,

@@ -96,7 +96,6 @@ export function createSessionLane({
       throw coreErrorForWindow(error);
     });
 
-  // ── the catalog ──
   const rosterClient: RosterClient = {
     call: (method, params) => protocol.call(method, params),
     on: (listener) => protocol.onEvent(listener as Parameters<ProtocolConnection['onEvent']>[0]),
@@ -112,7 +111,6 @@ export function createSessionLane({
   // A reopened connection may be another core's: the catalog is read again, as after a reconnect.
   const offReplaced = protocol.onReplaced(() => void roster.list(rosterClient).catch(() => undefined));
 
-  // ── the followed threads' states ──
   // Every session snapshot answered is stamped with the remote channel's session.
   const decorated = (client: Client, state: unknown): SessionSnapshot =>
     withRemoteSession(

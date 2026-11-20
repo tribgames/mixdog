@@ -26,6 +26,16 @@ export function createHostApi({
   webUtils,
   browserTexture,
 }: HostApiDeps): DesktopHostApi {
+  // A one-way report the renderer does not wait on: a failed send leaves the receiver on what it last had (a pet or
+  // overlay keeps its last state, a diagnostic is lost, the window's show falls back to its timeout, the announcement
+  // is retried next launch).
+  const sendQuietly = (channel: string, ...args: unknown[]): void => {
+    try {
+      ipcRenderer.send(channel, ...args);
+    } catch {
+      /* see above */
+    }
+  };
   // Listening starts with the preload, not with the renderer's first effect: a
   // click that reveals a window still loading must not be lost to that gap.
   const notificationOpenSessions = createHeldChannel<string>();
@@ -110,13 +120,8 @@ export function createHostApi({
     closeConnectionWindow: () => invokeIpc(DESKTOP_IPC.connectionCloseWindow),
     openConnectionSettings: () => invokeIpc(DESKTOP_IPC.connectionOpenSettings),
     subscribeHostListsChanged: (listener) => subscribeIpc(DESKTOP_IPC.hostListsChanged, () => listener()),
-    reportScreenSessions: (sessionIds) => {
-      try {
-        ipcRenderer.send(DESKTOP_IPC.reportScreenSessions, sessionIds);
-      } catch {
-        /* worst case a completion on screen is still announced */
-      }
-    },
+    // A failed report leaves a completion on screen still announced.
+    reportScreenSessions: (sessionIds) => sendQuietly(DESKTOP_IPC.reportScreenSessions, sessionIds),
     // The desktop pet (main/desktop-pet-window.ts), on this window's own channels.
     getDesktopPetConfig: () => invokeIpc(DESKTOP_PET_IPC.getConfig),
     setDesktopPetEnabled: (enabled) => invokeIpc(DESKTOP_PET_IPC.setEnabled, enabled === true),
@@ -127,63 +132,15 @@ export function createHostApi({
     subscribeDesktopPetOpenSettings: (listener) => subscribeIpc(DESKTOP_PET_IPC.openSettings, () => listener()),
     subscribeDesktopPetAppLayout: (listener) =>
       subscribeIpc(DESKTOP_PET_IPC.appLayout, (layout: unknown) => listener(desktopPetAppLayout(layout))),
-    publishDesktopPet: (state) => {
-      try {
-        ipcRenderer.send(DESKTOP_PET_IPC.publish, state);
-      } catch {
-        /* the pet keeps its last state */
-      }
-    },
-    publishDesktopPetComposer: (rect) => {
-      try {
-        ipcRenderer.send(DESKTOP_PET_IPC.composer, rect);
-      } catch {
-        /* the pinned pet keeps its last place */
-      }
-    },
-    publishDesktopPetTheme: (theme) => {
-      try {
-        ipcRenderer.send(DESKTOP_PET_IPC.theme, theme);
-      } catch {
-        /* the overlay keeps its last look */
-      }
-    },
-    publishDesktopPetLayers: (layers) => {
-      try {
-        ipcRenderer.send(DESKTOP_PET_IPC.layers, layers);
-      } catch {
-        /* the overlay keeps its last state */
-      }
-    },
-    publishDesktopPetAvailable: (available) => {
-      try {
-        ipcRenderer.send(DESKTOP_PET_IPC.available, available === true);
-      } catch {
-        /* the overlay keeps its last state */
-      }
-    },
+    publishDesktopPet: (state) => sendQuietly(DESKTOP_PET_IPC.publish, state),
+    publishDesktopPetComposer: (rect) => sendQuietly(DESKTOP_PET_IPC.composer, rect),
+    publishDesktopPetTheme: (theme) => sendQuietly(DESKTOP_PET_IPC.theme, theme),
+    publishDesktopPetLayers: (layers) => sendQuietly(DESKTOP_PET_IPC.layers, layers),
+    publishDesktopPetAvailable: (available) => sendQuietly(DESKTOP_PET_IPC.available, available === true),
     rendererProbe: createRendererProbeBridge(ipcRenderer),
-    rendererDiagnostic: (diagnostic) => {
-      try {
-        ipcRenderer.send(DESKTOP_IPC.rendererDiagnostic, diagnostic);
-      } catch {
-        /* diagnostics only */
-      }
-    },
-    rendererReady: () => {
-      try {
-        ipcRenderer.send(DESKTOP_IPC.rendererReady);
-      } catch {
-        /* show falls back to timeout */
-      }
-    },
-    acknowledgeWhatsNew: (version) => {
-      try {
-        ipcRenderer.send(DESKTOP_IPC.acknowledgeWhatsNew, version);
-      } catch {
-        /* the announcement is simply retried next launch */
-      }
-    },
+    rendererDiagnostic: (diagnostic) => sendQuietly(DESKTOP_IPC.rendererDiagnostic, diagnostic),
+    rendererReady: () => sendQuietly(DESKTOP_IPC.rendererReady),
+    acknowledgeWhatsNew: (version) => sendQuietly(DESKTOP_IPC.acknowledgeWhatsNew, version),
     readPaneLayoutFile: () => ipcRenderer.sendSync(DESKTOP_IPC.readPaneLayoutFile),
     writePaneLayoutFile: (layout) => ipcRenderer.send(DESKTOP_IPC.writePaneLayoutFile, layout),
     readRendererCache: (name) => ipcRenderer.sendSync(DESKTOP_IPC.readRendererCache, name),

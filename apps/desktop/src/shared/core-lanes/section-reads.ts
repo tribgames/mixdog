@@ -24,7 +24,7 @@ export interface OperationHost {
   hostName(): string;
 }
 
-const record = (value: unknown): Record<string, unknown> =>
+export const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
 /** The held value of `(section, key)`. A section the store lacks is "not set", as an absent config subtree is. The lane
@@ -84,8 +84,7 @@ export function readActivityRailPins(snapshot: DesktopSectionsSnapshot): Activit
 }
 
 /** The application UI always uses native scale: Node ignores what is stored and the core's key accepts only 1. */
-export function readZoom(snapshot: DesktopSectionsSnapshot): number {
-  held(snapshot, 'config', 'desktop');
+export function readZoom(_snapshot: DesktopSectionsSnapshot): number {
   return 1;
 }
 
@@ -151,8 +150,6 @@ export function remoteMember(section: unknown, member: string): unknown {
   return members[member];
 }
 
-export const remoteAccessMember = (snapshot: DesktopSectionsSnapshot, member: string): unknown =>
-  remoteMember(remoteSection(snapshot), member);
 /** `termActivity`: Node answered `[{id, state}]` of the tabs with a known state; the section is `{<tabId>: state}`. */
 export function termActivity(snapshot: DesktopSectionsSnapshot): { id: string; state: unknown }[] {
   const entry = snapshot.entries.find(

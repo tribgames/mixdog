@@ -114,9 +114,6 @@ export function terminalSizeOwnerChanges(
   return events;
 }
 
-/** A terminal's output as `termData` text, per tab (`processHandle`): each `process/outputDelta` through its tab's streaming
- *  decoder, with the lone units at the edges of a frame cut inside a surrogate pair (the core's bytes cannot hold half a
- *  character). `end` drops a tab's decoder once its shell has exited. */
 export type TerminalReplayCut = { stream: string; offset: number };
 
 export function terminalReplayCut(reply: unknown): TerminalReplayCut | undefined {
@@ -129,6 +126,9 @@ export function terminalReplayCut(reply: unknown): TerminalReplayCut | undefined
     : undefined;
 }
 
+/** A terminal's output as `termData` text, per tab (`processHandle`): each `process/outputDelta` through its tab's streaming
+ *  decoder, with the lone units at the edges of a frame cut inside a surrogate pair (the core's bytes cannot hold half a
+ *  character). `end` drops a tab's decoder once its shell has exited. */
 export function createTerminalOutputDecoder(): {
   text(params: unknown, cut?: TerminalReplayCut): { id: string; data: string };
   end(id: string): void;
@@ -150,7 +150,10 @@ export function createTerminalOutputDecoder(): {
       const tail = skip <= bytes.length ? unit(tailUnit) : '';
       if (!lead && !tail && skip >= bytes.length) return { id, data: '' };
       let decoder = decoders.get(id);
-      if (!decoder) decoders.set(id, (decoder = new TextDecoder()));
+      if (!decoder) {
+        decoder = new TextDecoder();
+        decoders.set(id, decoder);
+      }
       return { id, data: lead + decoder.decode(bytes.subarray(skip), { stream: true }) + tail };
     },
     end: (id) => void decoders.delete(id),

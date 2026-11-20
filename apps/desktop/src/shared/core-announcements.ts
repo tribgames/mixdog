@@ -18,12 +18,13 @@ export function announcedEvent(method: string, params: unknown): { name: string;
     }
     return { name: CONVERSATION_IMPORT_PROGRESS_EVENT, value: job };
   }
-  const change =
-    method === 'ui/settings/changed'
-      ? readSettingsChange(params)
-      : method === 'ui/providerModels/changed'
-        ? readProviderModelsChange(params)
-        : null;
-  if (!change) return null;
-  return { name: method === 'ui/settings/changed' ? SETTINGS_CHANGED_EVENT : PROVIDER_MODELS_EVENT, value: change };
+  if (method === 'ui/settings/changed') {
+    const change = readSettingsChange(params);
+    return change ? { name: SETTINGS_CHANGED_EVENT, value: change } : null;
+  }
+  if (method === 'ui/providerModels/changed') {
+    const change = readProviderModelsChange(params);
+    return change ? { name: PROVIDER_MODELS_EVENT, value: change } : null;
+  }
+  return null;
 }

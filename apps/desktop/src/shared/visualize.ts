@@ -549,6 +549,7 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
         ...(typeof problem.version === 'number' ? { version: problem.version } : {}),
       }));
       const annotations = visualizeAnnotations(tab.annotations);
+      const thumbnail = visualizeThumbnail(tab.thumbnail);
       const remoteVersion = (version: NonNullable<typeof tab.versions>[number]) => {
         const turns = version.turns?.length ? { turns: version.turns.map(({ since, end }) => ({ since, end })) } : {};
         return { n: version.n, at: version.at, ...(version.label ? { label: version.label } : {}), ...turns };
@@ -578,10 +579,8 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
         // The device's frame drops its no-outside-network CSP only on this flag.
         ...(tab.networkAllowed === true ? { networkAllowed: true as const } : {}),
         ...(tab.versions ? versionFields(tab.versions) : {}),
-        ...(visualizeThumbnail(tab.thumbnail) ? { thumbnail: visualizeThumbnail(tab.thumbnail) } : {}),
-        ...(visualizeThumbnail(tab.thumbnail) && Number.isInteger(tab.thumbnailVersion)
-          ? { thumbnailVersion: tab.thumbnailVersion }
-          : {}),
+        ...(thumbnail ? { thumbnail } : {}),
+        ...(thumbnail && Number.isInteger(tab.thumbnailVersion) ? { thumbnailVersion: tab.thumbnailVersion } : {}),
         ...(annotations.length ? { annotations } : {}),
       };
     }),

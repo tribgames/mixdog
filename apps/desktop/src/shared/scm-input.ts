@@ -2,6 +2,7 @@
 // the phone's protocol adapter (renderer/remote-protocol-scm.ts), so a malformed call fails with the same text on both.
 import { DESKTOP_GIT_GLOBAL_CONFIG_KEYS, type DesktopGitGlobalConfigKey } from './contract';
 import { isAbsolutePath } from './git-contract.mjs';
+import { requiredString } from './remote-arguments';
 
 /** Optional `{ openBrowser?: boolean }` for GitHub CLI sign-in. */
 export function optionalGithubLoginOptions(value: unknown): { openBrowser?: boolean } {
@@ -14,12 +15,7 @@ export function optionalGithubLoginOptions(value: unknown): { openBrowser?: bool
   return openBrowser === undefined ? {} : { openBrowser };
 }
 
-export function requiredString(value: unknown, name: string, maximum = 32_768): string {
-  if (typeof value !== 'string') throw new TypeError(`${name} must be a string.`);
-  const text = value.trim();
-  if (!text || text.length > maximum) throw new TypeError(`${name} is invalid.`);
-  return text;
-}
+export { requiredString };
 
 export function requiredGitGlobalConfigKey(value: unknown): DesktopGitGlobalConfigKey {
   if (typeof value === 'string' && (DESKTOP_GIT_GLOBAL_CONFIG_KEYS as readonly string[]).includes(value)) {

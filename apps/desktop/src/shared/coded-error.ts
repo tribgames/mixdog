@@ -81,11 +81,9 @@ export function ipcErrorFromEnvelope(value: unknown): (Error & { code: string; d
   const { code, message } = nested;
   if (typeof code !== 'string' || typeof message !== 'string') return null;
   const params = codedErrorParams(code, nested.params);
-  return Object.assign(
-    new Error(TRAILER_CODES.has(code) ? appendCodedTrailer(message, { code, ...(params ? { params } : {}) }) : message),
-    { code },
-    params ? { details: params } : {}
-  );
+  const trailer = params ? { code, params } : { code };
+  const text = TRAILER_CODES.has(code) ? appendCodedTrailer(message, trailer) : message;
+  return Object.assign(new Error(text), { code }, params ? { details: params } : {});
 }
 
 /** The message a page shows for `reason`: without the trailer a room or

@@ -8,9 +8,7 @@ export const DEFAULT_DESKTOP_EDITOR_SETTINGS: DesktopEditorSettings = Object.fre
   wordWrapColumn: 80,
   renderWhitespace: 'selection',
   minimapEnabled: true,
-  // Sticky scroll defaults on and bracket-pair guides default off; the
-  // "active" default drew a line box around the cursor's block (user: 선이
-  // 붙는다). Both remain per-workspace settings.
+  // Guides default off: the "active" mode drew a line box around the cursor's block.
   stickyScrollEnabled: true,
   bracketPairColorization: true,
   bracketPairGuides: false,

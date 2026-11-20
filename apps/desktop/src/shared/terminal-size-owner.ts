@@ -25,11 +25,3 @@ export interface TerminalSizeOwnerEvent {
 }
 
 export const TERMINAL_SIZE_OWNER_EVENT = 'terminal-size-owner';
-
-/** The owner state a client is handed when it attaches to a PTY. */
-export function clientSizeOwner(
-  owner: TerminalSizeOwner | null | undefined,
-  clientId: string
-): { cols: number; rows: number; own: boolean } | undefined {
-  return owner ? { cols: owner.cols, rows: owner.rows, own: clientId !== '' && owner.owner === clientId } : undefined;
-}

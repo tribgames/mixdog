@@ -985,10 +985,10 @@ function tcpTypeFits(transport: string, extensions: string): boolean {
   const fields = extensions.split(' ').slice(1);
   const tcpTypes: string[] = [];
   for (let index = 0; index < fields.length; index += 2) {
-    if (fields[index]!.toLowerCase() === 'tcptype') tcpTypes.push(fields[index + 1]!.toLowerCase());
+    if (fields[index].toLowerCase() === 'tcptype') tcpTypes.push(fields[index + 1].toLowerCase());
   }
   return transport.toLowerCase() === 'tcp'
-    ? tcpTypes.length === 1 && TCP_TYPES.has(tcpTypes[0]!)
+    ? tcpTypes.length === 1 && TCP_TYPES.has(tcpTypes[0])
     : tcpTypes.length === 0;
 }
 
@@ -1032,7 +1032,7 @@ export function isRemoteWebrtcCandidateLine(line: string): boolean {
   if (!match) return false;
   const [, component, transport, priority, address, port, relatedAddress, relatedPort, extensions] = match;
   return (
-    tcpTypeFits(transport!, extensions!) &&
+    tcpTypeFits(transport, extensions) &&
     Number(component) >= 1 &&
     Number(component) <= 256 &&
     Number(priority) <= 0xffff_ffff &&
@@ -1105,6 +1105,15 @@ function documentId(value: unknown): string {
   return value;
 }
 
+/** A screen has no documents: null there, a page document id otherwise. */
+function mediaDocumentId(input: Fields): string | null {
+  if (input.source && (input.source as Fields).kind === 'screen') {
+    if (input.documentId !== null) fail('document id');
+    return null;
+  }
+  return documentId(input.documentId);
+}
+
 /** A phone's signal, as main receives it from the relay. */
 export function parseRemoteWebrtcClientSignal(value: unknown): RemoteWebrtcClientSignal {
   const input = record(value, 'signal');
@@ -1152,13 +1161,7 @@ export function parseRemoteWebrtcClientSignal(value: unknown): RemoteWebrtcClien
       return {
         ...connectionRef(input),
         type: 'media-ready',
-        // A screen has no documents: null there, a page document id otherwise.
-        documentId:
-          input.source && (input.source as Fields).kind === 'screen'
-            ? input.documentId === null
-              ? null
-              : fail('document id')
-            : documentId(input.documentId),
+        documentId: mediaDocumentId(input),
         geometryGeneration: positiveInteger(input.geometryGeneration, 'geometry generation'),
         pixelWidth: evenPixels(input.pixelWidth, 'media width'),
         pixelHeight: evenPixels(input.pixelHeight, 'media height'),
@@ -1387,7 +1390,7 @@ const screenKey = (input: Fields): RemoteScreenKey => {
   const scan = boundedInteger(input.scan ?? 0, 0, 0xff, 'scan code');
   if (vk === 0 && scan === 0) fail('key');
   if (input.extended !== undefined && typeof input.extended !== 'boolean') fail('key extended');
-  return { vk, scan, extended: input.extended === true };
+  return { vk, scan, extended: Boolean(input.extended) };
 };
 
 const screenButton = (value: unknown): RemoteScreenButton => {

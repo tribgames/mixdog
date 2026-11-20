@@ -622,12 +622,13 @@ export function visualizePageInspection(value: unknown): PageInspection | { erro
   const elements = list(raw.elements, MAX_INSPECT_ELEMENTS).map((entry): InspectElement => {
     const item = record(entry);
     const secret = Array.isArray(item.flags) && item.flags.includes('secret');
+    const shown = secret ? '[redacted]' : text(item.value, 60);
     return {
       role: text(item.role, 24),
       name: text(item.name, 80),
       selector: text(item.selector, 200),
       tag: text(item.tag, 24),
-      ...(typeof item.value === 'string' ? { value: secret ? '[redacted]' : text(item.value, 60) } : {}),
+      ...(typeof item.value === 'string' ? { value: shown } : {}),
       flags: list(item.flags, 6)
         .map((flag) => text(flag, 24))
         .filter(Boolean),
@@ -693,8 +694,10 @@ function fit(lines: string[], budget: number, noun: string): string[] {
 /** The agent's text read-out of one pane's inspection: findings first, then
  *  the outline and the interactive elements, within MAX_INSPECT_TEXT. */
 export function formatPageInspection(inspection: PageInspection, title: string): string {
+  const scope = inspection.scope ? `, scope ${inspection.scope}` : '';
+  const partial = inspection.partial ? ' (very large page: only the first part was read)' : '';
   const head = [
-    `${title}: viewport ${inspection.viewport.width}×${inspection.viewport.height}, page ${inspection.page.width}×${inspection.page.height}${inspection.scope ? `, scope ${inspection.scope}` : ''}${inspection.partial ? ' (very large page: only the first part was read)' : ''}`,
+    `${title}: viewport ${inspection.viewport.width}×${inspection.viewport.height}, page ${inspection.page.width}×${inspection.page.height}${scope}${partial}`,
   ];
   if (inspection.contrastUnknown) {
     head.push(
@@ -718,6 +721,8 @@ export function formatPageInspection(inspection: PageInspection, title: string):
     const value = element.value !== undefined ? ` value="${element.value}"` : '';
     return `  - ${element.role} "${element.name}"${value}${flags} · ${element.selector} (${boxText(element)})`;
   });
+  const elementsListed =
+    inspection.elementCount > inspection.elements.length ? `, first ${inspection.elements.length} listed` : '';
   const sections = [
     head.join('\n'),
     inspection.findingCount
@@ -730,7 +735,7 @@ export function formatPageInspection(inspection: PageInspection, title: string):
       : 'Outline: no landmarks or headings.',
     elements.length
       ? [
-          `Interactive elements (${inspection.elementCount}${inspection.elementCount > inspection.elements.length ? `, first ${inspection.elements.length} listed` : ''}):`,
+          `Interactive elements (${inspection.elementCount}${elementsListed}):`,
           ...fit(elements, 2_600, 'elements'),
         ].join('\n')
       : 'Interactive elements: none.',
@@ -743,5 +748,6 @@ export function formatPageInspection(inspection: PageInspection, title: string):
 
 /** "3 layout findings — run inspect", or '' when there are none. */
 export function inspectFindingsSummary(count: number): string {
-  return count > 0 ? `${count} layout finding${count === 1 ? '' : 's'} — run inspect` : '';
+  if (!(count > 0)) return '';
+  return `${count} layout finding${count === 1 ? '' : 's'} — run inspect`;
 }

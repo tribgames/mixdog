@@ -33,6 +33,7 @@ import {
   readMarkdownDefaultView,
   readSettings,
   readZoom,
+  record,
   SECTION_READ_CONFIG,
   withPagedConfig,
   termActivity,
@@ -310,9 +311,6 @@ const PREPARERS: Readonly<Record<string, Prepare>> = {
     return [...args, notificationWriteMode(String(args[2] ?? ''), remote, notifications)];
   },
 };
-
-const record = (value: unknown): Record<string, unknown> =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
 /** Operations the spec removes from the wire, with what replaces each. A call is an error here (never an empty
  *  answer): the caller is a Node-path call site that the core connection does not make (desktop-ops-new-b-r.md). */
@@ -679,12 +677,14 @@ export function createOperationLane({
         });
       }
       const prepare = Object.hasOwn(PREPARERS, name) ? PREPARERS[name] : undefined;
-      const held = prepare ? await heldSections() : null;
-      // The preparer reads the notifications subtree: only that one is paged when held as a stub.
-      const paged = held
-        ? await withPagedConfig(held(), call, name === 'setNotificationPreferences' ? ['notifications'] : [])
-        : null;
-      const routed = prepare ? await prepare(args, { entries: () => paged!.entries }) : args;
+      let routed: readonly unknown[] = args;
+      if (prepare) {
+        const held = await heldSections();
+        // The preparer reads the notifications subtree: only that one is paged when held as a stub.
+        const pagedKeys = name === 'setNotificationPreferences' ? ['notifications'] : [];
+        const paged = await withPagedConfig(held(), call, pagedKeys);
+        routed = await prepare(args, { entries: () => paged.entries });
+      }
       const { method, params } = routeDesktopOperation(name, routed);
       return REPLIES[name](await call(method, params), { args, params, call, invoke: lane.invoke });
     },

@@ -67,7 +67,7 @@ test('the preload provides every host key outside OPTIONAL_UNPROVIDED', () => {
   const unprovided = new Set(OPTIONAL_UNPROVIDED);
   for (const key of Object.values(HOST_KEYS).flat()) {
     if (unprovided.has(key)) continue;
-    const mentioned = new RegExp('(^|[^A-Za-z0-9_])' + key + '([^A-Za-z0-9_]|$)').test(preload);
+    const mentioned = new RegExp(`(^|[^A-Za-z0-9_])${key}([^A-Za-z0-9_]|$)`).test(preload);
     assert.ok(mentioned, `${key} is a host key but the preload never mentions it`);
   }
 });

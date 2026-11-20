@@ -41,12 +41,9 @@ const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   mov: 'video/quicktime',
 });
 
-/** Files whose primary useful representation in Mixdog is editable text.
- *  Binary documents/media stay with the OS even when Monaco could decode
- *  arbitrary bytes into replacement characters. */
+/** The media type of the path's extension; `application/octet-stream` when unknown. */
 export function localFileMimeTypeForPath(path: string): string {
   const extension = fileExtension(path);
-  if (!extension) return 'application/octet-stream';
   return Object.hasOwn(MIME_TYPES, extension) ? MIME_TYPES[extension] : 'application/octet-stream';
 }
 
@@ -150,7 +147,10 @@ export function isLocalWebPage(path: string): boolean {
   return WEB_PAGE_EXTENSIONS.has(fileExtension(path));
 }
 
-/** Which surface a chat file link opens: Mixdog's editor or the OS default app. */
+/** Which surface a chat file link opens: Mixdog's editor or the OS default app.
+ *  Files whose primary useful representation is editable text stay in the editor;
+ *  binary documents/media go to the OS even when Monaco could decode arbitrary
+ *  bytes into replacement characters. */
 export function localFileOpener(path: string): LocalFileOpener {
   return OS_DOCUMENT_EXTENSIONS.has(fileExtension(path)) ? 'os' : 'editor';
 }
