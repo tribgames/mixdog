@@ -38,5 +38,5 @@ tokio = { workspace = true, features = ["rt", "sync"] }
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
-mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-office-com = { workspace = true, features = ["test-support"] }

@@ -1,8 +1,7 @@
 //! The workbook editor (`Apply-ExcelOperation`) against a scripted workbook: a tree of COM objects that log every access and
 //! answer what a test tells them, in place of Excel.
 //!
-//! The recorded call logs of `tests/scenarios/excel-edit.json` (taken from the PowerShell host against Microsoft Excel) are the
-//! reference the same editor is held to once they exist on the migration PC; these tests pin what needs no Office: the registry
+//! These tests pin what needs no Office: the registry
 //! of operation names, every refusal text, the order and the VARIANT types of the calls of the operations whose contract is in
 //! them (typed text kept as text, one array for a block, Single widths, Double zoom, the colour names of a Korean Excel, page
 //! setup held off, freeze panes zoomed out, charts), and the records answered.
@@ -1093,21 +1092,4 @@ fn a_column_fit_leaves_empty_columns_alone_and_pads_the_others_by_two() {
             "put Book.ActiveSheet.Range(\"A:B\").Columns[1].ColumnWidth = r4:80".to_owned(),
         ]
     );
-}
-
-
-// ---------------------------------------------------------------------------------------------------------------------
-// The recordings of the PowerShell host.
-
-#[test]
-fn every_recorded_excel_edit_fixture_is_listed_and_readable() {
-    // `tests/fixtures/excel-edit/<scenario>.json` is written by `recorder/record-office-com.mjs --area excel-edit` on a PC with
-    // Microsoft Excel, and the manifest lists it; until that has been run the manifest lists none and this holds nothing.
-    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures");
-    let manifest: serde_json::Value = serde_json::from_str(&mixdog_testkit::read_string(fixtures.join("MANIFEST.json"))).expect("the manifest");
-    for entry in manifest["fixtures"].as_array().expect("fixtures").iter().filter(|entry| entry["area"] == "excel-edit") {
-        let path = fixtures.join(entry["path"].as_str().expect("a path"));
-        let recording: serde_json::Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).expect("a recording");
-        assert!(recording["steps"].is_array(), "{}", path.display());
-    }
 }

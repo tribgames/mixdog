@@ -16,7 +16,6 @@ import {
 // the host), in the modes listed: `host` sends the commands as the desktop's own (browser/command), `core` through the core's engine.
 const CORE_SUITES = {
   host: ['host', 'core'],
-  'golden-twin': ['host', 'core'],
   'popup-blank': ['host'],
   'user-dialogs': ['host'],
 };
@@ -24,7 +23,7 @@ const CORE_SUITES = {
 const STANDALONE_ENTRIES = ['cdp-lifecycle', 'document-checkpoint', 'file-snapshot-host'];
 
 function integrationEntryName() {
-  for (const name of [...STANDALONE_ENTRIES, 'popup-blank', 'user-dialogs', 'golden-twin']) {
+  for (const name of [...STANDALONE_ENTRIES, 'popup-blank', 'user-dialogs']) {
     if (process.argv.includes(`--${name}`)) return name;
   }
   return 'host';
@@ -53,8 +52,8 @@ function runCoreSuite(name, engine, env) {
 }
 
 const entryName = integrationEntryName();
-// --user-dialogs, --popup-blank and --golden-twin run one presentation per process: --native picks it.
-const presentationRun = ['user-dialogs', 'popup-blank', 'golden-twin'].includes(entryName);
+// --user-dialogs and --popup-blank run one presentation per process: --native picks it.
+const presentationRun = ['user-dialogs', 'popup-blank'].includes(entryName);
 const nativeView = process.argv.includes('--native') ? '1' : '0';
 
 if (CORE_SUITES[entryName]) {

@@ -3827,7 +3827,7 @@
       "description": "A read-only preview of an encrypted package (an OLE container under an OOXML name) is refused before any application starts.",
       "steps": [
         {
-          "copy": "../actions/inputs/ole-header.docx",
+          "copy": "ole-header.docx",
           "as": "encrypted.docx"
         },
         {
@@ -4796,7 +4796,7 @@
       "description": "A background workbook whose sheet says horizontalDpi=\"0\": the reopen of post_save_validate repairs it and counts the repair.",
       "steps": [
         {
-          "copy": "../actions/inputs/zero-dpi.xlsx",
+          "copy": "zero-dpi.xlsx",
           "as": "d.xlsx"
         },
         {

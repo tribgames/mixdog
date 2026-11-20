@@ -274,8 +274,7 @@ mod limits_tests;
 #[cfg(test)]
 mod bot_send_tests;
 #[cfg(test)]
-#[path = "compose/session_project_flow_tests.rs"]
-mod session_project_tests;
+mod session_project_flow_tests;
 
 #[cfg(test)]
 mod tests {

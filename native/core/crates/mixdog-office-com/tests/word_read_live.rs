@@ -3,9 +3,9 @@
 //! `MIXDOG_TEST_LIVE_OFFICE=1`. Without that variable a test that was asked for ends at once and says it did nothing.
 //!
 //! A background document is created, read through the registered `docx` reader (snapshot, snapshot of one paragraph, issues,
-//! selection) and closed with no Office process left that was not there before. The comparison of these answers with the
-//! PowerShell host's, after normalising dates, process ids and window handles, is made from the recordings of
-//! `tests/scenarios/word-read.json` (`tests/word_read.rs`), not here.
+//! selection) and closed with no Office process left that was not there before. The call order and the answers of the reader
+//! are pinned without Office, against scripted Word objects, in `tests/word_read.rs`; `tests/switch_word_live.rs` runs the
+//! listed scenarios against Word and checks what each one states.
 #![cfg(windows)]
 
 use std::path::PathBuf;

@@ -23,4 +23,4 @@ tempfile = { workspace = true }
 mixdog-trace = { path = ".", features = ["flush-probe"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
-mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }

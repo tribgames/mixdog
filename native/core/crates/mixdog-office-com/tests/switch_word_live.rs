@@ -7,8 +7,7 @@
 //! Every docx scenario of `tests/scenarios/{session,actions,word-read,word-edit}.json` runs twice, in a directory of its
 //! own each, through the transport API (`open_session`, `call`, `close_session`, `detect`): once with the PowerShell host
 //! (the transport's test list of Rust-served formats empty) and once with the Rust host (the compiled list, `mixdogd
-//! office-com-host`). The recordings of the PowerShell host (`tests/fixtures/<area>/<scenario>.json`) are written on a PC
-//! with Word by `recorder/record-office-com.mjs`; the PowerShell run made here is the same host on the machine that runs the
+//! office-com-host`). The PowerShell run is made here, on the machine that runs the
 //! test, so the comparison does not depend on a recording of another Word build. The answers must be equal after
 //! normalisation (the work directory, process ids, window handles, times, dates, the script location a failure names), the
 //! saved documents equal after OOXML normalisation, no WINWORD process may be left that was not there before, and the Rust
@@ -154,8 +153,9 @@ struct Run {
     work: PathBuf,
 }
 
-fn inputs_of(area: &str) -> PathBuf {
-    crate_dir().join("tests").join("fixtures").join(area).join("inputs")
+/// The directory a scenario's `copy` names its input in (`zero-dpi.xlsx`, `pixel.png`).
+fn inputs() -> PathBuf {
+    crate_dir().join("tests").join("inputs")
 }
 
 fn is_word_scenario(scenario: &Json) -> bool {
@@ -169,7 +169,7 @@ fn is_word_scenario(scenario: &Json) -> bool {
     formats.len() == 1 && formats.contains("docx")
 }
 
-async fn run_scenario(office: &OfficeCom, area: &str, scenario: &Json, work: PathBuf) -> Run {
+async fn run_scenario(office: &OfficeCom, scenario: &Json, work: PathBuf) -> Run {
     let work_text = work.to_string_lossy().into_owned();
     // Session ids opened through each of the scenario's session hosts, in the order they were opened.
     let mut hosts: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -183,7 +183,7 @@ async fn run_scenario(office: &OfficeCom, area: &str, scenario: &Json, work: Pat
         let started = Instant::now();
         let answer = if let Some(file) = step.get("copy").and_then(Json::as_str) {
             let name = step.get("as").and_then(Json::as_str).unwrap_or(file);
-            let bytes = mixdog_fsio::read(&mixdog_fsio::Unlaned, &inputs_of(area).join(file)).unwrap_or_else(|error| panic!("{file}: {error}"));
+            let bytes = mixdog_fsio::read(&mixdog_fsio::Unlaned, &inputs().join(file)).unwrap_or_else(|error| panic!("{file}: {error}"));
             mixdog_fsio::write(&mixdog_fsio::Unlaned, &work.join(name), &bytes).expect("the input is copied");
             None
         } else if let Some(request) = step.get("oneShot") {
@@ -273,7 +273,7 @@ fn every_word_scenario_through_the_transport_meets_what_it_expects_and_leaves_no
         for scenario in file["scenarios"].as_array().expect("scenarios").iter().filter(|scenario| is_word_scenario(scenario)) {
             let id = scenario["id"].as_str().expect("an id");
             let label = format!("{area}/{id}");
-            let run = runtime.block_on(run_scenario(&transport(data.clone()), area, scenario, scratch(&format!("{area}-{id}"))));
+            let run = runtime.block_on(run_scenario(&transport(data.clone()), scenario, scratch(&format!("{area}-{id}"))));
             assert_eq!(wait_for_word(&platform, &before), before, "{label}: closing the sessions left a WINWORD process that was not there before");
             request_time += run.request_time;
             ran += 1;

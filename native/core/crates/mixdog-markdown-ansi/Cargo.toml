@@ -21,4 +21,4 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
-mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }

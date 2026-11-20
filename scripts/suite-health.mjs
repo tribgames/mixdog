@@ -15,7 +15,7 @@ export const WORKSPACES = [
       'test:slow': 'the release gate runtime-slow job runs it on every gated push',
       'test:release-critical': 'alias of test:release-assets, swept on its own',
       'test:bench-tools':
-        'the recorders and harness tests drive Windows job objects and PowerShell; the rust-core-windows job runs it',
+        'the terminal-bench harness suites for the Rust core; the release gate core-real job runs them',
       'test:spec-advisory': 'advisory by design (MIXDOG_TEST_ADVISORY)',
     },
   },

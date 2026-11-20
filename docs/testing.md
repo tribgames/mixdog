@@ -10,15 +10,7 @@ test lives in the built-in `test-suite` skill, not here.
 package. A file joins the suite by existing; `package.json` lists no test
 paths. The root package also discovers `packages/**` (the workspace packages,
 `*.test.ts` included, run through tsx) and `apps/mixdogd-npm`, so those tests
-run in the root fast and slow lanes. `node-oracle/` directories are for
-explicit comparisons that need the old Node tree (`MIXDOG_NODE_REFERENCE_REPO`)
-or local recordings under `native/core/fixtures/` and
-`benchmarks/rust-core/recorders/`. For example, when those recordings are
-available, run the protocol room and session comparisons with
-`node --import ./scripts/test-tsx.mjs scripts/test-direct.mjs "packages/protocol-client/test/node-oracle/*.test.ts"`.
-The TUI comparisons in `src/tui/node-oracle/` and `src/tui/app/node-oracle/`
-can likewise be named with `scripts/test-direct.mjs`. Regular feature tests
-in the lane do not need those inputs. The lane comes from the file name:
+run in the root fast and slow lanes. The lane comes from the file name:
 
 | Name | Lane | Runs |
 | --- | --- | --- |
@@ -67,27 +59,13 @@ test-worker budget across the four lanes: up to six workers interactively,
 `MIXDOG_TEST_CONCURRENCY` sets the total. All lanes run, including after one
 fails.
 
-## The Rust core's committed suite and the local-only comparison material
+## The Rust core's committed suite
 
-The tests in git say what the product does, with the expectation written in the test (or derived from a stated rule). Whatever
-exists only to compare the Rust core with another implementation — the recorders, data they recorded, and the tests whose
-expected values are that data — is the owner's local-only material. It is not tracked; a clean checkout builds every crate and
-test target and passes the `ci` nextest lane without it.
-
-**Where it lives and how it is ignored.** It sits at the same paths it always had, so its relative paths keep working, and is
-untracked and covered by the "Node-comparison material" block of the root `.gitignore`:
-
-- `native/core/fixtures/` and `benchmarks/rust-core/` (recordings, recorders, manifests);
-- the crate-local recorded data and recorders (`tests/goldens`, `tests/golden`, `src/**/golden`, `oracles`, `testdata`, `vectors`,
-  `tests/recorders`, and the listed `fixtures` directories) named one by one in that block;
-- whole test files whose every test compares with recorded data (listed one by one in that block);
-- `**/node-twin/`: for a file that held both kinds of test, the comparison tests that were moved out of it
-  (`<dir>/node-twin/<file>.rs`, or `<file>.<module>.rs` for a nested `mod`).
-
-**Nothing compiles it in.** No tracked source declares, includes or reads a local-only file, and no build setting adds one: the
-comparison tests are retired, and the material stays on the owner's machine only as an archive. One thing still reaches it there:
-Cargo builds every `tests/*.rs` (and `src/bin/*.rs`) file it finds in a crate, so on that machine the local-only test files under
-`tests/` are built as test targets of their crate. A build on the owner's machine is therefore not the clean-checkout build.
+The tests in git say what the product does, with the expectation written in the test (or derived from a stated rule). Comparisons
+of the Rust core with the retired Node implementation (their recorders, the data they recorded and the tests built on it) are
+not part of the repository, tracked or local: a working tree holds what git holds, and a clean checkout builds every crate and
+test target and passes the `ci` nextest lane. Cargo builds every `tests/*.rs` (and `src/bin/*.rs`) file it finds in a crate, so
+an untracked test file in a working tree would be built as a test target; `check-clean-checkout.mjs --build` refuses one in CI.
 
 **Conventions for the committed tests.**
 
@@ -97,7 +75,7 @@ Cargo builds every `tests/*.rs` (and `src/bin/*.rs`) file it finds in a crate, s
 - Expectations are written in the test, or derived from a stated rule in a comment; they are not copied from a recording.
   Inputs are small and committed beside the test.
 - Committed test code, comments and names do not refer to Node, recorders, recordings or parity.
-- No tracked file declares, includes or reads a local-only file; a test that needs recorded data is not added to the tree.
+- No tracked file declares, includes or reads an untracked file; a test that needs recorded data is not added to the tree.
 - A test that needs a machine path, a prebuilt binary, a second volume or a user's data is `#[ignore]`d with its reason and run by
   the nextest profile that names it (`native/core/.config/nextest.toml`), never by `ci`.
 
@@ -119,11 +97,7 @@ cargo nextest run -p <crate>                           # one crate, `default` pr
 cargo nextest run --profile agent --workspace         # `default` without the heavy matrices
 ```
 
-- **On a clean checkout** (a contributor's clone, CI): the commands above run exactly the tracked suite; nothing else is needed.
-- **On the owner's machine**, where the local-only material is still on disk: Cargo also builds the local-only `tests/*.rs`
-  files there (see above), so a run in that working tree is not what CI sees. To see that, run in a clean clone or a
-  `git worktree add` of the commit, which has none of the ignored files; `check-clean-checkout.mjs --build` passes there and
-  fails in the working tree that holds the material.
+The commands above run exactly the tracked suite in any working tree that holds no untracked test file (see above).
 
 The tests need no network. The tracked tests that run `node` need it on the search path, and `mixdog-office`'s
 `tests/pptx_script.rs` also reads `node_modules/pptxgenjs` and `jszip` of the repository root: it returns early (a pass)
@@ -284,8 +258,8 @@ test. A change to `rust-toolchain.toml`, to `release-gate.yml` or to the core's 
 consumes it (the test runs the selection over a table of paths).
 
 - **Rust core.** `core-build` compiles the tests once per system (Linux x64, macOS arm64, Windows x64) with
-  `cargo nextest archive` and uploads the archive; it first checks the checkout is clean (none of the comparison material on
-  disk), so no local-only test file is in the archive. `core-tests` legs download it and run
+  `cargo nextest archive` and uploads the archive; it first checks the checkout is clean (no Cargo test target git does not
+  track), so no untracked test file is in the archive. `core-tests` legs download it and run
   `--profile ci --partition count:k/N` (N from `scripts/ci/core-select.mjs`: one leg per 4,000 tests, at most four). A pull
   request archives the changed crates and their reverse dependencies; main archives the whole workspace. `core-pg` runs
   `services-pg` and `pg` from the same archive with the provisioned runtime (Linux always, macOS on main and manual runs, when the
@@ -299,15 +273,15 @@ consumes it (the test runs the selection over a table of paths).
   `packages`, and the standalone native crates (`patch`, `graph`, `spawn`, `window`, `browser-import`,
   `secure-desktop`, `computer-backend`).
 - **Guards.** See "What each layer guarantees" below. `--build` in `core-build` and `core-lint` fails a Rust build that has
-  the material on disk or a Cargo test target (`tests/<name>.rs`, `tests/<name>/main.rs`) git does not track. `core-tests` installs only `pptxgenjs` and `jszip` (`scripts/ci/lock-subset.mjs`) because
+  a Cargo test target (`tests/<name>.rs`, `tests/<name>/main.rs`) git does not track. `core-tests` installs only `pptxgenjs` and `jszip` (`scripts/ci/lock-subset.mjs`) because
   that is all the tracked Rust tests read from `node_modules`.
 
 ### What each layer guarantees
 
-The aim: nothing in the tracked suite may depend on local-only comparison material. Three layers: two guarantee something, the
+The aim: nothing in the tracked suite may depend on a file git does not hold. Three layers: two guarantee something, the
 third only points.
 
-1. **The clean checkout runs everything (guarantee).** The gate builds and runs every suite on a checkout without the material. A test that reads absent material and does not handle it fails there. This is the only layer that sees a
+1. **The clean checkout runs everything (guarantee).** The gate builds and runs every suite on a clean checkout. A test that reads an absent file and does not handle it fails there. This is the only layer that sees a
    path assembled at run time.
 2. **Every invocation proves it ran, and skips are reviewed (guarantee, for what a runner reports as skipped or ignored).** A test
    that skips instead of failing passes without testing, and a command that never ran, ran nothing or is a leftover passes
@@ -338,19 +312,19 @@ third only points.
 
    What this does not see: a test that **returns early without reporting a skip** (`if (!existsSync(p)) return;`) counts as a
    pass and no layer here can see it; the advisory scan `scripts/ci/scan-silent-returns.mjs` points at those shapes. Lanes the gate
-   does not run (the live lane except `packaging-artifact.live.test.mjs`, the `*:integration` harnesses, `test:bench-tools`,
+   does not run (the live lane except `packaging-artifact.live.test.mjs`, the `*:integration` harnesses,
    `*.electron.test.mjs` off the Windows Computer Use leg) have no receipt. The Node `platforms` of an entry for Linux and macOS
    are only checked by the gate's own runs on those systems, and a child suite that never started is a missing slot of its declared leg in the release coverage gate.
 3. **A static scan points at likely readers early (advice, not a proof; it never fails the job).**
    `check-clean-checkout.mjs --readers` in `changes` (`continue-on-error`, hits are warning annotations, like the silent-return
-   scan) tokenizes the tracked JS and TS files and names one that holds a string naming a folder of the material, or that
-   imports, requires, spawns or names a file that does or that a clean checkout does not have (a tracked file `.gitignore` also
-   covers, of any extension), followed until nothing new is found. Imports are resolved as Node does; comments are removed without
+   scan) tokenizes the tracked JS and TS files and names one that imports, requires, spawns or names a file a clean checkout of
+   the change does not have (a tracked file `.gitignore` also covers, of any extension), or a file that does, followed until
+   nothing new is found. Imports are resolved as Node does; comments are removed without
    dropping the code beside them. It reads source text: a path joined from pieces, taken from a variable or the environment is
    invisible to it, a read it flags may be harmless, and a read guarded by `existsSync` that returns quietly passes it and passes
    layer 2. It is advice because layer 1 is the guarantee: the same tests run on a clean checkout and fail there, or skip and are
    reviewed. `check-clean-checkout.mjs --build` (`core-build`, `core-lint`) is a different check: it fails a Rust build that has
-   the material on disk or an untracked Cargo test target, by looking at the files themselves.
+   an untracked Cargo test target, by looking at the files themselves.
 - `rust-core-unix.yml` is a manual Linux and macOS run of the daemon's unit tests, the `pg` profile and clippy; `release.yml`
   re-runs the `k1-lanes` filters when a critical path changed.
 - Built-artifact checks run after their build: `verify:packaging-artifact`
@@ -362,11 +336,9 @@ third only points.
   The smoke rejects a missing handoff or an output created before that build.
 - `npm run typecheck:packages` type-checks `packages/protocol-client` and
   `packages/protocol` (it needs `npm ci --prefix packages/protocol-client`).
-- `npm run test:bench-tools` runs the recorder and harness tests under
-  `benchmarks/`; they are local-only material (above), so no CI job runs it.
-  `core-restart-after-kill.test.mjs` (needs `MIXDOGD_EXE`) and
-  `delivery-wait.test.mjs` (needs `MIXDOG_BENCH_TREE`, a checkout of the old
-  Node tree) are manual.
+- `npm run test:bench-tools` runs the two terminal-bench harness suites for
+  the Rust core (`benchmarks/terminal-bench-2.1/harness/anthropic_oauth_preflight_rust.test.mjs`
+  and `prebake-rust.test.mjs`); the release gate core-real job runs the same two.
 - The desktop live lane is `packaging-artifact.live.test.mjs` only in CI
   (`verify:packaging-artifact`); the cursor-theme and clipboard live tests are
   manual Windows checks, and the `*:integration` desktop harnesses

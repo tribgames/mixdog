@@ -89,7 +89,7 @@ mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-exthost-worker = { path = ".", features = ["test-support"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
-mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-office-com = { workspace = true, features = ["test-support"] }
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }

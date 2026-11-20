@@ -5,91 +5,51 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import {
-  buildCheck,
-  buildViolations,
-  comparisonMaterial,
-  findReaders,
-  testTargetsOf,
-  tokenize,
-} from './check-clean-checkout.mjs';
+import { buildCheck, buildViolations, findReaders, testTargetsOf, tokenize } from './check-clean-checkout.mjs';
 
-// The material's paths are built from pieces: this file is scanned by the guard like any other, and names nothing it reads.
-const FIXTURES = ['native', 'core', 'fixtures'].join('/');
-const BENCH = ['benchmarks', 'rust-core'].join('/');
-const GOLDENS = ['native', 'core', 'crates', 'a', 'tests', 'goldens'].join('/');
-const TWIN = ['node', 'twin'].join('-');
-const TWIN_FILE = ['native', 'core', 'crates', 'a', 'tests', 'twin_wire.rs'].join('/');
+// The tracked file .gitignore also covers in these trees: a clean checkout of the change does not have it.
+const GONE = 't/recorded.json';
+const read = (files, gone = new Set([GONE])) => findReaders(new Map(Object.entries(files)), gone);
+const readers = (lines) => lines.map((line) => line.split(': reaches ')[0]).sort();
 
-const gitignore = [
-  '/dist/',
-  '',
-  "# Node-comparison material: the owner's local-only tests.",
-  '# Present on that machine, never in git.',
-  `/${FIXTURES}/`,
-  `/${BENCH}/`,
-  `**/${TWIN}/`,
-  `/${GOLDENS}/`,
-  `/${TWIN_FILE}`,
-  '',
-  '# Development-only material',
-  '/dev-local/',
-].join('\n');
-const entries = comparisonMaterial(gitignore);
-const read = (files, gone) => findReaders(new Map(Object.entries(files)), entries, gone);
-
-test('the block is the lines from its marker to the first blank line, as repository paths', () => {
-  assert.deepEqual(entries, [`${FIXTURES}/`, `${BENCH}/`, `${TWIN}/`, `${GOLDENS}/`, TWIN_FILE]);
-  assert.throws(() => comparisonMaterial('/dist/\n'), /no "Node-comparison material:" block/);
-  assert.throws(() => comparisonMaterial('# Node-comparison material: x\n\n/dist/\n'), /is empty/);
-});
-
-test('a string naming the material is reported with its line; comments, local-only test files and other files are not', () => {
+test('a string naming a gone file is a read; comments and other files are not', () => {
   assert.deepEqual(
-    read({
-      'src/a.test.mjs': `import x from 'y';\nconst g = readFileSync(new URL('../${FIXTURES}/a/golden.json', import.meta.url));\n`,
-      'src/b.test.mjs': `// Replay of ${FIXTURES}/a (recorded)\n/* ${BENCH}/x */\n/**\n * ${BENCH}/y\n */\n`,
-      'src/c.ts': `import { exact } from '../../${BENCH}/recorders/lib/exact.mjs';\n`,
-      'src/d.test.mjs': `const t = '${GOLDENS}/wire.json';\nconst n = './${TWIN}/x.mjs';\n`,
-      'src/f.test.mjs': "const ok = readFileSync(new URL('./data/own.json', import.meta.url));\n",
-      'scripts/rust-core/lanes.mjs': `// gated: ${TWIN_FILE}\nconst gated = ['${TWIN_FILE}'];\n`,
-    }),
-    [
-      `src/a.test.mjs:2: ${FIXTURES}/`,
-      `src/c.ts:1: ${BENCH}/`,
-      `src/d.test.mjs:1: ${GOLDENS}/`,
-      `src/d.test.mjs:2: ${TWIN}/`,
-    ]
+    readers(
+      read({
+        'src/a.test.mjs': `import x from 'y';\nconst g = readFileSync('${GONE}');\n`,
+        'src/b.test.mjs': `// Replay of ${GONE} (recorded)\n/* ${GONE} */\n/**\n * ${GONE}\n */\n`,
+        't/c.test.mjs': "const d = JSON.parse(readFileSync(new URL('./recorded.json', import.meta.url)));\n",
+        'src/f.test.mjs': "const ok = readFileSync(new URL('./data/own.json', import.meta.url));\n",
+      })
+    ),
+    ['src/a.test.mjs', 't/c.test.mjs']
   );
 });
 
 test("nothing is exempt: the gate's own scripts are scanned like any other", () => {
-  assert.deepEqual(read({ 'scripts/ci/a.test.mjs': `const text = readFileSync('${FIXTURES}/example');\n` }), [
-    `scripts/ci/a.test.mjs:1: ${FIXTURES}/`,
+  assert.deepEqual(read({ 'scripts/ci/a.test.mjs': `const text = readFileSync('${GONE}');\n` }), [
+    `scripts/ci/a.test.mjs: reaches ${GONE}, which leads to ${GONE} (tracked, and covered by .gitignore: not in a clean checkout)`,
   ]);
 });
 
 test('a block comment that closes before the code on its line does not hide the code; one that is still open does', () => {
-  assert.deepEqual(read({ 'src/a.test.mjs': `/* fixture */ readFileSync("${FIXTURES}/example");\n` }), [
-    `src/a.test.mjs:1: ${FIXTURES}/`,
-  ]);
+  assert.deepEqual(readers(read({ 'src/a.test.mjs': `/* fixture */ readFileSync("${GONE}");\n` })), ['src/a.test.mjs']);
   assert.deepEqual(
     read({
-      'src/b.test.mjs': `/* one */ /* two */ const x = 1; // "${FIXTURES}/a"\n/* open\n readFileSync("${FIXTURES}/b");\n close */ const y = 2;\n`,
+      'src/b.test.mjs': `/* one */ /* two */ const x = 1; // "${GONE}"\n/* open\n readFileSync("${GONE}");\n close */ const y = 2;\n`,
     }),
     []
   );
-  assert.deepEqual(read({ 'src/c.test.mjs': `const a = 1; /* x */ const b = "${BENCH}/z";\n` }), [
-    `src/c.test.mjs:1: ${BENCH}/`,
-  ]);
+  assert.deepEqual(readers(read({ 'src/c.test.mjs': `const a = 1; /* x */ const b = "${GONE}";\n` })), ['src/c.test.mjs']);
   // a comment marker inside a string is not a comment, and a quote inside a regular expression is not a string
   assert.deepEqual(
-    read({ 'src/d.test.mjs': `const url = 'http://x/*'; readFileSync('${FIXTURES}/q'); const re = /["']/;\n` }),
-    [`src/d.test.mjs:1: ${FIXTURES}/`]
+    readers(read({ 'src/d.test.mjs': `const url = 'http://x/*'; readFileSync('${GONE}'); const re = /["']/;\n` })),
+    ['src/d.test.mjs']
   );
-  assert.deepEqual(read({ 'src/e.test.mjs': `const re = /["']/g; const s = 'fine';\nreadFileSync('${BENCH}/w');\n` }), [
-    `src/e.test.mjs:2: ${BENCH}/`,
-  ]);
+  assert.deepEqual(
+    readers(read({ 'src/e.test.mjs': `const re = /["']/g; const s = 'fine';\nreadFileSync('${GONE}');\n` })),
+    ['src/e.test.mjs']
+  );
 });
 
 test('the tokenizer reads strings, templates with interpolations, comments and the shebang', () => {
@@ -103,24 +63,18 @@ test('the tokenizer reads strings, templates with interpolations, comments and t
 
 test('an import or a spawn split over several lines is followed, and a template literal path is read', () => {
   const lines = read({
-    't/world.mjs': `const g = readFileSync(\`../${FIXTURES}/a\`);\n`,
+    't/world.mjs': "const g = readFileSync(`./recorded.json`);\n",
     't/multi.test.mjs': "const m = await import(\n  // the helper\n  './world.mjs'\n);\n",
     't/named.test.mjs': "import {\n  a,\n  b,\n} from\n  './world.mjs';\n",
     't/spawn.test.mjs': "spawnSync('node', [\n  't/world.mjs',\n]);\n",
     't/url.test.mjs': "const p = new URL(\n  './world.mjs',\n  import.meta.url,\n);\n",
   });
-  assert.deepEqual(
-    lines
-      .filter((line) => line.includes(': reaches '))
-      .map((line) => line.split(': reaches ')[0])
-      .sort(),
-    ['t/multi.test.mjs', 't/named.test.mjs', 't/spawn.test.mjs', 't/url.test.mjs']
-  );
+  assert.deepEqual(readers(lines), ['t/multi.test.mjs', 't/named.test.mjs', 't/spawn.test.mjs', 't/url.test.mjs', 't/world.mjs']);
 });
 
 test('a script that imports or spawns a reader is a reader, however deep, until nothing new is found', () => {
   const lines = read({
-    't/world.mjs': `const g = readFileSync(new URL('${FIXTURES}/a/golden.json', repo));\n`,
+    't/world.mjs': "const g = readFileSync(new URL('./recorded.json', import.meta.url));\n",
     't/mid.mjs': "export { adapterWorld } from './world.mjs';\n",
     't/top.test.mjs': "import { adapterWorld } from './mid';\n",
     't/ts.test.ts': "import { x } from './helper.js';\n",
@@ -129,50 +83,32 @@ test('a script that imports or spawns a reader is a reader, however deep, until 
     't/clean-helper.mjs': 'export const y = 1;\n',
     't/comment.test.mjs': "// import { adapterWorld } from './world.mjs';\n",
   });
-  assert.deepEqual(
-    lines
-      .filter((line) => line.includes(': reaches '))
-      .map((line) => line.split(': reaches ')[0])
-      .sort(),
-    ['t/helper.ts', 't/mid.mjs', 't/top.test.mjs', 't/ts.test.ts']
-  );
-  assert.ok(lines.includes(`t/world.mjs:1: ${FIXTURES}/`));
-  assert.ok(
-    lines.some((line) =>
-      line.startsWith('t/top.test.mjs: reaches t/mid.mjs, which reads local-only material at t/world.mjs:1')
-    )
-  );
+  assert.deepEqual(readers(lines), ['t/helper.ts', 't/mid.mjs', 't/top.test.mjs', 't/ts.test.ts', 't/world.mjs']);
+  assert.ok(lines.some((line) => line.startsWith(`t/top.test.mjs: reaches t/mid.mjs, which leads to ${GONE} (tracked`)));
 });
 
 test('a tracked file that .gitignore also covers, of any extension, is not in a clean checkout: reaching it makes a reader', () => {
   const lines = read(
     {
-      't/old.mjs': `const g = '${FIXTURES}/a';\n`,
+      't/old.mjs': 'export const z = 1;\n',
       't/user.test.mjs': "import { z } from './old.mjs';\n",
       't/helper-user.test.mjs': "import { h } from './extensionless-helper';\n",
       't/data-user.test.mjs': "const d = JSON.parse(readFileSync(new URL('./recorded.json', import.meta.url)));\n",
       't/other.test.mjs': "import { z } from './fine.mjs';\n",
       't/fine.mjs': 'export const z = 1;\n',
     },
-    new Set(['t/old.mjs', 't/extensionless-helper.ts', 't/recorded.json'])
+    new Set(['t/old.mjs', 't/extensionless-helper.ts', GONE])
   );
-  assert.deepEqual(lines.map((line) => line.split(': reaches ')[0]).sort(), [
-    't/data-user.test.mjs',
-    't/helper-user.test.mjs',
-    't/user.test.mjs',
-  ]);
+  assert.deepEqual(readers(lines), ['t/data-user.test.mjs', 't/helper-user.test.mjs', 't/user.test.mjs']);
   assert.match(
     lines.find((line) => line.startsWith('t/helper-user')),
-    /extensionless-helper\.ts \(ignored by \.gitignore/
+    /extensionless-helper\.ts \(tracked, and covered by \.gitignore/
   );
 });
 
-test('a build checkout with material on disk is refused, a clean one is not', () => {
-  assert.deepEqual(buildViolations({ present: [], targets: [], tracked: new Set() }), []);
-  assert.deepEqual(buildViolations({ present: [`${FIXTURES}/`, TWIN_FILE], targets: [], tracked: new Set() }), [
-    `${FIXTURES}/ is local-only comparison material, present in the checkout`,
-    `${TWIN_FILE} is local-only comparison material, present in the checkout`,
-  ]);
+test('a build checkout with no Cargo test target on disk outside git passes', () => {
+  assert.deepEqual(buildViolations({ targets: [], tracked: new Set() }), []);
+  assert.deepEqual(buildViolations({ targets: ['c/tests/a.rs'], tracked: new Set(['c/tests/a.rs']) }), []);
 });
 
 test('a Cargo test target on disk that is not tracked is refused, whether .gitignore covers it or not', () => {
@@ -194,7 +130,7 @@ test('a Cargo test target on disk that is not tracked is refused, whether .gitig
   assert.deepEqual(testTargetsOf('', [{ name: 'root.rs' }]), ['tests/root.rs']);
   // no ignore list is consulted: only whether git tracks the file
   const tracked = new Set([`${dir}/tests/wire.rs`, `${dir}/tests/it/main.rs`, `${dir}/tests/it/case.rs`]);
-  assert.deepEqual(buildViolations({ present: [], targets, tracked }), [
+  assert.deepEqual(buildViolations({ targets, tracked }), [
     `${dir}/tests/left_on_the_runner.rs is a Cargo test target on disk that is not tracked`,
     `${dir}/tests/gathered/main.rs is a Cargo test target on disk that is not tracked`,
   ]);
@@ -225,7 +161,7 @@ test('the build check reads the disk: linked test files and folders are targets,
       if (!(process.platform === 'win32' && error.code === 'EPERM')) throw error;
       fileLink = false;
     }
-    assert.deepEqual(buildCheck(root, ['material/']).sort(), [
+    assert.deepEqual(buildCheck(root).sort(), [
       'crate/tests/gathered/main.rs is a Cargo test target on disk that is not tracked',
       ...(fileLink ? ['crate/tests/leftover.rs is a Cargo test target on disk that is not tracked'] : []),
     ]);

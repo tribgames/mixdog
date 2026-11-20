@@ -1,16 +1,8 @@
 //! The PowerPoint editor (`Apply-PowerPointOperation`, 46 operations) against the replaying fake dispatch object: an operation
 //! must make the calls the script makes, in its order, and answer the record the script answers.
 //!
-//! The call logs below are written by hand from `office-com-host.ps1`. The logs recorded from the PowerShell host against
-//! PowerPoint and Excel (`tests/scenarios/ppt-edit.json`, run on a PC with both) are replayed by
-//! `recorded_scenarios_are_replayed` as soon as `tests/fixtures/ppt-edit/*.json` exist: the call log of each batch is cut at its
-//! operation markers and each operation is played back through the editor, with the answers of the process and window layer
-//! scripted on the fake platform from the window handles the log holds. A property the script reads where the editor reads it
-//! again, or the reverse, shows as a mismatch of the call log that names both calls.
+//! The call logs below are written by hand from `office-com-host.ps1`.
 
-use std::path::Path;
-
-use mixdog_fsio::Unlaned;
 use mixdog_office_com::com::Obj;
 use mixdog_office_com::com::fake::Fake;
 use mixdog_office_com::format::EditContext;
@@ -432,120 +424,4 @@ fn a_background_chart_window_that_hides_lets_the_chart_be_made() {
     assert_eq!(answer, Ok("{\"op\":\"add_chart\",\"changed\":true,\"shape\":\"Chart 3\",\"categories\":0,\"series\":1}".to_owned()));
     assert!(!world.platform.windows().iter().any(|window| window.hwnd == 77 && window.visible), "the window was hidden");
     fake.finish();
-}
-
-// ---------------------------------------------------------------------------------------------------------------------
-// The recorded scenarios.
-
-/// The recorded call lines of a batch cut at its `operation` markers: each operation's payload and the calls up to the next one.
-fn operation_segments(calls: &[Json]) -> Vec<(Json, Vec<Json>)> {
-    let mut segments: Vec<(Json, Vec<Json>)> = Vec::new();
-    for call in calls {
-        match call.get("boundary").and_then(Json::as_str) {
-            Some("operation") => segments.push((call.get("payload").cloned().unwrap_or(Json::Null), Vec::new())),
-            Some(_) => segments.push((Json::Null, Vec::new())),
-            None => {
-                if let Some((_, open)) = segments.last_mut() {
-                    open.push(call.clone());
-                }
-            }
-        }
-    }
-    segments.into_iter().filter(|(payload, _)| !payload.is_null()).collect()
-}
-
-fn renumbered(calls: &[Json]) -> Fake {
-    let lines: Vec<String> = calls
-        .iter()
-        .enumerate()
-        .map(|(at, call)| {
-            let mut call = call.clone();
-            call["seq"] = json!(at + 1);
-            call.to_string()
-        })
-        .collect();
-    Fake::from_lines(&lines.join("\n"))
-}
-
-/// The window handles the recorded reads of `Hwnd` answered: each is a window of a process of its own on the fake platform, so
-/// the process of a chart's Excel is found from its window as the real layer finds it.
-fn script_windows(world: &World, calls: &[Json]) {
-    let mut next_process = 4000;
-    for call in calls {
-        let member = call.get("member").and_then(Json::as_str).unwrap_or_default();
-        if !member.eq_ignore_ascii_case("hwnd") {
-            continue;
-        }
-        let Some(handle) = call.pointer("/result/v").and_then(Json::as_i64).filter(|handle| *handle != 0) else { continue };
-        if world.platform.windows().iter().any(|window| window.hwnd == handle) {
-            continue;
-        }
-        world.platform.add_window(FakeWindow::new(handle, next_process, "", ""));
-        next_process += 1;
-    }
-}
-
-/// The `results` of the batch's answer: one record per operation that ran.
-fn results_of_answer(step: &Json) -> Option<Json> {
-    step.get("stdout")?.as_array()?.iter().find_map(|message| message.get("results")).cloned()
-}
-
-fn error_of_answer(step: &Json) -> Option<String> {
-    step.get("stdout")?.as_array()?.iter().find_map(|message| message.get("error")).and_then(Json::as_str).map(str::to_owned)
-}
-
-
-#[test]
-fn recorded_scenarios_are_replayed() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join("ppt-edit");
-    let Ok(entries) = mixdog_fsio::read_dir(&Unlaned, &dir) else {
-        eprintln!("tests/fixtures/ppt-edit does not exist: no recorded scenario to replay");
-        return;
-    };
-    let mut replayed = 0;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
-            continue;
-        }
-        let fixture: Json = serde_json::from_str(&mixdog_fsio::read_to_string(&Unlaned, &path).expect("a recorded scenario")).expect("a recorded scenario is JSON");
-        let scenario = fixture.get("scenario").and_then(Json::as_str).unwrap_or("?").to_owned();
-        let mut interactive = false;
-        for step in fixture.get("steps").and_then(Json::as_array).into_iter().flatten() {
-            let request = step.get("request").cloned().unwrap_or(Json::Null);
-            let action = request.get("action").and_then(Json::as_str).unwrap_or_default();
-            if action == "open_session" {
-                interactive = matches!(request.get("mode").and_then(Json::as_str), Some("visible" | "attach"));
-            }
-            if action != "batch" {
-                continue;
-            }
-            let calls: Vec<Json> = step.get("calls").and_then(Json::as_array).into_iter().flatten().filter_map(|line| line.as_str()).filter_map(|line| serde_json::from_str(line).ok()).collect();
-            let results = results_of_answer(step).unwrap_or(Json::Null);
-            let refusal = error_of_answer(step);
-            let label = format!("{scenario}/{}", step.get("label").and_then(Json::as_str).unwrap_or("batch"));
-            let segments = operation_segments(&calls);
-            for (at, (op, segment)) in segments.iter().enumerate() {
-                let Some(first) = segment.first().and_then(|call| call.get("obj")).and_then(Json::as_u64) else { continue };
-                let fake = renumbered(segment);
-                let world = World::new();
-                script_windows(&world, segment);
-                let outcome = apply_in(&world, &fake.object(first), op, interactive);
-                match (&outcome, results.get(at)) {
-                    (Ok(answer), Some(recorded)) => {
-                        let answered: Json = serde_json::from_str(answer).unwrap_or_else(|error| panic!("{label}#{at}: {error}"));
-                        assert_eq!(&answered, recorded, "{label}#{at} ({op}): the record differs from the recorded one");
-                    }
-                    (Err(message), None) => {
-                        let recorded = refusal.as_deref().unwrap_or_default();
-                        assert!(recorded.ends_with(message.as_str()), "{label}#{at} ({op}): refused with {message:?}, recorded {recorded:?}");
-                    }
-                    (Ok(answer), None) => panic!("{label}#{at} ({op}): answered {answer}, but the recorded batch stopped here"),
-                    (Err(message), Some(recorded)) => panic!("{label}#{at} ({op}): refused with {message:?}, recorded {recorded}"),
-                }
-                replayed += 1;
-            }
-        }
-    }
-    eprintln!("{replayed} recorded operations replayed");
 }

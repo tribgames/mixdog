@@ -4,8 +4,9 @@
 //!
 //! A background document is created, edited through the registered `docx` editor in batches (appended runs, a table, page
 //! setup, tracked changes with an author, a refusal), read back through the registered reader and closed with no Office
-//! process left that was not there before. The comparison of the answers and of the saved .docx with the PowerShell host's,
-//! after normalising, is made from the recordings of `tests/scenarios/word-edit.json` (`tests/word_edit.rs`), not here.
+//! process left that was not there before. The call order and the records of each operation are pinned without Office, against
+//! scripted Word objects, in `tests/word_edit.rs`; `tests/switch_word_live.rs` runs the listed scenarios against Word and
+//! checks what each one states.
 #![cfg(windows)]
 
 use std::path::PathBuf;

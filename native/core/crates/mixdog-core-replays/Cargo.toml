@@ -69,7 +69,7 @@ mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-core-ports = { workspace = true }
 mixdog-core-prompt = { workspace = true }
 mixdog-core-session = { workspace = true, features = ["crash-gates", "replay-settled", "test-support", "virtual-clock"] }
-mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-ledger = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }

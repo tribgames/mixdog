@@ -41,7 +41,7 @@ mixdog-browser-engine = { workspace = true, features = ["test-support"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
-mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }

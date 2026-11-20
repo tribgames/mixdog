@@ -1,10 +1,8 @@
 //! The Word reader (`Snapshot-Word`, the docx branch of `Snapshot-Selection`, `Issues-Word`) against a scripted Word object
-//! model, and, when `tests/fixtures/word-read/` holds recordings of the PowerShell host, against the replaying fake dispatch
-//! object: the same call sequence and the same answer.
+//! model.
 //!
 //! The scripted model answers what the reader asks and records every access, so a test states both what the record says and
-//! in which order Word was asked. It is written from `office-com-host.ps1`; the recordings (`tests/scenarios/word-read.json`,
-//! run on a PC with Microsoft Word) are the reference the same reader is held to once they exist.
+//! in which order Word was asked. It is written from `office-com-host.ps1`.
 
 use std::any::Any;
 use std::cell::Cell;
@@ -703,21 +701,4 @@ fn issues_name_what_the_author_has_to_resolve() {
     assert_eq!(at(&value, "1.message"), &string_of("Error! Reference source not found."));
     assert_eq!(at(&value, "2.message"), &string_of("Font is not installed: Zapfino"));
     assert_eq!(at(&value, "4.message"), &string_of("Table width 600.5pt exceeds available page width 468pt."));
-}
-
-
-// ---------------------------------------------------------------------------------------------------------------------
-// The recordings of the PowerShell host.
-
-#[test]
-fn every_recorded_word_read_fixture_is_listed_and_readable() {
-    // `tests/fixtures/word-read/<scenario>.json` is written by `recorder/record-office-com.mjs --area word-read` on a PC with
-    // Microsoft Word, and the manifest lists it; until that has been run the manifest lists none and this holds nothing.
-    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures");
-    let manifest: serde_json::Value = serde_json::from_str(&mixdog_testkit::read_string(fixtures.join("MANIFEST.json"))).expect("the manifest");
-    for entry in manifest["fixtures"].as_array().expect("fixtures").iter().filter(|entry| entry["area"] == "word-read") {
-        let path = fixtures.join(entry["path"].as_str().expect("a path"));
-        let recording: serde_json::Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).expect("a recording");
-        assert!(recording["steps"].is_array(), "{}", path.display());
-    }
 }

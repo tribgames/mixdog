@@ -2,7 +2,6 @@
 # build turns that feature on for mixdog-rt (unify-test-features.py), so its tests without it run from here, and nothing
 # else of the workspace is built:
 #   <build-tools>\cargo-gate.ps1 test -p mixdog-rt-feature-off
-# (tests/virtual_clock.rs then runs no test: it needs the feature.)
 [package]
 name = "mixdog-rt-feature-off"
 version.workspace = true

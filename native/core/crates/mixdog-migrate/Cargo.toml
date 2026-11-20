@@ -54,7 +54,7 @@ sha2 = { workspace = true }
 mixdog-app-protocol = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
-mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }

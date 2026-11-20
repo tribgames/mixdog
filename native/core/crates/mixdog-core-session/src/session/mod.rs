@@ -225,8 +225,6 @@ mod session_grants_tests;
 #[cfg(test)]
 mod goal_lane_tests;
 #[cfg(test)]
-mod client_chain_replay_tests;
-#[cfg(test)]
 mod turn_admission_tests;
 #[cfg(test)]
 mod delete_idle_tests;

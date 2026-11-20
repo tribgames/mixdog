@@ -9,7 +9,7 @@ workspace = true
 
 [features]
 # `FakeHost` (scripted host answers and JSONL transcript replay) for the tests of later tasks and of the replay package.
-test-support = ["dep:mixdog-testkit"]
+test-support = []
 
 [dependencies]
 mixdog-app-protocol = { workspace = true }
@@ -22,8 +22,6 @@ mixdog-js = { workspace = true }
 icu_locale_core = { workspace = true }
 sha2 = { workspace = true }
 url = { workspace = true }
-# Only for `FakeHost::from_transcript` (a test-support item: reading a recorded file is the testkit's job, the fsio bans stay).
-mixdog-testkit = { workspace = true, optional = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 # Only `task_local!`: the per-command loss latch (`error::track_connection_loss`). Timers and tasks stay on mixdog-rt.
@@ -34,7 +32,6 @@ serde_json = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
-mixdog-testkit = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
@@ -47,7 +44,7 @@ mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
-mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }

@@ -148,7 +148,7 @@ fn a_workbook_with_a_zero_dpi_is_repaired_when_the_session_reopens_it() {
     let env = Env { platform: &platform, applications: &LiveApplications };
     let dir = scratch("dpi");
     let path = dir.join("zero.xlsx");
-    let input = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join("actions").join("inputs").join("zero-dpi.xlsx");
+    let input = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("inputs").join("zero-dpi.xlsx");
     mixdog_fsio::copy(&Unlaned, &input, &path).expect("the workbook");
     let mut state = open(&env, "xlsx", &path, false);
     let actions = Actions { env, proof: &Unlaned, drivers: Drivers::registered() };

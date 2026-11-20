@@ -8,6 +8,5 @@
     "command": "the lib test binary of mixdog_tools, --list fs::tests (cwd native/core/crates/mixdog-tools)",
     "keeps": "libtest's list output as printed",
     "purpose": "reference capture of libtest list output, not an input to the public lanes test"
-  },
-  "provenance": "The original recorder and slow drift test are local-only; a public checkout can inspect these captures but does not include those tools."
+  }
 }

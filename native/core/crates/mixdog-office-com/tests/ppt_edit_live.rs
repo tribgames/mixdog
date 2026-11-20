@@ -74,7 +74,7 @@ fn steps_of(scenario: &Json) -> Vec<&Json> {
 }
 
 fn copy_input(step: &Json, work: &Path) {
-    let from = crate_dir().join("tests").join("fixtures").join("inputs").join(step["copy"].as_str().expect("a file"));
+    let from = crate_dir().join("tests").join("inputs").join(step["copy"].as_str().expect("a file"));
     let name = step.get("as").and_then(Json::as_str).unwrap_or_else(|| step["copy"].as_str().expect("a file"));
     let bytes = mixdog_fsio::read(&Unlaned, &from).unwrap_or_else(|error| panic!("{}: {error}", from.display()));
     mixdog_fsio::write(&Unlaned, &work.join(name), &bytes).expect("the input is copied");

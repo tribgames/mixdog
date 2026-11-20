@@ -1,11 +1,9 @@
 //! The Word editor (`Apply-WordOperation` and the 41 operations of `Invoke-WordOperation`) against a scripted Word object
-//! model, and, when `tests/fixtures/word-edit/` holds recordings of the PowerShell host, against the replaying fake dispatch
-//! object: the same call sequence and the same results.
+//! model.
 //!
 //! The scripted model answers what the editor asks and records every access (a read as `id.Member(args)`, a write as
 //! `id.Member=value`), so a test states both what the operation answered and in which order Word was asked. It is written
-//! from `office-com-host.ps1`; the recordings (`tests/scenarios/word-edit.json`, run on a PC with Microsoft Word) are the
-//! reference the same editor is held to once they exist.
+//! from `office-com-host.ps1`.
 
 use std::any::Any;
 use std::cell::Cell;
@@ -625,22 +623,5 @@ fn every_scenario_of_the_recorder_is_a_scenario_with_steps() {
     let text = spec.to_string();
     for name in Editor.operation_names() {
         assert!(text.contains(&format!("\"op\":\"{name}\"")), "no scenario runs {name}");
-    }
-}
-
-
-// ---------------------------------------------------------------------------------------------------------------------
-// The recordings of the PowerShell host.
-
-#[test]
-fn every_recorded_word_edit_fixture_is_listed_and_readable() {
-    // `tests/fixtures/word-edit/<scenario>.json` is written by `recorder/record-office-com.mjs --area word-edit` on a PC with
-    // Microsoft Word, and the manifest lists it; until that has been run the manifest lists none and this holds nothing.
-    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures");
-    let manifest: serde_json::Value = serde_json::from_str(&mixdog_testkit::read_string(fixtures.join("MANIFEST.json"))).expect("the manifest");
-    for entry in manifest["fixtures"].as_array().expect("fixtures").iter().filter(|entry| entry["area"] == "word-edit") {
-        let path = fixtures.join(entry["path"].as_str().expect("a path"));
-        let recording: serde_json::Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).expect("a recording");
-        assert!(recording["steps"].is_array(), "{}", path.display());
     }
 }

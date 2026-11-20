@@ -7,10 +7,8 @@
 //!
 //! Every pptx scenario of `tests/scenarios/{session,actions,ppt-read,ppt-edit}.json` runs twice, in a directory of its own
 //! each, through the transport API (`open_session`, `call`, `close_session`): once with the PowerShell host (the transport's test
-//! list of Rust-served formats empty) and once with the Rust host (the compiled list, `mixdogd office-com-host`). The recordings of
-//! the PowerShell host (`tests/fixtures/<area>/<scenario>.json`) are written on a PC with PowerPoint by
-//! `recorder/record-office-com.mjs`; the PowerShell run made here is the same host on the machine that runs the test, so the
-//! comparison does not depend on a recording of another Office build or UI language. The answers must be equal after
+//! list of Rust-served formats empty) and once with the Rust host (the compiled list, `mixdogd office-com-host`). The PowerShell run
+//! is made here, on the machine that runs the test, so the comparison does not depend on a recording of another Office build or UI language. The answers must be equal after
 //! normalisation (the work directory, process ids, window handles, times, dates, the script location a failure names), the saved
 //! decks equal after OOXML normalisation, no POWERPNT process and no EXCEL process (the chart data sheet's) may be left that was
 //! not there before, and the Rust runs may not take longer in total than the PowerShell ones. Three more tests follow the paths of
@@ -157,10 +155,9 @@ struct Run {
     work: PathBuf,
 }
 
-/// The directory a scenario's `copy` is resolved against, as the recorder resolves it (`tests/fixtures/inputs`): the
-/// scenarios name their inputs from there (`../actions/inputs/zero-dpi.xlsx`, `../ppt-read/inputs/pixel.png`).
+/// The directory a scenario's `copy` names its input in (`zero-dpi.xlsx`, `pixel.png`).
 fn inputs() -> PathBuf {
-    crate_dir().join("tests").join("fixtures").join("inputs")
+    crate_dir().join("tests").join("inputs")
 }
 
 fn is_powerpoint_scenario(scenario: &Json) -> bool {

@@ -1,6 +1,6 @@
 //! A scripted host for the tests of the engine: it answers `host/browser/*` calls in a fixed order, and pushes the facts, events and
 //! user-input notes a real host would send between them. Two ways to build one: [`FakeHost::scripted`] from [`Expect`] rows, and
-//! [`FakeHost::from_transcript`] from a JSONL recording. Test support only (`cfg(any(test, feature = "test-support"))`).
+//! [`FakeHost::from_transcript_str`] from a JSONL transcript. Test support only (`cfg(any(test, feature = "test-support"))`).
 //!
 //! A call that is not the next expected one is answered `Failed` and recorded; [`FakeHost::finish`] reports it, so a test that
 //! swallowed the failure still fails. The exception is the sign-in and turn hooks (`host/browser/signIn`, `host/browser/turn`): they are
@@ -15,7 +15,6 @@
 //!   call's answer.
 
 use std::collections::VecDeque;
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -118,12 +117,7 @@ impl FakeHost {
         Self { state: Mutex::new(State { expected: expected.into(), ..State::default() }), sink: Mutex::new(None) }
     }
 
-    /// A host that replays the JSONL recording at `path` (rows described in the module doc).
-    pub fn from_transcript(path: &Path) -> Result<Self, String> {
-        Self::from_transcript_str(&mixdog_testkit::read_string(path))
-    }
-
-    /// [`Self::from_transcript`] over the text itself.
+    /// A host that replays a JSONL transcript (rows described in the module doc).
     pub fn from_transcript_str(text: &str) -> Result<Self, String> {
         let mut expected = Vec::new();
         let mut pushes = Vec::new();

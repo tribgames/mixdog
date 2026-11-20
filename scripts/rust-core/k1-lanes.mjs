@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The Rust-core lanes that stand in for the Node CI steps the cut removed (release.yml `rust-lanes`). Each lane is one
-// `cargo test` run per filter over tests that exist in a clean checkout of native/core: nothing here selects a
-// local-only Node-comparison test, and the lane filters are kept to modules and test binaries that are tracked. cargo passes a filter that matches nothing, and libtest skips an
+// `cargo test` run per filter over tests that exist in a clean checkout of native/core: the lane filters are kept to
+// modules and test binaries that are tracked. cargo passes a filter that matches nothing, and libtest skips an
 // ignored test it matched, so each run first lists what the filter selects (`-- --list`, less `-- --list --ignored`)
 // and fails on zero; k1-lanes.test.mjs checks, without cargo, that every filter still has an ungated test to select.
 // Usage: node scripts/rust-core/k1-lanes.mjs [--list] [--dry-run] [--runner "cargo test"] [lane...]   (no lane: all;
@@ -19,8 +19,6 @@ const CORE = resolve(dirname(fileURLToPath(import.meta.url)), '../../native/core
 // package.json scripts and workflow steps each lane stands in for (what it protected); `unproven` names what of the old
 // step no selected test proves, and why. The filters are libtest substrings of the full test name (module path and
 // function): a module path or a file stem where a whole area is meant, a function name only where one test is the point.
-// The compact lane leaves out compact_handoff and compact_summary: those modules are local-only and not in a clean
-// checkout, so it keeps the compaction tests that run there.
 export const LANES = {
   'shell-direct-exe': {
     replaces: 'scripts/suite-shell-direct-exe-test.mjs',
@@ -78,7 +76,7 @@ export const LANES = {
       'compact_image',
     ],
     unproven:
-      'the handoff and summary wording (compact_handoff, compact_summary): they assert the Node recording byte for byte and are local-only, never in a clean checkout',
+      'the handoff and summary wording byte for byte: the tests that compared it with the Node recording are retired, and no selected test asserts the wording',
   },
   'turn-contract': {
     replaces: 'scripts/run-advisory-spec.mjs (runtime-turn-contract-test.mjs)',
@@ -205,15 +203,11 @@ export const BACKEND_INSTALLERS = [
   'native/core/crates/mixdog-app-server-daemon/src/effort_judge_host.rs',
   'native/core/crates/mixdog-app-server-daemon/src/embedding_host.rs',
   'native/core/crates/mixdog-app-server-daemon/tests/it/real_executors.rs',
-  'native/core/crates/mixdog-cli/tests/exec_replay.rs',
   'native/core/crates/mixdog-core-config/tests/config_lanes.rs',
   'native/core/crates/mixdog-core-session/src/session/sensitive_carry_tests.rs',
   'native/core/crates/mixdog-core-session/tests/never_ran_reads.rs',
-  'native/core/crates/mixdog-core/tests/check_phase_socket_reuse.rs',
   'native/core/crates/mixdog-ledger/tests/sums_lanes.rs',
   'native/core/crates/mixdog-mcp/tests/it/skill_catalog_suite.rs',
-  'native/core/crates/mixdog-mcp/tests/mcp_list_shape.rs',
-  'native/core/crates/mixdog-mcp/tests/output_schema_depth.rs',
   'native/core/crates/mixdog-mcp/tests/output_schema_lane.rs',
   'native/core/crates/mixdog-rt/tests/clock_control.rs',
   'native/core/crates/mixdog-rt/tests/elastic.rs',
@@ -221,7 +215,6 @@ export const BACKEND_INSTALLERS = [
   'native/core/crates/mixdog-rt/tests/lane_wedged.rs',
   'native/core/crates/mixdog-rt/tests/submit_wait.rs',
   'native/core/crates/mixdog-rt/tests/ticker.rs',
-  'native/core/crates/mixdog-rt/tests/virtual_clock.rs',
   'native/core/crates/mixdog-services/src/effort_judge/worker_tests.rs',
   'native/core/crates/mixdog-services/src/tidy/process.rs',
   'native/core/crates/mixdog-store/src/store_tests.rs',

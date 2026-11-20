@@ -346,8 +346,6 @@ test('discovery covers the package root, src, scripts, lib and deploy, excludes 
     'src/out/ignored.test.mjs': '',
     'src/dist/ignored.test.mjs': '',
     'src/target/ignored.test.mjs': '',
-    'src/node-oracle/local-comparison.test.mjs': '',
-    'packages/protocol/test/node-oracle/local-comparison.test.ts': '',
     'scripts/nested/node_modules/ignored.test.mjs': '',
     'scripts/nested/target/ignored-test.mjs': '',
   });

@@ -73,7 +73,7 @@ replay-settled = ["mixdog-ai/replay-bytes"]
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 mixdog-imaging = { workspace = true, features = ["test-support"] }
-mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-tools = { workspace = true, features = ["policy-observer"] }
 tracing-subscriber = { workspace = true }
 mixdog-mcp = { workspace = true, features = ["test-support"] }

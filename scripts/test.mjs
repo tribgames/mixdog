@@ -96,9 +96,7 @@ const ROOT_PATTERNS = ['*.test.mjs', '*-test.mjs'];
 const DISCOVERY_PATTERNS = ROOTS.flatMap((root) =>
   root === '.' ? ROOT_PATTERNS : (ROOT_PATTERNS_BY_ROOT[root] ?? PATTERNS).map((pattern) => `${root}/${pattern}`)
 );
-// node-oracle contains explicit comparison suites. Their reference checkout
-// or local recordings are not available to the regular lanes.
-const EXCLUDED_DIRS = new Set(['node_modules', '.runtime', 'out', 'dist', 'target', 'node-oracle']);
+const EXCLUDED_DIRS = new Set(['node_modules', '.runtime', 'out', 'dist', 'target']);
 const inExcludedDir = (path) =>
   String(path)
     .split(/[\\/]/)
