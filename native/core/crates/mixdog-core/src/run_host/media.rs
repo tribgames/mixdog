@@ -851,10 +851,6 @@ impl ImageIdentities for MediaLowering {
 }
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use serde_json::json;
-    #[cfg(node_twin)]
-    use serde_json::Value;
 
     use super::*;
 
@@ -987,38 +983,6 @@ mod tests {
         assert_eq!(parts[1], office, "an Office file keeps its part unless the route takes no documents");
         assert_eq!(l.text_form(&office).unwrap().unwrap(), "--- a.docx (application/vnd.openxmlformats-officedocument.wordprocessingml.document, 2 bytes) ---\nEXTRACTED");
         assert_eq!(l.text_form(&reference("doc", "text/plain", Some("d.txt"))).unwrap().unwrap(), "--- d.txt (text/plain, 5 bytes) ---\nhello");
-    }
-
-    /// A worker whose extraction of a PDF ends when the test says: `one` once `release_one` is notified, `hang` never.
-    #[cfg(node_twin)]
-    struct SlowDocs {
-        release_one: Arc<tokio::sync::Notify>,
-    }
-    #[async_trait]
-    #[cfg(node_twin)]
-    impl DocumentText for SlowDocs {
-        async fn office_text(&self, _: &ThreadId, _: &str, _: &str) -> Result<Option<String>, ExtError> {
-            unreachable!("no Office file")
-        }
-        async fn pdf_text(&self, _: &ThreadId, data: &str) -> Result<String, ExtError> {
-            match String::from_utf8(STANDARD.decode(data).unwrap()).unwrap().as_str() {
-                "%PDF one" => {
-                    self.release_one.notified().await;
-                    Ok("ONE".to_owned())
-                }
-                _ => std::future::pending().await,
-            }
-        }
-        async fn pdf_counts(&self, _: &ThreadId, _: &str) -> Result<PdfIntake, ExtError> {
-            unreachable!("a request lowering counts no PDF pages")
-        }
-    }
-
-    /// The prompt's PDFs lowering on the test's clock, which moves only by `advance`.
-    #[cfg(node_twin)]
-    struct Lowering {
-        done: tokio::task::JoinHandle<Vec<String>>,
-        release_one: Arc<tokio::sync::Notify>,
     }
 
     #[tokio::test]
@@ -1245,40 +1209,6 @@ mod tests {
         assert_eq!(parts[1], ContentPart::Text("--- a.xlsx (application/octet-stream, 6 bytes) ---\nEXTRACTED".to_owned(), None));
     }
 
-    #[cfg(node_twin)]
-    impl Lowering {
-        #[cfg(node_twin)]
-        fn start(files: &[&'static str]) -> Self {
-            let store = Store(vec![("one", b"%PDF one".to_vec()), ("hang", b"%PDF hang".to_vec()), ("hang2", b"%PDF hang two".to_vec())]);
-            let release_one = Arc::new(tokio::sync::Notify::new());
-            let docs = SlowDocs { release_one: release_one.clone() };
-            let l = MediaLowering::new(ThreadId::from("t".to_owned()), Arc::new(docs), Arc::new(store), Arc::new(Facts), false, ProviderId::from("anthropic"));
-            let parts = files.iter().map(|r| reference(r, "application/pdf", Some("p.pdf"))).collect();
-            let done = tokio::spawn(async move {
-                let prepared = l.prepare_pdf_text(vec![Message::new(Role::User, Content::Parts(parts))]).await.unwrap();
-                let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
-                parts
-                    .iter()
-                    .map(|p| match p {
-                        ContentPart::Text(text, _) => text.rsplit('\n').next().unwrap().to_owned(),
-                        other => panic!("a PDF stayed a part: {other:?}"),
-                    })
-                    .collect()
-            });
-            Self { done, release_one }
-        }
-
-        /// Moves the clock by `ms` and lets the lowering run to wherever that takes it.
-        async fn advance(&self, ms: u64) {
-            for _ in 0..8 {
-                tokio::task::yield_now().await;
-            }
-            tokio::time::advance(Duration::from_millis(ms)).await;
-            for _ in 0..8 {
-                tokio::task::yield_now().await;
-            }
-        }
-    }
     /// Two sessions attaching at once: each conversion is its own call, so neither waits for the other (a gate that opens only
     /// when both are in flight would hold a serialised pair forever).
     #[tokio::test]
@@ -1294,96 +1224,4 @@ mod tests {
     }
 
 
-    /// Node's real `contentToText`, `contentMediaBytes`/`Count` and the PDF/image allowances.
-    #[test]
-    #[cfg(node_twin)]
-    fn inline_parts_follow_node() {
-        let golden: Value = serde_json::from_str(include_str!("golden/media.json")).unwrap();
-        let big = format!("%PDF-1.4 {}", "x".repeat(40_000));
-        let doc = |media: &str, data: &str, title: &str| ContentPart::Document {
-            source: DocumentSource::Base64 { media_type: media.into(), data: b64(data) },
-            title: Some(title.into()),
-        };
-        let parts: Vec<(&str, ContentPart)> = vec![
-            ("text_file", file("hello", "text/plain", Some("a.txt"))),
-            ("json_nameless", file("{\"a\":1}", "application/json", None)),
-            ("binary_zip", file("PK\u{3}\u{4}abcdef", "application/zip", Some("x.zip"))),
-            ("mislabelled_pdf", file(&big, "application/octet-stream", Some("scan.bin"))),
-            ("labelled_pdf", file("%PDF-1.7 tiny", "application/pdf", None)),
-            ("pdf_document", doc("application/pdf", &big, "Big")),
-            ("text_document", doc("text/markdown", "# hi", "notes.md")),
-            ("image_inline", ContentPart::Image(ImageSource::Base64 { data: "AAAABBBB".into(), mime_type: "image/png".into(), width: None, height: None })),
-            ("image_data_url", ContentPart::Image(ImageSource::Url("data:image/png;base64,AAAA".into()))),
-        ];
-        let lowering = lowering(false);
-        for (id, part) in &parts {
-            let want = &golden["cases"][*id];
-            let content = Content::Parts(vec![part.clone()]);
-            assert_eq!(json!(lowering.bytes(&content, true)), want["bytes"], "{id} bytes");
-            assert_eq!(json!(lowering.bytes(&content, false)), want["bytesText"], "{id} bytes as text");
-            assert_eq!(json!(lowering.count(&content, true)), want["count"], "{id} count");
-            assert_eq!(json!(lowering.count(&content, false)), want["countText"], "{id} count as text");
-            let meter = lowering.part(part);
-            assert_eq!(json!(meter.text), want["text"], "{id} text");
-            assert_eq!(json!(meter.tokens), json!(want["pdfNative"].as_u64().unwrap() + want["image"].as_u64().unwrap()), "{id} tokens");
-        }
-        assert_eq!(pdf_allowance(40_009, None, None, false), golden["cases"]["pdf_document"]["pdfText"]);
-    }
-    /// A PDF the worker never reads is, at the bound, the text Node gives a PDF it cannot read (the recorded `not-a-pdf`
-    /// case): Node waits, so a user sees the model told the document could not be read, never an error. The bound is
-    /// one for the turn's PDFs: two that never answer end together at 60 s, not one after the other at 120 s.
-    #[tokio::test(start_paused = true)]
-    #[cfg(node_twin)]
-    async fn a_turns_pdfs_share_one_bound() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/tools/media-text/pdf.json");
-        let recorded: Vec<Value> = serde_json::from_str(&mixdog_testkit::read_string(&path)).unwrap();
-        let unreadable = recorded.iter().find(|c| c["name"] == "not-a-pdf").unwrap()["text"].as_str().unwrap().to_owned();
-        assert_eq!(unreadable, PDF_UNREADABLE_TEXT);
-
-        let both = Lowering::start(&["hang", "hang2"]);
-        both.advance(PDF_INTAKE_TIMEOUT_MS - 1).await;
-        assert!(!both.done.is_finished(), "answered a millisecond before the bound");
-        both.advance(1).await;
-        assert!(both.done.is_finished(), "the second PDF was still waiting at the turn's bound");
-        assert_eq!(both.done.await.unwrap(), [unreadable.clone(), unreadable.clone()]);
-
-        // The first PDF is read 40 s into the bound (the worker answers when released, at 40 s of the clock): the one
-        // after it has the 20 s that are left.
-        let slow_then_hung = Lowering::start(&["one", "hang"]);
-        slow_then_hung.advance(40_000).await;
-        slow_then_hung.release_one.notify_one();
-        slow_then_hung.advance(PDF_INTAKE_TIMEOUT_MS - 40_000 - 1).await;
-        assert!(!slow_then_hung.done.is_finished(), "answered a millisecond before the bound");
-        slow_then_hung.advance(1).await;
-        assert!(slow_then_hung.done.is_finished(), "the second PDF got more than what was left of the bound");
-        assert_eq!(slow_then_hung.done.await.unwrap(), ["ONE".to_owned(), unreadable]);
-    }
-    /// Node's `contentImageDescriptors` on 14 provider-native blocks.
-    #[test]
-    #[cfg(node_twin)]
-    fn json_image_descriptors_follow_node() {
-        let golden: Value = serde_json::from_str(include_str!("golden/image_descriptors.json")).unwrap();
-        for (name, row) in golden.as_object().unwrap() {
-            let got: Vec<Value> = json_image_descriptor(&row["block"])
-                .into_iter()
-                .map(|d| json!({ "identity": d.identity, "width": d.width.map(mixdog_js::json_number), "height": d.height.map(mixdog_js::json_number), "detail": d.detail }))
-                .collect();
-            assert_eq!(json!(got), row["descriptors"], "{name}");
-        }
-    }
-    #[test]
-    #[cfg(node_twin)]
-    fn content_parts_and_replayed_blocks_describe_the_same_images() {
-        let l = lowering(false);
-        let golden: Value = serde_json::from_str(include_str!("golden/image_descriptors.json")).unwrap();
-        let id = |name: &str| golden[name]["descriptors"][0]["identity"].as_str().unwrap().to_owned();
-        let mut m = AgentMessage::user("x");
-        m.message.content = Content::Parts(vec![
-            ContentPart::Image(ImageSource::Base64 { data: "AAAABBBB".into(), mime_type: "IMAGE/JPEG".into(), width: None, height: None }),
-            ContentPart::Image(ImageSource::Url("http://x/y.png".into())),
-            ContentPart::Image(ImageSource::FileId("file_2".into())),
-        ]);
-        let ids: Vec<String> = l.images(&m).into_iter().map(|d| d.identity).collect();
-        assert_eq!(ids, [id("data"), id("image_url_string"), id("source_file").replace(&id("source_file"), &image_identity("file-id", "file_2", ""))]);
-    }
 }

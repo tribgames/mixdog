@@ -426,26 +426,4 @@ mod tests {
         assert_eq!(fill(&"A1".repeat(12)).as_deref(), Some("Stored browser credential id is invalid."));
         assert_eq!(fill("abc").as_deref(), Some("Stored browser credential id is invalid."));
     }
-    #[cfg(node_twin)]
-    /// The corpus the desktop's `remote-browser.test.mjs` reads too: each row is a UI action
-    /// with its input and the text the desktop refuses it with (`null`: admitted).
-    #[test]
-    fn the_corpus_is_refused_with_the_desktops_text() {
-        let corpus: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/browser-parity/remote-browser.json"))).unwrap();
-        let rows = corpus["rows"].as_array().unwrap();
-        assert!(rows.len() > 100);
-        for row in rows {
-            let mut input = row.get("input").cloned().unwrap_or(Value::Null);
-            let answer = validate_ui_action(row["action"].as_str().unwrap(), &mut input);
-            let message = match answer {
-                Ok(()) => None,
-                Err(CoreError::DomainError { domain, code: None, message, detail: None }) => {
-                    assert_eq!(&*domain, "browser");
-                    message.map(|m| m.to_string())
-                }
-                Err(other) => panic!("{row}: {other:?}"),
-            };
-            assert_eq!(message.as_deref(), row["error"].as_str(), "{row}");
-        }
-    }
 }

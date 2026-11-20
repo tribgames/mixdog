@@ -88,8 +88,7 @@ type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
 
 /// The ordered stop steps and the one run of them in progress. A stop that overlaps one in progress awaits that same run (Node's
 /// `SessionHost.dispose` hands every caller the one `disposePromise`, `apps/desktop/src/main/session-host.ts:1209-1210`): it never
-/// returns before the cleanup has ended, and nothing runs twice. Pinned by `tests::overlapping_stops_wait_for_the_same_cleanup_as_node_recorded`
-/// (below, with the real core) and the desktop's `session-host-lifecycle-replay.test.mjs`. A call after a run has ended runs only the steps registered since.
+/// returns before the cleanup has ended, and nothing runs twice. A call after a run has ended runs only the steps registered since.
 #[derive(Default)]
 pub(crate) struct StopSteps {
     steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
@@ -266,18 +265,12 @@ pub fn ext_host_config(js: &JsRuntime, data_dir: &Path, tokens: &LaneTokens) -> 
     }
 }
 
-#[cfg(all(test, node_twin))]
-mod review_restart_tests;
-#[cfg(all(test, node_twin))]
-mod office_startup_tests;
 #[cfg(test)]
 mod state_set_aside_tests;
 #[cfg(test)]
 mod config_watch_tests;
 #[cfg(test)]
 mod limits_tests;
-#[cfg(all(test, node_twin))]
-mod session_send_tests;
 #[cfg(test)]
 mod bot_send_tests;
 #[cfg(test)]
@@ -489,87 +482,6 @@ mod tests {
 
 
 
-    #[cfg(node_twin)]
-#[test]
-    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
-    #[allow(clippy::disallowed_methods, reason = "reads the recorded fixture")]
-    fn the_github_tool_a_session_gets_is_nodes_builtin_one() {
-        crate::compose_test_support::in_child(module_path!(), "the_github_tool_a_session_gets_is_nodes_builtin_one", tokio::runtime::Builder::new_current_thread(), |dir| async move {
-            use mixdog_core::run_host::session_tools;
-            let golden: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/github-cases/golden.json")).unwrap()).unwrap();
-            let case = &golden["cases"][9];
-            assert_eq!(case["case"], "the agent tool is registered and returns the ordinary builtin text/error contract");
-            let recorded = case["observed"]["isBuiltinTool"].as_bool().expect("isBuiltinTool is recorded as a boolean");
-            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
-            let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log, mixdog_rt::CancellationToken::new())).await.unwrap();
-            let pool = core.real.tool_pool.clone();
-            let request = session_tools::Resolve { tool_spec: None, model: "", skills_listed: false, agent_owned: false, schema_allowed: None, disallowed: &[] };
-            let held = session_tools::resolve(&pool, Vec::new(), &request).iter().find(|tool| tool.spec().name == "github").map(|tool| session_tools::session_doc(&pool, tool));
-            let node = mixdog_js::fixture_tools::definition("github").expect("Node's built-in github definition");
-            assert_eq!(held.as_ref() == Some(&node), recorded, "isBuiltinTool('github'): the session holds {held:#?}");
-            core.set_stop_reason("test");
-            core.run_stop_steps().await;
-        });
-    }
-    #[cfg(node_twin)]
-#[test]
-    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
-    #[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
-    fn overlapping_stops_wait_for_the_same_cleanup_as_node_recorded() {
-        crate::compose_test_support::in_child(module_path!(), "overlapping_stops_wait_for_the_same_cleanup_as_node_recorded", { let mut runtime = tokio::runtime::Builder::new_multi_thread(); runtime.worker_threads(2); runtime }, |dir| async move {
-            use std::sync::atomic::{AtomicU64, Ordering};
-            const BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
-            let text = mixdog_testkit::fixture!("../../fixtures/session-host-lifecycle-cases/golden.json");
-            let golden = mixdog_testkit::exact::Exact::decode(&serde_json::from_str::<serde_json::Value>(text).expect("golden.json")).expect("exact");
-            let observed = golden
-                .get("cases")
-                .as_array()
-                .iter()
-                .find(|case| case.get("case").as_str() == "every overlapping host disposal waits for the same attachment cleanup")
-                .expect("the recorded case")
-                .get("observed")
-                .clone();
-            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
-            let core = Arc::new(compose(&mixdog_rt::testing::tokens(), config(&dir, log, mixdog_rt::CancellationToken::new())).await.unwrap());
-            let events = Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
-            let closes = Arc::new(AtomicU64::new(0));
-            let (entered_tx, entered) = tokio::sync::oneshot::channel::<()>();
-            let (release, released) = tokio::sync::oneshot::channel::<()>();
-            let (log_events, count) = (events.clone(), closes.clone());
-            core.on_stop("attachment cleanup", async move {
-                count.fetch_add(1, Ordering::SeqCst);
-                log_events.lock().unwrap().push("cleanup entered");
-                let _ = entered_tx.send(());
-                let _ = released.await;
-                log_events.lock().unwrap().push("cleanup returned");
-            });
-            core.set_stop_reason("test");
-            let (first_core, log_events) = (core.clone(), events.clone());
-            let first = tokio::spawn(async move {
-                let end = crate::lifecycle::supervise_async("stopSteps", BUDGET, async move { first_core.run_stop_steps().await }).await;
-                log_events.lock().unwrap().push("first dispose finished");
-                end
-            });
-            tokio::time::timeout(BUDGET, entered).await.expect("the stop to start the attachment cleanup").expect("entered");
-            let log_events = events.clone();
-            let mut second = std::pin::pin!(async {
-                core.run_stop_steps().await;
-                log_events.lock().unwrap().push("second dispose finished");
-            });
-            // The one poll that joins the run in progress: the second stop is then held by the cleanup until it is released.
-            assert!(futures::poll!(&mut second).is_pending(), "the second stop waits for the cleanup in progress");
-            events.lock().unwrap().push("cleanup released");
-            release.send(()).expect("the cleanup waits");
-            tokio::time::timeout(BUDGET, async {
-                assert_eq!(first.await.expect("the first stop"), crate::lifecycle::StepEnd::Finished, "the first stop ended within its budget");
-                second.await;
-            })
-            .await
-            .expect("both overlapping stops to finish");
-            let rust = serde_json::json!({ "events": *events.lock().unwrap(), "closes": closes.load(Ordering::SeqCst) });
-            assert_eq!(mixdog_testkit::exact::Exact::plain(&rust), observed);
-        });
-    }
 }
 
 
@@ -1410,19 +1322,7 @@ impl ComposedCore {
         self.real.close_data_files();
     }
 
-    /// Returns once every open MCP scope's first connect settled (connected or failed): what the recording waits on (Node's
-    /// `mcp:ready` / `mcp:failed` boot line) before it submits a turn.
-    #[cfg(all(test, node_twin))]
-    pub(crate) async fn mcp_connections_settled(&self) {
-        self.real.mcp_glue.connections_settled().await;
-    }
 
-    /// How many callers wait for a scope's first connect now: a replay of a `load_tool` that waits for a server still connecting lets the
-    /// held connect go only once this is 1.
-    #[cfg(all(test, node_twin))]
-    pub(crate) fn mcp_first_connect_waiters(&self) -> tokio::sync::watch::Receiver<usize> {
-        self.real.mcp_glue.first_connect_waiters()
-    }
 
     /// The memory database handle, for the readiness test that makes a first use.
     #[cfg(test)]

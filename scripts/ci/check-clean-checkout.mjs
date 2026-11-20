@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // The gate runs on a clean checkout: nothing a tracked file reads may exist only on the owner's machine. The local-only comparison
 // material (native/core/fixtures, benchmarks/rust-core, `node-twin/` folders and the crate-local recordings and test files listed
-// in the "Node-comparison material" block of .gitignore) and the untracked native/core/.cargo/local.toml that turns on
-// `--cfg node_twin` are what such a file would reach for.
+// in the "Node-comparison material" block of .gitignore) is what such a file would reach for.
 //
 // What this script guarantees, and what it does not (docs/testing.md, "What each layer guarantees"). The guarantee is behavioural: the
 // gate runs every suite on a clean checkout, so a test that reads absent material FAILS there, and one that skips is caught by
@@ -17,15 +16,15 @@
 //              the source is tokenized, not matched line by line: comments (line and block, shebang included) are dropped without
 //              dropping the code beside them, strings are read as strings (template literals with their interpolations), and an
 //              import split over several lines is one import. Nothing is exempt, the gate's own scripts included. Rust needs no such
-//              check: an unconditional `mod`, `include_str!` or `include!` of a missing file fails the build, and a
-//              `#[cfg(node_twin)]` one is not compiled without the cfg.
-//   --build    the checkout the Rust jobs build: no native/core/.cargo/local.toml, no `node_twin` in the rustflags the
-//              environment sets, and none of the material present on disk, so `node_twin` is off and every comparison test is
-//              absent from the archive the legs run.
+//              check: a `mod`, `include_str!` or `include!` of a missing file fails the build.
+//   --build    the checkout the Rust jobs build has none of the material on disk, and no Cargo test target that is not
+//              tracked, ignored or not. Cargo builds every `tests/<name>.rs` and `tests/<name>/main.rs` of a package it finds,
+//              so a test file left on a runner (or restored with a cache) would be built into the archive the legs run, and a
+//              test reading a recording that is there would pass where a clean checkout fails it.
 //// Usage: node scripts/ci/check-clean-checkout.mjs [--readers | --build]      (from anywhere inside the repository)
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, posix, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const MARKER = 'Node-comparison material:';
@@ -270,7 +269,7 @@ function targetsOf(path, { specifiers, literals }, known, textOf) {
 // Returns one line per reader: `path:line: entry` for a string that names material, `path: reaches target, which ...` for a file
 // that gets there through imports, requires or spawned paths, followed to a fixed point.
 export function findReaders(files, entries, gone = new Set()) {
-  // Only the folders: a script that names a gated test file (scripts/rust-core/k1-lanes.mjs lists them) does not read it.
+  // Only the folders: a script that names a local-only test file (scripts/rust-core/k1-lanes.mjs lists some) does not read it.
   const named = new RegExp(
     entries
       .filter((entry) => entry.endsWith('/'))
@@ -309,21 +308,60 @@ export function findReaders(files, entries, gone = new Set()) {
   return found;
 }
 
-// `present` are the paths of the material that exist in the checkout (ignored and untracked).
-export function buildViolations({ localToml, env, present }) {
-  const found = [];
-  if (localToml) found.push('native/core/.cargo/local.toml exists: it turns on --cfg node_twin');
-  for (const name of ['RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CARGO_BUILD_RUSTFLAGS']) {
-    if (/node_twin/.test(env[name] ?? '')) found.push(`${name} sets node_twin`);
-  }
-  for (const path of present) found.push(`${path} is local-only comparison material, present in the checkout`);
-  return found;
+// The test targets Cargo discovers in a package directory (`dir`, '' for the root): `tests/<name>.rs` and `tests/<name>/main.rs`
+// among `entries` (the files and folders directly in `<dir>/tests`, folders ending in `/`, each with `hasMain` for a folder).
+export function testTargetsOf(dir, entries) {
+  const base = dir ? `${dir}/tests/` : 'tests/';
+  return entries.flatMap(({ name, hasMain }) =>
+    name.endsWith('/') ? (hasMain ? [`${base}${name}main.rs`] : []) : name.endsWith('.rs') ? [`${base}${name}`] : []
+  );
 }
 
-function git(root, ...args) {
-  return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 })
-    .split('\n')
+// `present` are the paths of the material that exist in the checkout (ignored and untracked); `targets` the Cargo test targets on
+// disk, of which every one not in `tracked` is refused.
+export const buildViolations = ({ present, targets, tracked }) => [
+  ...present.map((path) => `${path} is local-only comparison material, present in the checkout`),
+  ...targets
+    .filter((path) => !tracked.has(path))
+    .map((path) => `${path} is a Cargo test target on disk that is not tracked`),
+];
+
+// NUL-delimited: the newline form quotes a path with non-ASCII bytes (`"tests/caf\303\251.rs"`), which would match no path.
+function lsFiles(root, ...args) {
+  return execFileSync('git', ['ls-files', '-z', ...args], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 })
+    .split('\0')
     .filter(Boolean);
+}
+
+// The test targets on disk of the packages whose `manifests` (repository paths) are given. Cargo follows a symlink in `tests/`: a
+// linked `.rs` file is a target, and a linked folder is one when it holds `main.rs`; a dangling link counts by its name.
+export function testTargetsOnDisk(root, manifests) {
+  return manifests.flatMap((manifest) => {
+    const dir = posix.dirname(manifest) === '.' ? '' : posix.dirname(manifest);
+    const tests = join(root, dir, 'tests');
+    if (!existsSync(tests)) return [];
+    const entries = readdirSync(tests, { withFileTypes: true }).map((entry) => {
+      const path = join(tests, entry.name);
+      const folder =
+        entry.isDirectory() || (entry.isSymbolicLink() && statSync(path, { throwIfNoEntry: false })?.isDirectory());
+      return folder ? { name: `${entry.name}/`, hasMain: existsSync(join(path, 'main.rs')) } : { name: entry.name };
+    });
+    return testTargetsOf(dir, entries);
+  });
+}
+
+// `--build` over the checkout at `root`, with the material's .gitignore `entries`.
+export function buildCheck(root, entries) {
+  const ignored = lsFiles(root, '--others', '--ignored', '--exclude-standard', '--directory');
+  const named = (path) =>
+    entries.some((entry) => (entry.endsWith('/') ? path.startsWith(entry) || path.includes(`/${entry}`) : path === entry));
+  const tracked = new Set(lsFiles(root));
+  // Every package of the tree: the directory of each tracked Cargo.toml.
+  const targets = testTargetsOnDisk(
+    root,
+    [...tracked].filter((path) => posix.basename(path) === 'Cargo.toml')
+  );
+  return buildViolations({ present: ignored.filter(named), targets, tracked });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -333,10 +371,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   let found;
   if (mode === '--readers') {
     // Tracked and ignored at once: waiting to be untracked, so not part of a clean checkout of the change.
-    const gone = new Set(git(root, 'ls-files', '-c', '-i', '--exclude-standard'));
+    const gone = new Set(lsFiles(root, '-c', '-i', '--exclude-standard'));
     // Scripts and package manifests are read; every other tracked path is only a name a specifier can resolve to.
     const files = new Map(
-      git(root, 'ls-files')
+      lsFiles(root)
         .filter((path) => existsSync(join(root, path)))
         .map((path) => [
           path,
@@ -345,16 +383,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     );
     found = findReaders(files, entries, gone);
   } else if (mode === '--build') {
-    const ignored = git(root, 'ls-files', '--others', '--ignored', '--exclude-standard', '--directory');
-    const named = (path) =>
-      entries.some((entry) =>
-        entry.endsWith('/') ? path.startsWith(entry) || path.includes(`/${entry}`) : path === entry
-      );
-    found = buildViolations({
-      localToml: existsSync(join(root, 'native/core/.cargo/local.toml')),
-      env: process.env,
-      present: ignored.filter(named),
-    });
+    found = buildCheck(root, entries);
   } else {
     throw new Error(`unknown mode ${mode} (--readers | --build)`);
   }

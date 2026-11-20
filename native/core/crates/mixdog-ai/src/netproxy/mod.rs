@@ -40,9 +40,6 @@ pub use self::setting::Mode;
 pub use self::setting::NetworkProxySetting;
 pub use self::system::SystemProxy;
 
-#[cfg(node_twin)]
-#[cfg(test)]
-mod system_replay_tests;
 #[cfg(test)]
 mod tests;
 

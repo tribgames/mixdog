@@ -1,9 +1,5 @@
 //! The device store: credential rules, registration, revocation, debounced activity writes, persistence failures and the devices file format. Time is the virtual clock of tokio's paused test runtime.
 
-#[cfg(node_twin)]
-use std::collections::BTreeSet;
-#[cfg(node_twin)]
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -136,26 +132,9 @@ fn node_file_text(extra_client_name: &str) -> String {
     mixdog_relay::js::pretty(&rows)
 }
 
-#[cfg(node_twin)]
-fn relay_lib() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../apps/relay/lib/device-store.mjs")
-}
 
-#[cfg(node_twin)]
-fn node_output(script: &str) -> String {
-    let args = [OsStr::new("--input-type=module"), OsStr::new("-e"), OsStr::new(script)];
-    testkit::output("node", &args)
-}
 
-#[cfg(node_twin)]
-fn quoted(path: &Path) -> String {
-    mixdog_relay::js::wire(&Value::String(path.to_string_lossy().into_owned()))
-}
 
-#[cfg(node_twin)]
-fn quoted_text(text: &str) -> String {
-    mixdog_relay::js::wire(&Value::String(text.to_owned()))
-}
 
 
 fn io() -> mixdog_rt::DurabilityIo {
@@ -511,60 +490,4 @@ async fn a_name_clipped_at_registration_is_stored_with_a_lone_surrogate_escape()
     let written = testkit::read_string(devices_file(dir.path()));
     assert!(written.contains(&format!("\"name\": \"{}\\ud83d\"", "a".repeat(79))), "{written}");
     assert!(open(dir.path()).await.has_client(DEVICE, "bbbbbbbb"));
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn a_devices_json_written_by_node_loads_rewrites_byte_identical_and_loads_again_in_node() {
-    let dir = tempfile::tempdir().unwrap();
-    let data = dir.path().join("data");
-    let lib = quoted(&relay_lib());
-    let writer = format!(
-        r#"
-        import {{ pathToFileURL }} from 'node:url';
-        const {{ DeviceStore }} = await import(pathToFileURL({lib}).href);
-        const store = new DeviceStore({data});
-        const device = {device};
-        store.authenticate(device, {secret});
-        store.setClientToken(device, {token});
-        store.registerClient(device, '12345678', {{ name: 'a'.repeat(79) + '\u{{1F600}}', platform: 'iPhone', browser: 'Safari' }});
-        store.registerClient(device, 'bbbbbbbb', {{}});
-        store.registerClient(device, 'cccccccc', {{ name: 12345, platform: ['x', 'y'] }});
-        store.recordDesktopVersion(device, {{ appVersion: '1.2.3', rendererRelease: 'a'.repeat(64) }});
-        store.authenticate({second}, {secret});
-        store.save();
-        "#,
-        data = quoted(&data),
-        device = quoted_text(DEVICE),
-        second = quoted_text("0123456789abcdef0123456789abcdef"),
-        secret = quoted_text(SECRET),
-        token = quoted_text(TOKEN),
-    );
-    node_output(&writer);
-    let original = testkit::read_string(devices_file(&data));
-    assert!(original.contains("\\ud83d"), "Node writes the clipped emoji as a lone surrogate escape");
-
-    let store = open(&data).await;
-    assert!(store.is_known(DEVICE) && store.is_known("0123456789abcdef0123456789abcdef"));
-    assert_eq!(store.device_version(DEVICE).app_version, "1.2.3");
-    store.save().await.unwrap();
-    let rewritten = testkit::read_string(devices_file(&data));
-    assert_eq!(rewritten, original, "the rewrite is byte-identical");
-
-    // Node loads what the Rust store wrote and writes the same text again.
-    let reader = format!(
-        r#"
-        import {{ pathToFileURL }} from 'node:url';
-        const {{ DeviceStore }} = await import(pathToFileURL({lib}).href);
-        const store = new DeviceStore({data});
-        process.stdout.write(JSON.stringify(Object.fromEntries(store.devices), null, 2));
-        "#,
-        data = quoted(&data),
-    );
-    assert_eq!(node_output(&reader), original);
-    // The digests Node stored authenticate in Rust: the secret and the pairing token are the ones Node hashed.
-    assert!(store.authenticate(DEVICE, SECRET).await);
-    assert!(!store.authenticate(DEVICE, "0123456789abcdeg").await);
-    assert_eq!(store.device_id_for_client_token(TOKEN).as_deref(), Some(DEVICE));
-    let tokens: BTreeSet<String> = store.list_clients(DEVICE, &|_| false).into_iter().map(|row| row.id).collect();
-    assert_eq!(tokens, BTreeSet::from(["12345678".to_owned(), "bbbbbbbb".to_owned(), "cccccccc".to_owned()]));
 }

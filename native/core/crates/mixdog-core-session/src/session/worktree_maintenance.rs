@@ -26,13 +26,6 @@ use mixdog_scm::worktree::maintenance::SessionSource;
 use mixdog_scm::worktree::manager::Worktrees;
 use serde_json::Value;
 
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "worktree_maintenance/golden_tests.rs"]
-mod golden_tests;
 
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const CLEANUP_INITIAL_DELAY: Duration = Duration::from_secs(3 * 60);

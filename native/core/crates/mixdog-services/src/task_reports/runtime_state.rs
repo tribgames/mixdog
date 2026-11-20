@@ -207,16 +207,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    #[cfg(node_twin)]
-    fn entry_of(spec: &Value) -> RuntimeEntry {
-        RuntimeEntry {
-            closed: spec.get("closed") == Some(&Value::Bool(true)),
-            // The recorded spec names the controller `"live"` or `"aborted"`; Node builds `{ signal: { aborted } }` from it.
-            controller_live: spec.get("controller").and_then(Value::as_str) == Some("live"),
-            stage: spec.get("stage").and_then(Value::as_str).map(str::to_owned),
-            session: spec.get("session").cloned().unwrap_or(Value::Null),
-        }
-    }
 
     fn names(set: &HashSet<String>) -> Vec<String> {
         let mut names: Vec<String> = set.iter().cloned().collect();
@@ -224,10 +214,6 @@ mod tests {
         names
     }
 
-    #[cfg(node_twin)]
-    fn strings(value: &Value) -> Vec<String> {
-        value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect()
-    }
 
     fn answer(activity: &InFlight) -> (Vec<String>, Vec<String>) {
         (names(&activity.working), names(&activity.agent_working))
@@ -273,50 +259,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/session-activity/golden.json");
-    #[cfg(node_twin)]
-    #[test]
-    fn the_in_flight_stages_equal_node() {
-        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-        assert_eq!(strings(&golden["inFlight"]["stages"]), IN_FLIGHT_STAGES.map(str::to_owned));
-    }
-    #[cfg(node_twin)]
-    #[test]
-    fn the_activity_of_every_recorded_case_equals_node() {
-        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-        for case in golden["inFlight"]["cases"].as_array().unwrap() {
-            let live = RuntimeLiveness::new();
-            for (id, spec) in case["entries"].as_object().unwrap() {
-                live.set_entry(id, entry_of(spec));
-            }
-            let guards: Vec<_> = strings(&case["dispatched"]).iter().map(|id| live.dispatched(id)).collect();
-            let expected = |key: &str| (strings(&case[key]["working"]), strings(&case[key]["agentWorking"]));
-            assert_eq!(answer(&live.in_flight_session_activity()), expected("during"), "{}", case["name"]);
-            drop(guards);
-            assert_eq!(answer(&live.in_flight_session_activity()), expected("after"), "{} after", case["name"]);
-        }
-    }
-    #[cfg(node_twin)]
-    #[test]
-    fn a_session_dispatched_twice_works_until_both_runs_settle() {
-        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-        let steps = golden["inFlight"]["sequence"].as_array().unwrap();
-        let live = RuntimeLiveness::new();
-        let (first, second) = (live.dispatched("s"), live.dispatched("s"));
-        let expect = |i: usize| (strings(&steps[i]["working"]), strings(&steps[i]["agentWorking"]));
-        assert_eq!(answer(&live.in_flight_session_activity()), expect(0));
-        drop(first);
-        assert_eq!(answer(&live.in_flight_session_activity()), expect(1));
-        drop(second);
-        assert_eq!(answer(&live.in_flight_session_activity()), expect(2));
-        // A run that fails still ends its count: the guard drops on the way out.
-        let run = |live: &Arc<RuntimeLiveness>| -> Result<(), &str> {
-            let _turn = live.dispatched("t");
-            assert_eq!(answer(&live.in_flight_session_activity()), expect(3));
-            Err("boom")
-        };
-        assert_eq!(run(&live), Err("boom"));
-        assert_eq!(answer(&live.in_flight_session_activity()), expect(4));
-    }
 }

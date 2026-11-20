@@ -145,32 +145,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// The create-only route keys equal the ones the Node harness session carries
-    /// (`route_goldens/node_create_route.json`): a route with no preset and no window gives
-    /// `presetName`/`codexWireSessionId`/`contextPercent` null and nothing else; a preset gives its
-    /// name and the fallback chain Node's `createSession` seeds (evaluated from the Node sources).
-    #[test]
-    fn the_create_only_keys_equal_the_ones_node_recorded() {
-        let golden: Value = serde_json::from_str(include_str!("route_goldens/node_create_route.json")).expect("golden");
-        let object = |value: &Value| value.as_object().cloned().expect("object");
-        let keys = create_keys(&object(&golden["route"])).expect("keys");
-        for name in ["presetName", "codexWireSessionId", "contextPercent"] {
-            assert_eq!(keys.get(name), golden["header"].get(name), "{name}");
-        }
-        for name in golden["absent"].as_array().expect("absent").iter().filter_map(Value::as_str) {
-            if name != "autoEffort" {
-                assert!(!keys.contains_key(name), "{name}");
-            }
-        }
-        let case = &golden["preset_case"];
-        let keys = create_keys(&object(&case["route"])).expect("keys");
-        for (name, want) in case["header"].as_object().expect("header") {
-            assert_eq!(keys.get(name), Some(want), "{name}");
-        }
-        let oauth = create_keys(&object(&json!({ "provider": "openai-oauth", "model": "gpt-5" }))).expect("keys");
-        assert!(oauth["codexWireSessionId"].as_str().is_some_and(|id| id.len() == 36));
-    }
 }
 
 

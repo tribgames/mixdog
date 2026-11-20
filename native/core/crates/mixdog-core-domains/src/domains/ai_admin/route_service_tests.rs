@@ -1,8 +1,5 @@
-//! The route service against the Node recording (`fixtures/ai-admin/route-service-twin.json`):
-//! the adoption effects of `setRoute`, `setFast` and `setEffort` over the real `Config` file, with a
-//! scripted catalog and recording route, refresh and session ports. What the session does with an
-//! adopted route is `SessionRoutes`' (its own tests); here the exact `follow` / `tune` calls are
-//! asserted.
+//! The route service over a real config file and scripted catalog, route, refresh and session ports: a model chosen while the catalog is read is taken, and a
+//! default route with no model is told to choose one when the catalog lists models.
 
 use std::sync::{Arc, Mutex};
 
@@ -19,14 +16,8 @@ use super::chain::RouteFacts;
 use super::model_list::ModelListService;
 use super::model_list_tests::Offline;
 use super::route_service::{LiveControls, RouteService, SessionFollow};
-#[cfg(node_twin)]
-use super::route_service::SetRouteOptions;
-#[cfg(node_twin)]
-use super::route_service::FastValue;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelSource, ModelsDevSource};
 use mixdog_ai::oauth::CredentialIo;
-#[cfg(node_twin)]
-use mixdog_ai::service::admin_models::developer_option_for_provider;
 use mixdog_ai::service::effort_configuration::UnsupportedEfforts;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
@@ -180,10 +171,6 @@ fn obj(v: &Value) -> Obj {
     v.as_object().cloned().unwrap_or_default()
 }
 
-#[cfg(node_twin)]
-fn subset(doc: &Obj) -> Value {
-    Value::Object(["default", "presets", "modelSettings"].iter().filter_map(|k| doc.get(*k).map(|v| ((*k).to_owned(), v.clone()))).collect())
-}
 
 pub(super) async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<Log>>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
@@ -219,17 +206,6 @@ pub(super) async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<L
     (service, writer, log, dir)
 }
 
-#[cfg(node_twin)]
-fn options(case: &Value) -> SetRouteOptions {
-    let o = &case["options"];
-    SetRouteOptions {
-        keep_main_model: o.get("keepMainModel").and_then(Value::as_bool),
-        only_if_empty: o["onlyIfEmpty"] == json!(true),
-        session_only: o["sessionOnly"] == json!(true),
-        validate_only: o["validateOnly"] == json!(true),
-        follow: FollowOptions::default(),
-    }
-}
 
 /// A provider listing held open by the test: it says it was asked, then answers nothing once released.
 struct Gated {
@@ -315,178 +291,4 @@ async fn a_default_route_with_no_model_is_told_to_choose_one_when_the_catalog_li
     let refused = service.ready_default(&thread).await.expect_err("a model-less route is refused");
     assert_eq!(refused, "No model selected. Choose a model with /model first.");
     assert!(log.lock().unwrap().refreshes.is_empty(), "nothing is readied for it");
-}
-#[cfg(node_twin)]
-fn twin() -> Value {
-    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/route-service-twin.json")).unwrap()
-}
-/// A default route with no model is refused before a thread exists, with the text Node's
-/// `resolveMissingRouteModelForFirstTurn` throws (`fixtures/ai-admin/route-model-refusals.json`,
-/// extracted from the Node source). Which text follows what Node's `collectProviderModels()`
-/// answered over the recorded catalogs (`fixtures/ai-admin/model-list-service-twin.json`, Node's
-/// real read): no row means "No provider models available", including a catalog whose providers
-/// are all unavailable; any row means "No model selected". A route with a model is readied.
-#[cfg(node_twin)]
-#[tokio::test]
-async fn a_default_route_with_no_model_is_refused_with_the_texts_node_throws() {
-    let thread = ThreadId::from("t");
-    let refusals: Value = serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/route-model-refusals.json")).unwrap();
-    let recorded: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/model-list-service-twin.json")).unwrap();
-    // Catalogs whose every listed model sits under a Developer-gated provider (recorded with the
-    // option off, so none is available) and catalogs Node answered rows for.
-    let (mut unavailable, mut listed) = (0, 0);
-    for (i, recording) in recorded["cases"].as_array().unwrap().iter().enumerate() {
-        if matches!(recording["read"].as_str(), Some("force" | "warm-quick")) {
-            continue;
-        }
-        let rows = recording["value"].as_array().unwrap().len();
-        let providers_with_models: Vec<&str> =
-            recording["snapshot"]["models"].as_object().unwrap().iter().filter(|(_, models)| !models.as_array().unwrap().is_empty()).map(|(name, _)| name.as_str()).collect();
-        let in_catalog = providers_with_models.len();
-        let case = json!({ "config": recording["config"], "snapshot": recording["snapshot"], "live": { "provider": "anthropic-oauth", "model": "" } });
-        let (service, _writer, log, _dir) = rig(&case).await;
-        let refused = service.ready_default(&thread).await.expect_err("a model-less route is refused");
-        let text = if rows == 0 { "noProviderModels" } else { "noModelSelected" };
-        assert_eq!(refused, refusals[text].as_str().unwrap(), "case {i}: {rows} rows, models under {in_catalog} providers");
-        assert!(log.lock().unwrap().refreshes.is_empty(), "nothing is readied for it");
-        let gated_only = in_catalog > 0 && recording["config"]["developer"].is_null() && providers_with_models.iter().all(|name| developer_option_for_provider(name).is_some());
-        if rows == 0 && gated_only {
-            unavailable += 1;
-        }
-        if rows > 0 {
-            listed += 1;
-        }
-    }
-    assert!(unavailable > 0 && listed > 0, "the recording covers catalog models with no provider available ({unavailable}) and the reverse ({listed})");
-    let case = json!({ "config": {}, "live": { "provider": "anthropic-oauth", "model": "claude-x" } });
-    let (service, _writer, log, _dir) = rig(&case).await;
-    service.ready_default(&thread).await.expect("a route with a model is readied");
-    assert_eq!(log.lock().unwrap().refreshes.len(), 1);
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn the_adoption_effects_match_node() {
-    let thread = ThreadId::from("t");
-    for (i, case) in twin()["cases"].as_array().unwrap().iter().enumerate() {
-        let (service, writer, log, dir) = rig(case).await;
-        let got = match case["kind"].as_str().unwrap() {
-            "setRoute" => service.set_route(&thread, &obj(&case["request"]), &options(case)).await,
-            "setFast" => {
-                let value = match &case["setFastValue"] {
-                    Value::String(_) => FastValue::Ultrafast,
-                    Value::Bool(true) => FastValue::On,
-                    _ => FastValue::Off,
-                };
-                service.set_fast(&thread, value).await.map(Value::Bool)
-            }
-            "continue" => {
-                let id = case["continueSessionId"].as_str().unwrap();
-                service.continue_session_in_model(&thread, id, &obj(&case["request"])).await
-            }
-            _ => service.set_effort(&thread, &case["effortValue"], false).await,
-        };
-        let got = match got {
-            Ok(v) => json!({ "value": v }),
-            Err(e) => json!({ "error": e }),
-        };
-        let want = match case.get("error") {
-            Some(e) => json!({ "error": e }),
-            None => json!({ "value": case["value"] }),
-        };
-        let label = format!("case {i}: {} {} {}", case["kind"], case["request"], case["options"]);
-        assert_eq!(got, want, "{label}");
-        assert_eq!(Value::Object(writer.route(&thread)), case["after"]["route"], "{label} route");
-        let on_disk: Value = serde_json::from_slice(&std::fs::read(dir.path().join("mixdog-config.json")).unwrap()).unwrap();
-        assert_eq!(subset(&obj(&on_disk["agent"])), case["after"]["file"], "{label} saved config");
-        let log = log.lock().unwrap();
-        assert_eq!(Value::Array(log.route_states.clone()), case["log"]["routeStates"], "{label} route states");
-        assert_eq!(Value::Array(log.refreshes.clone()), case["log"]["refreshes"], "{label} refreshes");
-        assert_eq!(Value::Array(log.ensured.clone()), case["log"]["ensured"], "{label} ensured");
-        assert_eq!(log.statusline as u64, case["log"]["statusline"].as_u64().unwrap(), "{label} statusline");
-        // The session half: an adopted unaddressed selection follows once; a tuning tunes once.
-        let adopted = got["value"].is_object() && !options(case).validate_only && case["kind"] == "setRoute" && !log.refreshes.is_empty();
-        assert_eq!(log.follows.len(), usize::from(adopted), "{label} follows");
-        let tuning = case["kind"] == "setFast" || case["kind"] == "setEffort";
-        assert_eq!(log.tunes, u32::from(tuning && got.get("value").is_some()), "{label} tunes");
-        // A continue switches the conversation whenever its selection was adopted (the refresh
-        // ran), and its return value says whether a boundary was recorded.
-        let continued = case["kind"] == "continue" && !log.refreshes.is_empty();
-        assert_eq!(log.switches, u32::from(continued), "{label} switches");
-    }
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn an_addressed_selection_follows_under_the_lease_it_was_opened_with() {
-    let case = twin()["cases"].as_array().unwrap().iter().find(|c| c["kind"] == "setRoute" && c.get("error").is_none() && c["options"] == json!({}) && c["request"]["model"].is_string()).unwrap().clone();
-    let thread = ThreadId::from("t");
-    let (service, _writer, log, _dir) = rig(&case).await;
-    let opts = SetRouteOptions {
-        follow: FollowOptions { switch_established: true, lease: Some(0), ..FollowOptions::default() },
-        ..SetRouteOptions::default()
-    };
-    service.set_route(&thread, &obj(&case["request"]), &opts).await.unwrap();
-    let follows = log.lock().unwrap().follows.clone();
-    assert_eq!(follows.len(), 1);
-    assert!(follows[0].switch_established && follows[0].lease == Some(0));
-}
-/// The desktop's control session is created before any model is chosen, so its route has none. Its readying
-/// (`ready_control`, which `NewThreadRoute::adopt_control` answers the route of) gives it the route the config resolves to,
-/// as Node's `syncEmptyMainRoute` does at a config adoption; the sessionless `setFast` then acts on that route and is
-/// refused with the text Node throws for it (`fixtures/control-route/control-route-twin.json`, Node's real code).
-#[cfg(node_twin)]
-#[tokio::test]
-async fn the_control_route_is_the_one_node_syncs_and_set_fast_is_refused_on_it_as_node_refuses() {
-    let thread = ThreadId::from("control");
-    let recorded: Value = serde_json::from_str(include_str!("../../../../../fixtures/control-route/control-route-twin.json")).unwrap();
-    let cases = recorded["cases"].as_array().unwrap();
-    assert!(cases.iter().any(|case| case["setFast"].get("error").is_some()) && cases.iter().any(|case| case["setFast"].get("value").is_some()));
-    for case in cases {
-        let label = case["label"].as_str().unwrap();
-        // A case with `adoptions` creates the control route under the first config; each later one is adopted by a config write,
-        // back to back with no wait between them: the route follows inside each adoption (Node's `syncEmptyMainRoute` in
-        // `adoptFullConfig`), so a later config the route has no use for cannot take the place of an earlier one it did.
-        let adoptions = case.get("adoptions").and_then(Value::as_array);
-        let mut created = case.clone();
-        if let Some(adoptions) = adoptions {
-            created["config"] = adoptions[0].clone();
-        }
-        let (service, writer, _log, _dir) = rig(&created).await;
-        let controls = Arc::new(Controls::default());
-        let mut service = service;
-        service.controls = controls.clone();
-        let service = Arc::new(service);
-        let _follow = service.follow_config();
-        service.ready_control(&thread).await.unwrap_or_else(|e| panic!("{label}: {e}"));
-        // The directory publishes the thread once it is created.
-        controls.0.lock().unwrap().push(thread.clone());
-        if let Some(adoptions) = adoptions {
-            assert_eq!(Value::Object(writer.route(&thread)), case["afterAdoptions"][0], "{label}: the route created under the first config");
-            for next in adoptions.iter().skip(1) {
-                let next = next.clone();
-                service
-                    .config
-                    .update(move |doc| {
-                        doc.insert("agent".into(), next);
-                        Ok(())
-                    })
-                    .await
-                    .unwrap_or_else(|e| panic!("{label}: {e:?}"));
-            }
-            assert_eq!(Value::Object(writer.route(&thread)), *case["afterAdoptions"].as_array().unwrap().last().unwrap(), "{label}: the route after the adoptions");
-        } else {
-            assert_eq!(Value::Object(writer.route(&thread)), case["afterSync"], "{label}: the route after the sync");
-        }
-        let got = match service.set_fast(&thread, FastValue::On).await {
-            Ok(v) => json!({ "value": v }),
-            Err(e) => json!({ "error": e }),
-        };
-        assert_eq!(got, case["setFast"], "{label}: setFast");
-        // The recording's config save is a stub, so a refused setFast leaves the route whole, and an accepted one is compared on
-        // what it decides: the model and the fast flag.
-        let route = Value::Object(writer.route(&thread));
-        let keys: &[&str] = if got.get("error").is_some() { &["provider", "model", "preset", "effort", "fast", "autoEffort", "modelParameters"] } else { &["provider", "model", "fast"] };
-        for key in keys {
-            assert_eq!(route[*key], case["afterSetFast"][*key], "{label}: the route after setFast, {key}");
-        }
-    }
 }

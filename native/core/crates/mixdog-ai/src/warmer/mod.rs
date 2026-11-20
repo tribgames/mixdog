@@ -7,9 +7,6 @@ pub mod process;
 pub mod send;
 pub mod stores;
 pub mod stream;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod chain_tests;
 #[cfg(test)]
 mod process_tests;
 

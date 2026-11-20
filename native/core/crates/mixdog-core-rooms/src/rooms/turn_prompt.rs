@@ -12,12 +12,6 @@ use super::supervisor::{data_lines, label};
 
 #[cfg(test)]
 mod feature_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tests;
 
 /// `AGENT_MESSAGE_NOTE` (`shared/agent-message-envelope.mjs`): the trust rule of every bot-to-bot
 /// message.

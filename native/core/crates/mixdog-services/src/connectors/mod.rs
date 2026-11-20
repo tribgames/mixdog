@@ -5,6 +5,3 @@
 pub mod accounts;
 pub mod triggers;
 
-#[cfg(node_twin)]
-#[cfg(test)]
-mod parity_tests;

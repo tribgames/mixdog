@@ -600,35 +600,6 @@ mod tests {
 
     use super::*;
 
-    #[cfg(node_twin)]
-    /// The environment of one recorded case, folders under `base`.
-    fn env_of(case: &Value, base: &Path) -> (EnvReader, PathBuf) {
-        let mut vars: HashMap<String, String> = HashMap::new();
-        let folder = |name: &str| base.join(name);
-        let where_ = case["where"].as_str().unwrap();
-        let dir = match where_ {
-            "discovery" => folder("discovery"),
-            "data" => folder("data"),
-            _ => folder("home").join("data"),
-        };
-        match where_ {
-            "discovery" => {
-                vars.insert("MIXDOG_BRIDGE_DISCOVERY_DIR".into(), folder("discovery").to_string_lossy().into_owned());
-                vars.insert("MIXDOG_HOME".into(), folder("unused-home").to_string_lossy().into_owned());
-            }
-            "data" => {
-                vars.insert("MIXDOG_DATA_DIR".into(), folder("data").to_string_lossy().into_owned());
-                vars.insert("MIXDOG_HOME".into(), folder("unused-home").to_string_lossy().into_owned());
-            }
-            _ => {
-                vars.insert("MIXDOG_HOME".into(), folder("home").to_string_lossy().into_owned());
-            }
-        }
-        for (name, value) in case["env"].as_object().unwrap() {
-            vars.insert(name.clone(), value.as_str().unwrap().replace("{other}", &folder("other").to_string_lossy()));
-        }
-        (Arc::new(move |name| vars.get(name).cloned()), dir)
-    }
 
     struct Doc(Map<String, Value>);
 
@@ -720,20 +691,6 @@ mod tests {
         assert_eq!(feature_method(HostCapability::Notifications), None);
     }
 
-    #[cfg(node_twin)]
-    fn lay_out(case: &Value, dir: &Path) {
-        std::fs::create_dir_all(dir).unwrap();
-        let now = std::time::SystemTime::now();
-        for (file, entry) in case["files"].as_object().unwrap() {
-            let path = dir.join(file);
-            std::fs::write(&path, entry["text"].as_str().unwrap().replace("{alive}", &std::process::id().to_string())).unwrap();
-            let age = std::time::Duration::from_secs(entry["ageSec"].as_u64().unwrap());
-            std::fs::File::options().write(true).open(&path).unwrap().set_modified(now - age).unwrap();
-        }
-        for folder in case["dirs"].as_array().unwrap() {
-            std::fs::create_dir_all(dir.join(folder.as_str().unwrap())).unwrap();
-        }
-    }
     /// A change of a watched file reaches the copy through the watch, with nobody asking for it;
     /// a removal does too.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -820,33 +777,4 @@ mod tests {
         assert!(features_up(&[], off).await.is_empty());
     }
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../tests/golden/bridge.json")).unwrap()
-    }
-    #[cfg(node_twin)]
-    /// Every recorded case: the four ids Node's `builtinFeatureActive` answers, which is the
-    /// feature switch first, then (visualize) its module toggle, then the bridge file.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_bridges_found_up_are_the_ones_node_finds_up() {
-        use mixdog_mcp::skill_catalog::SkillSettingsSource;
-        let g = golden();
-        let tokens = mixdog_rt::testing::tokens();
-        for case in g["cases"].as_array().unwrap() {
-            let base = tempfile::tempdir().unwrap();
-            let (env, dir) = env_of(case, base.path());
-            lay_out(case, &dir);
-            let found = discovery_dir(&env, &base.path().join("no-home"));
-            // The files lie in `dir`; a non-empty discovery variable names another folder to read.
-            let read_from = case["env"]["MIXDOG_BRIDGE_DISCOVERY_DIR"].as_str().filter(|set| !set.is_empty()).map_or_else(|| dir.clone(), |set| PathBuf::from(set.replace("{other}", &base.path().join("other").to_string_lossy())));
-            assert_eq!(found, read_from, "{}: the folder", case["name"]);
-            let bridges = started(found, tokens.maintenance_io).await;
-            let agent = case["config"].as_object().cloned().unwrap_or_default();
-            let settings = crate::compose_mcp::ConfigSkillSettings::new(Arc::new(Doc(agent)), env, bridges);
-            let active = settings.current().gate.active_features;
-            for id in FEATURES {
-                assert_eq!(active.contains(id), case["answer"][id].as_bool().unwrap(), "{}: {id}", case["name"]);
-            }
-        }
-    }
 }

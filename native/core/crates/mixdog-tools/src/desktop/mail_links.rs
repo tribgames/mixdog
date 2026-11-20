@@ -129,57 +129,6 @@ pub fn link_for(session: &str, url: &str, now: i64) -> Option<MailLink> {
 }
 
 
-/// The recorded operations of the mail-link navigation case, replayed by `browser.rs`.
-#[cfg(all(test, node_twin))]
-pub(crate) mod replay {
-    use std::sync::Mutex;
-    use std::sync::MutexGuard;
-    use std::sync::PoisonError;
-
-    use serde_json::Value;
-
-    use super::MailLink;
-    use super::now_ms;
-
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/mail-link-navigation/golden.json");
-
-    /// The table is process-wide and the window is judged by the clock: replays that use it take turns.
-    pub(crate) fn exclusive() -> MutexGuard<'static, ()> {
-        static TURN: Mutex<()> = Mutex::new(());
-        TURN.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// The recorded operations of the case whose title starts with `title`, and the clock that maps Node's held time onto this one:
-    /// Node ran with `Date.now` held at `clock`; the replay runs at `base` and keeps every recorded distance from it.
-    pub(crate) struct Case {
-        pub(crate) ops: Vec<Value>,
-        clock: i64,
-        base: i64,
-    }
-
-    impl Case {
-        pub(crate) fn of(title: &str) -> Self {
-            let golden: Value = serde_json::from_str(&GOLDEN).expect("golden.json");
-            let case = golden["cases"].as_array().expect("cases").iter().find(|case| case["case"].as_str().is_some_and(|name| name.starts_with(title))).unwrap_or_else(|| panic!("no recorded case {title}"));
-            assert!(case["observed"].get("threw").is_none(), "{title} threw in Node");
-            Self { ops: case["observed"]["ops"].as_array().expect("ops").clone(), clock: golden["clock"]["dateNow"].as_i64().expect("clock"), base: now_ms() }
-        }
-
-        /// A recorded time on this clock.
-        pub(crate) fn at(&self, node: &Value) -> i64 {
-            self.base + node.as_i64().expect("a time") - self.clock
-        }
-
-        /// The link Node answered (`null`: none), with its time on this clock.
-        pub(crate) fn link(&self, node: &Value) -> Option<MailLink> {
-            (!node.is_null()).then(|| MailLink {
-                url: node["url"].as_str().expect("url").to_owned(),
-                from_domain: node["from_domain"].as_str().expect("from_domain").to_owned(),
-                read_at: self.at(&node["read_at"]),
-            })
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -108,6 +108,3 @@ pub use store::RefreshOutcome;#[cfg(test)]
 mod composed_tests;
 #[cfg(test)]
 mod failures_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod relay_node_cases;

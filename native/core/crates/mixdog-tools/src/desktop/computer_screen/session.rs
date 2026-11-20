@@ -170,18 +170,6 @@ pub(super) struct ScreenDisplay {
     pub capture_source_id: String,
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-fn summarize_display(display: &ScreenDisplay) -> Value {
-    json!({
-        "screenId": display.screen_id,
-        "label": display.label,
-        "primary": display.primary,
-        "pixelWidth": display.physical.width,
-        "pixelHeight": display.physical.height,
-        "scaleFactor": number(display.scale_factor),
-    })
-}
 
 /// Video pixels → desktop pixels for one geometry generation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -441,15 +429,6 @@ impl AbortSignal {
         lock(&self.state).0
     }
 
-    /// Runs `listener` at the abort (never if it has already happened).
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    pub(super) fn on_abort(&self, listener: Box<dyn FnOnce() + Send>) {
-        let mut state = lock(&self.state);
-        if !state.0 {
-            state.1.push(listener);
-        }
-    }
 
     fn abort(&self) {
         let listeners = {
@@ -1766,12 +1745,6 @@ impl ScreenSession {
         Self { inner }
     }
 
-    /// The displays a phone may choose, before `start`.
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    pub(super) fn list_displays(&self) -> Vec<Value> {
-        self.inner.entry(|| self.inner.deps.displays.list().iter().map(summarize_display).collect())
-    }
 
     /// Admits the viewer and locks the geometry: `{plan, geometry, status}`. Refused when the viewer is not
     /// paired, the display is gone, the host cannot start, or the session stopped meanwhile. Single use.
@@ -1799,11 +1772,6 @@ impl ScreenSession {
         self.inner.entry(|| self.inner.state().status.clone())
     }
 
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    pub(super) fn video_path(&self) -> VideoPath {
-        self.inner.entry(|| self.inner.state().video_path)
-    }
 
     /// The last sampled cursor for the current geometry; `None` before one, while the helper serves, or when
     /// not running.

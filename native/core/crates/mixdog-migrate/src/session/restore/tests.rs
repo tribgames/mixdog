@@ -142,6 +142,3 @@ fn only_segments_the_archive_index_reads_are_shown() {
     assert!(!indexed_segment(reordered.as_bytes()));
 }
 
-#[cfg(node_twin)]
-#[path = "node-twin/corpus_cases.rs"]
-mod corpus_cases;

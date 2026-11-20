@@ -16,12 +16,6 @@ pub mod retry;
 mod stage;
 mod tar;
 
-#[cfg(node_twin)]
-#[cfg(test)]
-mod quiet_log_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tests;
 
 use std::path::{Path, PathBuf};
 

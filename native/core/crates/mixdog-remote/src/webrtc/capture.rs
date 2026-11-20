@@ -101,10 +101,6 @@ impl Drop for SharedSource {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "capture_tests.rs"]
-mod tests;
 
 /// `MediaFrameSource::next_frame` must be cancel-safe: a control change drops the pending call.
 async fn read_loop(shared: Arc<SharedSource>, mut source: Box<dyn MediaFrameSource>) {

@@ -316,8 +316,6 @@ pub fn explicit_skill_names(prompt: &Prompt, available: &HashSet<String>) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(node_twin)]
-    use serde_json::Value;
 
     fn text(prompt: &str) -> Prompt {
         Prompt::Text(prompt.to_owned())
@@ -406,48 +404,7 @@ mod tests {
         assert_eq!(names(&prompt, &["secret", "typed"]), ["typed"]);
     }
 
-    #[cfg(node_twin)]
-    fn prompt_of(value: &Value) -> Prompt {
-        let part = |v: &Value| match v {
-            Value::String(s) => PromptPart::Str(s.clone()),
-            Value::Object(o) if o.get("type").and_then(Value::as_str) == Some("text") => PromptPart::Text {
-                text: o.get("text").and_then(Value::as_str).map(str::to_owned),
-                attachment_ref: o.get("attachmentRef").and_then(Value::as_str).map(str::to_owned),
-            },
-            _ => PromptPart::Other,
-        };
-        match value {
-            Value::String(s) => Prompt::Text(s.clone()),
-            Value::Array(parts) => Prompt::Parts(parts.iter().map(part).collect()),
-            other => panic!("prompt shape {other}"),
-        }
-    }
 
-    #[cfg(node_twin)]
-    #[test]
-    fn selection_is_what_node_computes() {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("tests/golden/skillselect.json")).unwrap();
-        let available: HashSet<String> = golden["available"].as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_owned()).collect();
-        let cases = golden["cases"].as_array().unwrap();
-        assert!(cases.len() > 1500);
-        for case in cases {
-            let prompt = prompt_of(&case["prompt"]);
-            let shown = format!("{:?}", case["prompt"]);
-            assert_eq!(selected_skill_name(&prompt), case["header"].as_str().map(str::to_owned), "header of {shown}");
-            if let Prompt::Text(text) = &prompt {
-                let expected: Vec<(String, u64, u64)> = case["candidates"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|c| (c["name"].as_str().unwrap().to_owned(), c["start"].as_u64().unwrap(), c["end"].as_u64().unwrap()))
-                    .collect();
-                let got: Vec<(String, u64, u64)> = skill_mention_candidates(text).into_iter().map(|m| (m.name, m.start as u64, m.end as u64)).collect();
-                assert_eq!(got, expected, "mentions of {shown}");
-            }
-            let expected: Vec<String> = case["names"].as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_owned()).collect();
-            assert_eq!(explicit_skill_names(&prompt, &available), expected, "names of {shown}");
-        }
-    }
 }
 
 

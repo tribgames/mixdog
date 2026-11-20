@@ -77,14 +77,6 @@ impl TestPg {
         Self { cluster, dir, runtime, home: Home::Own, fallback_guard: None }
     }
 
-    #[cfg(node_twin)]
-    /// This test's database, for a child process that opens the same one.
-    pub fn database(&self) -> &str {
-        match &self.home {
-            Home::Own => crate::memory::pg::db::DATABASE,
-            Home::Shared { database, .. } => database,
-        }
-    }
 
     pub async fn db(&self, schema: Schema) -> Db {
         match &self.home {

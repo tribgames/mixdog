@@ -14,18 +14,11 @@ use tokio_util::sync::CancellationToken;
 use crate::effort_judge::install::{self, Manifest, ManifestFile};
 use crate::effort_judge::model::{ModelConfig, OrtRuntime};
 use crate::memory::embed::engine::EmbedConfig;
-#[cfg(node_twin)]
-use crate::memory::embed::install as embed_install;
-#[cfg(node_twin)]
-use crate::memory::embed::provider::EmbeddingProvider;
-#[cfg(node_twin)]
-use crate::memory::recall::QueryEmbedder;
 use crate::model_install::{InstallError, Progress, ProgressSink, download_to_file, sha256_file, DownloadError, Spec};
 
 #[derive(Clone)]
 pub(super) enum Route {
     Body(Vec<u8>),
-    File(PathBuf),
     /// Advertises `advertised` bytes and sends only the body.
     Truncated { body: Vec<u8>, advertised: usize },
     /// Sends the headers, then nothing: only a cancel ends the download.
@@ -68,11 +61,6 @@ impl Server {
                         Some(Route::Body(body)) => {
                             let _ = stream.write_all(header("200 OK", body.len()).as_bytes()).await;
                             let _ = stream.write_all(body).await;
-                        }
-                        Some(Route::File(file)) => {
-                            let body = tokio::fs::read(file).await.unwrap_or_default();
-                            let _ = stream.write_all(header("200 OK", body.len()).as_bytes()).await;
-                            let _ = stream.write_all(&body).await;
                         }
                         Some(Route::Truncated { body, advertised }) => {
                             let _ = stream.write_all(header("200 OK", *advertised).as_bytes()).await;
@@ -259,12 +247,6 @@ async fn a_hash_mismatch_never_replaces_a_working_file() {
 pub(super) fn real_ort() -> PathBuf {
     PathBuf::from(std::env::var_os("MIXDOG_ORT_LIBRARY").expect("MIXDOG_ORT_LIBRARY names the staged onnxruntime"))
 }
-#[cfg(node_twin)]
-/// A config whose runtime library does not exist: every load fails, which is
-/// all the install and trigger logic needs.
-pub(super) fn embed_config(cache: &Path) -> EmbedConfig {
-    embed_config_with(cache, PathBuf::from("unused"))
-}
 pub(super) fn embed_config_with(cache: &Path, ort_library: PathBuf) -> EmbedConfig {
     EmbedConfig {
         model_id: crate::memory::embed::config::DEFAULT_MODEL_ID.into(),
@@ -293,43 +275,3 @@ async fn a_download_routed_by_the_network_proxy_policy_still_lands() {
 }
 
 
-#[cfg(node_twin)]
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
-async fn an_uninstalled_embedding_model_answers_no_vector_at_once_then_installs_and_works() {
-    let source = PathBuf::from(std::env::var_os("MIXDOG_MEMORY_MODELS").expect("MIXDOG_MEMORY_MODELS"))
-        .join("Xenova")
-        .join("multilingual-e5-small");
-    let id = crate::memory::embed::config::DEFAULT_MODEL_ID;
-    let server = Server::start(vec![
-        (&format!("/{id}/resolve/main/tokenizer.json"), Route::File(source.join("tokenizer.json"))),
-        (&format!("/{id}/resolve/main/tokenizer_config.json"), Route::File(source.join("tokenizer_config.json"))),
-        (&format!("/{id}/resolve/main/onnx/model_quantized.onnx"), Route::File(source.join("onnx").join("model_quantized.onnx"))),
-    ])
-    .await;
-    let cache = tempfile::tempdir().expect("cache");
-    let provider = Arc::new(EmbeddingProvider::new(embed_config_with(cache.path(), real_ort())).with_hub(server.base.clone()));
-    // Recall asks the provider through `RecallEmbedder`, as `MemoryStack` wires it (memory/boot.rs).
-    let recall = crate::memory::recall::readiness::RecallEmbedder::new(provider.clone(), false);
-
-    assert!(!provider.is_installed().await.expect("reads"));
-    let never = CancellationToken::new();
-    assert_eq!(recall.query_vector("staging cluster", &never).await.expect("not aborted"), None, "not installed is a defined state, not a wait");
-
-    let (sink, log) = recorder();
-    provider.install(Some(&sink), &CancellationToken::new()).await.expect("installs");
-    assert!(provider.is_installed().await.expect("reads"));
-    assert!(log.lock().expect("log").iter().any(|p| p.label.contains("model_quantized") && p.downloaded == p.total && p.total > 0));
-    assert_eq!(server.hits(&format!("/{id}/resolve/main/onnx/model_quantized.onnx_data")), 1, "optional weights are asked for");
-    assert!(!embed_install::installed(&embed_config(&cache.path().join("nowhere"))));
-
-    let vector = recall.query_vector("how do I restart the staging cluster", &never).await.expect("not aborted").expect("vector");
-    let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools/memory/embeddings/golden.json")).expect("golden");
-    let want: Vec<f64> = golden["cases"][0]["vector"].as_array().expect("vector").iter().filter_map(|v| v.as_f64()).collect();
-    let worst = vector.iter().zip(&want).map(|(a, b)| (f64::from(*a) - b).abs()).fold(0.0, f64::max);
-    assert!(worst < 2e-5, "{worst}");
-
-    // Installing again fetches nothing.
-    provider.install(None, &CancellationToken::new()).await.expect("again");
-    assert_eq!(server.hits(&format!("/{id}/resolve/main/tokenizer.json")), 1);
-}

@@ -7,8 +7,6 @@
 use std::path::Path;
 
 use mixdog_rt::testing::tokens;
-#[cfg(node_twin)]
-use mixdog_testkit::Exact;
 use serde_json::Value;
 use serde_json::json;
 
@@ -290,50 +288,3 @@ async fn a_damaged_state_database_is_set_aside_and_the_next_read_and_write_work(
     }
 }
 
-#[cfg(node_twin)]
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/corrupt-state-file-cases/golden.json");
-#[cfg(node_twin)]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn recorded_damage_of_node_state_files_is_set_aside_and_the_next_read_and_write_work() {
-    let recorded = Exact::decode(&serde_json::from_str::<Value>(&GOLDEN).expect("golden is JSON")).expect("golden decodes");
-    let runs = recorded.get("cases").as_array()[0].get("observed").get("runs").as_array();
-    let mut replayed = 0;
-    for run in runs {
-        let file = run.get("file").as_str();
-        // The cycle state stays a file (replayed over the ledger); a `.bak` has no counterpart (see the manifest's exclusions).
-        if file == "memory-cycle-state.json" || run.get("backup").as_bool() {
-            continue;
-        }
-        let shared = run.get("shared");
-        let plain = run.to_plain().expect("a run holds no tagged part");
-        let stamp = shared.get("asideSuffixes").as_array()[0].as_str().strip_prefix(".corrupt-").unwrap().parse::<u128>().unwrap();
-        let _clock = mixdog_statefile::fix_recovery_clock(stamp);
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("core.sqlite");
-        good_file(&path).await;
-        let damaged = damage(&path, &plain["damage"]);
-
-        let (state, _, aside) = open_aside(&path).unwrap_or_else(|e| panic!("{file} {}: the daemon's open must survive: {e}", plain["damage"]["kind"]));
-        assert!(aside.file.is_some(), "{file}: a set-aside is reported");
-        let kept = asides(dir.path());
-        let suffixes = |found: &[(String, Vec<u8>)]| found.iter().map(|(s, _)| json!(s)).collect::<Vec<_>>();
-        let hold = !kept.is_empty() && kept.iter().all(|(_, bytes)| *bytes == damaged);
-        let empty = state.projects().await.unwrap().is_empty() && state.rooms().await.unwrap().is_empty();
-        let wrote = state.write(|tx| tx.put_project(&project("/work/third"))).await.is_ok();
-        let read_back = state.projects().await.unwrap().iter().any(|p| p.path == "/work/third");
-        let actual = json!({
-            "asideSuffixes": suffixes(&kept),
-            "asideHoldsDamagedBytes": hold,
-            "readIsEmpty": empty,
-            "writeSucceeded": wrote,
-            "readAfterWriteHasWrite": read_back,
-            "asideSuffixesAfterWrite": suffixes(&asides(dir.path())),
-        });
-        if let Some(difference) = Exact::plain(&actual).difference(shared) {
-            panic!("{file} / {}: {difference}", plain["damage"]["kind"]);
-        }
-        state.close();
-        replayed += 1;
-    }
-    assert_eq!(replayed, 9, "three files and three damages, without a backup");
-}

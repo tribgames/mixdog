@@ -99,11 +99,6 @@ impl World {
         Self::serving(rig, session, directory, id).await
     }
 
-    /// A server over an idle thread whose durable queue holds `queued` `(submission id, text)` entries.
-    #[cfg(node_twin)]
-    async fn idle(queued: &[(&str, &str)]) -> Self {
-        Self::idle_on(Rig::new(), queued, Value::Null).await
-    }
 
     /// [`World::idle`] served by `rig`, each entry holding `pasted_texts` (its options' map) unless null.
     async fn idle_on(rig: Rig, queued: &[(&str, &str)], pasted_texts: Value) -> Self {

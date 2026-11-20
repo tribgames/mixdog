@@ -9,15 +9,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-#[cfg(node_twin)]
-use base64::Engine;
 use mixdog_remote::media::ByteSource;
 use mixdog_remote::media::MediaSources;
 use mixdog_remote::media::SourceFailure;
-#[cfg(node_twin)]
-use mixdog_remote::media::crypto::decrypt_media_meta;
-#[cfg(node_twin)]
-use mixdog_remote::media::crypto::decrypt_media_segment;
 use mixdog_remote::clients::Revocation;
 use mixdog_remote::media::LeaseGuard;
 use mixdog_remote::media::Permit;
@@ -25,10 +19,6 @@ use mixdog_remote::transport::media::MediaLink;
 use mixdog_remote::transport::media::TransportMedia;
 use serde_json::Value;
 use serde_json::json;
-#[cfg(node_twin)]
-use sha2::Digest;
-#[cfg(node_twin)]
-use sha2::Sha256;
 use tokio::sync::Notify;
 use tokio::sync::oneshot;
 const KEY: [u8; 32] = [7; 32];
@@ -127,8 +117,6 @@ impl MediaSources for Leases {
 
 enum Send {
     Value(bool),
-    #[cfg(node_twin)]
-    Reject,
     Held,
 }
 
@@ -166,8 +154,6 @@ impl MediaLink for LinkFake {
         };
         match next {
             Send::Value(sent) => Ok(sent),
-            #[cfg(node_twin)]
-            Send::Reject => Err(()),
             Send::Held => {
                 let (tx, rx) = oneshot::channel();
                 let changed = {
@@ -192,40 +178,6 @@ async fn settle(adapter: &TransportMedia<LinkFake>, state: &Arc<Mutex<LinkState>
     adapter.settled(|| state.lock().unwrap().held.len() + gate.held.lock().unwrap().len(), &gate.changed).await;
 }
 
-#[cfg(node_twin)]
-/// One sealed message as the recording shows it: a frame replaced by what it decrypts to, which
-/// the recorded entry names (its meta start, or its segment offset and size).
-fn describe(actual: &Value, recorded: &Value, requests: &HashMap<String, Value>) -> Value {
-    let message = &actual["message"];
-    if actual["e"] != "send" || message["op"] != "chunk" {
-        return actual.clone();
-    }
-    let id = message["id"].as_str().expect("id");
-    let request = &requests[id];
-    let (asset_id, variant) = (request["assetId"].as_str().expect("asset"), request["variant"].as_str().expect("variant"));
-    let frame = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(message["frame"].as_str().expect("frame")).expect("base64url");
-    let body = &frame[4..];
-    let wanted = &recorded["message"]["frame"];
-    let shown = match wanted["kind"].as_str() {
-        Some("meta") => {
-            let start = wanted["expectedStart"].as_u64().expect("start");
-            let meta = decrypt_media_meta(&KEY, asset_id, variant, start, body).expect("the meta frame opens");
-            let mut shown = json!({ "size": meta.size, "mime": meta.mime, "start": meta.start, "end": meta.end as i64 });
-            if let (Some(version), Some(map)) = (meta.version, shown.as_object_mut()) {
-                map.insert("version".into(), Value::String(version));
-            }
-            json!({ "kind": "meta", "expectedStart": start, "meta": shown })
-        }
-        Some("segment") => {
-            let (offset, size) = (wanted["offset"].as_u64().expect("offset"), wanted["size"].as_u64().expect("size"));
-            let plain = decrypt_media_segment(&KEY, asset_id, variant, offset, size, body).expect("the segment frame opens");
-            let digest: String = Sha256::digest(&plain).iter().map(|b| format!("{b:02x}")).collect();
-            json!({ "kind": "segment", "offset": offset, "size": size, "length": plain.len(), "sha256": digest })
-        }
-        _ => panic!("a recorded chunk is a meta or a segment"),
-    };
-    json!({ "e": "send", "stream": actual["stream"], "message": { "type": message["type"], "op": "chunk", "id": id, "frame": shown } })
-}
 
 /// Two requests past the stream limit arrive before the refusal pump has run, and the first error's
 /// send is still pending: the queue head is sealed once. (the pump is claimed synchronously, so the
@@ -637,105 +589,3 @@ async fn a_queued_end_or_error_send_is_released_by_the_end_of_the_lease_with_no_
 }
 
 
-#[cfg(node_twin)]
-mod recorded {
-use super::*;
-const RECORDED: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/remote-transport-media/scenarios.json");
-#[tokio::test(flavor = "current_thread")]
-async fn the_adapter_seals_what_node_sealed_over_every_recorded_scenario() {
-    let recorded: Value = serde_json::from_str(&RECORDED).expect("the recording is JSON");
-    let scenarios = recorded["scenarios"].as_array().expect("scenarios");
-    assert!(scenarios.len() >= 12);
-    let mut checked = 0;
-    for scenario in scenarios {
-        let name = scenario["name"].as_str().expect("name");
-        let options = &scenario["options"];
-        let gate = Gate::default();
-        let state = Arc::new(Mutex::new(LinkState {
-            room: HashMap::new(),
-            default_room: options["room"] != false,
-            held_mode: options["send"] == "held",
-            queue: VecDeque::new(),
-            held: VecDeque::new(),
-            effects: Vec::new(),
-            changed: gate.changed.clone(),
-        }));
-        let sources = Arc::new(Leases { gate: gate.clone(), counts: Arc::new(Mutex::new(HashMap::new())) });
-        let key = (options["mediaKey"] != false).then_some(KEY);
-        let device = match &options["device"] {
-            Value::Null if options.get("device").is_some() => None,
-            Value::String(device) => Some(device.clone()),
-            _ => Some(DEVICE.to_owned()),
-        };
-        let adapter = TransportMedia::new(Arc::new(LinkFake { state: state.clone() }), sources, key, device);
-        let mut requests: HashMap<String, Value> = HashMap::new();
-        for (index, step) in scenario["steps"].as_array().expect("steps").iter().enumerate() {
-            state.lock().unwrap().effects.clear();
-            let mut results: Vec<Value> = Vec::new();
-            match step["op"].as_str().expect("op") {
-                "receive" => {
-                    let payload = &step["payload"];
-                    if payload["op"] == "request" && payload["id"].is_string() && payload["assetId"].is_string() {
-                        requests.insert(payload["id"].as_str().expect("id").to_owned(), payload.clone());
-                    }
-                    results.push(json!({ "receive": adapter.receive(payload) }));
-                }
-                "writable" => adapter.writable(),
-                "room" => {
-                    let value = step["value"].as_bool().expect("bool");
-                    let mut state = state.lock().unwrap();
-                    match step["stream"].as_str() {
-                        Some(stream) => {
-                            state.room.insert(stream.to_owned(), value);
-                        }
-                        None => state.default_room = value,
-                    }
-                }
-                "queue-send" => {
-                    let mut state = state.lock().unwrap();
-                    for value in step["values"].as_array().expect("values") {
-                        state.queue.push_back(match value {
-                            Value::Bool(sent) => Send::Value(*sent),
-                            Value::String(text) if text == "reject" => Send::Reject,
-                            other => panic!("a send result: {other}"),
-                        });
-                    }
-                }
-                "release-send" => {
-                    for _ in 0..step["count"].as_u64().expect("count") {
-                        let pending = state.lock().unwrap().held.pop_front();
-                        if let Some(pending) = pending {
-                            let _ = pending.send(match &step["result"] {
-                                Value::Bool(sent) => Ok(*sent),
-                                _ => Err(()),
-                            });
-                        }
-                    }
-                }
-                "release-read" => {
-                    for _ in 0..step["count"].as_u64().expect("count") {
-                        if let Some(pending) = gate.held.lock().unwrap().pop_front() {
-                            let _ = pending.send(());
-                        }
-                    }
-                }
-                "close" => adapter.close(),
-                other => panic!("an op: {other}"),
-            }
-            settle(&adapter, &state, &gate).await;
-            let actual = state.lock().unwrap().effects.clone();
-            let recorded_effects = step["effects"].as_array().expect("effects");
-            let described: Vec<Value> = actual
-                .iter()
-                .enumerate()
-                .map(|(i, entry)| describe(entry, recorded_effects.get(i).unwrap_or(&Value::Null), &requests))
-                .collect();
-            let at = format!("{name}: step {index} ({})", step["op"]);
-            assert_eq!(Value::Array(described), step["effects"], "effects of {at}");
-            assert_eq!(Value::Array(results), step["results"], "results of {at}");
-            checked += 1;
-        }
-    }
-    assert!(checked > 100);
-}
-}

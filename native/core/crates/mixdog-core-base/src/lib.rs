@@ -3,12 +3,6 @@ pub mod feed;
 pub mod maintenance;
 #[cfg(test)]
 mod maintenance_feature_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod maintenance_golden_tests;
 pub mod ops;
 pub mod pricing;
 pub mod quota_resume;

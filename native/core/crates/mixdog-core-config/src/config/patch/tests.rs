@@ -12,34 +12,8 @@ fn doc(value: &Value) -> Doc {
     value.as_object().cloned().unwrap_or_default()
 }
 
-#[cfg(node_twin)]
-fn change_of(value: &Value) -> ConfigChange {
-    let path = value["path"].as_array().unwrap().iter().map(|k| k.as_str().unwrap().to_owned()).collect();
-    ConfigChange {
-        path,
-        op: if value.get("remove").is_some() { ChangeOp::Remove } else { ChangeOp::Set(value["value"].clone()) },
-        if_absent: value.get("ifAbsent").is_some(),
-        unless_set: value
-            .get("unlessSet")
-            .map(|g| g.as_array().unwrap().iter().map(|k| k.as_str().unwrap().to_owned()).collect()),
-    }
-}
 
-#[cfg(node_twin)]
-fn json_of(change: &ConfigChange) -> Value {
-    let mut out = json!({ "path": change.path });
-    match &change.op {
-        ChangeOp::Set(value) => out["value"] = value.clone(),
-        ChangeOp::Remove => out["remove"] = Value::Bool(true),
-    }
-    out
-}
 
-/// Equal as JSON values; numbers by value, so `1` and `1.0` agree as they do in JS.
-#[cfg(node_twin)]
-fn same(a: &Value, b: &Value) -> bool {
-    js_deep_equal(a, b)
-}
 
 #[test]
 fn a_lead_fill_is_guarded_and_seeds_only_where_absent() {
@@ -159,77 +133,3 @@ async fn a_web_search_fallback_speed_edit_survives_a_config_reload() {
 }
 
 
-/// The stored `presets` and `webSearchRoute` equal what Node's save writes
-/// (`record-config-presets.mjs`): `modelParameters`, an ordinary preset's `fast: false` and the like never reach the file.
-/// Departure: the web-search route keeps an explicit `fast: false` (`stored_web_search_route`), so a reloaded route reads back
-/// at the speed it was saved at (`a_web_search_fallback_speed_edit_survives_a_config_reload`); Node's save dropped it.
-#[cfg(node_twin)]
-#[test]
-fn stored_presets_and_web_search_route_match_the_recorded_node_save() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/config-presets-twin.json");
-    let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-    let entries = twin["entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 120);
-    for (i, entry) in entries.iter().enumerate() {
-        let stored = stored_form(&doc(&entry["config"]));
-        let presets = stored.get("presets").filter(|p| p.as_array().is_some_and(|l| !l.is_empty())).cloned().unwrap_or(Value::Null);
-        assert!(same(&presets, &entry["presets"]), "presets of {i}: {presets} vs {}", entry["presets"]);
-        let route = stored.get("webSearchRoute").cloned();
-        let mut expected = entry["webSearchRoute"].clone();
-        if entry["config"]["webSearchRoute"]["fast"] == false
-            && let Some(kept) = expected.as_object_mut()
-            && kept.get("provider") != Some(&json!("default"))
-        {
-            kept.insert("fast".into(), json!(false));
-        }
-        let expected = &expected;
-        if expected == "__absent__" {
-            assert!(route.is_none(), "route of {i}");
-        } else {
-            assert!(same(&route.unwrap_or(Value::Null), expected), "route of {i}: expected {expected}");
-        }
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn diff_and_apply_match_the_recorded_node_patch() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/config-patch-twin.json");
-    let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-    let entries = twin["entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 200);
-    for (index, entry) in entries.iter().enumerate() {
-        let changes = diff_config(&doc(&entry["before"]), &doc(&entry["after"]));
-        // The fixture's objects are key-sorted, so the order of independent edits is compared
-        // as a set; each edit is unique by path.
-        let by_path = |list: &mut Vec<Value>| list.sort_by_key(|c| c["path"].to_string());
-        let mut got: Vec<Value> = changes.iter().map(json_of).collect();
-        let mut want = entry["changes"].as_array().unwrap().clone();
-        by_path(&mut got);
-        by_path(&mut want);
-        assert!(same(&Value::Array(got), &Value::Array(want)), "entry {index}: diff {changes:?} vs {}", entry["changes"]);
-        let applied = apply_config_patch(&doc(&entry["other"]), &changes);
-        assert!(same(&Value::Object(applied), &entry["appliedToOther"]), "entry {index}: apply");
-        let guarded: Vec<ConfigChange> = entry["guarded"].as_array().unwrap().iter().map(change_of).collect();
-        let applied = apply_config_patch(&doc(&entry["other"]), &guarded);
-        assert!(same(&Value::Object(applied), &entry["guardedOnOther"]), "entry {index}: guarded apply");
-    }
-}
-/// What a settings save writes equals what real Node's `createConfigPatch` wrote for the configs its settings-writer tests use
-/// (`fixtures/config-create-patch/golden.json`, from `record-config-create-patch.mjs`): the aliases of one setting and a keychain
-/// overlay are no edit, an explicit provider OFF, a cleared nested setting and the peers' profile edits are each their one change,
-/// whole, the independent edits of one patch in path order (the golden's keys are sorted, Node's input order is not kept).
-#[cfg(node_twin)]
-#[test]
-fn a_settings_save_writes_the_patch_nodes_create_config_patch_wrote() {
-    #[cfg(node_twin)]
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/config-create-patch/golden.json");
-    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-    let by_path = |list: &mut Vec<Value>| list.sort_by_key(|c| c["path"].to_string());
-    for case in golden["cases"].as_array().unwrap() {
-        let mut got: Vec<Value> = create_config_patch(&doc(&case["before"]), &doc(&case["after"])).iter().map(json_of).collect();
-        let mut want = case["patch"].as_array().unwrap().clone();
-        by_path(&mut got);
-        by_path(&mut want);
-        assert_eq!(got, want, "{}", case["name"]);
-    }
-}

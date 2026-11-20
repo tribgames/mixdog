@@ -142,25 +142,3 @@ async fn a_closing_session_is_ingested_by_the_memory_module() {
 }
 
 
-#[cfg(node_twin)]
-/// What goes to memory carries the session's sensitive values redacted as Node redacts them
-/// (`fixtures/tools/memory/sensitive/golden.json`), on every route that feeds memory: they all
-/// go through this seam (unload, live feed, session switch).
-#[tokio::test]
-async fn memory_is_fed_with_the_sessions_sensitive_values_redacted() {
-    let golden: Value =
-        serde_json::from_str(include_str!("../../../../fixtures/tools/memory/sensitive/golden.json")).expect("golden");
-    let sessions = golden["sessions"].as_array().expect("sessions");
-    let session = sessions.iter().find(|s| !s["messages"].is_null()).expect("a recorded message redaction");
-    let id = session["id"].as_str().expect("id");
-    let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
-    for s in sessions.iter().filter(|s| s["id"] == session["id"]) {
-        sensitive.remember(id, s["calls"].as_array().map(Vec::as_slice).unwrap_or_default());
-    }
-    let memory = Arc::new(Memory::default());
-    memory.note_session_use(id);
-    let ingest = super::MemoryCloseIngest::new(Some(memory.clone()), sensitive);
-    let input = session["messages"]["input"].as_array().expect("input").clone();
-    ingest.ingest(&ThreadId::from(id), "/ws", input).await;
-    assert_eq!(lock(&memory.0)[0]["messages"], session["messages"]["output"]);
-}

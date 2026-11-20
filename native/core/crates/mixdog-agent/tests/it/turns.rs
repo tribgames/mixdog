@@ -1,58 +1,24 @@
-//! A worker's turn against the goldens recorded from Node (`fixtures/agent/record-turns.mjs`):
-//! `runSpawn` and `runSend` under a real job starter and board, and `createWorkerTurns`' row
-//! bookkeeping. Fixture loading reads files synchronously; tests are not lane code.
+//! A worker's turn: its prompt leaves its owner redacted, and marks carry both ways.
 #![allow(clippy::disallowed_methods)]
 
-#[cfg(node_twin)]
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
-#[cfg(node_twin)]
-use std::sync::atomic::AtomicUsize;
-#[cfg(node_twin)]
-use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
-#[cfg(node_twin)]
-use mixdog_agent::agent_tool::board::CancelAll;
 use mixdog_agent::agent_tool::board::CancelNotice;
 use mixdog_agent::agent_tool::board::JobBoard;
-#[cfg(node_twin)]
-use mixdog_agent::agent_tool::board::JobMeta;
-#[cfg(node_twin)]
-use mixdog_agent::agent_tool::board::JobOwner;
-#[cfg(node_twin)]
-use mixdog_agent::agent_tool::board::NewJob;
 use mixdog_agent::agent_tool::flow::early::EarlyNotice;
-#[cfg(node_twin)]
-use mixdog_agent::agent_tool::flow::job_starter::JobStarter;
-#[cfg(node_twin)]
-use mixdog_agent::agent_tool::flow::job_starter::StartContext;
 use mixdog_agent::agent_tool::flow::reconcile::JobHandle;
 use mixdog_agent::agent_tool::flow::seams::*;
 use mixdog_agent::agent_tool::flow::turn::TurnPlan;
 use mixdog_agent::agent_tool::flow::turn::TurnRunner;
 use mixdog_agent::agent_tool::flow::worker_turns::Claim;
 use mixdog_agent::agent_tool::flow::worker_turns::TurnOwner;
-#[cfg(node_twin)]
-use mixdog_agent::agent_tool::flow::worker_turns::WorkerTurns;
-#[cfg(node_twin)]
-use mixdog_agent::agent_tool::host::CloseOptions;
-#[cfg(node_twin)]
-use mixdog_agent::agent_tool::host::Sessions;
-#[cfg(node_twin)]
-use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::env::Clock;
 use mixdog_agent::response::Termination;
-#[cfg(node_twin)]
-use mixdog_protocol::ThreadId;
-#[cfg(node_twin)]
-use mixdog_tools::exec::TaskNotifier;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
-#[cfg(node_twin)]
-use tokio::sync::oneshot;
 
 const START: i64 = 1_772_359_200_000;
 
@@ -69,12 +35,6 @@ fn backend() {
     mixdog_rt::testing::tokens();
 }
 
-#[cfg(node_twin)]
-async fn settle() {
-    for _ in 0..4 {
-        mixdog_rt::time::sleep(std::time::Duration::from_millis(15)).await;
-    }
-}
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -257,15 +217,6 @@ impl OwnerNotify for Owner {
     }
 }
 
-#[cfg(node_twin)]
-struct Delivered(Arc<World>);
-#[cfg(node_twin)]
-#[async_trait]
-impl TaskNotifier for Delivered {
-    async fn finished(&self, owner: &ThreadId, _surface: &str, _task_id: &str, _status: &str, notification: String) {
-        lock(&self.0.notices).push(json!({ "session": owner.as_str(), "text": notification }));
-    }
-}
 
 struct NoInbox;
 impl WorkerInbox for NoInbox {
@@ -274,68 +225,10 @@ impl WorkerInbox for NoInbox {
     }
 }
 
-#[cfg(node_twin)]
-struct Closer;
-#[cfg(node_twin)]
-#[async_trait]
-impl Sessions for Closer {
-    async fn rehydrate_agent_sessions(&self) -> bool {
-        false
-    }
-    async fn read_session_handoff(&self, _: &str) -> Option<String> {
-        None
-    }
-    async fn close_session(&self, _: &str, _: &str, _: CloseOptions) -> bool {
-        true
-    }
-    fn descendant_session_ids(&self, _: &str) -> Vec<String> {
-        Vec::new()
-    }
-    fn child_session_ids(&self, _: &str) -> Vec<String> {
-        Vec::new()
-    }
-    fn clear_statusline_route(&self, _: &str) {}
-}
 
-#[cfg(node_twin)]
-struct Open;
-#[cfg(node_twin)]
-struct Slot;
-#[cfg(node_twin)]
-#[async_trait]
-impl Lease for Slot {
-    async fn release(self: Box<Self>) {}
-    fn yielder(&self) -> std::sync::Arc<dyn mixdog_agent::env::Yielder> {
-        std::sync::Arc::new(Immediate)
-    }
-}
 
-#[cfg(node_twin)]
-/// A slot that hands nothing back: the task just runs.
-struct Immediate;
-#[cfg(node_twin)]
-#[async_trait]
-impl mixdog_agent::env::Yielder for Immediate {
-    async fn run_yielded(&self, task: futures::future::BoxFuture<'_, bool>, _: Option<&mixdog_agent::cancel::Cancel>) -> Result<(), String> {
-        task.await;
-        Ok(())
-    }
-}
 
-#[cfg(node_twin)]
-#[async_trait]
-impl Admission for Open {
-    async fn acquire(&self, _: &str, _: Option<&str>, _: &mixdog_agent::cancel::Cancel) -> Result<Box<dyn Lease>, String> {
-        Ok(Box::new(Slot))
-    }
-}
 
-#[cfg(node_twin)]
-struct NoStarts;
-#[cfg(node_twin)]
-impl TaskStarts for NoStarts {
-    fn record(&self, _: &str, _: &str) {}
-}
 
 /// The route's side of a claim: a claim opens the observation (`claim`), and the row a claim
 /// settles when no turn started records the status it was released with (`release:<status>`).
@@ -351,17 +244,6 @@ impl TurnOwner for TurnsOwner {
         true
     }
 }
-#[cfg(node_twin)]
-struct Names;
-#[cfg(node_twin)]
-impl SessionNames for Names {
-    fn tag_for_session(&self, _: &str) -> Option<String> {
-        Some("scout".into())
-    }
-    fn agent(&self, _: &str) -> Option<String> {
-        Some("worker".into())
-    }
-}
 
 fn identity(spawn: bool, agent: &str) -> Map<String, Value> {
     let mut value = json!({ "tag": "scout", "sessionId": "sess_w1", "agent": agent, "provider": "openai", "model": "gpt-x" });
@@ -373,263 +255,12 @@ fn identity(spawn: bool, agent: &str) -> Map<String, Value> {
     value.as_object().unwrap().clone()
 }
 
-#[cfg(node_twin)]
-fn mask(value: &Value, id: &str) -> Value {
-    serde_json::from_str(&value.to_string().replace(id, "job")).unwrap()
-}
 
 // ---- worker turns ---------------------------------------------------------------------------
 
-#[cfg(node_twin)]
-#[derive(Default)]
-struct Probe {
-    rows: Mutex<Vec<Value>>,
-    changed: AtomicUsize,
-    unobserved: Arc<AtomicUsize>,
-    listeners: Mutex<HashMap<String, Arc<dyn TurnListener>>>,
-}
 
-#[cfg(node_twin)]
-struct ProbeSource(Arc<Probe>);
-#[cfg(node_twin)]
-impl TurnSource for ProbeSource {
-    fn observe_session_turns(&self, session_id: &str, listener: Arc<dyn TurnListener>) -> Option<Unobserve> {
-        lock(&self.0.listeners).insert(session_id.to_owned(), listener);
-        let counter = self.0.unobserved.clone();
-        Some(Box::new(move || {
-            counter.fetch_add(1, Ordering::SeqCst);
-        }))
-    }
-}
 
-#[cfg(node_twin)]
-struct ProbeRows(Arc<Probe>);
-#[cfg(node_twin)]
-impl WorkerRows for ProbeRows {
-    fn upsert(&self, session_id: &str, tag: Option<&str>, update: RowUpdate) {
-        let mut patch = Map::new();
-        if let Some(v) = update.status {
-            patch.insert("status".into(), json!(v));
-        }
-        if let Some(v) = update.stage {
-            patch.insert("stage".into(), json!(v));
-        }
-        if let Some(v) = update.task_id {
-            patch.insert("task_id".into(), json!(v));
-        }
-        if let Some(v) = update.turn_started_at {
-            patch.insert("turnStartedAt".into(), json!(v));
-        }
-        if let Some(v) = update.finished_at {
-            patch.insert("finishedAt".into(), json!(v));
-        }
-        if let Some(v) = update.failure_reason {
-            patch.insert("failureReason".into(), json!(v));
-        }
-        lock(&self.0.rows).push(json!({ "session": session_id, "tag": tag, "patch": patch }));
-    }
-}
 
 
  // 2026-03-01T10:00:00.000Z
 
-#[cfg(node_twin)]
-fn fixture(name: &str) -> Vec<Value> {
-    let text = std::fs::read_to_string(format!("{}/../../fixtures/agent/turns/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap();
-    serde_json::from_str::<Value>(&text).unwrap().as_array().unwrap().clone()
-}
-#[cfg(node_twin)]
-#[tokio::test(start_paused = true)]
-async fn a_workers_turn_equals_nodes_runner() {
-    backend();
-    for scenario in fixture("runner.json") {
-        let name = scenario["name"].as_str().unwrap();
-        eprintln!("scenario {name}");
-        let spawn = scenario["kind"] == "spawn";
-        let agent = scenario.get("agent").and_then(Value::as_str).unwrap_or("worker").to_owned();
-        let canonical = scenario.get("canonical") == Some(&Value::Bool(true));
-        let world = Arc::new(World { steps: scenario["steps"].as_array().unwrap().clone(), ..World::default() });
-        let board = JobBoard::new(Arc::new(FixedClock), Some(Arc::new(Delivered(world.clone()))), None);
-        world.board.set(board.clone()).ok();
-        let clock: Arc<dyn Clock> = Arc::new(FixedClock);
-        let sessions: Arc<dyn TurnSessions> = Arc::new(Sess(world.clone()));
-        let turns: Arc<dyn TurnOwner> = Arc::new(TurnsOwner(world.clone()));
-        let early = Arc::new(EarlyNotice::new(Arc::new(Owner(world.clone())), clock));
-        let runner = Arc::new(TurnRunner::new(sessions.clone(), turns, Arc::new(Reviews(world.clone())), Arc::new(Events(world.clone())), Arc::new(NoInbox), early));
-        let plan = TurnPlan {
-            kind: if spawn { TurnKind::Spawn } else { TurnKind::Send },
-            session_id: "sess_w1".into(),
-            parent_session_id: None,
-            session_owner_id: None,
-            tag: "scout".into(),
-            agent: agent.clone(),
-            identity: identity(spawn, &agent),
-            prompt: "do it".into(),
-            attachments: Vec::new(),
-            context: None,
-            cwd: "/work".into(),
-            skill_selection: None,
-            canonical,
-        };
-        let (done, finished) = oneshot::channel();
-        let mut task_id = None;
-        if scenario["job"] == true {
-            let starter = JobStarter::new(board.clone(), Arc::new(Closer), sessions, Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
-            let meta = JobMeta {
-                tag: Some("scout".into()),
-                session_id: Some("sess_w1".into()),
-                agent: Some(agent.clone()),
-                preset: spawn.then(|| "worker-preset".into()),
-                provider: Some("openai".into()),
-                model: Some("gpt-x".into()),
-                effort: spawn.then(|| "high".into()),
-                fast: Some(false),
-                ..JobMeta::default()
-            };
-            let context = StartContext { caller_session_id: Some("lead".into()), client_host_pid: Some(4242), ..StartContext::default() };
-            let (runner, world2) = (runner.clone(), world.clone());
-            let job = starter
-                .start_job(if spawn { "spawn" } else { "send" }, meta, context, move |job, notify| async move {
-                    *lock(&world2.job) = Some(job.task_id().to_owned());
-                    let outcome = runner.run(plan, Some(notify), Some(job)).await;
-                    let _ = done.send(outcome.clone());
-                    outcome.map(Some)
-                })
-                .unwrap();
-            task_id = Some(job.task_id().to_owned());
-        } else {
-            let _ = done.send(runner.run(plan, None, None).await);
-        }
-        let outcome = finished.await.unwrap();
-        settle().await;
-        let row = task_id.as_ref().and_then(|id| board.get(id, &Scope::default())).map(|t| {
-            json!({ "status": t.status, "error": t.error, "terminalReason": t.terminal_reason, "notified": t.notified })
-        });
-        let got = json!({
-            "outcome": match &outcome { Ok(value) => json!({ "value": value.value }), Err(error) => json!({ "error": error }) },
-            "calls": *lock(&world.calls),
-            "notices": *lock(&world.notices),
-            "row": row,
-        });
-        let got = match &task_id {
-            Some(id) => mask(&got, id),
-            None => got,
-        };
-        let mut want = scenario["result"].clone();
-        // Node logs the claim and release of its fake worker turns; the notices of a final
-        // delivery carry no meta.
-        for notice in want["notices"].as_array_mut().unwrap() {
-            notice.as_object_mut().unwrap().entry("meta").or_insert(Value::Null);
-        }
-        let mut got = got;
-        for notice in got["notices"].as_array_mut().unwrap() {
-            if notice["meta"].is_null() {
-                notice.as_object_mut().unwrap().remove("meta");
-            }
-        }
-        for notice in want["notices"].as_array_mut().unwrap() {
-            if notice["meta"].is_null() {
-                notice.as_object_mut().unwrap().remove("meta");
-            }
-        }
-        assert_eq!(got, want, "{name}");
-    }
-}
-#[cfg(node_twin)]
-#[tokio::test(start_paused = true)]
-async fn worker_turn_rows_equal_nodes() {
-    backend();
-    for scenario in fixture("worker-turns.json") {
-        let name = scenario["name"].as_str().unwrap();
-        let probe = Arc::new(Probe::default());
-        let board = JobBoard::new(Arc::new(FixedClock), None, None);
-        let changed = probe.clone();
-        let turns = WorkerTurns::new(
-            Arc::new(ProbeSource(probe.clone())),
-            Arc::new(ProbeRows(probe.clone())),
-            Arc::new(Names),
-            Arc::new(FixedClock),
-            Arc::new(move || {
-                changed.changed.fetch_add(1, Ordering::SeqCst);
-            }),
-        );
-        let owner = format!("lead-{}", scenario_number(name));
-        let mut jobs: Vec<Arc<JobHandle>> = Vec::new();
-        let mut claims = Vec::new();
-        for (i, op) in scenario["ops"].as_array().unwrap().iter().enumerate() {
-            let mark = lock(&probe.rows).len();
-            let mut got = Map::new();
-            match op["op"].as_str().unwrap() {
-                "job" => {
-                    let id = format!("j{}-{}", scenario_number(name), jobs.len());
-                    board
-                        .register(NewJob {
-                            task_id: Some(id.clone()),
-                            operation: "spawn".into(),
-                            label: Some("scout".into()),
-                            owner: JobOwner { caller_session_id: Some(owner.clone()), ..JobOwner::default() },
-                            ..NewJob::default()
-                        })
-                        .unwrap();
-                    jobs.push(Arc::new(JobHandle::new(board.clone(), id, "spawn".into(), None)));
-                }
-                "cancelJob" => {
-                    board.cancel_all(&CancelAll {
-                        scope: Scope { caller_session_id: Some(owner.clone()), host_pid: None },
-                        terminal_reason: op.get("terminalReason").and_then(Value::as_str).map(str::to_owned),
-                        notice: CancelNotice::Never,
-                        ..CancelAll::default()
-                    });
-                }
-                "claim" => {
-                    let job = op.get("job").and_then(Value::as_u64).map(|n| jobs[n as usize].clone());
-                    let claim = turns.claim("sess_w1", job);
-                    got.insert("submissionPrefix".into(), json!(claim.submission_id.starts_with("agent-turn-")));
-                    claims.push(claim);
-                }
-                "release" => {
-                    let status = match op["status"].as_str().unwrap() {
-                        "idle" => mixdog_agent::agent_tool::flow::reconcile::FinalStatus::Idle,
-                        "error" => mixdog_agent::agent_tool::flow::reconcile::FinalStatus::Error,
-                        _ => mixdog_agent::agent_tool::flow::reconcile::FinalStatus::Cancelled,
-                    };
-                    claims[op["claim"].as_u64().unwrap() as usize].release(status);
-                }
-                "observe" => {
-                    got.insert("observed".into(), json!(turns.observe("sess_w1")));
-                }
-                "turnStart" => {
-                    let submission_ids = op["claims"].as_array().map(|c| c.iter().map(|i| claims[i.as_u64().unwrap() as usize].submission_id.clone()).collect()).unwrap_or_default();
-                    let listener = lock(&probe.listeners).get("sess_w1").cloned().unwrap();
-                    listener.turn_started(TurnStart {
-                        turn_id: op["turn"].as_str().unwrap().to_owned(),
-                        started_at_ms: START + op.get("at").and_then(Value::as_i64).unwrap_or(0),
-                        submission_ids,
-                    });
-                }
-                "turnSettle" => {
-                    let listener = lock(&probe.listeners).get("sess_w1").cloned().unwrap();
-                    listener.turn_settled(TurnOutcome {
-                        turn_id: op["turn"].as_str().unwrap().to_owned(),
-                        done: op["status"] == "done",
-                        result: op.get("result").map(turn_result),
-                        stalled: false,
-                    });
-                }
-                "forget" => {
-                    turns.dispose();
-                    got.insert("unobserved".into(), json!(probe.unobserved.load(Ordering::SeqCst)));
-                }
-                other => panic!("{name}: {other}"),
-            }
-            got.insert("rows".into(), Value::Array(lock(&probe.rows)[mark..].to_vec()));
-            got.insert("changed".into(), json!(probe.changed.load(Ordering::SeqCst)));
-            assert_eq!(Value::Object(got), scenario["results"][i], "{name} op {i}");
-        }
-    }
-}
-#[cfg(node_twin)]
-/// The recorder numbers its worker-turns scenarios from one, in order.
-fn scenario_number(name: &str) -> usize {
-    fixture("worker-turns.json").iter().position(|s| s["name"] == name).unwrap() + 1
-}

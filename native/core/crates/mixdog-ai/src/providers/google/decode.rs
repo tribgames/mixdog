@@ -389,12 +389,6 @@ impl GeminiDecoder {
         self
     }
 
-    #[cfg(node_twin)]
-    /// The calls recovered from text and not yet released (what Node's guard returns as `getLeakedToolCalls()`).
-    #[cfg(test)]
-    pub(super) fn held_leaked_calls(&self) -> &[ToolCall] {
-        &self.leaked
-    }
 
     /// Binds the replay envelope to the model that produced it (Node's `requestContext.model`): a later turn replays its
     /// signed parts only to the same model.

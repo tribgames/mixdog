@@ -31,7 +31,6 @@ mixdog-fonts = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-mixdog-office-base = { workspace = true, features = ["test-support"] }
 mixdog-testkit = { workspace = true }
 serde_json = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }

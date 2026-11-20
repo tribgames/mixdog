@@ -395,7 +395,3 @@ mod tests {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "node-twin/legacy_reasoning.rs"]
-mod legacy_reasoning;

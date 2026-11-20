@@ -178,11 +178,6 @@ async fn woken(changes: &mut watch::Receiver<u64>, bindings: &mut Option<watch::
 pub(crate) fn recording_push() -> UsagePush {
     UsagePush::new(Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), Arc::new(|| chrono::Utc::now().timestamp_millis()))
 }
-
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tests;
-
 #[cfg(test)]
 mod feed_tests;
 

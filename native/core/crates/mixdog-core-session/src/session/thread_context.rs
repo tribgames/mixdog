@@ -247,60 +247,8 @@ mod tests {
         }
     }
 
-    #[cfg(node_twin)]
-    fn definitions(tools: &Value) -> Vec<ToolDefinition> {
-        tools
-            .as_array()
-            .expect("tools")
-            .iter()
-            .map(|t| ToolDefinition {
-                name: t["name"].as_str().expect("name").to_owned(),
-                description: t["description"].as_str().expect("description").to_owned(),
-                input_schema: t["inputSchema"].clone(),
-                defer_loading: t["deferLoading"] == Value::Bool(true),
-                freeform: None,
-            })
-            .collect()
-    }
 
-    #[cfg(node_twin)]
-    /// The loaded sessions of the golden's empty-transcript cases, by case name.
-    struct GoldenWorld(Value);
 
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl ContextWorld for GoldenWorld {
-        async fn snapshot(&self, thread: Option<&ThreadId>) -> Result<Option<ContextSnapshot>, CoreError> {
-            let name = thread.map(|t| t.as_str()).unwrap_or_default();
-            let Some(case) = self.0["cases"].as_array().expect("cases").iter().find(|c| c["name"] == name) else { return Ok(None) };
-            let Some(header) = case["header"].as_object() else { return Ok(None) };
-            Ok(Some(ContextSnapshot {
-                header: header.clone(),
-                provider: case["route"]["provider"].as_str().expect("provider").to_owned(),
-                model: case["route"]["model"].as_str().expect("model").to_owned(),
-                context_window: case["route"]["contextWindow"].clone(),
-                cwd: case["cwd"].clone(),
-                mode: case["mode"].clone(),
-                messages: Vec::new(),
-                active: case["active"].as_bool().expect("active"),
-                request_native: Vec::new(),
-                request_defined: definitions(&case["requestTools"]),
-                session_defined: definitions(&case["tools"]),
-                agent_mode: case["agentMode"].as_bool().expect("agentMode"),
-                annotations: HashMap::new(),
-                media: Arc::new(TextOnly),
-                images: Arc::new(TextOnly),
-                rows: Arc::new(TextOnly),
-                replay_owner: ProviderId::from(case["route"]["provider"].as_str().expect("provider")),
-            }))
-        }
-
-        fn lowering(&self, _: &ThreadId, _: &str) -> (Arc<dyn MediaMeter>, Arc<dyn ImageIdentities>) {
-            let media: Arc<dyn MediaMeter> = Arc::new(TextOnly);
-            let images: Arc<dyn ImageIdentities> = Arc::new(TextOnly);
-            (media, images)
-        }
-    }
 
     /// A loaded session whose header is the one a model call's usage leaves (`usage_books::usage_change`, the producer of the persisted
     /// reading), with a conversation in it.
@@ -376,52 +324,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// Node's recorded statuses come back through the handler byte for byte.
-    #[tokio::test]
-    async fn answers_nodes_status() {
-        let text = mixdog_testkit::fixture!("../../fixtures/context-status/golden.json");
-        let golden: Value = serde_json::from_str(text).expect("golden json");
-        let cases: Vec<(String, Value)> =
-            golden["cases"].as_array().expect("cases").iter().map(|c| (c["name"].as_str().expect("name").to_owned(), c["status"].clone())).collect();
-        let service = ThreadContextService::new(Arc::new(Recorded(cases.clone())));
-        for (name, status) in &cases {
-            let answer = value(&service, request(CONTEXT_STATUS, json!({ "threadId": name, "options": { "probe": true } }), None)).await.expect("status");
-            assert_eq!(&answer, status, "{name}");
-        }
-        assert!(cases.iter().any(|(_, s)| s["usedSource"] == "post_compact"));
-    }
-    #[cfg(node_twin)]
-    /// The gauge over a loaded session equals Node's for every golden case whose transcript is
-    /// empty (the cases with messages are compared in `mixdog-agent`'s `compact_context_status`);
-    /// a session that is not loaded is `null`.
-    #[tokio::test]
-    async fn live_gauge_equals_nodes_for_empty_transcripts() {
-        let text = mixdog_testkit::fixture!("../../fixtures/context-status/golden.json");
-        let golden: Value = serde_json::from_str(text).expect("golden json");
-        let host = LiveContextStatus::new(Arc::new(GoldenWorld(golden.clone())));
-        let mut compared = 0;
-        for case in golden["cases"].as_array().expect("cases") {
-            if case["header"].is_null() || !case["messages"].as_array().expect("messages").is_empty() || case["nativePrefix"] != 0 {
-                continue;
-            }
-            let name = case["name"].as_str().expect("name");
-            let answer = host.context_status(Some(ThreadId::from(name.to_owned())), None).await.expect("status");
-            // Intended departures of the core's usage block (`usage_counters`): a last-request reading the session does not hold
-            // stays unknown (null) where Node read it as 0, and the prompt total (`lastPromptTokens`) sits beside Node's split.
-            let header = &case["header"];
-            let mut want = case["status"].clone();
-            let usage = want["usage"].as_object_mut().expect("usage");
-            for (key, value) in usage.iter_mut() {
-                if key.starts_with("last") && *value == Value::from(0) && header.get(key) != Some(&Value::from(0)) {
-                    *value = Value::Null;
-                }
-            }
-            usage.insert("lastPromptTokens".into(), header.get("lastPromptTokens").filter(|v| v.is_number()).cloned().unwrap_or(Value::Null));
-            assert_eq!(answer, want, "{name}");
-            compared += 1;
-        }
-        assert_eq!(compared, 2, "empty-transcript cases compared");
-        assert_eq!(host.context_status(Some(ThreadId::from("nope".to_owned())), None).await.expect("status"), Value::Null);
-    }
 }

@@ -31,8 +31,6 @@ tempfile = { workspace = true }
 mixdog-pdf = { workspace = true }
 
 [dev-dependencies]
-# The twin tests (`tests/twin_brief.rs`, `tests/twin_measure_deck.rs`) locate the Node source, load their recording and compare through the base crate's `twin` helpers.
-mixdog-office-base = { workspace = true, features = ["test-support"] }
 mixdog-testkit = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time", "net"] }

@@ -19,12 +19,6 @@ use super::turn_post::post_failures;
 
 #[cfg(test)]
 mod feature_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tests;
 
 /// One supervisor step as the Maintainer sees it (`RoomSupervisorInput`): `rows` are the rows it
 /// reads (`roomSupervisorRows`), `decide` the step's budget and the turns taken so far.

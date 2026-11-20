@@ -383,16 +383,6 @@ fn decimals_parse_and_print_exactly() {
     assert_eq!(Decimal::from_i64(-7).to_string(), "-7");
 }
 
-#[cfg(node_twin)]
-fn access_of(entry: &Json) -> Access<'_> {
-    let name = entry["member"].as_str().expect("member");
-    match entry["kind"].as_str().expect("kind") {
-        "call" => Access::Method { name, argc: entry["argc"].as_u64().expect("argc") as usize },
-        "get" => Access::Get { name },
-        "set" => Access::Set { name },
-        other => panic!("kind {other}"),
-    }
-}
 
 #[test]
 fn symbolic_names_follow_the_net_suffix_rule() {
@@ -666,10 +656,6 @@ mod live {
 }
 
 
-#[cfg(node_twin)]
-const CORPUS: &str = include_str!("fixtures/errors/corpus.json");
-#[cfg(node_twin)]
-const MANIFEST: &str = include_str!("fixtures/errors/MANIFEST.json");
 // ---- error texts ------------------------------------------------------------------------
 
 #[test]
@@ -747,57 +733,3 @@ fn a_com_failure_is_retried_by_the_wrapped_hresult_not_the_com_code() {
     assert_eq!(attempts, 1);
 }
 
-#[cfg(node_twin)]
-fn corpus_entries() -> Vec<Json> {
-    let corpus: Json = serde_json::from_str(CORPUS).expect("corpus.json parses");
-    corpus["entries"]
-        .as_array()
-        .expect("entries")
-        .iter()
-        .filter(|entry| entry["reproduced"] == json!(true) && entry["innerHResult"].is_i64())
-        .cloned()
-        .collect()
-}
-#[cfg(node_twin)]
-#[test]
-fn error_texts_and_hresults_equal_the_corpus() {
-    let entries = corpus_entries();
-    assert!(!entries.is_empty(), "the corpus has no reproduced failing call");
-    for entry in &entries {
-        let hresult = entry["innerHResult"].as_i64().expect("innerHResult") as i32;
-        let system = entry["systemText"].as_str().map(str::to_owned);
-        let raw = Raw { hresult, description: entry["description"].as_str().map(str::to_owned) };
-        let error = errtext::com_error(access_of(entry), &raw, &|code: i32| if code == hresult { system.clone() } else { None });
-        let id = entry["id"].as_str().expect("id");
-        assert_eq!(error.message, entry["message"].as_str().expect("message"), "{id}");
-        assert_eq!(error.inner_message, entry["innerMessage"].as_str().expect("innerMessage"), "{id}");
-        assert_eq!(i64::from(error.hresult), entry["hresult"].as_i64().expect("hresult"), "{id}");
-        assert_eq!(i64::from(error.inner_hresult), entry["innerHResult"].as_i64().expect("innerHResult"), "{id}");
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn the_corpus_manifest_names_the_sha256_of_the_corpus() {
-    use sha2::Digest;
-    use sha2::Sha256;
-    let manifest: Json = serde_json::from_str(MANIFEST).expect("MANIFEST.json parses");
-    let normalised = CORPUS.replace("\r\n", "\n");
-    let digest: String = Sha256::digest(normalised.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect();
-    assert_eq!(manifest["corpusSha256"].as_str().expect("corpusSha256"), digest);
-    let corpus: Json = serde_json::from_str(CORPUS).expect("corpus.json parses");
-    assert_eq!(manifest["recorded"], corpus["recorded"], "the manifest and the corpus disagree on whether it was recorded");
-}
-#[cfg(node_twin)]
-#[test]
-fn retry_compares_the_outer_hresult_the_corpus_recorded() {
-    // `$_.Exception.HResult` is the PowerShell exception's, so a COM failure retries only when the corpus shows its
-    // outer HResult in the helper's list.
-    for entry in corpus_entries() {
-        let error = errtext::com_error(access_of(&entry), &Raw { hresult: entry["innerHResult"].as_i64().expect("innerHResult") as i32, description: None }, &|_: i32| None);
-        let outer = entry["hresult"].as_i64().expect("hresult") as i32;
-        let (attempts, _, _) = attempts_until_failure(outer, |clock, operation| retry::excel(clock, "x", &[], operation));
-        let expected = if retry::EXCEL_TRANSIENT.contains(&outer) { 50 } else { 1 };
-        assert_eq!(attempts, expected, "{}", entry["id"]);
-        assert_eq!(error.hresult, outer, "{}", entry["id"]);
-    }
-}

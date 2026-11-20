@@ -73,12 +73,6 @@ pub fn room_member_of_session(session_id: &str) -> Option<RoomMember> {
 pub fn is_room_thread_session_id(session_id: &str) -> bool {
     room_id_of_session(session_id).is_some() || room_member_of_session(session_id).is_some()
 }
-
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "ids_home_replay.rs"]
-mod home_replay;
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -669,36 +669,6 @@ mod tests {
     }
 
 
-    /// Node's real controller on three queues: the grant order and the refusal.
-    #[tokio::test(start_paused = true)]
-    #[cfg(node_twin)]
-    async fn grant_order_and_refusal_follow_node() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("golden/admission.json")).unwrap();
-        let scenarios: [(&str, usize, Vec<(&'static str, Priority, &'static str)>); 3] = [
-            ("priority", 16, vec![("a", Priority::BestEffort, "a-best"), ("a", Priority::UserVisible, "a1"), ("a", Priority::UserVisible, "a2"), ("b", Priority::UserVisible, "b1"), ("c", Priority::UserBlocking, "c-blocking")]),
-            ("three_owners", 16, vec![("a", Priority::UserVisible, "a1"), ("a", Priority::UserVisible, "a2"), ("b", Priority::UserVisible, "b1"), ("b", Priority::UserVisible, "b2"), ("c", Priority::UserVisible, "c1")]),
-            ("full", 2, vec![("s1", Priority::UserVisible, "one"), ("s1", Priority::UserVisible, "two")]),
-        ];
-        for (name, queue, requests) in scenarios {
-            let a = admission(1, queue);
-            let first = a.acquire_in(Pool::Agent, Some("x"), Priority::UserVisible, &Cancel::new()).await.unwrap();
-            let order = Arc::new(Mutex::new(Vec::new()));
-            let mut tasks = Vec::new();
-            for (queued, (owner, priority, tag)) in requests.into_iter().enumerate() {
-                tasks.push(spawn_acquire(&a, Pool::Agent, owner, priority, &order, tag));
-                queued_is(&a, queued + 1, tasks.last_mut().unwrap()).await;
-            }
-            if name == "full" {
-                let refused = a.acquire_in(Pool::Agent, Some("z"), Priority::UserVisible, &Cancel::new()).await.err().unwrap();
-                assert_eq!(serde_json::json!(refused), golden[name]["full"]["message"]);
-            }
-            drop(first);
-            for t in tasks {
-                finished("a queued acquire to be granted a slot as the first holder lets go", t).await;
-            }
-            assert_eq!(serde_json::json!(*order.lock().unwrap()), golden[name]["order"], "{name}");
-        }
-    }
     /// A yielded agent lets another run; its slot comes back in the queue, behind an owner that was already waiting.
     #[tokio::test(start_paused = true)]
     async fn a_yielded_agent_lets_another_run_and_gets_its_slot_back_in_order() {

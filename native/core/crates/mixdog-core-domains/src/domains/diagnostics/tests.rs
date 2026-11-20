@@ -125,16 +125,6 @@ struct Rig {
     _state: tempfile::TempDir,
 }
 
-/// `<DATA>` for the data folder, no `checkedAt`, `/` separators as the golden normalizes them.
-#[cfg(node_twin)]
-fn normal(mut result: Value, data: &std::path::Path) -> Value {
-    result.as_object_mut().unwrap().shift_remove("checkedAt");
-    let text = result
-        .to_string()
-        .replace(&data.to_string_lossy().replace('\\', "\\\\"), "<DATA>")
-        .replace("\\\\", "/");
-    serde_json::from_str(&text).unwrap()
-}
 
 /// The script runtime's version is known only from the install's metadata: absent it, the row
 /// says so; a known version is judged against the package's requirement.
@@ -323,32 +313,6 @@ async fn rig(golden: &Value, case: &Value) -> Rig {
 
 
 
-#[cfg(node_twin)]
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/domains/goldens/doctor.json");
-#[cfg(node_twin)]
-#[tokio::test]
-async fn every_case_answers_what_the_node_doctor_answered() {
-    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-    for case in golden["cases"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
-        let rig = rig(&golden, case).await;
-        let got = value(
-            &*rig.service,
-            request("diagnostics/runDoctor", with_op(json!({}), 1), Some(1)),
-        )
-        .await
-        .unwrap();
-        let want = normal(case["result"].clone(), std::path::Path::new("<none>"));
-        let got = normal(got, rig._data.path());
-        assert_eq!(got, want, "case {name}");
-        assert_eq!(
-            format_report(&got),
-            case["report"].as_str().unwrap(),
-            "report of {name}"
-        );
-        let _ = &rig._state;
-    }
-}
 /// A healthy install: scripted runtime statuses with nothing to report beyond the data folder and the config.
 fn healthy() -> (Value, Value) {
     let golden = json!({ "node": { "version": "22.20.0", "engines": ">=22.0.0" }, "bridges": {}, "packageVersion": "1.5.0" });
@@ -397,20 +361,6 @@ async fn the_text_report_is_a_notice_only_when_asked_and_a_second_run_is_busy() 
     .await
     .unwrap();
     assert_eq!(busy, json!({ "busy": true }));
-}
-/// A config Node wrote with a profile title a phone sent cut inside an emoji
-/// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs) is a valid JSON object to Node's
-/// `JSON.parse`: in place of the golden's `{}`, the doctor answers what Node's answered for a valid config.
-#[cfg(node_twin)]
-#[tokio::test]
-async fn a_config_node_wrote_with_half_an_emoji_is_valid_to_the_doctor() {
-    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-    let case = golden["cases"].as_array().unwrap().iter().find(|c| c["name"] == "healthy/ok").unwrap();
-    let rig = rig(&golden, case).await;
-    let set = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
-    std::fs::copy(set.join("config-profile/before/mixdog-config.json"), rig._data.path().join("mixdog-config.json")).unwrap();
-    let got = value(&*rig.service, request("diagnostics/runDoctor", with_op(json!({}), 1), Some(1))).await.unwrap();
-    assert_eq!(normal(got, rig._data.path()), normal(case["result"].clone(), std::path::Path::new("<none>")));
 }
 #[tokio::test]
 async fn a_repeated_op_runs_the_checks_once() {

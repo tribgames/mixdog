@@ -5,62 +5,20 @@
 //! port of `use-transcript-scroll.test.mjs` and `use-transcript-activity.test.mjs` (the selection tests of the first belong to
 //! the mouse module).
 
-#[cfg(node_twin)]
-use mixdog_tui::transcript::scroll::activity::{ActiveTool, ActiveTools, active_tools, active_tools_signature, agent_revision, statusline_stats};
 use mixdog_tui::transcript::scroll::anchor::{Anchor, Geometry, reading_anchor_at};
-#[cfg(node_twin)]
-use mixdog_tui::transcript::scroll::anchor::{Current, bottom_snap_rows, resolve_anchor_scroll_offset, swap_returns_to_tail};
 use mixdog_tui::transcript::scroll::coalesce::ScrollCoalescer;
-#[cfg(node_twin)]
-use mixdog_tui::transcript::scroll::coalesce::{DirectionalDelta, accumulate_directional_scroll_delta};
 use mixdog_tui::transcript::scroll::engine::{ScrollHost, TranscriptScroll};
-#[cfg(node_twin)]
-use mixdog_tui::transcript::scroll::engine::Viewport;
 use mixdog_tui::transcript::scroll::lock::{CommitFrame, RowIndex};
 use mixdog_tui::transcript::scroll::tuning::{ScrollTuning, WheelAccel};
 use serde_json::json;
-#[cfg(node_twin)]
-use serde_json::Value;
 
-#[cfg(node_twin)]
-fn list<'a>(value: &'a Value, key: &str) -> &'a [Value] {
-    value[key].as_array().unwrap_or_else(|| panic!("{key} is a list"))
-}
 
-#[cfg(node_twin)]
-fn number(value: &Value, key: &str) -> f64 {
-    value[key].as_f64().unwrap_or_else(|| panic!("{key} is a number"))
-}
 
-#[cfg(node_twin)]
-fn count(value: &Value, key: &str) -> usize {
-    value[key].as_u64().unwrap_or_else(|| panic!("{key} is a count")) as usize
-}
 
-#[cfg(node_twin)]
-fn flag(value: &Value, key: &str) -> bool {
-    value[key].as_bool().unwrap_or(false)
-}
 
-#[cfg(node_twin)]
-fn prefix(value: &Value, key: &str) -> Option<Vec<usize>> {
-    value[key].as_array().map(|rows| rows.iter().map(|row| row.as_u64().expect("a row") as usize).collect())
-}
 
-#[cfg(node_twin)]
-fn ids(value: &Value, key: &str) -> Vec<Value> {
-    list(value, key).to_vec()
-}
 
-#[cfg(node_twin)]
-fn anchor(value: &Value) -> Option<Anchor> {
-    value.is_object().then(|| Anchor { id: value["id"].clone(), offset: number(value, "offset") })
-}
 
-#[cfg(node_twin)]
-fn same_anchor(actual: &Option<Anchor>, expected: &Value, context: &str) {
-    assert_eq!(*actual, anchor(expected), "{context}");
-}
 
 /// A host that records the history restores and has no selection.
 #[derive(Default)]
@@ -113,10 +71,6 @@ fn transcript(heights: &[usize], view: usize) -> TranscriptScroll {
     TranscriptScroll { max_scroll_rows: geom.total_rows.saturating_sub(view), following: true, geom, ..TranscriptScroll::default() }
 }
 
-#[cfg(node_twin)]
-fn lookup(env: &Value) -> impl Fn(&str) -> Option<String> + '_ {
-    move |name| env.get(name).and_then(Value::as_str).map(str::to_owned)
-}
 
 #[test]
 fn defaults_are_the_documented_ones() {
@@ -125,72 +79,9 @@ fn defaults_are_the_documented_ones() {
     assert!(tuning.accel_enabled);
 }
 
-#[cfg(node_twin)]
-fn scroll_from(spec: &Value) -> TranscriptScroll {
-    let refs = &spec["refs"];
-    let geom = if refs["geom"].is_object() {
-        Geometry {
-            prefix_rows: prefix(&refs["geom"], "prefixRows"),
-            ids: ids(&refs["geom"], "ids"),
-            total_rows: count(&refs["geom"], "totalRows"),
-            view_rows: count(&refs["geom"], "viewRows"),
-            render_offset: number(&refs["geom"], "renderOffset"),
-        }
-    } else {
-        Geometry::default()
-    };
-    let viewport = refs["prevViewport"].is_object().then(|| Viewport {
-        content_height: count(&refs["prevViewport"], "contentHeight"),
-        floating_panel_rows: count(&refs["prevViewport"], "floatingPanelRows"),
-    });
-    TranscriptScroll {
-        scroll_offset: spec["scrollOffset"].as_u64().unwrap_or(0) as usize,
-        target: number(refs, "target"),
-        position: number(refs, "position"),
-        anchor: anchor(&refs["anchor"]),
-        anchor_dirty: flag(refs, "dirty"),
-        following: flag(refs, "following"),
-        geom,
-        viewport,
-        ..TranscriptScroll::default()
-    }
-}
 
-#[cfg(node_twin)]
-fn same_state(scroll: &TranscriptScroll, expected: &Value, context: &str) {
-    assert_eq!(scroll.target, number(expected, "target"), "target: {context}");
-    assert_eq!(scroll.position, number(expected, "position"), "position: {context}");
-    assert_eq!(scroll.following, flag(expected, "following"), "following: {context}");
-    same_anchor(&scroll.anchor, &expected["anchor"], context);
-    assert_eq!(scroll.anchor_dirty, flag(expected, "dirty"), "dirty: {context}");
-    assert_eq!(scroll.scroll_offset as f64, number(expected, "offset"), "offset: {context}");
-}
 
-#[cfg(node_twin)]
-fn active(tools: Option<ActiveTools>) -> Value {
-    let segment = |tool: Option<ActiveTool>| tool.map(|tool| json!({ "count": tool.count, "startedAt": tool.started_at }));
-    tools.map_or(Value::Null, |tools| {
-        let mut object = serde_json::Map::new();
-        for (key, tool) in [("shell", tools.shell), ("web_search", tools.web_search), ("agent", tools.agent)] {
-            if let Some(tool) = segment(tool) {
-                object.insert(key.to_owned(), tool);
-            }
-        }
-        Value::Object(object)
-    })
-}
 
-/// The numbers of a value, so `2` and `2.0` compare equal.
-#[cfg(node_twin)]
-fn numbers_equal(left: &Value, right: &Value) -> bool {
-    match (left, right) {
-        (Value::Number(left), Value::Number(right)) => left.as_f64() == right.as_f64(),
-        (Value::Object(left), Value::Object(right)) => {
-            left.len() == right.len() && left.iter().all(|(key, value)| right.get(key).is_some_and(|other| numbers_equal(value, other)))
-        }
-        _ => left == right,
-    }
-}
 
 // ── use-transcript-scroll.test.mjs ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -424,6 +315,3 @@ fn with_acceleration_off_every_notch_is_the_base_step() {
     assert_eq!(steps, [-3, -3, -3, -3]);
 }
 
-#[cfg(node_twin)]
-#[path = "node-twin/transcript_scroll.rs"]
-mod node_twin;

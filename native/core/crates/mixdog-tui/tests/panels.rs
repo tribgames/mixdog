@@ -17,8 +17,6 @@ use mixdog_tui::panels::context_model::{ContextModelInput, build_context_panel_m
 use mixdog_tui::panels::context_refresh::{ContextPanelRefresh, ContextRefreshFields};
 use mixdog_tui::panels::doctor::run_doctor;
 use mixdog_tui::panels::usage::open_usage_panel;
-#[cfg(node_twin)]
-use mixdog_tui::panels::usage::UsageRequest;
 use mixdog_tui::panels::{ContextPanel, ContextWindows, PanelsHost};
 use mixdog_tui::slash::host::Tone;
 use mixdog_tui::surface::epoch::PanelValue;
@@ -28,25 +26,7 @@ use mixdog_tui_widgets::panels::context_inspector::InspectOutcome;
 use mixdog_tui_widgets::picker::IndexMode;
 use serde_json::{Value, json};
 
-/// Collects the first mismatches of a group of cases.
-#[cfg(node_twin)]
-#[derive(Default)]
-struct Mismatches(Vec<String>);
 
-#[cfg(node_twin)]
-impl Mismatches {
-    fn expect(&mut self, what: impl FnOnce() -> String, got: &Value, want: &Value) {
-        if got != want && self.0.len() < 8 {
-            let (got, want) = (got.to_string(), want.to_string());
-            let cut = |text: &str| text.chars().take(900).collect::<String>();
-            self.0.push(format!("{}:\n  got  {}\n  want {}", what(), cut(&got), cut(&want)));
-        }
-    }
-
-    fn finish(self, group: &str) {
-        assert!(self.0.is_empty(), "{group}: {} mismatches, first:\n{}", self.0.len(), self.0.join("\n"));
-    }
-}
 
 // ---------------------------------------------------------------- the host
 
@@ -406,42 +386,6 @@ fn an_open_context_panel_is_rebuilt_when_a_summarised_field_changes() {
 
 // ---------------------------------------------------------------- the usage dashboard
 
-#[cfg(node_twin)]
-fn run_usage_case(case: &Value) -> Fake {
-    let spec = &case["spec"];
-    let answer = &spec["answer"];
-    let mut fake = Fake::new();
-    if !answer.is_null() {
-        fake.script("getUsageDashboard", Ok(Value::Null));
-    }
-    let arg = spec["arg"].as_str().unwrap();
-    let mut requests: Vec<UsageRequest> = vec![open_usage_panel(&mut fake, arg)];
-    fake.drain();
-    if spec["supersede"] == true {
-        // The timer of the first open has not run: a second open takes the usage claim.
-        requests.push(open_usage_panel(&mut fake, ""));
-        fake.drain();
-    }
-    for request in requests {
-        if !request.due(&mut fake) {
-            continue;
-        }
-        fake.calls.push(json!(["getUsageDashboard", request.args()]));
-        for update in answer["updates"].as_array().into_iter().flatten() {
-            request.update(&mut fake, update.clone());
-        }
-        let result = if let Some(message) = answer.get("throws").and_then(Value::as_str) {
-            Err(message.to_owned())
-        } else if let Some(text) = answer.get("throwsPlain").and_then(Value::as_str) {
-            Err(text.to_owned())
-        } else {
-            Ok(answer["final"].clone())
-        };
-        request.settle(&mut fake, result);
-        fake.drain();
-    }
-    fake
-}
 
 #[test]
 fn the_usage_dashboard_streams_through_the_claim_and_a_newer_open_ends_the_old_one() {
@@ -603,6 +547,3 @@ fn a_btw_answer_lives_only_in_the_panel_and_a_replaced_ask_is_ignored() {
     assert_eq!(run.controller.panel(), None);
 }
 
-#[cfg(node_twin)]
-#[path = "node-twin/panels.rs"]
-mod node_twin;

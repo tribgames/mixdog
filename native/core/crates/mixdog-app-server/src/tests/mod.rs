@@ -3,36 +3,24 @@
 mod actor;
 mod admission;
 mod approvals;
-#[cfg(node_twin)]
-mod call_lanes;
 mod closing;
 mod control;
 mod dispatch;
 mod errors;
 mod handshake;
 mod host;
-#[cfg(node_twin)]
-mod inventory_rule;
 mod lane_pushes;
 mod lane_rules;
 mod model_proxy_calls;
-#[cfg(node_twin)]
-mod model_proxy_wire;
-#[cfg(node_twin)]
-mod phone_chat;
 mod phone_stop;
 mod queues;
 mod relay_answer;
 mod routing;
 mod samples;
 mod surrogate_inventory;
-#[cfg(node_twin)]
-mod session_transport;
 mod settings_announcement;
 mod thread_transport;
 mod wire;
-#[cfg(node_twin)]
-mod settings_change_feed;
 mod storm;
 mod subscriptions;
 mod two_windows;

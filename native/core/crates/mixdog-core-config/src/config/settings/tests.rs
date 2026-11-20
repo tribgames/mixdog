@@ -4,10 +4,6 @@ use mixdog_core_api::mock::MockStatePublisher;
 
 use super::*;
 use crate::config::ConfigLanes;
-#[cfg(node_twin)]
-use crate::config::patch::js_deep_equal;
-#[cfg(node_twin)]
-use crate::config::patch::stored_form;
 
 #[derive(Default)]
 struct Recorded(Mutex<Vec<Value>>);
@@ -36,25 +32,9 @@ async fn settings(dir: &tempfile::TempDir, agent: &Value, shell_env: Option<Stri
     (Settings::new(config, effects.clone(), env), effects)
 }
 
-#[cfg(node_twin)]
-fn eq(a: &Value, b: &Value) -> bool {
-    js_deep_equal(a, b)
-}
 
-#[cfg(node_twin)]
-fn stored(doc: &Value) -> Value {
-    Value::Object(stored_form(doc.as_object().unwrap()))
-}
 
-/// Recorded entries per test: each opens its own config for every read and setter.
-#[cfg(node_twin)]
-const ENTRY_CHUNK: usize = 8;
 
-/// The shell rule depends on the platform the twin was recorded on.
-#[cfg(node_twin)]
-fn compares(node_is_windows: bool, method: &str) -> bool {
-    !(method == "setSystemShell" && node_is_windows != cfg!(windows))
-}
 
 // Expected values come from the TUI registry (`src/tui/themes/index.mjs`, run under Node).
 #[tokio::test]
@@ -104,112 +84,3 @@ async fn cache_warming_tells_the_warmer() {
 }
 
 
-#[cfg(node_twin)]
-fn settings_twin() -> Value {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/config-settings/config-settings-twin.json");
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
-}
-#[cfg(node_twin)]
-mixdog_rt::replay_chunks!(SETTINGS_TESTS, #[tokio::test] async the_settings_chunk; [
-    reads_and_setters_match_the_recorded_node_settings_00 = 0,
-    reads_and_setters_match_the_recorded_node_settings_01 = 1,
-    reads_and_setters_match_the_recorded_node_settings_02 = 2,
-    reads_and_setters_match_the_recorded_node_settings_03 = 3,
-    reads_and_setters_match_the_recorded_node_settings_04 = 4,
-    reads_and_setters_match_the_recorded_node_settings_05 = 5,
-    reads_and_setters_match_the_recorded_node_settings_06 = 6,
-    reads_and_setters_match_the_recorded_node_settings_07 = 7,
-    reads_and_setters_match_the_recorded_node_settings_08 = 8,
-    reads_and_setters_match_the_recorded_node_settings_09 = 9,
-    reads_and_setters_match_the_recorded_node_settings_10 = 10,
-    reads_and_setters_match_the_recorded_node_settings_11 = 11,
-    reads_and_setters_match_the_recorded_node_settings_12 = 12,
-    reads_and_setters_match_the_recorded_node_settings_13 = 13,
-    reads_and_setters_match_the_recorded_node_settings_14 = 14,
-]);
-#[cfg(node_twin)]
-#[test]
-fn every_recorded_entry_has_its_settings_test() {
-    let twin = settings_twin();
-    let node_is_windows = twin["platform"] == "win32";
-    let entries = twin["entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 120);
-    let setters = entries.iter().flat_map(|entry| entry["setters"].as_array().unwrap()).filter(|setter| compares(node_is_windows, setter["method"].as_str().unwrap())).count();
-    assert!(setters >= 1000, "{setters}");
-    mixdog_rt::testing::assert_chunks_registered(SETTINGS_TESTS, entries.len(), ENTRY_CHUNK);
-}
-#[cfg(node_twin)]
-async fn the_settings_chunk(chunk: usize) {
-    let twin = settings_twin();
-    let node_is_windows = twin["platform"] == "win32";
-    let entries = twin["entries"].as_array().unwrap();
-    let range = mixdog_rt::testing::chunk_range(entries.len(), chunk, ENTRY_CHUNK);
-    for (index, entry) in entries.iter().enumerate().skip(range.start).take(range.len()) {
-        let env = entry["shellEnv"].as_str().map(str::to_owned);
-        let dir = tempfile::tempdir().unwrap();
-        let (s, _) = settings(&dir, &entry["config"], env.clone()).await;
-        let reads = &entry["reads"];
-        for (name, got) in [
-            ("heartbeat", s.heartbeat()),
-            ("reactions", s.reactions()),
-            ("titles", s.session_titles()),
-            ("cacheWarming", s.cache_warming()),
-            ("botOrder", s.bot_order()),
-            ("shell", s.system_shell()),
-            ("developer", s.developer()),
-            ("recap", s.recap()),
-            ("profile", s.profile()),
-        ] {
-            assert!(eq(&got, &reads[name]), "entry {index} read {name}: {got} vs {}", reads[name]);
-        }
-        for setter in entry["setters"].as_array().unwrap() {
-            let method = setter["method"].as_str().unwrap();
-            if !compares(node_is_windows, method) {
-                continue;
-            }
-            let dir = tempfile::tempdir().unwrap();
-            let (s, effects) = settings(&dir, &entry["config"], env.clone()).await;
-            let args = setter["args"].as_array().unwrap();
-            let result = match method {
-                "setHeartbeatEnabled" => s.set_heartbeat_enabled(&args[0]).await,
-                "setHeartbeatInterval" => s.set_heartbeat_interval(&args[0]).await,
-                "setReactionsEnabled" => s.set_reactions_enabled(&args[0]).await,
-                "setAiSessionTitles" => s.set_ai_session_titles(&args[0]).await,
-                "setCacheWarmingEnabled" => s.set_cache_warming_enabled(&args[0]).await,
-                "setBotOrder" => s.set_bot_order(&args[0]).await,
-                "setSystemShell" => s.set_system_shell(&args[0]).await,
-                "setDeveloperOption" if args[0] == "allowAllActions" && args[1] == true => {
-                    s.enable_confirmed_allow_all_actions().await
-                }
-                "setDeveloperOption" => s.set_developer_option(&args[0], &args[1]).await,
-                "setProfile" => s.set_profile(&args[0]).await,
-                // The answer is the updater's view; only the stored switch is ours.
-                "setAutoUpdate" => s.set_auto_update(&args[0]).await.map(|()| setter["value"].clone()),
-                // The recorder kept the guide of the status Node answers; the status itself is
-                // pinned by `save_starter_guide_state_answers_the_onboarding_status`.
-                "saveStarterGuideState" => s.save_starter_guide_state(&args[0]).await.map(|status| status["starterGuide"].clone()),
-                other => panic!("unknown setter {other}"),
-            };
-            let label = format!("entry {index} {method} {args:?}");
-            match (&result, setter.get("error")) {
-                (Err(error), Some(expected)) => assert_eq!(&json!(error.to_string()), expected, "{label}"),
-                (Ok(value), None) => {
-                    assert!(eq(value, &setter["value"]), "{label}: value {value} vs {}", setter["value"]);
-                }
-                _ => panic!("{label}: {result:?} vs {:?}", setter.get("error")),
-            }
-            let expected = setter.get("saved").filter(|saved| !saved.is_null()).unwrap_or(&entry["config"]);
-            let agent = Value::Object(s.config.agent());
-            assert!(eq(&stored(&agent), &stored(expected)), "{label}: stored config {agent} vs {expected}");
-            let effects: Vec<Value> = effects
-                .0
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|call| call[0] != "cacheWarming")
-                .cloned()
-                .collect();
-            assert!(eq(&Value::Array(effects), &setter["calls"]), "{label}: effects");
-        }
-    }
-}

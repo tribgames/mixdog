@@ -184,10 +184,6 @@ mod tests {
 
 #[cfg(test)]
 mod cleanup_tests {
-    #[cfg(node_twin)]
-    use mixdog_core_base::support::{FsFailure, FsStep};
-    #[cfg(node_twin)]
-    use serde_json::Value;
 
     use super::*;
 
@@ -202,20 +198,6 @@ mod cleanup_tests {
     }
 
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../../fixtures/dotnet-format-cleanup/golden.json")).unwrap()
-    }
-    /// Node's real runner with `rmSync` of the report directory failing (`record-dotnet-format-cleanup.mjs`):
-    /// the error's text, from the same errno and the same call.
-    #[cfg(node_twin)]
-    #[test]
-    fn the_cleanup_failure_reads_as_nodes_error_does() {
-        let node = golden()["failedCleanup"]["error"].clone();
-        let failure = FsFailure { error: std::io::ErrorKind::DirectoryNotEmpty.into(), step: FsStep::Rmdir(std::path::PathBuf::from("<report>")) };
-        assert_eq!(failure_text(&failure), node["message"].as_str().unwrap());
-        assert!(node["message"].as_str().unwrap().starts_with(&format!("{}:", node["code"].as_str().unwrap())));
-    }
 }
 
 

@@ -813,18 +813,6 @@ mod tools {
     }
 
 
-    /// The four web tools are the recorded definition objects (`fixtures/tool-definitions/definitions.json`, through
-    /// `mixdog_js::fixture_tools`): title, trigger, `public`, description, inputSchema and annotations, key for key.
-    #[cfg(node_twin)]
-    #[test]
-    fn the_web_tools_are_nodes_definitions() {
-        let web = service(|_| {});
-        for tool in web.tools().iter() {
-            let node = mixdog_js::fixture_tools::definition(&tool.spec().name).expect("a Node definition");
-            assert_eq!(tool.spec().definition(), node, "{}", tool.spec().name);
-            assert_eq!(tool.spec().definition()["annotations"].to_string(), node["annotations"].to_string(), "{} annotations", tool.spec().name);
-        }
-    }
 }
 
 mod page_entry_parity {

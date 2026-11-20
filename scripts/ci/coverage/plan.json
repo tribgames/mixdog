@@ -1156,12 +1156,6 @@
       "owner": "release-engineering"
     },
     {
-      "glob": "native/core/crates/mixdog-app-server-daemon/src/testdata/unread_stdin_shell.rs",
-      "class": "fixture",
-      "reason": "stand-in shell compiled directly by rustc for the node_twin unread-stdin test; it defines no tests and is not a Cargo target",
-      "owner": "release-engineering"
-    },
-    {
       "glob": "native/core/crates/mixdog-office-com/tests/support/host-app.ps1",
       "class": "helper",
       "reason": "the PowerShell host application the office-com live tests start; it is not a test",
@@ -1232,24 +1226,6 @@
       "glob": "native/core/crates/mixdog-office-com/tests/*_live.rs",
       "class": "not-run-in-ci",
       "reason": "live: every test is #[ignore] and drives real Microsoft Office on a Windows desktop; no hosted runner has Office",
-      "owner": "release-engineering"
-    },
-    {
-      "glob": "native/core/crates/mixdog-office/tests/support/file_view.rs",
-      "class": "twin-only",
-      "reason": "included by twin_dispatch.rs and twin_e2e.rs, which exist under cfg(node_twin) only",
-      "owner": "release-engineering"
-    },
-    {
-      "glob": "native/core/crates/mixdog-ai/src/providers/grok/refresh_lease/processes.rs",
-      "class": "twin-only",
-      "reason": "replay of the Node recording, compiled only under cfg(node_twin)",
-      "owner": "release-engineering"
-    },
-    {
-      "glob": "native/core/crates/mixdog-services/src/memory/replays/*.rs",
-      "class": "twin-only",
-      "reason": "replays of the Node recordings, behind `mod replays` under cfg(node_twin)",
       "owner": "release-engineering"
     },
     {

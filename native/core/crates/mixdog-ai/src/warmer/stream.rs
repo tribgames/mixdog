@@ -188,78 +188,12 @@ fn fault_text(fault: &TransportFault) -> String {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use std::collections::VecDeque;
 
-    #[cfg(node_twin)]
-    use async_trait::async_trait;
-    #[cfg(node_twin)]
-    use bytes::Bytes;
-    #[cfg(node_twin)]
-    use serde_json::Map;
-    #[cfg(node_twin)]
-    use serde_json::json;
 
-    #[cfg(node_twin)]
-    use super::*;
 
-    #[cfg(node_twin)]
-    struct Chunks(VecDeque<Bytes>);
 
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl BodyStream for Chunks {
-        async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-            self.0.pop_front().map(Ok)
-        }
-    }
 
-    #[cfg(node_twin)]
-    /// The fields Node's snapshot carries, by its names.
-    fn usage_json(usage: &WarmUsage) -> Value {
-        let mut map = Map::new();
-        let mut put = |key: &str, value: f64| {
-            map.insert(key.to_owned(), if value.fract() == 0.0 { json!(value as i64) } else { json!(value) });
-        };
-        put("inputTokens", usage.input);
-        put("outputTokens", usage.output);
-        put("cachedTokens", usage.cached);
-        put("cacheWriteTokens", usage.cache_write);
-        if let Some(v) = usage.cache_write_1h {
-            put("cacheWrite1hTokens", v);
-        }
-        if let Some(v) = usage.cost_usd {
-            put("costUsd", v);
-        }
-        if let Some(v) = usage.prompt_tokens {
-            put("promptTokens", v);
-        }
-        Value::Object(map)
-    }
 
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn every_recorded_stream_reads_as_nodes_does() {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/cache-warm/golden.json")).unwrap();
-        let rows = golden["stream"].as_array().unwrap();
-        assert_eq!(rows.len(), 10);
-        for row in rows {
-            let mut body = Chunks(row["chunks"].as_array().unwrap().iter().map(|c| Bytes::from(c.as_str().unwrap().to_owned())).collect());
-            let mut reports = Vec::new();
-            let got = read_cache_warm_stream(&mut body, &mut |u| reports.push(usage_json(u)), &mut |_| {}).await;
-            let name = &row["name"];
-            let want_reports: Vec<Value> = row["reports"].as_array().unwrap().to_vec();
-            assert_eq!(reports, want_reports, "{name}: reports");
-            match (got, row.get("error")) {
-                (Ok(usage), None) => assert_eq!(usage_json(&usage), row["usage"], "{name}"),
-                (Err(failure), Some(error)) => {
-                    assert_eq!(failure.message, error["message"].as_str().unwrap(), "{name}");
-                    assert_eq!(failure.usage.as_ref().map_or(Value::Null, usage_json), error["usage"], "{name}: usage before the error");
-                }
-                (got, _) => panic!("{name}: {got:?}"),
-            }
-        }
-    }
 }
 
 

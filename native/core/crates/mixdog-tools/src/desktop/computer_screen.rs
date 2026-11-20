@@ -38,35 +38,6 @@ mod switch;
 mod turn;
 #[cfg(any(windows, test))]
 mod video;
-#[cfg(node_twin)]
-#[cfg(all(windows, test))]
-mod adapter_tests;
-#[cfg(node_twin)]
-#[cfg(all(windows, test))]
-mod composed_tests;
-#[cfg(node_twin)]
-#[cfg(all(windows, test))]
-mod helper_client_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod installer_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod lease_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod router_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod session_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod switch_tests;
-#[cfg(all(test, node_twin))]
-mod testing;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod video_tests;
 
 /// PC access's handle on the one secure-desktop installer, with the types its calls take and answer.
 #[cfg(windows)]

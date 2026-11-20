@@ -13,8 +13,6 @@ use mixdog_tui::app::AppCtx;
 use mixdog_tui::pickers::PickerKind;
 use mixdog_tui::pickers::extensions::disabled_skills::SkillSet;
 use mixdog_tui::pickers::extensions::message_selector::{has_user_messages, message_selector_label, selectable_user_items};
-#[cfg(node_twin)]
-use mixdog_tui::pickers::extensions::message_selector::open_message_selector;
 use mixdog_tui::pickers::extensions::panel::{read_status, scope_note};
 use mixdog_tui::pickers::extensions::resume::{format_session_message_count, format_session_updated_at};
 use mixdog_tui::pickers::extensions::{Action, ExtPanel, Extensions, ExtensionsHost, Handler};
@@ -24,8 +22,6 @@ use mixdog_tui::surface::owner::PanelSurface;
 use mixdog_tui::surface::{SurfaceClaim, SurfaceKind};
 use mixdog_tui_widgets::picker::IndexMode;
 use serde_json::{Value, json};
-#[cfg(node_twin)]
-use serde_json::Map;
 const NOW_MS: u64 = 1_000_000;
 
 /// What the recorder logs apart.
@@ -174,10 +170,6 @@ impl Fake {
         self.surface.live_picker().cloned()
     }
 
-    #[cfg(node_twin)]
-    fn row(&self, value: &str) -> Option<usize> {
-        self.surface.live_picker()?.items.iter().position(|item| item.value == value)
-    }
 }
 
 impl AppCtx for Fake {
@@ -370,106 +362,7 @@ impl ExtensionsHost for Fake {
     }
 }
 
-/// One step of a scenario.
-#[cfg(node_twin)]
-fn run_step(ext: &mut Extensions, host: &mut Fake, step: &[Value]) {
-    let name = step[0].as_str().expect("a step name");
-    let text = |at: usize| step.get(at).and_then(Value::as_str).unwrap_or_default().to_owned();
-    let panel = host.live();
-    let index = |host: &Fake, at: usize| host.row(&text(at)).unwrap_or_else(|| panic!("step {step:?}: no such row"));
-    match name {
-        "open" => {
-            let options = step.get(2).cloned().unwrap_or_else(|| json!({}));
-            let opener = match text(1).as_str() {
-                "mcp-servers" => Opener::McpServers,
-                "mcp" => Opener::Mcp,
-                "skills" => Opener::Skills,
-                "project-skills" => Opener::ProjectSkills,
-                "plugins" => Opener::Plugins,
-                "memory" => Opener::MemoryCore,
-                "project" => Opener::Project,
-                "resume" => Opener::Resume,
-                "installed-plugins" => {
-                    ext.open_installed_plugins(host);
-                    return;
-                }
-                other => panic!("unknown opener {other}"),
-            };
-            assert!(ext.open(host, opener, &options).is_some());
-        }
-        "select" => {
-            let at = index(host, 1);
-            ext.select(host, &panel.expect("a panel"), at);
-        }
-        "left" | "right" => {
-            let at = index(host, 1);
-            ext.adjust(host, &panel.expect("a panel"), at);
-        }
-        "key" => {
-            let at = step.get(2).and_then(Value::as_str).and_then(|value| host.row(value));
-            ext.key(host, &panel.expect("a panel"), text(1).chars().next().expect("a key"), at);
-        }
-        "cancel" => ext.cancel(host, &panel.expect("a panel")),
-        "skillDetail" => ext.open_skill_detail(host, &step[1]),
-        "pluginDetail" => ext.open_plugin_detail(host, &step[1]),
-        "register" => {
-            ext.register_project(host, &text(1));
-        }
-        "enter" => {
-            let options = step.get(2).cloned().unwrap_or_else(|| json!({}));
-            let flag = |key: &str| options.get(key) != Some(&Value::Bool(false));
-            ext.enter_project(host, &text(1), flag("notice"), flag("register"));
-        }
-        "newProject" => ext.begin_new_project(host),
-        "login" => ext.login.login(host, &text(1)),
-        "logout" => ext.login.logout(host, &text(1)),
-        "complete" => {
-            if let Err(error) = ext.login.complete_code(host, &text(1)) {
-                host.push("errors", json!(error));
-            }
-        }
-        "failureReturn" => ext.login.failure_return(host),
-        "promptCancel" => ext.login.cancel(host),
-        "wait" => {
-            for _ in 0..20 {
-                let Some(due) = ext.login.poll_due_at() else { break };
-                host.now = host.now.max(due);
-                ext.login.poll(host);
-            }
-        }
-        "hasUser" => {
-            let has = has_user_messages(&host.items);
-            host.push("values", json!(has));
-        }
-        "selector" => {
-            let opened = open_message_selector(host);
-            host.push("values", json!(opened));
-        }
-        other => panic!("unknown step {other}"),
-    }
-}
 
-/// Runs a scenario and answers the log of every step in the recorder's shape.
-#[cfg(node_twin)]
-fn run_scenario(spec: &Value) -> Vec<Value> {
-    let mut ext = Extensions::new();
-    let mut host = Fake::new(spec);
-    let mut steps = Vec::new();
-    for step in spec["steps"].as_array().expect("steps") {
-        let step = step.as_array().expect("a step");
-        run_step(&mut ext, &mut host, step);
-        let mut entry = Map::new();
-        entry.insert("step".to_owned(), Value::Array(step.clone()));
-        for channel in CHANNELS {
-            entry.insert(channel.to_owned(), Value::Array(std::mem::take(host.log.get_mut(channel).expect("a channel"))));
-        }
-        entry.insert("picker".to_owned(), host.live().as_ref().map_or(Value::Null, snap_panel));
-        entry.insert("provider".to_owned(), snap_prompt(&host.provider));
-        entry.insert("settings".to_owned(), snap_prompt(&host.settings));
-        steps.push(Value::Object(entry));
-    }
-    steps
-}
 
 fn fake(store: Value) -> Fake {
     Fake::new(&json!({"store": store}))
@@ -767,6 +660,3 @@ fn session_formatters_follow_app_format() {
     assert_eq!(shown.1, "2023-11-14 22:13");
 }
 
-#[cfg(node_twin)]
-#[path = "node-twin/pickers_extensions.rs"]
-mod node_twin;

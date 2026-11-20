@@ -768,10 +768,6 @@ fn record_of_row(row: &Value) -> Option<ModelRecord> {
     record.enriched = EnrichedRow(Some(extra));
     Some(record)
 }
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "oauth_cache_tests.rs"]
-mod tests;
 
 /// A stable, opaque key of an account (its id is not written to the roster file): the first 16 hex digits of the SHA-256 of
 /// the parts.

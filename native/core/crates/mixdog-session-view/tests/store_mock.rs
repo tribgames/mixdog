@@ -452,6 +452,3 @@ async fn a_session_list_reads_every_page_or_the_one_asked_for() {
 }
 
 
-#[cfg(node_twin)]
-#[path = "node-twin/store_mock.rs"]
-mod node_twin;

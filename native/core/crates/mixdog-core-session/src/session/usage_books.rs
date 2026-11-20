@@ -206,25 +206,4 @@ mod tests {
         assert!(with_tail_book(None, None).is_none(), "a call whose owner learned nothing writes no book");
     }
 
-    #[cfg(node_twin)]
-    /// Node's own `markSessionStreamDelta` / `markSessionToolCall` over a run of events with the clock moved across the
-    /// 60 s boundary (`fixtures/agent/compact/record_usage.mjs` -> `golden/heartbeat.json`). The semantic kinds ask for
-    /// the heartbeat; a transport chunk, a keepalive and a tool's start (`markSessionToolCall`) never do.
-    #[test]
-    fn the_heartbeat_follows_node_over_a_run_of_events() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/agent/compact/golden/heartbeat.json")).expect("golden");
-        let mut header = Header::new();
-        let mut saves = 0;
-        for event in golden["events"].as_array().expect("events") {
-            let kind = event["kind"].as_str().expect("kind");
-            if matches!(kind, "text" | "reasoning" | "tool" | "semantic")
-                && let Some(change) = stream_heartbeat(&header, event["at"].as_f64().expect("at"))
-            {
-                header.extend(change.set);
-                saves += 1;
-            }
-            assert_eq!(header.get("lastHeartbeatAt").cloned().unwrap_or(Value::Null), event["after"], "{kind} at {}", event["at"]);
-            assert_eq!(saves, event["saves"].as_i64().expect("saves"), "{kind}: saves");
-        }
-    }
 }

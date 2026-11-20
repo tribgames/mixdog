@@ -188,7 +188,3 @@ impl DispatchThreads {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "dispatch_sessions_tests.rs"]
-mod tests;

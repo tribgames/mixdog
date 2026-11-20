@@ -237,22 +237,9 @@ mod stall_tests;
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use serde_json::Value;
 
     use super::*;
 
-    #[cfg(node_twin)]
-    fn overrides_of(recorded: &Value) -> Overrides {
-        let ms = |key: &str| recorded.get(key).and_then(Value::as_i64);
-        Overrides {
-            idle_timeout_ms: ms("idleTimeoutMs"),
-            first_transport_timeout_ms: ms("firstResponseTimeoutMs"),
-            first_semantic_timeout_ms: ms("firstSemanticTimeoutMs"),
-            provider_first_byte_timeout_ms: ms("providerFirstByteTimeoutMs"),
-            provider_first_output_timeout_ms: ms("providerFirstOutputTimeoutMs"),
-        }
-    }
 
     /// A provider that declares per-phase windows is not cut sooner than they: the first-transport deadline sits one tick above the
     /// declared head window (an attempt's 285 s first-byte window), and the first-output one above a declared window longer than
@@ -269,64 +256,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// What real Node answered (`benchmarks/rust-core/recorders/record-agent-watchdog.mjs`).
-    fn golden() -> Value {
-        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-watchdog/golden.json")).unwrap()
-    }
-    #[cfg(node_twin)]
-    #[test]
-    fn the_policy_is_what_node_resolved_under_each_environment() {
-        let golden = golden();
-        let mut checked = 0;
-        for environment in golden["policies"].as_array().unwrap() {
-            let vars = environment["env"].as_object().unwrap().clone();
-            let read = move |name: &str| vars.get(name).and_then(Value::as_str).map(str::to_owned);
-            for case in environment["cases"].as_array().unwrap() {
-                let kind = AgentKind {
-                    name: case["agent"].as_str(),
-                    hidden: case["hidden"].as_bool().unwrap(),
-                    stall_cap_idle_seconds: case["stallCapIdleSeconds"].as_i64(),
-                };
-                let policy = resolve_policy(kind, overrides_of(&case["overrides"]), &read);
-                let want = &case["policy"];
-                assert_eq!(
-                    (policy.first_transport_ms, policy.first_semantic_ms, policy.idle_stale_ms),
-                    (want["firstTransportMs"].as_i64().unwrap(), want["firstSemanticMs"].as_i64().unwrap(), want["idleStaleMs"].as_i64().unwrap()),
-                    "{} {} {}",
-                    environment["env"],
-                    case["agent"],
-                    case["overrides"]
-                );
-                checked += 1;
-            }
-        }
-        assert!(checked > 0);
-    }
-    #[cfg(node_twin)]
-    #[test]
-    fn only_the_abort_texts_node_calls_a_stall_are_one() {
-        for case in golden()["abortTexts"].as_array().unwrap() {
-            let message = case["message"].as_str().unwrap();
-            assert_eq!(is_watchdog_abort(message), case["stall"].as_bool().unwrap(), "{message:?}");
-        }
-    }
-    #[cfg(node_twin)]
-    #[test]
-    fn the_handoff_is_the_text_node_built() {
-        let golden = golden();
-        let names = |list: Option<&Value>| -> Vec<String> {
-            list.and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default()
-        };
-        for case in golden["handoffs"].as_array().unwrap() {
-            let jobs = case.get("shellJobs");
-            let text = stopped_handoff(
-                case["message"].as_str().unwrap(),
-                case["partial"].as_str().unwrap(),
-                &names(jobs.and_then(|j| j.get("stopped"))),
-                &names(jobs.and_then(|j| j.get("stopping"))),
-            );
-            assert_eq!(text, case["text"].as_str().unwrap());
-        }
-    }
 }

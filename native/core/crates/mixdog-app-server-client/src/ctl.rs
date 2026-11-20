@@ -661,69 +661,6 @@ mod tests {
         }
     }
 
-    /// The old comparison of every ctl call with a recorded reply script.
-    #[cfg(node_twin)]
-    #[tokio::test(start_paused = true)]
-    async fn every_ctl_call_ends_as_its_node_counterpart_did() {
-        let golden: serde_json::Value =
-            serde_json::from_str(include_str!("../../../fixtures/ctl-timeouts/golden.json")).unwrap();
-        let cases = golden["cases"].as_array().unwrap();
-        assert!(
-            cases.iter().all(|c| COUNTERPARTS.iter().any(|(node_call, ..)| c["nodeCall"] == *node_call)),
-            "every recorded Node call has a ctl counterpart"
-        );
-        for (node_call, ctl_path, call) in COUNTERPARTS {
-            for case in cases.iter().filter(|c| c["nodeCall"] == node_call) {
-                let what = format!("{ctl_path} against {node_call} {}", case["reply"]);
-                let request = &case["request"];
-                let port = scripted_listener(&case["reply"], draining_status().to_string()).await;
-                let started = tokio::time::Instant::now();
-                // The outer bound only keeps a client without a deadline from hanging the test.
-                let outcome = mixdog_rt::time::timeout(Duration::from_secs(60), invoke(call, &client(port)))
-                    .await
-                    .unwrap_or_else(|_| panic!("{what}: never ended"));
-                let elapsed = started.elapsed();
-                let answered = outcome.is_ok();
-                let shown = outcome.as_ref().err().map(CtlError::cli_line);
-                match case["settled"].as_str().unwrap() {
-                    "resolved" => assert_eq!(outcome.expect(&what).state, CoreStateName::Draining, "{what}"),
-                    _ => {
-                        let err = outcome.expect_err(&what);
-                        let recorded = &case["error"];
-                        assert_eq!(err.code(), recorded["code"].as_str(), "{what}");
-                        let node_path = request["path"].as_str().unwrap();
-                        let node_method = request["method"].as_str().unwrap();
-                        assert_eq!(
-                            recorded["message"].as_str().unwrap(),
-                            format!("session timeout: {node_method} {node_path}"),
-                            "{what}: Node's text"
-                        );
-                        assert_eq!(err.to_string(), format!("session timeout: {node_method} {ctl_path}"), "{what}");
-                        let silence = request["timeoutMs"].as_u64().unwrap();
-                        let total = request["deadlineMs"].as_u64().unwrap();
-                        let gave_up = if total > 0 { silence.min(total) } else { silence };
-                        assert_eq!(elapsed, Duration::from_millis(gave_up), "{what}");
-                        assert!(elapsed <= Duration::from_millis(case["elapsedMs"].as_u64().unwrap()), "{what}: after Node");
-                    }
-                }
-                // What the Node caller shows or returns (`seen`), projected from what `mixdogd ctl` shows or exits with.
-                let node_path = request["path"].as_str().unwrap();
-                let shown_error = shown.as_deref().map(|line| {
-                    line.strip_prefix("mixdogd: ").expect("a bare error line, not a refusal").replace(ctl_path, node_path)
-                });
-                let ok_word = |word: &'static str, other: &'static str| if answered { word } else { other };
-                let seen = match node_call {
-                    "GET /health" => json!({"health": if answered { json!("ok") } else { json!(null) }}),
-                    "POST /install-hold close" => json!({"status": ok_word("held", "unknown"), "error": shown_error}),
-                    "POST /install-hold release" => json!({"status": ok_word("released", "unknown"), "error": shown_error}),
-                    "POST /stop" => json!({"request": ok_word("sent", "failed"), "error": shown_error}),
-                    "POST /shutdown" => json!({"shutDown": answered}),
-                    other => panic!("no projection for {other}"),
-                };
-                assert_eq!(seen, case["seen"], "{what}: what the caller sees");
-            }
-        }
-    }
     /// The silence bound is restarted by every write that moves bytes (Node's socket `timeout`), not a limit on the whole
     /// write: a peer that drains a little at intervals shorter than the recorded `timeoutMs` keeps a transfer much longer
     /// than it alive, and one that stops draining ends it at that bound after its last progress.

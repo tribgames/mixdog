@@ -146,6 +146,3 @@ fn a_policy_naming_a_merged_away_server_follows_the_surviving_one() {
     assert_eq!(map_policy(&policy(None, &["notion"]), &group()), None, "the surviving server's own entry needs no move");
 }
 
-#[cfg(node_twin)]
-#[path = "node-twin/merge_cases.rs"]
-mod merge_cases;

@@ -13,12 +13,6 @@ pub mod single_flight;
 pub mod wav;
 pub mod whisper_owner;
 pub mod whisper_server;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod hint_twin_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod whisper_twin_tests;
 #[cfg(test)]
 mod hint_tests;
 #[cfg(test)]

@@ -46,34 +46,4 @@ mod tests {
     }
 
 
-    /// Node's `_messagesForDisk` over stored rows, recorded for a session without marks and two
-    /// with, array and other non-string attachment references among the rows (`fixtures/compaction-redactor`, from\n    /// `benchmarks/rust-core/recorders/record-compaction-redactor.mjs`).
-    #[cfg(node_twin)]
-    const GOLDEN: &str = include_str!("../../../../fixtures/compaction-redactor/golden.json");
-    #[test]
-    #[cfg(node_twin)]
-    fn rows_are_redacted_as_nodes_messages_for_disk_stores_them() {
-        let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
-        let rows: Vec<Value> = golden["rows"].as_array().expect("rows").clone();
-        let store = Arc::new(SensitiveStore::default());
-        for session in golden["sessions"].as_array().expect("sessions") {
-            let id = session["id"].as_str().expect("id");
-            let calls: Vec<Value> = session["calls"].as_array().expect("calls").clone();
-            assert_eq!(store.remember(id, &calls), session["marked"].as_bool().expect("marked"), "{id}");
-            let got = SensitiveRedactor::new(store.clone(), id).redact(rows.clone());
-            let mut want = session["stored"].as_array().expect("stored").clone();
-            // Node b6f10295a keeps an attachment's file name as given; with
-            // `benchmarks/rust-core/recorders/node-patches/node-fix-sensitive-attachment-names.patch` it redacts it, as the core does.
-            if id == "sess-marks" {
-                let name = want[4].pointer_mut("/content/0/filename").expect("the attachment's file name");
-                assert_eq!(*name, "682419.pdf");
-                *name = json!("[redacted].pdf");
-            }
-            assert_eq!(got.len(), want.len(), "{id}");
-            for (index, (got, want)) in got.iter().zip(&want).enumerate() {
-                assert_eq!(got, want, "{id} row {index}: {}", rows[index]);
-            }
-            assert_eq!(got == rows, session["same"].as_bool().expect("same"), "{id}: untouched rows stay as they are");
-        }
-    }
 }

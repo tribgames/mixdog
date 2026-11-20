@@ -300,36 +300,3 @@ mod tests {
     }
 }
 
-/// The recorded number conversions of the reference runtime; compiled only on the machine that holds them.
-#[cfg(all(test, node_twin))]
-mod node_twin {
-    use super::*;
-
-    fn bits(number: f64) -> String {
-        if number.is_nan() { "nan".into() } else { format!("{:016x}", number.to_bits()) }
-    }
-
-    /// `[input, expected]` rows: the expected `Number(input)` as its IEEE bits in hex.
-    const NUMBER_ROWS: &str = include_str!("../testdata/number_coercion.json");
-    /// `[bits, String(number)]` rows.
-    const STRING_ROWS: &str = include_str!("../testdata/number_to_string.json");
-
-    #[test]
-    fn number_of_a_string_matches_the_recorded_rows() {
-        let rows: Vec<(String, String)> = serde_json::from_str(NUMBER_ROWS).expect("fixture");
-        assert_eq!(rows.len(), 227);
-        for (input, expected) in rows {
-            assert_eq!(bits(string_to_number(&input)), expected, "Number({input:?})");
-        }
-    }
-
-    #[test]
-    fn string_of_a_number_matches_the_recorded_rows() {
-        let rows: Vec<(String, String)> = serde_json::from_str(STRING_ROWS).expect("fixture");
-        assert!(rows.len() > 200);
-        for (hex, expected) in rows {
-            let number = f64::from_bits(u64::from_str_radix(&hex, 16).expect("bits"));
-            assert_eq!(number_to_string(number), expected, "{hex}");
-        }
-    }
-}

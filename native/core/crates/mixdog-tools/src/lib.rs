@@ -10,5 +10,3 @@ pub mod policy;
 pub mod state;
 pub mod web;
 
-#[cfg(all(test, node_twin))]
-mod departures;

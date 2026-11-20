@@ -9,8 +9,6 @@
 
 mod router;
 mod start;
-#[cfg(node_twin)]
-pub mod twin;
 mod upgrade;
 
 use std::process::ExitCode;

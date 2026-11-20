@@ -561,8 +561,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    include!("node-twin/editorcfg.rs");
 
     /// A draft backed up holding half of an emoji (a lone surrogate escape) is read back with U+FFFD in its place and is not deleted.
     #[test]

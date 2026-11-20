@@ -310,19 +310,7 @@ impl HelperClient {
         Self { inner }
     }
 
-    /// The authenticated session, `None` when not connected.
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    pub(super) fn client_session(&self) -> Option<ClientSession> {
-        self.inner.state().session.clone()
-    }
 
-    /// Test only: `seen` is told each pipe event's connect number once the event was taken or ignored.
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    pub(super) fn on_pipe_event(&self, seen: Arc<dyn Fn(u64) + Send + Sync>) {
-        *lock_slot(&self.inner.pipe_event_seen) = Some(seen);
-    }
 }
 
 impl HelperService for HelperClient {
@@ -518,12 +506,6 @@ impl LinkConnector {
         }
     }
 
-    /// Test only: a connector over `dial`, which runs on the owner thread as the real handshake does.
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    pub(super) fn with(dial: Arc<DialLink>, timers: Arc<dyn Timers>) -> Self {
-        Self { available: Arc::new(|| true), dial, timers }
-    }
 }
 
 enum PipeCommand {

@@ -307,20 +307,7 @@ mod tests {
     use super::*;
     use crate::providers::connect::rewrite::StaticCredential;
     use crate::providers::listing_row::testing::Replay;
-    #[cfg(node_twin)]
-    use crate::providers::listing_row::testing::fixture;
 
-    #[cfg(node_twin)]
-    fn script(scenario: &str, golden: &Value) -> (u16, Value) {
-        match scenario {
-            "failed-with-manual" => (403, json!({ "error": { "message": "bad key fixture-custom-key" } })),
-            "failed-with-nothing" => (500, json!({ "error": "boom" })),
-            "anthropic" => (200, json!({ "data": golden["anthropicRoster"] })),
-            "catalog-replay" | "catalog-replay-overridden" => (200, json!({ "data": golden["catalogRoster"] })),
-            "keyless" => (200, json!({ "data": golden["roster"].as_array().unwrap()[..3] })),
-            _ => (200, json!({ "data": golden["roster"] })),
-        }
-    }
 
     /// `res.json()` of a 200 that is not JSON throws (`openai-compat-models.mjs:116`): the user sees the request
     /// error, not an empty list.
@@ -377,85 +364,6 @@ mod tests {
     }
 
 
-    /// Every recorded scenario gives Node's rows (overrides, hidden-by-default,
-    /// manual rows, a failed discovery) and asks Node's URL with Node's headers.
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn every_recorded_custom_listing_gives_nodes_rows() {
-        let golden = fixture("oracles/custom-listing.json");
-        for case in golden["cases"].as_array().unwrap() {
-            let scenario = case["scenario"].as_str().unwrap();
-            let config = &case["config"];
-            let protocol: Protocol = serde_json::from_value(config["protocol"].clone()).unwrap();
-            let keyless = config["auth"] == "none";
-            let (status, body) = script(scenario, &golden);
-            let bytes = serde_json::to_vec(&body).unwrap();
-            let http = Arc::new(Replay::new(move |_| (status, bytes.clone())));
-            let header = match protocol {
-                Protocol::Anthropic => ("x-api-key", "fixture-custom-key".to_owned()),
-                _ => ("authorization", "Bearer fixture-custom-key".to_owned()),
-            };
-            let headers: Vec<(String, String)> = config["headers"]
-                .as_object()
-                .map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect())
-                .unwrap_or_default();
-            let listing = CustomListing::new(
-                "custom-fixture",
-                protocol,
-                config["baseURL"].as_str().unwrap(),
-                headers,
-                http.clone(),
-                Arc::new(StaticCredential((!keyless).then(|| (header.0.to_owned(), header.1)))),
-                keyless,
-                config,
-                ListingLookup::with_models_dev(&json!({ "deepseek": { "models": golden["modelsDev"] } })),
-            );
-            let result = listing.list_models().await;
-
-            let sent = http.requests.lock().unwrap();
-            let want = &case["requests"][0];
-            assert_eq!(sent[0].url, want["url"].as_str().unwrap(), "{scenario}");
-            for (name, value) in want["headers"].as_object().unwrap() {
-                let has = sent[0].headers.iter().any(|(k, v)| k.eq_ignore_ascii_case(name) && v == value.as_str().unwrap());
-                assert!(has, "{scenario}: header {name}");
-            }
-            if case["error"].is_string() {
-                let error = result.err().unwrap_or_else(|| panic!("{scenario}: Node failed with {}", case["error"]));
-                assert_eq!(error.message, case["error"].as_str().unwrap(), "{scenario}");
-                assert_eq!(error.status.map(u64::from), case["status"].as_u64(), "{scenario}");
-                continue;
-            }
-            let rows = result.unwrap_or_else(|e| panic!("{scenario}: {e:?}"));
-            let expected = case["rows"].as_array().unwrap();
-            assert_eq!(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), expected.iter().map(|r| r["id"].as_str().unwrap()).collect::<Vec<_>>(), "{scenario}: ids");
-            for (row, node) in rows.iter().zip(expected) {
-                let what = format!("{scenario}: {}", node["id"]);
-                let raw = row.raw.as_ref().unwrap();
-                assert_eq!(row.name.as_deref(), node["name"].as_str(), "{what} name");
-                assert_eq!(row.context_window.unwrap_or(0), node["contextWindow"].as_u64().unwrap_or(0), "{what} contextWindow");
-                assert_eq!(row.max_output_tokens, node["outputTokens"].as_u64(), "{what} outputTokens");
-                assert_eq!(row.hidden, node["hidden"].as_bool().unwrap(), "{what} hidden");
-                assert_eq!(json!(row.manual), node["manual"], "{what} manual");
-                assert!(row.provider_name.is_none(), "{what}: the listing states no providerName; hydration sets it from the config");
-                assert_eq!(row.reasoning_content_field.as_deref(), node["reasoningContentField"].as_str(), "{what} reasoningContentField");
-                assert_eq!(raw["inherited"], node["inherited"], "{what} inherited");
-                assert_eq!(row.supports_images, node["supportsVision"].as_bool(), "{what} supportsVision");
-                assert_eq!(row.supports_reasoning, node["supportsReasoning"].as_bool(), "{what} supportsReasoning");
-                assert_eq!(json!(row.reasoning_levels), node.get("reasoningLevels").cloned().unwrap_or(json!([])), "{what} reasoningLevels");
-                assert_eq!(json!(row.picker.reasoning_options), node.get("reasoningOptions").cloned().unwrap_or(json!([])), "{what} reasoningOptions");
-                // The row the catalog keeps as stated is Node's row, key for key (`getCachedModelInfo`).
-                let mut node_row = node.clone();
-                node_row.as_object_mut().unwrap().remove("provider");
-                assert_eq!(crate::catalog::listed_row_of(&"custom-fixture".into(), row.clone()), Some(node_row.clone()), "{what} stated row");
-                // The provider answers it as its `getCachedModelInfo` (`custom-provider.mjs:109`), manual rows included.
-                assert_eq!(crate::catalog::CachedModelInfo::cached_row(&listing, &row.id).as_deref(), Some(&node_row), "{what} cached row");
-                let custom = row.picker.custom_reasoning.as_ref().unwrap();
-                assert_eq!(custom.replay, node["customReasoning"]["replay"], "{what} replay");
-                assert_eq!(json!(custom.wire_format), node["customReasoning"]["wireFormat"], "{what} wireFormat");
-                assert_eq!(json!(custom.wire_values), node["customReasoning"]["wireValues"], "{what} wireValues");
-            }
-        }
-    }
 }
 
 

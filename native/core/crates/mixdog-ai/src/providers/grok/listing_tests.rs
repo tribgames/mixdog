@@ -14,8 +14,6 @@ use crate::catalog::ListingLookup;
 use super::listing::SeedEffortRule;
 use crate::providers::connect::rewrite::StaticCredential;
 use crate::providers::listing_row::testing::Replay;
-#[cfg(node_twin)]
-use crate::providers::listing_row::testing::fixture;
 
 const VERSION: &str = "1.0.70";
 
@@ -50,12 +48,6 @@ fn listing(script: Value) -> (Arc<Replay>, GrokListing) {
     (http, listing)
 }
 
-#[cfg(node_twin)]
-fn sorted_headers(headers: &[(String, String)]) -> Vec<(String, String)> {
-    let mut headers: Vec<_> = headers.iter().map(|(k, v)| (k.to_lowercase(), v.clone())).collect();
-    headers.sort();
-    headers
-}
 
 /// After the catalog's enrichment (`_sanitizeGrokModels`): no output limit
 /// survives, and the effort levels are the ladder the row now carries, in
@@ -138,50 +130,3 @@ mod timers {
 }
 
 
-#[cfg(node_twin)]
-#[tokio::test]
-async fn every_recorded_case_gives_node_rows_and_requests() {
-    let recorded = fixture("grok-models/cases.json");
-    for (name, case) in recorded["cases"].as_object().unwrap() {
-        let (http, listing) = listing(case["script"].clone());
-        let result = listing.list_models().await;
-
-        // Both catalogs are asked, with the headers Node sent.
-        let sent = http.requests.lock().unwrap().clone();
-        for expected in case["requests"].as_array().unwrap() {
-            let request = sent.iter().find(|r| side_of(r) == expected["side"]).unwrap_or_else(|| panic!("{name}: {expected}"));
-            assert_eq!(request.method, expected["method"].as_str().unwrap(), "{name}");
-            assert_eq!(request.url, expected["url"].as_str().unwrap(), "{name}");
-            let want: Vec<(String, String)> = expected["headers"]
-                .as_object()
-                .unwrap()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
-                .collect();
-            assert_eq!(sorted_headers(&request.headers), sorted_headers(&want), "{name}");
-        }
-
-        if case["error"].is_string() {
-            assert!(result.is_err(), "{name}: Node failed with {}", case["error"]);
-            continue;
-        }
-        let records = result.unwrap_or_else(|e| panic!("{name}: {e:?}"));
-        let expected = case["expected"].as_array().unwrap();
-        assert_eq!(records.len(), expected.len(), "{name}");
-        for (record, row) in records.iter().zip(expected) {
-            assert_eq!(record.raw.as_ref(), Some(row), "{name}: {}", row["id"]);
-            crate::providers::listing_row::testing::assert_row_facts(record, row, &format!("{name}: {}", row["id"]));
-            assert_eq!(record.id, row["id"].as_str().unwrap());
-            assert_eq!(record.display_name.as_deref(), row["display"].as_str());
-            assert_eq!(record.context_window, row["contextWindow"].as_u64().filter(|n| *n > 0));
-            assert_eq!(record.created, row["created"].as_i64());
-            let levels: Vec<&str> = row["reasoningLevels"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-            assert_eq!(record.reasoning_levels, levels, "{name}: {}", row["id"]);
-            // The ladder a row declares is also its picker option.
-            let option_values: Vec<&Value> = row["reasoningOptions"].as_array().into_iter().flatten().collect();
-            assert_eq!(record.picker.reasoning_options.len(), option_values.len());
-            assert_eq!(record.max_output_tokens, None);
-            assert_eq!(record.supports_reasoning, None);
-        }
-    }
-}

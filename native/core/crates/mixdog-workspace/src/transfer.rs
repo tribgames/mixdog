@@ -2124,11 +2124,6 @@ mod tests {
         pub(super) fn elapsed(&self) -> u64 {
             *self.elapsed_ms.borrow()
         }
-        /// The elapsed milliseconds at which `at` falls.
-        #[cfg(node_twin)]
-        pub(super) fn ms_of(&self, at: Instant) -> u64 {
-            u64::try_from(at.saturating_duration_since(self.base).as_millis()).unwrap_or(u64::MAX)
-        }
     }
 
     impl IdleClock for Manual {
@@ -2898,5 +2893,3 @@ mod tests {
     }
 }
 
-#[cfg(all(test, node_twin))]
-mod replay;

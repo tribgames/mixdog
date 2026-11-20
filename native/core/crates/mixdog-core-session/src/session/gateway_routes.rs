@@ -594,44 +594,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// Node's `writeStatuslineRoute` into its real route store: the file and its `.bak` after each
-    /// step are the recorded bytes. A step's calls run in one tick, so they land in one update.
-    #[tokio::test]
-    async fn the_route_store_bytes_equal_nodes() {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/statusline-route/golden.json")).unwrap();
-        let cases = golden["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 8);
-        for case in cases {
-            let name = case["name"].as_str().unwrap();
-            let (data, clock, routes) = rig();
-            let store = data.path().join(STORE_FILE);
-            if let Some(initial) = case["initial"].as_str() {
-                crate::session::fixture_fs::write(&store, initial);
-            }
-            for step in case["steps"].as_array().unwrap() {
-                let calls = step["calls"].as_array().unwrap();
-                clock.store(calls.last().unwrap()["now"].as_i64().unwrap(), Ordering::SeqCst);
-                let usable: Vec<(&str, Option<u64>, &Map<String, Value>)> = calls
-                    .iter()
-                    .filter_map(|call| {
-                        let id = call["session"]["id"].as_str()?;
-                        Some((id, call["session"]["clientHostPid"].as_u64(), call["route"].as_object()?))
-                    })
-                    .collect();
-                if calls.len() == 1 {
-                    for (id, pid, route) in &usable {
-                        routes.write_route(id, route, *pid).await;
-                    }
-                } else {
-                    let entries: Vec<Entry> = usable.iter().filter_map(|(id, pid, route)| statusline_entry(id, route, *pid)).collect();
-                    let (path, now) = (store.clone(), clock.load(Ordering::SeqCst));
-                    let job = routes.maintenance.submit(&CancellationToken::new(), move |lane| apply_to_store(lane, &path, &[Change::Entries(entries)], now));
-                    job.expect("lane").await.expect("ran").expect("updated");
-                }
-                assert_eq!(text(&store).as_deref(), step["file"].as_str(), "{name}: store");
-                assert_eq!(text(&data.path().join(format!("{STORE_FILE}.bak"))).as_deref(), step["bak"].as_str(), "{name}: backup");
-            }
-        }
-    }
 }

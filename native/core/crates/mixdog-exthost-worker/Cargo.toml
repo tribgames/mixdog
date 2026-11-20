@@ -91,7 +91,6 @@ mixdog-exthost-worker = { path = ".", features = ["test-support"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
-mixdog-office-base = { workspace = true, features = ["test-support"] }
 mixdog-office-com = { workspace = true, features = ["test-support"] }
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }

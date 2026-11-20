@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
-import { buildViolations, comparisonMaterial, findReaders, tokenize } from './check-clean-checkout.mjs';
+import {
+  buildCheck,
+  buildViolations,
+  comparisonMaterial,
+  findReaders,
+  testTargetsOf,
+  tokenize,
+} from './check-clean-checkout.mjs';
 
 // The material's paths are built from pieces: this file is scanned by the guard like any other, and names nothing it reads.
 const FIXTURES = ['native', 'core', 'fixtures'].join('/');
@@ -33,7 +44,7 @@ test('the block is the lines from its marker to the first blank line, as reposit
   assert.throws(() => comparisonMaterial('# Node-comparison material: x\n\n/dist/\n'), /is empty/);
 });
 
-test('a string naming the material is reported with its line; comments, gated test files and other files are not', () => {
+test('a string naming the material is reported with its line; comments, local-only test files and other files are not', () => {
   assert.deepEqual(
     read({
       'src/a.test.mjs': `import x from 'y';\nconst g = readFileSync(new URL('../${FIXTURES}/a/golden.json', import.meta.url));\n`,
@@ -156,18 +167,72 @@ test('a tracked file that .gitignore also covers, of any extension, is not in a 
   );
 });
 
-test('a build checkout with local.toml, node_twin rustflags or material on disk is refused, a clean one is not', () => {
-  assert.deepEqual(buildViolations({ localToml: false, env: { RUSTFLAGS: '-C debuginfo=0' }, present: [] }), []);
-  assert.deepEqual(buildViolations({ localToml: true, env: {}, present: [] }), [
-    'native/core/.cargo/local.toml exists: it turns on --cfg node_twin',
-  ]);
-  assert.deepEqual(
-    buildViolations({ localToml: false, env: { CARGO_ENCODED_RUSTFLAGS: '--cfg\u001fnode_twin' }, present: [] }),
-    ['CARGO_ENCODED_RUSTFLAGS sets node_twin']
-  );
-  assert.deepEqual(buildViolations({ localToml: false, env: {}, present: [`${FIXTURES}/`] }), [
+test('a build checkout with material on disk is refused, a clean one is not', () => {
+  assert.deepEqual(buildViolations({ present: [], targets: [], tracked: new Set() }), []);
+  assert.deepEqual(buildViolations({ present: [`${FIXTURES}/`, TWIN_FILE], targets: [], tracked: new Set() }), [
     `${FIXTURES}/ is local-only comparison material, present in the checkout`,
+    `${TWIN_FILE} is local-only comparison material, present in the checkout`,
   ]);
+});
+
+test('a Cargo test target on disk that is not tracked is refused, whether .gitignore covers it or not', () => {
+  const dir = 'native/core/crates/a';
+  const targets = testTargetsOf(dir, [
+    { name: 'wire.rs' },
+    { name: 'left_on_the_runner.rs' },
+    { name: 'it/', hasMain: true },
+    { name: 'gathered/', hasMain: true },
+    { name: 'support/', hasMain: false },
+    { name: 'data.json' },
+  ]);
+  assert.deepEqual(targets, [
+    `${dir}/tests/wire.rs`,
+    `${dir}/tests/left_on_the_runner.rs`,
+    `${dir}/tests/it/main.rs`,
+    `${dir}/tests/gathered/main.rs`,
+  ]);
+  assert.deepEqual(testTargetsOf('', [{ name: 'root.rs' }]), ['tests/root.rs']);
+  // no ignore list is consulted: only whether git tracks the file
+  const tracked = new Set([`${dir}/tests/wire.rs`, `${dir}/tests/it/main.rs`, `${dir}/tests/it/case.rs`]);
+  assert.deepEqual(buildViolations({ present: [], targets, tracked }), [
+    `${dir}/tests/left_on_the_runner.rs is a Cargo test target on disk that is not tracked`,
+    `${dir}/tests/gathered/main.rs is a Cargo test target on disk that is not tracked`,
+  ]);
+});
+
+test('the build check reads the disk: linked test files and folders are targets, a tracked non-ASCII one is tracked', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'clean-build-'));
+  try {
+    const write = (path, text = '') => {
+      mkdirSync(join(root, path, '..'), { recursive: true });
+      writeFileSync(join(root, path), text);
+    };
+    write('crate/Cargo.toml', '[package]\nname = "crate"\n');
+    write('crate/src/lib.rs');
+    write('crate/tests/café.rs');
+    write('crate/tests/wire.rs');
+    write('crate/tests/support/helper.rs');
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    execFileSync('git', ['add', '.'], { cwd: root });
+    // untracked, and covered by no ignore rule: a folder with main.rs and a Rust source, each linked into tests/
+    write('elsewhere/main.rs');
+    symlinkSync(join(root, 'elsewhere'), join(root, 'crate/tests/gathered'), 'junction');
+    let fileLink = true;
+    try {
+      symlinkSync(join(root, 'crate/src/lib.rs'), join(root, 'crate/tests/leftover.rs'), 'file');
+    } catch (error) {
+      // a Windows account without the symlink privilege cannot make a file link; a folder junction needs none
+      if (!(process.platform === 'win32' && error.code === 'EPERM')) throw error;
+      fileLink = false;
+    }
+    assert.deepEqual(buildCheck(root, ['material/']).sort(), [
+      'crate/tests/gathered/main.rs is a Cargo test target on disk that is not tracked',
+      ...(fileLink ? ['crate/tests/leftover.rs is a Cargo test target on disk that is not tracked'] : []),
+    ]);
+    if (!fileLink) t.skip('file symlinks are unavailable to this account; the linked folder and the tracked names were checked');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('a require resolves the way Node does: .json and .node, a directory through package.json main or an index, and a query is dropped', () => {

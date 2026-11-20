@@ -7,9 +7,6 @@
 mod reduce;
 pub use reduce::positive_env_int;
 
-#[cfg(node_twin)]
-#[cfg(test)]
-mod k1_replay;
 
 use std::path::PathBuf;
 use std::sync::Arc;

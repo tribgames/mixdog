@@ -14,8 +14,6 @@ use mixdog_tools::policy::CardEnricher;
 use mixdog_tools::policy::OutboundCard;
 use serde_json::Value;
 use serde_json::json;
-#[cfg(node_twin)]
-use tokio_util::sync::CancellationToken;
 
 const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
 
@@ -38,10 +36,6 @@ fn category_of(name: &str) -> ActionKind {
     if name == "trash_emails" { ActionKind::Trash } else { ActionKind::Email }
 }
 
-#[cfg(node_twin)]
-fn details_of(value: &Value) -> std::collections::BTreeMap<String, String> {
-    value.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect()
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_card_of_another_kind_is_left_alone() {
@@ -131,61 +125,4 @@ async fn an_empty_account_in_the_answer_leaves_the_card_account_as_built() {
     assert_eq!(mail.account, "mine@example.com", "an email card keeps the account its call names");
     assert_eq!(card.details["messages"], "Bob");
     assert!(!card.details.contains_key("more"));
-}
-
-#[cfg(node_twin)]fn golden() -> Value {
-    serde_json::from_str(include_str!("../golden/card.json")).unwrap()
-}
-#[cfg(node_twin)]
-#[tokio::test(flavor = "multi_thread")]
-async fn the_gmail_card_gets_what_node_gave_it_in_every_recorded_case() {
-    for case in golden()["cases"].as_array().unwrap() {
-        let label = case["name"].as_str().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let hub = hub(dir.path());
-        let server = case["server"].as_str().unwrap();
-        let mut extra = json!({});
-        if let Some(connector) = case["connector"].as_str() {
-            extra["connector"] = json!(connector);
-        }
-        let throws = !case["throws"].is_null();
-        if !throws && !case["result"].is_null() {
-            extra["env"] = json!({"MOCK_DESCRIBE_RESULT": case["result"].to_string()});
-        }
-        let registered = !label.contains("not connected");
-        if registered {
-            hub.apply(vec![config(server, extra)]);
-            hub.server(server).unwrap().connect().await.unwrap();
-        }
-        let tool = case["tool"].as_str().unwrap();
-        let name = format!("mcp__{server}__{tool}");
-        let args = &case["args"];
-        let mut card = OutboundCard::build(&name, args, category_of(tool));
-        assert_eq!(card.account, case["baseline"]["account"].as_str().unwrap(), "{label}: account before the lookup");
-        assert_eq!(card.details, details_of(&case["baseline"]["details"]), "{label}: details before the lookup");
-        GmailCardEnricher::new(Arc::clone(&hub)).enrich(None, &name, args, &mut card).await;
-        assert_eq!(card.account, case["card"]["account"].as_str().unwrap(), "{label}: account");
-        assert_eq!(card.details, details_of(&case["card"]["details"]), "{label}: details");
-        // What the lookup was asked: nothing when Node asked nothing.
-        let asked = case["asked"].as_array().unwrap();
-        if registered {
-            let seen = hub
-                .server(server)
-                .unwrap()
-                .call_tool_unlisted("t", "describe_args", json!({}), &CancellationToken::new(), None)
-                .await
-                .unwrap();
-            let seen: Value = match &seen.parts[0] {
-                mixdog_core_api::domain::tool::ToolPart::Text(t) => serde_json::from_str(t).unwrap(),
-                other => panic!("{label}: {other:?}"),
-            };
-            match asked.first() {
-                Some(first) => assert_eq!(seen, first["args"], "{label}: lookup arguments"),
-                None => assert_eq!(seen, Value::Null, "{label}: no lookup"),
-            }
-        } else {
-            assert!(asked.is_empty(), "{label}");
-        }
-        hub.close_all().await;
-    }
 }

@@ -766,22 +766,6 @@ impl ControlCell {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-mod queue_tests {
-    use super::*;
-
-    #[cfg(node_twin)]
-    /// `isQueuedEntryEditable` as Node's helper answered these entries (`fixtures/interrupt/queue-golden.json`,
-    /// `record-queue.mjs`).
-    #[test]
-    fn a_queued_entry_is_steering_as_node_judges_it() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/interrupt/queue-golden.json")).unwrap();
-        for case in golden["cases"].as_array().unwrap() {
-            assert_eq!(is_editable_entry(&case["entry"]), case["editable"] == true, "{}", case["entry"]);
-        }
-    }
-}
 
 
 /// A fence a test arms on the actor's own step: told the step's name.

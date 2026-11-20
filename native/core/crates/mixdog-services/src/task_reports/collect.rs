@@ -477,32 +477,8 @@ mod tests {
 
     use super::*;
 
-    #[cfg(node_twin)]
-    /// The recorded `<tmp>` / `<tmp/>` tokens made real, in every string of `value`.
-    fn fill(value: &Value, tmp: &str) -> Value {
-        match value {
-            Value::String(text) => Value::String(text.replace("<tmp/>", &tmp.replace('\\', "/")).replace("<tmp>", tmp)),
-            Value::Array(items) => Value::Array(items.iter().map(|v| fill(v, tmp)).collect()),
-            Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), fill(v, tmp))).collect()),
-            other => other.clone(),
-        }
-    }
 
-    #[cfg(node_twin)]
-    /// Separators and the tree's real root made comparable with the recording.
-    fn tokenized(value: &Value, tmp: &str) -> Value {
-        match value {
-            Value::String(text) => Value::String(text.replace(tmp, "<tmp>").replace('\\', "/")),
-            Value::Array(items) => Value::Array(items.iter().map(|v| tokenized(v, tmp)).collect()),
-            Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), tokenized(v, tmp))).collect()),
-            other => other.clone(),
-        }
-    }
 
-    #[cfg(node_twin)]
-    fn native(path: &str) -> PathBuf {
-        Path::new(path).components().collect()
-    }
 
     #[test]
     fn percent_escapes_decode_as_decode_uri_does() {
@@ -517,42 +493,6 @@ mod tests {
         tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
             lanes.durability_io.submit(&CancellationToken::new(), job).unwrap().await.unwrap()
         })
-    }
-    #[cfg(node_twin)]
-    fn tree(collect: &Value) -> (tempfile::TempDir, String) {
-        let dir = tempfile::tempdir().unwrap();
-        let root = mixdog_workspace::pathguard::canonical(dir.path()).unwrap();
-        // Each entry is a directory (`None`) or a file with its bytes; written on the lane.
-        let mut entries: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
-        for file in collect["files"].as_array().unwrap() {
-            let target = root.join(native(file["path"].as_str().unwrap()));
-            if file.get("dir").is_some() {
-                entries.push((target, None));
-                continue;
-            }
-            let bytes = if let Some(fill) = file.get("fill") {
-                vec![fill[0].as_str().unwrap().as_bytes()[0]; fill[1].as_u64().unwrap() as usize]
-            } else if let Some(hex) = file.get("hex") {
-                let hex = hex.as_str().unwrap();
-                (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect()
-            } else {
-                file["text"].as_str().unwrap().as_bytes().to_vec()
-            };
-            entries.push((target, Some(bytes)));
-        }
-        on_lane(move |lane| {
-            for (target, bytes) in entries {
-                match bytes {
-                    None => mixdog_statefile::create_private_dir_all(lane, &target).unwrap(),
-                    Some(bytes) => {
-                        mixdog_statefile::create_private_dir_all(lane, target.parent().unwrap()).unwrap();
-                        mixdog_statefile::append_file(lane, &target, &bytes).unwrap();
-                    }
-                }
-            }
-        });
-        let text = root.to_string_lossy().into_owned();
-        (dir, text)
     }
     /// An agent's report lists the files its turn wrote that the report does not name: here the one it left out.
     #[test]
@@ -607,59 +547,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/session-activity/golden.json");
-    #[cfg(node_twin)]
-    #[test]
-    fn every_recorded_collection_equals_node() {
-        let golden: Value = serde_json::from_str::<Value>(&GOLDEN).unwrap()["handoff"]["collect"].clone();
-        let (_dir, tmp) = tree(&golden);
-        let data = PathBuf::from(&tmp).join("data-dir");
-        let scopes = sensitive_scopes(&[PathBuf::from(&tmp).join("home"), data.clone(), data.clone()]);
-        for case in golden["cases"].as_array().unwrap() {
-            let input = fill(case, &tmp);
-            let options = Options {
-                cwd: native(input["cwd"].as_str().unwrap()).to_string_lossy().into_owned(),
-                roots: input["roots"].as_array().unwrap().iter().map(|r| resolve(Path::new(&tmp), &native(r.as_str().unwrap()).to_string_lossy())).collect(),
-                scopes: scopes.clone(),
-            };
-            let (messages, blobs) = (input["messages"].clone(), BlobStore::new(&data));
-            let got = on_lane(move |lane| collect_turn_artifacts(lane, &messages, &options, &|bytes| store_attachment(&blobs, lane, bytes)).to_json());
-            assert_eq!(tokenized(&got, &tmp), tokenized(&case["result"], "\0"), "{}", case["name"]);
-        }
-    }
-    /// `resolveHandoffAttachments` over the same tree: the parts and records of each recorded `attachments`, and each
-    /// refusal in Node's words. The attachments a case's messages name are stored first, as the recorder stored them.
-    #[cfg(node_twin)]
-    #[test]
-    fn every_recorded_attachment_resolution_equals_node() {
-        let golden: Value = serde_json::from_str::<Value>(&GOLDEN).unwrap()["handoff"].clone();
-        let (_dir, tmp) = tree(&golden["collect"]);
-        let data = PathBuf::from(&tmp).join("data-dir");
-        let scopes = sensitive_scopes(&[PathBuf::from(&tmp).join("home"), data.clone(), data.clone()]);
-        let seeds: Vec<Vec<u8>> = golden["resolve"]["stored"].as_array().unwrap().iter().map(|text| text.as_str().unwrap().as_bytes().to_vec()).collect();
-        let blobs = BlobStore::new(&data);
-        on_lane(move |lane| seeds.iter().for_each(|bytes| drop(store_attachment(&blobs, lane, bytes).unwrap())));
-        let cases = golden["resolve"]["cases"].as_array().unwrap();
-        assert!(cases.len() > 30, "the recording holds the resolution cases");
-        for case in cases {
-            let input = fill(case, &tmp);
-            let options = Options {
-                cwd: native(input["cwd"].as_str().unwrap()).to_string_lossy().into_owned(),
-                roots: input["roots"].as_array().unwrap().iter().map(|r| resolve(Path::new(&tmp), &native(r.as_str().unwrap()).to_string_lossy())).collect(),
-                scopes: scopes.clone(),
-            };
-            let (refs, messages, surface, blobs) = (input["refs"].clone(), input["messages"].clone(), input["surface"].as_str().unwrap().to_owned(), BlobStore::new(&data));
-            let got = on_lane(move |lane| {
-                let stored_len = |id: &str| blobs.read(lane, &mixdog_store::schema::bounded::Digest::try_from(format!("sha256:{id}")).ok()?).ok().map(|bytes| bytes.len() as u64);
-                match resolve_handoff_attachments(lane, &refs, &messages, &options, &surface, &stored_len, &|bytes| store_attachment(&blobs, lane, bytes)) {
-                    Ok(found) => json!({ "parts": found.parts, "records": found.records }),
-                    Err(error) => json!({ "error": error }),
-                }
-            });
-            assert_eq!(tokenized(&got, &tmp), tokenized(&case["result"], "\0"), "{}", case["name"]);
-        }
-    }
 }
 
 

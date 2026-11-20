@@ -132,40 +132,7 @@ pub(super) fn react_to_message(messages: &[Value], change: &Change<'_>) -> Resul
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use super::*;
 
-    #[cfg(node_twin)]
-    /// `golden/reactions.json` is Node's own `reactToMessage` over the same lists.
-    #[test]
-    fn reacting_matches_node() {
-        let golden: Value = serde_json::from_str(include_str!("golden/reactions.json")).unwrap();
-        for case in golden.as_array().unwrap() {
-            let messages = case["messages"].as_array().unwrap();
-            let change = &case["change"];
-            let got = match react_to_message(
-                messages,
-                &Change {
-                    agent_id: change["agentId"].as_str().unwrap(),
-                    emoji: change["emoji"].as_str().unwrap(),
-                    messages_back: change["messagesBack"].as_u64().unwrap(),
-                    others_keep: change["othersKeep"].as_bool().unwrap(),
-                    at: change["at"].as_i64().unwrap(),
-                },
-            ) {
-                Err(error) => json!({ "error": error }),
-                Ok(done) => json!({
-                    "index": done.index,
-                    "messageId": done.message_id,
-                    "reactions": done.reactions,
-                    "changed": done.changed,
-                    "message": done.message,
-                }),
-            };
-            // Compared as text: the key order of the stored message is part of the shape.
-            assert_eq!(got.to_string(), case["expected"].to_string(), "{}", case["name"]);
-        }
-    }
 }
 
 

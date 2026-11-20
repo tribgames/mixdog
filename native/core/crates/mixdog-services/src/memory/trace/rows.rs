@@ -2,9 +2,6 @@
 //! `trace-store/agent-call-rows.mjs`, `agent-session-summary.mjs`), as pure functions. Columns
 //! carry what Node binds, so a test compares them with the recorded parameters.
 
-#[cfg(test)]
-#[cfg(node_twin)]
-use mixdog_js::json_number;
 use mixdog_js::to_number;
 use mixdog_js::value_to_string;
 use mixdog_trace::slice_utf16;
@@ -70,11 +67,6 @@ fn number_or_null(value: Option<&Value>) -> Option<f64> {
     value.filter(|v| !v.is_null()).map(to_number)
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-fn number_json(value: Option<f64>) -> Value {
-    value.map_or(Value::Null, json_number)
-}
 
 fn int32(value: Option<f64>) -> Result<Option<i32>, RowError> {
     let Some(n) = value else { return Ok(None) };
@@ -204,34 +196,6 @@ impl TraceEventRow {
         })
     }
 
-    #[cfg(node_twin)]
-    /// The parameters as Node binds them, for the golden comparison.
-    #[cfg(test)]
-    pub fn params_json(&self) -> Vec<Value> {
-        let string = |v: &Option<String>| v.clone().map_or(Value::Null, Value::String);
-        vec![
-            json_number(self.ts),
-            string(&self.session_id),
-            number_json(self.iteration),
-            Value::String(self.kind.clone()),
-            string(&self.agent),
-            string(&self.model),
-            string(&self.tool_name),
-            number_json(self.tool_ms),
-            string(&self.result_kind),
-            string(&self.result_error_category),
-            string(&self.result_error_first_line),
-            number_json(self.input_tokens),
-            number_json(self.output_tokens),
-            number_json(self.cached_tokens),
-            number_json(self.cache_write_tokens),
-            number_json(self.duration_ms),
-            string(&self.error_message),
-            Value::String(self.payload.clone()),
-            number_json(self.parent_span_id),
-            number_json(self.entry_id),
-        ]
-    }
 
     /// Checks the numbers fit their columns (a value Postgres would reject fails the batch).
     pub fn cells(&self) -> Result<TraceEventCells, RowError> {
@@ -284,14 +248,6 @@ pub enum Column {
 }
 
 impl Column {
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    pub fn to_json(&self) -> Value {
-        match self {
-            Self::Text(v) => Value::Array(v.iter().map(|s| s.clone().map_or(Value::Null, Value::String)).collect()),
-            Self::Int(v) => Value::Array(v.iter().map(|n| n.map_or(Value::Null, Value::from)).collect()),
-        }
-    }
 }
 
 struct Common {

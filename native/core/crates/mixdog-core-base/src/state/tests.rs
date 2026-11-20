@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use bytes::Bytes;
 use mixdog_core_api::feed::AttachMode;
-use mixdog_core_api::feed::Feed;
 use mixdog_core_api::feed::FeedSource;
 use mixdog_core_api::feed::Window;
 use mixdog_core_api::feed::subscribe;

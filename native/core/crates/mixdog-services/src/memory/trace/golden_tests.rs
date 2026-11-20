@@ -4,43 +4,19 @@
 
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixture I/O")]
 
-#[cfg(node_twin)]
-use std::path::Path;
 
 use serde_json::Value;
 
-#[cfg(node_twin)]
-use super::Event;
 use super::RecordReply;
 use super::TraceStore;
 use super::rows::TraceEventRow;
-#[cfg(node_twin)]
-use super::rows::collect_agent_rows;
 use super::rows::insert_trace_events_sql;
-#[cfg(node_twin)]
-use super::rows::llm_columns;
-#[cfg(node_twin)]
-use super::rows::session_columns;
-#[cfg(node_twin)]
-use super::rows::tool_columns;
 use super::sql;
 use super::store::first_boot_statements;
 use super::store::retention_statements;
 
-#[cfg(node_twin)]
-fn events(g: &Value) -> Vec<Event> {
-    g["events"].as_array().unwrap().clone()
-}
 
-#[cfg(node_twin)]
-fn text(value: &Value) -> String {
-    mixdog_js::json_stringify(value)
-}
 
-#[cfg(node_twin)]
-fn recorded<'a>(g: &'a Value, phase: &str, group: &str) -> Vec<&'a Value> {
-    g[phase].as_array().unwrap().iter().filter(|r| r["group"] == group).collect()
-}
 
 #[test]
 fn record_checks_the_body_like_the_route() {
@@ -154,81 +130,3 @@ fn the_first_boot_runs_inside_one_lock_taken_first_and_released_last() {
 }
 
 
-#[cfg(node_twin)]
-fn golden() -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent-trace/trace-store-golden.json");
-    mixdog_js::json_parse(&std::fs::read_to_string(path).unwrap()).unwrap()
-}
-#[cfg(node_twin)]
-#[test]
-fn first_boot_sends_nodes_statements_in_nodes_order() {
-    let g = golden();
-    let want: Vec<&str> = recorded(&g, "open", "client0").iter().map(|r| r["sql"].as_str().unwrap()).collect();
-    assert_eq!(first_boot_statements(), want);
-}
-#[cfg(node_twin)]
-#[test]
-fn retention_sends_nodes_statements_and_cutoff() {
-    let g = golden();
-    let now = g["now"].as_i64().unwrap();
-    let got = retention_statements(7, now);
-    let want = recorded(&g, "open", "client1");
-    assert_eq!(got.len(), want.len());
-    for ((sql, params), want) in got.iter().zip(want) {
-        assert_eq!(sql, want["sql"].as_str().unwrap());
-        let want_params: Vec<i64> = want["params"]
-            .as_array()
-            .map(|p| p.iter().map(|n| n.as_i64().unwrap()).collect())
-            .unwrap_or_default();
-        assert_eq!(params, &want_params);
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn disabled_path_sends_nodes_statements() {
-    let g = golden();
-    let want = g["disabled"].as_array().unwrap();
-    assert_eq!(sql::TRACE_NAMESPACE_PRESENT, want[0]["sql"].as_str().unwrap());
-    assert_eq!(sql::DROP_TRACE_SCHEMA, want[1]["sql"].as_str().unwrap());
-}
-#[cfg(node_twin)]
-#[test]
-fn trace_events_insert_binds_nodes_values() {
-    let g = golden();
-    let now = g["now"].as_i64().unwrap();
-    let evs = events(&g);
-    let want = &g["insertTraceEvents"][0];
-    assert_eq!(insert_trace_events_sql(evs.len()), want["sql"].as_str().unwrap());
-    let got: Vec<Value> = evs.iter().flat_map(|ev| TraceEventRow::from_event(ev, now).unwrap().params_json()).collect();
-    assert_eq!(text(&Value::Array(got)), text(&want["params"]));
-}
-#[cfg(node_twin)]
-#[test]
-fn agent_calls_insert_binds_nodes_values() {
-    let g = golden();
-    let now = g["now"].as_i64().unwrap();
-    let rows = collect_agent_rows(&events(&g), now).unwrap();
-    let recorded = recorded(&g, "insertAgentCalls", "client2");
-    let json = |cols: Vec<super::rows::Column>| Value::Array(cols.iter().map(|c| c.to_json()).collect());
-    assert_eq!(sql::INSERT_TOOL_ROWS, recorded[2]["sql"].as_str().unwrap());
-    assert_eq!(text(&json(tool_columns(&rows.tool_rows).unwrap())), text(&recorded[2]["params"]));
-    assert_eq!(sql::INSERT_LLM_ROWS, recorded[3]["sql"].as_str().unwrap());
-    assert_eq!(text(&json(llm_columns(&rows.llm_rows).unwrap())), text(&recorded[3]["params"]));
-    assert_eq!(sql::UPSERT_SESSIONS, recorded[4]["sql"].as_str().unwrap());
-    assert_eq!(text(&json(session_columns(&rows.sessions).unwrap())), text(&recorded[4]["params"]));
-}
-#[cfg(node_twin)]
-#[test]
-fn non_object_elements_fail_or_default_like_node() {
-    let g = golden();
-    let now = g["now"].as_i64().unwrap();
-    let want = &g["nonObject"];
-    let with_null = vec![serde_json::json!({"kind": "a"}), Value::Null];
-    let first_error = with_null.iter().map(|ev| TraceEventRow::from_event(ev, now)).find_map(Result::err).unwrap();
-    assert_eq!(first_error.0, want["traceEvents"].as_str().unwrap());
-    let calls = vec![serde_json::json!({"kind": "a", "session_id": "s"}), Value::Null];
-    assert_eq!(collect_agent_rows(&calls, now).unwrap_err().0, want["agentCalls"].as_str().unwrap());
-    let primitives: Vec<Event> = want["primitives"].as_array().unwrap().clone();
-    let got: Vec<Value> = primitives.iter().flat_map(|ev| TraceEventRow::from_event(ev, now).unwrap().params_json()).collect();
-    assert_eq!(text(&Value::Array(got)), text(&want["primitivesSql"][0]["params"]));
-}

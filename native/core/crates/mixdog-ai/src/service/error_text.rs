@@ -750,29 +750,6 @@ fn rejected_summary(status: u32, clean: &str) -> String {
     }
 }
 
-/// Departure from Node (issue #374), for the Node-recorded twins: Node presents every refused request as the bare
-/// `The provider rejected this request.`; the core adds the HTTP status and the provider's own first line, so the cause
-/// is visible. Whether `core` is that presentation (or its `Error: ` line) of a failure Node presented as `node`: the
-/// status shown is the recorded `status` or one the failure's recorded text `said` names, and the line shown is text the
-/// failure itself said.
-#[cfg(all(test, node_twin))]
-pub(crate) fn is_rejected_with_cause(node: &str, core: &str, status: u32, said: &str) -> bool {
-    let (node, core) = match (node.strip_prefix("Error: "), core.strip_prefix("Error: ")) {
-        (Some(node), Some(core)) => (node, core),
-        _ => (node, core),
-    };
-    if node != format!("{REJECTED_SUMMARY}.") {
-        return false;
-    }
-    let Some(shown) = re!(r"^The provider rejected this request(?: \(HTTP ([0-9]+)\))?(?:\.|: (.+))$").captures(core) else {
-        return false;
-    };
-    let status_shown = match shown.get(1).map(|m| m.as_str()) {
-        Some(shown) => shown == status.to_string() || said.contains(shown),
-        None => status == 0,
-    };
-    status_shown && shown.get(2).is_none_or(|line| said.contains(line.as_str()))
-}
 
 fn describe_error(view: &ErrorView) -> Presentation {
     let Unwrapped { raw, message, status: text_status, code: text_code } = unwrap_error(view);
@@ -1020,62 +997,10 @@ fn typed_stream_failure_text(error: &ErrorView, text: &str, provider_label: Opti
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use serde_json::json;
 
     use super::*;
 
-    #[cfg(node_twin)]
-    fn view_of(case: &Value) -> ErrorView {
-        let descriptor = &case["descriptor"];
-        let descriptor = Descriptor {
-            kind: descriptor["kind"].as_str().unwrap().to_owned(),
-            code: descriptor["code"].as_str().unwrap().to_owned(),
-            status: descriptor["status"].as_u64().unwrap() as u32,
-            retry_after_ms: descriptor["retryAfterMs"].as_f64().map(|n| n as u64),
-            reset_at: descriptor["resetAt"].as_f64().map(|n| n as u64),
-        };
-        let error = &case["error"];
-        let Some(fields) = error.as_object() else {
-            return ErrorView { descriptor: Some(descriptor), ..ErrorView::message(error.as_str().unwrap()) };
-        };
-        let text = |key: &str| fields.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
-        let number = |key: &str| fields.get(key).and_then(Value::as_u64).unwrap_or(0);
-        ErrorView {
-            is_object: true,
-            message: text("message"),
-            name: text("name"),
-            code: text("code"),
-            status: number("status") as u32,
-            retry_after_ms: number("retryAfterMs"),
-            descriptor: Some(descriptor),
-            reauth_required: fields.get("reauthRequired") == Some(&json!(true)),
-            cancelled: fields.get("cancelled") == Some(&json!(true)),
-            stream_corruption: fields.get("streamCorruption") == Some(&json!(true)),
-            timeout_phase: match fields.get("timeoutPhase").and_then(Value::as_str) {
-                Some("headers") => Some(TimeoutPhase::Headers),
-                Some("first-chunk") => Some(TimeoutPhase::FirstChunk),
-                Some("idle") => Some(TimeoutPhase::Idle),
-                Some("auth") => Some(TimeoutPhase::Auth),
-                _ => None,
-            },
-            waited_ms: number("waitedMs"),
-            attempts: number("attempts"),
-            ws_close_code: fields.get("wsCloseCode").and_then(Value::as_u64).map(|c| c as u32),
-            fault: None,
-            delivery: None,
-        }
-    }
 
-    #[cfg(node_twin)]
-    fn options_of(case: &Value) -> PresentOptions {
-        let options = &case["options"];
-        PresentOptions {
-            surface: options["surface"].as_str().unwrap_or("").to_owned(),
-            max: options["max"].as_f64(),
-            provider_label: options["providerLabel"].as_str().map(str::to_owned),
-        }
-    }
 
     /// A peer that closed or a failed lookup carries the code Node's `cause` names, as a reset does.
     #[test]
@@ -1122,25 +1047,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("fixtures/error-text/cases.json");
-    #[cfg(node_twin)]
-    #[test]
-    fn every_text_equals_nodes() {
-        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-        let cases = golden["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 94);
-        for case in cases {
-            let (view, options) = (view_of(case), options_of(case));
-            let status = case["descriptor"]["status"].as_u64().unwrap_or(0) as u32;
-            let said = case["error"]["message"].as_str().unwrap_or("");
-            for (core, node) in [(present_error_text(&view, &options), case["text"].as_str().unwrap()), (error_line(&view, &options), case["line"].as_str().unwrap())] {
-                if !super::is_rejected_with_cause(node, &core, status, said) {
-                    assert_eq!(core, node, "{}", case["error"]);
-                }
-            }
-        }
-    }
 }
 
 

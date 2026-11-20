@@ -37,10 +37,3 @@ impl SetupUiSurface for SessionSetupUi {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "setup_ui_tests.rs"]
-mod tests;

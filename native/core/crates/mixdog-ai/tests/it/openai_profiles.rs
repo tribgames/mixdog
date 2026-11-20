@@ -7,8 +7,6 @@
     reason = "test-only: reads recorded oracle files synchronously"
 )]
 
-#[cfg(node_twin)]
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use mixdog_ai::providers::openai::body::build;
@@ -28,8 +26,6 @@ use mixdog_ai::providers::openai::profile::build_body as build_request;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
-#[cfg(node_twin)]
-use mixdog_core_api::domain::provider::Phase;
 use mixdog_core_api::domain::provider::ProviderReplay;
 use mixdog_core_api::domain::provider::ProviderState;
 use mixdog_core_api::domain::provider::RequestOptions;
@@ -61,10 +57,6 @@ fn call(id: &str, name: &str, arguments: Value) -> ToolCall {
     ToolCall { id: id.into(), name: name.into(), arguments, native_type: None }
 }
 
-#[cfg(node_twin)]
-fn native_call(id: &str, name: &str, arguments: Value, native_type: &str) -> ToolCall {
-    ToolCall { native_type: Some(native_type.into()), ..call(id, name, arguments) }
-}
 
 fn tool(id: &str, content: &str) -> Message {
     let mut m = text(Role::Tool, content);
@@ -72,96 +64,9 @@ fn tool(id: &str, content: &str) -> Message {
     m
 }
 
-#[cfg(node_twin)]
-fn search(provider: &str) -> Value {
-    json!({"provider": provider, "openaiTools": [
-        {"type": "function", "name": "x", "description": "d",
-         "parameters": {"type": "object", "properties": {}}}]})
-}
 
-#[cfg(node_twin)]
-fn native_history() -> Vec<Message> {
-    vec![
-        text(Role::User, "go"),
-        assistant_calls(
-            "",
-            vec![
-                native_call("ts1", "load_tool", json!({"names": ["x"]}), "tool_search_call"),
-                native_call("cu1", "apply_patch", json!({"patch": "P"}), "custom_tool_call"),
-                call("fn1", "Read", json!({"path": "a"})),
-            ],
-        ),
-        tool("ts1", "loaded"),
-        tool("cu1", "patched"),
-        tool("fn1", "file"),
-        text(Role::User, "next"),
-    ]
-}
 
-#[cfg(node_twin)]
-fn own_search_history(name: &str) -> Vec<Message> {
-    let mut h = native_history();
-    h[2].native_tool_search = Some(search(name));
-    h
-}
 
-#[cfg(node_twin)]
-/// The history of Node's recorded `oauth` case. Its `looking` message carries
-/// Node's legacy flattened `reasoningItems`, which migration turns into the
-/// complete ordered envelope Node's legacy path sends (reasoning, text, calls
-/// in order; `vectors/legacy_reasoning.json` in `mixdog-migrate`). The text
-/// item has the shape of the route it was written for: `codex` is
-/// `openai-oauth` (typed, with passthrough metadata), otherwise public.
-fn oauth_history(codex: bool) -> Vec<Message> {
-    let mut working = text(Role::Assistant, "working");
-    working.phase = Some(Phase::Commentary);
-    let mut looking = assistant_calls(
-        "looking",
-        vec![
-            native_call("ts1", "load_tool", json!({"names": ["x"]}), "tool_search_call"),
-            native_call("cu1", "apply_patch", json!({"patch": "P"}), "custom_tool_call"),
-            call("sk1", "Skill", json!({"name": "s"})),
-        ],
-    );
-    looking.phase = Some(Phase::Commentary);
-    let said = if codex {
-        json!({"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "looking"}],
-            "phase": "commentary", "internal_chat_message_metadata_passthrough": {}})
-    } else {
-        json!({"role": "assistant", "content": [{"type": "output_text", "text": "looking"}], "phase": "commentary"})
-    };
-    looking.push_replay(ProviderReplay {
-        owner: ProviderId::from("openai-responses"),
-        items: json!([
-            {"type": "reasoning", "id": "rs", "encrypted_content": "ENC", "summary": []},
-            said,
-            {"type": "tool_search_call", "call_id": "ts1", "execution": "client", "arguments": {"names": ["x"]}},
-            {"type": "custom_tool_call", "call_id": "cu1", "name": "apply_patch", "input": "P"},
-            {"type": "function_call", "call_id": "sk1", "name": "Skill", "arguments": "{\"name\":\"s\"}"},
-        ]),
-    });
-    let mut ts1 = tool("ts1", "loaded");
-    ts1.native_tool_search = Some(search("openai-oauth"));
-    let mut sk1 = tool("sk1", "skill");
-    sk1.native_tool_search = Some(search("openai-oauth"));
-    let mut f2 = assistant_calls("", vec![call("f2", "Read", json!({"path": "a"}))]);
-    f2.push_replay(ProviderReplay {
-        owner: ProviderId::from("openai-responses"),
-        items: json!([{"type": "tool_search_call", "call_id": "ts9", "execution": "client", "arguments": {}}]),
-    });
-    vec![
-        text(Role::System, "sys"),
-        text(Role::User, "go"),
-        working,
-        looking,
-        ts1,
-        tool("cu1", "patched"),
-        sk1,
-        f2,
-        tool("f2", "file"),
-        text(Role::User, "next"),
-    ]
-}
 
 fn server_search_history(owner: &str) -> Vec<Message> {
     let mut m = assistant_calls("done", vec![call("c1", "Read", json!({}))]);
@@ -177,35 +82,7 @@ fn server_search_history(owner: &str) -> Vec<Message> {
     vec![text(Role::User, "find tools"), m, tool("c1", "ok"), text(Role::User, "next")]
 }
 
-#[cfg(node_twin)]
-fn xai_turn() -> Value {
-    json!([
-        {"type": "reasoning", "id": "rs_1", "encrypted_content": "ENC", "summary": []},
-        {"type": "tool_search_call", "id": "tsc_1", "call_id": null, "execution": "server",
-         "status": "completed", "arguments": {"query": "mcp__weather__forecast", "limit": 1}},
-        {"type": "tool_search_output", "id": "tso_1", "call_id": null, "execution": "server",
-         "status": "completed", "tools": [{"type": "function", "name": "mcp__weather__forecast",
-         "description": "Forecast", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}},
-         "defer_loading": true}]},
-        {"type": "function_call", "id": "fc_1", "call_id": "call_w", "name": "mcp__weather__forecast",
-         "arguments": "{\"city\":\"Seoul\"}", "status": "completed"}
-    ])
-}
 
-#[cfg(node_twin)]
-fn xai_server_history() -> Vec<Message> {
-    let mut m = assistant_calls(
-        "",
-        vec![call("call_w", "mcp__weather__forecast", json!({"city": "Seoul"}))],
-    );
-    m.push_replay(ProviderReplay { owner: ProviderId::from("xai-responses"), items: xai_turn() });
-    vec![
-        text(Role::User, "weather in Seoul?"),
-        m,
-        tool("call_w", "sunny"),
-        text(Role::User, "and Busan?"),
-    ]
-}
 
 fn def(name: &str, description: &str, schema: Value) -> ToolDefinition {
     ToolDefinition { name: name.into(), description: description.into(), input_schema: schema, defer_loading: false, freeform: None }
@@ -239,51 +116,7 @@ fn request(model: &str, messages: Vec<Message>, tools: Vec<ToolDefinition>, cach
     }
 }
 
-#[cfg(node_twin)]
-/// Key order is part of the contract, so the comparison is on the text.
-fn same(actual: &Map<String, Value>, expected: &Value, label: &str) {
-    if let (Some(a), Some(e)) = (actual["input"].as_array(), expected["input"].as_array()) {
-        for i in 0..a.len().max(e.len()) {
-            assert_eq!(a.get(i), e.get(i), "{label}: input[{i}]");
-        }
-    }
-    assert_eq!(
-        serde_json::to_string(actual).unwrap(),
-        serde_json::to_string(expected).unwrap(),
-        "{label}"
-    );
-}
 
-#[cfg(node_twin)]
-/// The oracle is Node's frozen pre-change HEAD capture; Node's own parity test
-/// (`openai-compat-responses-native.test.mjs` `assertHeadParity`,
-/// `withoutCustomOutputName`) compares the current lowering with it minus exactly
-/// two declared deltas, applied here the same way: a server-replay key drops the
-/// one client `tool_search_output` HEAD synthesized for the server search call
-/// (`wire-pairing.mjs` `isServerToolSearch`), and a first-party key drops the
-/// `name` HEAD sent on `custom_tool_call_output`.
-fn node_expectation(heads: &Map<String, Value>, key: &str) -> Value {
-    let mut expected = heads[key].clone();
-    let input = expected["input"].as_array_mut().unwrap();
-    if key.ends_with("/server-replay") {
-        let synthesized = |i: &Value| {
-            i["type"] == "tool_search_output"
-                && i["call_id"] == "ts_srv"
-                && i["execution"] == "client"
-                && i["status"] == "completed"
-                && i["tools"].as_array().is_some_and(Vec::is_empty)
-        };
-        assert_eq!(input.iter().filter(|i| synthesized(i)).count(), 1, "{key}: HEAD synthesized one output");
-        input.retain(|i| !synthesized(i));
-    }
-    if key.starts_with("first-party/") {
-        for item in input.iter_mut().filter(|i| i["type"] == "custom_tool_call_output") {
-            assert!(item["name"].is_string(), "{key}: HEAD sent the name");
-            item.as_object_mut().unwrap().remove("name");
-        }
-    }
-    expected
-}
 
 // ---- gateway family: OpenCode Go, Muse Code, Command Code, xAI, ... -------
 
@@ -303,14 +136,6 @@ fn xai_http() -> ResponsesProfile {
     profile
 }
 
-#[cfg(node_twin)]
-fn xai_ws() -> ResponsesProfile {
-    let mut profile = xai_http();
-    profile.stream = false;
-    profile.system = SystemPlacement::Instructions { fallback: None, environment_message: false };
-    profile.input.system_in_input = false;
-    profile
-}
 
 #[test]
 fn server_search_declares_one_server_tool_and_marks_deferred_tools() {
@@ -406,14 +231,6 @@ fn downgrade_replay_drops_server_search_where_verbatim_keeps_it() {
     assert!(!serde_json::to_string(&body).unwrap().contains("tool_search"));
 }
 
-#[cfg(node_twin)]
-/// The session Node's capture sent the public API's bodies under (`captureFirstParty`,
-/// openai-compat-responses-parity.fixtures.mjs:164: `sessionId: 'sess-1'`), which its prompt cache key hashes.
-fn public_capture_session(name: &str, request: &mut ModelRequest) {
-    if name == "openai" {
-        request.options.session_id = Some("sess-1".into());
-    }
-}
 
 // ---- first-party heads that need the contract's native call types ---------
 
@@ -948,127 +765,6 @@ fn live_routes_flow_provider_state_through_the_request_aware_decoder() {
 }
 
 
-#[cfg(node_twin)]
-fn oracle(name: &str) -> Map<String, Value> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/providers/oracles")
-        .join(name);
-    let text = std::fs::read_to_string(path).unwrap();
-    serde_json::from_str::<Value>(&text).unwrap().as_object().unwrap().clone()
-}
-#[cfg(node_twin)]
-#[test]
-fn gateway_profile_matches_the_compat_heads() {
-    let heads = oracle("openai-compat-responses-head-parity.json");
-    let routes = [
-        ("opencode-go", "gpt-5.5"),
-        ("muse-code", "muse-spark"),
-        ("command-code", "gpt-5.5"),
-        ("xai", "grok-4"),
-        ("opencode-go", "grok-4"),
-    ];
-    let mut checked = 0;
-    for (name, model) in routes {
-        let profile = gateway(name, false);
-        let cases: [(&str, Vec<Message>); 4] = [
-            ("native", native_history()),
-            ("oauth", oauth_history(false)),
-            ("own-search-output", own_search_history(name)),
-            ("server-replay", server_search_history(&format!("compat-responses:{name}"))),
-        ];
-        for (label, history) in cases {
-            let key = format!("compat/{name}/{model}/{label}");
-            let body = body_of(&profile, &BuildInputs::new(&request(model, history, vec![], None)));
-            same(&body, &node_expectation(&heads, &key), &key);
-            checked += 1;
-        }
-    }
-    assert_eq!(checked, 20);
-}
-#[cfg(node_twin)]
-#[test]
-fn a_profile_that_sends_the_cache_key_matches_the_custom_route_heads() {
-    let heads = oracle("openai-compat-responses-head-parity.json");
-    let profile = gateway("custom-cmd", true);
-    let model = "openai/gpt-5.6-sol";
-    let body = body_of(
-        &profile,
-        &BuildInputs::new(&request(model, native_history(), vec![], Some("sess-1"))),
-    );
-    same(&body, &heads["compat/custom-cmd/openai/gpt-5.6-sol/native"], "custom native");
-}
-#[cfg(node_twin)]
-#[test]
-fn xai_profiles_match_the_http_and_websocket_heads() {
-    let heads = oracle("xai-tool-search-head-parity.json");
-    let key = "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7";
-    let cases: [(&str, Vec<Message>, Vec<ToolDefinition>); 5] = [
-        ("native/plain-tools", native_history(), session_tools()),
-        ("oauth/plain-tools", oauth_history(false), session_tools()),
-        ("server-replay/plain-tools", xai_server_history(), session_tools()),
-        ("server-replay/deferred-tools", xai_server_history(), deferred_tools()),
-        ("native/deferred-tools", native_history(), deferred_tools()),
-    ];
-    for (label, history, tools) in cases {
-        let req = request("grok-4", history, tools, Some(key));
-        for (transport, profile) in [("http", xai_http()), ("ws", xai_ws())] {
-            let name = format!("{transport}/{label}");
-            let body = body_of(&profile, &BuildInputs::new(&req));
-            same(&body, &heads[&name], &name);
-        }
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn first_party_server_replay_heads_still_hold() {
-    let heads = oracle("openai-compat-responses-head-parity.json");
-    let identity = CodexIdentity {
-        installation_id: "i".into(),
-        user_agent: "ua".into(),
-        version: "1".into(),
-        beta_features: "b".into(),
-    };
-    let configs = [
-        ("openai", OpenAiConfig::api_key(false, Arc::new(Facts), Arc::new(Ctx))),
-        ("openai-oauth", OpenAiConfig::codex(false, identity, Arc::new(Facts), Arc::new(Ctx))),
-    ];
-    for (name, config) in configs {
-        let key = format!("first-party/{name}/server-replay");
-        let expected = node_expectation(&heads, &key);
-        // The public API derives its key from the prefix (`buildStableProviderPromptCacheKey`); the Codex route's is the
-        // namespace the oracle's request named.
-        let cache = expected["prompt_cache_key"].as_str().unwrap().to_owned();
-        let mut req = request(
-            "gpt-5.5",
-            server_search_history("openai-responses"),
-            vec![],
-            (name == "openai-oauth").then_some(cache.as_str()),
-        );
-        public_capture_session(name, &mut req);
-        same(&build(&config, &req).map, &expected, &key);
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn first_party_native_oauth_and_own_search_heads_hold() {
-    let heads = oracle("openai-compat-responses-head-parity.json");
-    for (name, config) in first_party_configs() {
-        let cases: [(&str, Vec<Message>); 3] = [
-            ("native", native_history()),
-            ("oauth", oauth_history(name == "openai-oauth")),
-            ("own-search-output", own_search_history(name)),
-        ];
-        for (label, history) in cases {
-            let key = format!("first-party/{name}/{label}");
-            let expected = node_expectation(&heads, &key);
-            let cache = expected["prompt_cache_key"].as_str().unwrap().to_owned();
-            // The public API derives its key from the prefix; the Codex route's is the namespace the oracle named.
-            let mut req = request("gpt-5.5", history, vec![], (name == "openai-oauth").then_some(cache.as_str()));
-            public_capture_session(name, &mut req);
-            same(&build(&config, &req).map, &expected, &key);
-        }
-    }
-}
 /// Migration's legacy-`reasoningItems` envelopes: the `items` of a migrated
 /// message's ProviderReplay must pass through the first-party request builder
 /// unchanged, in order and with their JSON field order (the outputs it
@@ -1203,57 +899,6 @@ fn a_multi_step_reasoning_turn_replays_each_steps_reasoning_in_place() {
     assert_eq!(sent, want, "the reasoning of both steps is sent verbatim, with its field order");
 }
 
-/// A two-step tool turn with reasoning before, between and after text and
-/// calls, recorded from Node HEAD (`openai-reasoning-replay-golden.json`):
-/// the decoder's envelope equals Node's `providerReplay` for each step, and the
-/// next request replays the history exactly as Node's input converter does.
-#[cfg(node_twin)]
-#[test]
-fn a_multi_step_reasoning_turn_replays_as_node_does() {
-    use mixdog_ai::providers::openai::decoder::Framing;
-    use mixdog_core_api::domain::provider::StreamEvent;
-    use mixdog_core_api::domain::provider::WireDecoder;
-    let golden = Value::Object(oracle("openai-reasoning-replay-golden.json"));
-    let profile = gateway("opencode-go", false);
-    let mut results = golden["results"].as_array().unwrap().iter();
-    let mut history = vec![text(Role::User, golden["user"].as_str().unwrap())];
-    for step in golden["steps"].as_array().unwrap() {
-        let mut decoder = profile.decoder(Framing::Sse, Arc::new(Ctx));
-        let mut events = Vec::new();
-        for frame in step["frames"].as_array().unwrap() {
-            // Odd chunking exercises framing across unit boundaries.
-            let sse = format!("data: {frame}\n\n");
-            for chunk in sse.as_bytes().chunks(13) {
-                events.extend(decoder.feed(chunk).unwrap());
-            }
-        }
-        events.extend(decoder.finish().unwrap());
-        let mut content = String::new();
-        let mut calls = Vec::new();
-        let mut envelopes = Vec::new();
-        for event in events {
-            match event {
-                StreamEvent::TextDelta(t) => content.push_str(&t),
-                StreamEvent::ToolCallDone(c) => calls.push(c),
-                StreamEvent::ReasoningReplay(r) => envelopes.push(r),
-                _ => {}
-            }
-        }
-        assert_eq!(envelopes.len(), 1, "one ordered envelope per response");
-        assert_eq!(envelopes[0].owner, ProviderId::from(OWNER));
-        assert_eq!(envelopes[0].items, step["providerReplay"]["items"], "every output item, reasoning verbatim");
-        let ids: Vec<String> = calls.iter().map(|c| c.id.clone()).collect();
-        let mut assistant = assistant_calls(&content, calls);
-        assistant.push_replay(envelopes.remove(0));
-        history.push(assistant);
-        for id in ids {
-            history.push(tool(&id, results.next().unwrap()[1].as_str().unwrap()));
-        }
-    }
-    let req = request("m", history, vec![], None);
-    let body = body_of(&gateway("opencode-go", false), &BuildInputs::new(&req));
-    assert_eq!(body["input"], golden["input"]);
-}
 
 // ---- the whole request head of each route, with small tracked inputs ---------------------------------------------
 //

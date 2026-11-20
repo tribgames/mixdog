@@ -5,7 +5,7 @@
 //!
 //! The corpus (`corpus/`): `upstream.json`, the patterns of the crate's own tests with the texts they are run on
 //! (`gen_corpus.py`), and `shell.json`, the patterns the Rust core's shell analysis builds (the JavaScript-syntax
-//! patterns of `mixdog-tools` that `prefilter_tests.rs` enumerates, with `i`/`m`/`s` flags written inline) with texts
+//! patterns of `mixdog-tools`, with `i`/`m`/`s` flags written inline) with texts
 //! of the recorded shell vectors. Each text is also run changed: its last character dropped, an `x` appended, upper
 //! cased, a non-ASCII character put in front, and repeated past 3,000 bytes, so searches cross the 1,024-byte steps of
 //! the modified engine and a near miss is run beside every match.

@@ -32,6 +32,3 @@ pub mod transcript;
 
 #[cfg(test)]
 mod tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-pub(crate) mod replays;

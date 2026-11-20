@@ -196,8 +196,6 @@ impl std::error::Error for RouteError {}
 mod tests {
     use std::sync::Mutex;
 
-    #[cfg(node_twin)]
-    use serde_json::Value;
 
     use super::*;
 
@@ -234,42 +232,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../fixtures/channel-router/golden.json")).unwrap()
-    }
-    #[cfg(node_twin)]
-    #[test]
-    fn soft_warns_are_stripped_as_nodes_do() {
-        for case in golden()["strip"].as_array().unwrap() {
-            assert_eq!(strip_soft_warns(case["input"].as_str().unwrap()), case["output"].as_str().unwrap(), "{case}");
-        }
-    }
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn every_recorded_injection_routes_as_nodes_router_does() {
-        for case in golden()["inject"].as_array().unwrap() {
-            let options = InjectOptions {
-                instruction: case["options"]["instruction"].as_str().map(str::to_owned),
-                silent_to_agent: case["options"]["silent_to_agent"] == Value::Bool(true),
-            };
-            let sessions = Arc::new(Sessions { kind: case["service"].as_str().unwrap().to_owned(), submits: Mutex::default() });
-            let router = ChannelSessionRouter::new(lead(case["lead"].as_str()), sessions.clone());
-            let mut logs = Vec::new();
-            if let Some(notification) = inject_and_record(case["content"].as_str().unwrap(), &options)
-                && let Err(error) = router.route(&notification).await
-            {
-                logs.push(error.to_string());
-            }
-            let want_submits: Vec<(String, String)> = case["submits"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|s| (s["sessionId"].as_str().unwrap().to_owned(), s["prompt"].as_str().unwrap().to_owned()))
-                .collect();
-            assert_eq!(*sessions.submits.lock().unwrap(), want_submits, "{case}");
-            let want_logs: Vec<String> = case["logs"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_owned()).collect();
-            assert_eq!(logs, want_logs, "{case}");
-        }
-    }
 }

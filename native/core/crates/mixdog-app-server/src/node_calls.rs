@@ -1,7 +1,7 @@
 //! The Node call each core method became, for the call lane (`callLane`, `call-lanes.mjs:35`). Node routes a session's
 //! configure and read actions through the one call each (`session.configure`, `session.read`, both interactive); the core gives
 //! each its own method. These are the methods the protocol table documents as "Today's session configure action" / "session read
-//! action" (`mixdog-app-protocol/src/methods.rs`; `tests/call_lanes.rs` holds every method of the table to Node's lane for the call it became), and the
+//! action" (`mixdog-app-protocol/src/methods.rs`), and the
 //! methods Node reached through an action the table names differently.
 const CONFIGURE_ACTIONS: [&str; 165] = [
     "thread/rememberPromptHistory",

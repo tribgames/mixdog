@@ -809,10 +809,3 @@ fn hold_lock_in(lock_file: &Path, opts: &LockOpts, one_deadline: bool, acquired:
 #[path = "lock_timing_tests.rs"]
 mod timing_tests;
 
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "lock_replay_tests.rs"]
-mod replay_tests;

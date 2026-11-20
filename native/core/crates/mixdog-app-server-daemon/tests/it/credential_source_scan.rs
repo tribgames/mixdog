@@ -124,10 +124,6 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-ai/src/providers/openai/adapter.rs", "var: Box::new(|name| std::env::var(name).ok())", "Sources::var: the adapter's WireContext::var over the process environment"),
     ("mixdog-ai/src/providers/openai/adapter.rs", "MIXDOG_LLM_KEEPALIVE_MS", "the keep-alive time the preconnect's TTL comes from"),
     ("mixdog-ai/src/providers/grok/auth.rs", "MIXDOG_LLM_KEEPALIVE_MS", "the keep-alive time the preconnect's TTL comes from"),
-    // The refresh-lease replay's own harness (two real processes): where the reference runtime and its tree are, and the mark of a child.
-    ("mixdog-ai/src/providers/grok/refresh_lease/processes.rs", "MIXDOG_REFERENCE_NODE", "test harness: the reference runtime binary, not a credential"),
-    ("mixdog-ai/src/providers/grok/refresh_lease/processes.rs", "MIXDOG_REFERENCE_TREE", "test harness: the reference runtime tree, not a credential"),
-    ("mixdog-ai/src/providers/grok/refresh_lease/processes.rs", "MIXDOG_LEASE_CHILD", "test harness: marks the child process of the replay, not a credential"),
     ("mixdog-ai/src/transport/node_http.rs", "REPLAY_PROVIDER_PIN\")", "the replay's pin of a spawned binary: the stand-in provider's address, not a credential"),
     ("mixdog-ai/src/transport/node_http.rs", "REPLAY_PROVIDER_PIN_CERT", "the replay's pin of a spawned binary: the stand-in's certificate path, not a credential"),
     ("mixdog-ai/src/transport/replay_bytes.rs", "std::env::var(ENV).ok()?", "MIXDOG_REPLAY_BYTES: the address of a replay's byte-barrier listener, not a credential"),

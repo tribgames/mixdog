@@ -7,8 +7,7 @@
 //! is what it decides before it hands the payload to the session host: the agent is `cycle1-agent`,
 //! an empty prompt is refused with the broker's sentence, the preset is passed only when truthy,
 //! and the idle timeout is `Math.max(1000, timeout)`. The payload the host receives is Node's
-//! `dispatchAgent` payload (`fixtures/cycle1-dispatch`, from
-//! `benchmarks/rust-core/recorders/record-cycle1-dispatch.mjs`).
+//! `dispatchAgent` payload.
 //!
 //! The request keeps Node's bounds: it fails at `timeout + 5000` ms with "agent broker request timed
 //! out after Nms" and, when the caller's token ends it, with "agent broker request canceled" (the
@@ -85,10 +84,6 @@ pub struct Cycle1Dispatch {
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
-
-    #[cfg(node_twin)]
-    use serde_json::json;
-
     use super::*;
 
     /// The host: records the payload it receives and answers the case's recorded behaviour.
@@ -102,39 +97,6 @@ mod tests {
         async fn agent_dispatch(&self, payload: AgentDispatchPayload, _: &CancellationToken) -> Result<String, String> {
             self.seen.lock().unwrap().push(payload);
             self.answer.clone()
-        }
-    }
-
-    /// Node's `dispatchAgent` payload shape for a payload; `dispatchId` is only checked present.
-    #[cfg(node_twin)]
-    fn recorded_shape(payload: &AgentDispatchPayload) -> Value {
-        let mut params = serde_json::Map::new();
-        params.insert("prompt".into(), json!(payload.prompt));
-        if let Some(preset) = &payload.preset {
-            params.insert("preset".into(), preset.clone());
-        }
-        if let Some(cwd) = &payload.cwd {
-            params.insert("cwd".into(), json!(cwd));
-        }
-        if let Some(idle) = payload.idle_timeout_ms {
-            params.insert("idleTimeoutMs".into(), json!(idle));
-        }
-        json!({
-            "dispatchId": !payload.dispatch_id.is_empty(),
-            "agent": payload.agent,
-            "options": { "taskType": payload.task_type, "sourceType": payload.source_type, "brief": payload.brief },
-            "params": params,
-        })
-    }
-
-    /// `serde_json` keeps `120000` and `120000.0` apart; JavaScript has one number type.
-    #[cfg(node_twin)]
-    fn numbers_as_floats(value: Value) -> Value {
-        match value {
-            Value::Number(n) => json!(n.as_f64().unwrap()),
-            Value::Array(items) => Value::Array(items.into_iter().map(numbers_as_floats).collect()),
-            Value::Object(map) => Value::Object(map.into_iter().map(|(k, v)| (k, numbers_as_floats(v))).collect()),
-            other => other,
         }
     }
 
@@ -193,64 +155,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    const GOLDEN: &str = include_str!("../../../../fixtures/cycle1-dispatch/golden.json");
-    #[tokio::test]
-    #[cfg(node_twin)]
-    async fn every_recorded_call_hands_the_host_what_node_hands_it() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-        for case in golden["cases"].as_array().unwrap() {
-            let id = case["id"].as_str().unwrap();
-            let outcome = &case["outcome"];
-            let answer = match outcome.get("error") {
-                Some(error) => Err(error.as_str().unwrap().to_owned()),
-                None => Ok(outcome["ok"].as_str().unwrap().to_owned()),
-            };
-            let host = Arc::new(Host { seen: Mutex::default(), answer: answer.clone() });
-            let dispatch = Cycle1Dispatch::new(host.clone());
-            let request = Cycle1Request {
-                preset: Some(case["request"]["preset"].clone()).filter(|preset| !preset.is_null()),
-                timeout_ms: case["request"]["timeout"].as_f64().unwrap(),
-            };
-            let got = dispatch.call(&request, &CancellationToken::new(), case["prompt"].as_str().unwrap()).await;
-            assert_eq!(got, answer, "{id}: outcome");
-            let seen = host.seen.lock().unwrap();
-            match case["dispatched"].as_object() {
-                None => assert!(seen.is_empty(), "{id}: nothing reaches the host"),
-                Some(_) => {
-                    assert_eq!(seen.len(), 1, "{id}");
-                    assert_eq!(numbers_as_floats(recorded_shape(&seen[0])), numbers_as_floats(case["dispatched"].clone()), "{id}: payload");
-                }
-            }
-        }
-    }
-    /// The failures Node's request ends with, and the run it cancels (`ended` of the golden).
-    /// The clock is paused, so the 6 s deadline passes without waiting.
-    #[tokio::test(start_paused = true)]
-    #[cfg(node_twin)]
-    async fn a_request_that_ends_fails_as_node_fails_it_and_cancels_the_run() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-        for case in golden["ended"].as_array().unwrap() {
-            let id = case["id"].as_str().unwrap();
-            let host = Hanging::new(false);
-            let dispatch = Cycle1Dispatch::new(host.clone());
-            let request = Cycle1Request { preset: Some(json!("test")), timeout_ms: case["request"]["timeout"].as_f64().unwrap() };
-            let cancel = CancellationToken::new();
-            if id == "cancelled-before-the-call" {
-                cancel.cancel();
-            }
-            let caller = async {
-                if id == "cancelled-while-running" {
-                    host.started.notified().await;
-                    cancel.cancel();
-                }
-            };
-            let (got, ()) = tokio::join!(dispatch.call(&request, &cancel, "p"), caller);
-            assert_eq!(got, Err(case["outcome"]["error"].as_str().unwrap().to_owned()), "{id}: failure");
-            assert_eq!(host.seen.load(Ordering::SeqCst) > 0, case["dispatched"].as_bool().unwrap(), "{id}: reached the host");
-            assert_eq!(host.cancelled.load(Ordering::SeqCst), case["run"]["aborted"].as_bool().unwrap_or(false), "{id}: run cancelled");
-        }
-    }
 }
 
 

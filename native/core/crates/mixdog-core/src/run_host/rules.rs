@@ -375,33 +375,10 @@ fn lowered_keep(value: &Value) -> String {
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds fixture trees")]
 mod tests {
-    #[cfg(node_twin)]
-    use std::path::PathBuf;
 
     use serde_json::json;
 
     use super::*;
-
-    #[cfg(node_twin)]
-    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-    #[cfg(node_twin)]
-    fn names(value: &Value) -> Vec<String> {
-        value.as_array().map_or_else(Vec::new, |a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect())
-    }
-
-    #[cfg(node_twin)]
-    struct Policy;
-    #[cfg(node_twin)]
-    impl RulesPolicy for Policy {
-        fn hidden_agent(&self, _: Option<&str>) -> bool {
-            false
-        }
-        fn delegation_disabled(&self, _: &Value, _: bool) -> bool {
-            false
-        }
-    }
-
     /// `delegationDisabled`: a lead whose workflow names no agent has no `agent` tool; an agent-owned session is never asked, and a session with no workflow keeps it.
     #[test]
     fn delegation_is_disabled_by_the_workflow_the_session_holds() {
@@ -425,68 +402,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    fn fixture() -> (PathBuf, Vec<Value>) {
-        let golden: Value = serde_json::from_str(include_str!("golden/rules_builder.json")).expect("fixture");
-        let root = PathBuf::from(std::env::var("TEMP").unwrap_or_else(|_| ".".into())).join(format!("rules-golden-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
-        let _ = fs::remove_dir_all(&root);
-        for (rel, body) in golden["files"].as_object().unwrap() {
-            let path = root.join(rel);
-            fs::create_dir_all(path.parent().unwrap()).unwrap();
-            fs::write(path, body.as_str().unwrap()).unwrap();
-        }
-        (root, golden["cases"].as_array().unwrap().clone())
-    }
-    /// Node's builders over a synthetic rules tree: markers, allow/deny sets, CRLF files,
-    /// frontmatter routes with quoted and globbed models, and the LEAD.md split.
-    #[test]
-    #[cfg(node_twin)]
-    fn the_builders_follow_node() {
-        let (root, cases) = fixture();
-        for case in &cases {
-            let a = &case["args"];
-            let allow = a.get("allowTools").filter(|v| v.is_array()).map(names);
-            let omit = names(&a["omitTools"]);
-            let owner = a["ownerIsAgent"].as_bool().unwrap_or(false);
-            let got = match case["fn"].as_str().unwrap() {
-                "shared" => build_shared_tool_content(&root, &omit, allow.as_deref(), owner),
-                "route" => build_route_rules_content(&root, a["provider"].as_str().unwrap_or(""), a["model"].as_str().unwrap_or(""), &omit, allow.as_deref()),
-                "lead" => {
-                    let part = match a["part"].as_str().unwrap() {
-                        "identity" => LeadPart::Identity,
-                        "coding" => LeadPart::Coding,
-                        "agent" => LeadPart::Agent,
-                        _ => LeadPart::Common,
-                    };
-                    build_lead_role_content(&root, a["includeLeadBrief"].as_bool().unwrap(), part)
-                }
-                "agentMode" => build_agent_mode_content(&root, a["part"].as_str().unwrap()),
-                "agentRole" => build_agent_role_content(&root),
-                "omit" => omit_tool_routes(a["text"].as_str().unwrap(), &omit, allow.as_deref(), owner),
-                other => panic!("{other}"),
-            };
-            assert_eq!(got, case["out"].as_str().unwrap(), "{case}");
-        }
-    }
-    #[test]
-    #[cfg(node_twin)]
-    fn a_route_switch_rerenders_only_the_exact_base_block() {
-        let (root, _) = fixture();
-        let base = |provider: &str, model: &str| {
-            let tool = unused_model_edit_tool_name(model).to_owned();
-            build_base_rules(&root, provider, model, &[tool], None, false)
-        };
-        let mut session = json!({
-            "provider": "anthropic", "model": "claude-3-5-sonnet",
-            "messages": [
-                { "role": "system", "content": base("openai", "gpt-5"), "cacheTier": "tier1" },
-                { "role": "system", "content": base("openai", "gpt-5") },
-                { "role": "user", "content": "hi" }
-            ]
-        });
-        assert!(refresh_rule_variants(&mut session, &root, "gpt-5", Some("openai"), &Policy));
-        assert_eq!(session["messages"][0]["content"], base("openai", "gpt-5"));
-        assert_eq!(session["messages"][1]["content"], base("anthropic", "claude-3-5-sonnet"));
-        assert!(!refresh_rule_variants(&mut session, &root, "claude-3-5-sonnet", Some("anthropic"), &Policy));
-    }
 }

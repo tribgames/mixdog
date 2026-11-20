@@ -32,8 +32,6 @@ pub(crate) const DEADLINE: Duration = Duration::from_secs(20);
 
 /// `rig`'s server served on a loopback listener.
 pub(crate) struct Wire {
-    #[cfg(node_twin)]
-    pub(crate) rig: Rig,
     addr: std::net::SocketAddr,
     _hub: ConnectionHub,
     _accept: tokio::task::JoinHandle<()>,
@@ -69,7 +67,7 @@ impl Wire {
                 });
             }
         });
-        Self { #[cfg(node_twin)] rig, addr, _hub: hub, _accept: accept }
+        Self { addr, _hub: hub, _accept: accept }
     }
 
     /// A client connection that has completed `initialize` as a `kind` client named `device`; its frames start after the
@@ -129,73 +127,6 @@ impl WireClient {
         self.answer(id).await
     }
 
-    /// Closes the connection from the client side.
-    #[cfg(node_twin)]
-    pub(crate) async fn close(mut self) {
-        self.ws.close(None).await.expect("close");
-    }
 }
 
-/// `frames` with the values the core generates replaced by stable names, the only normalization the transport manifests
-/// declare: each distinct generated id becomes `<id:N>` in order of first appearance (a UUID anywhere in a string, as turn
-/// and item ids are or embed one; a 32-hex feed epoch; and each string of `generated`, the thread ids the core minted), and
-/// clock readings (`*At` fields, `clientHostPid`) become `<clock>` / `<pid>`. Everything else is compared as received. The
-/// expected frames go through the same function, so two ids are compared by whether they are the same id.
-#[cfg(node_twin)]
-pub(crate) fn normalized(frames: &[Value], generated: &[&str]) -> Value {
-    fn name(names: &mut Vec<String>, id: &str) -> String {
-        let at = names.iter().position(|n| n == id).unwrap_or_else(|| {
-            names.push(id.to_owned());
-            names.len() - 1
-        });
-        format!("<id:{at}>")
-    }
-    fn is_uuid(window: &[u8]) -> bool {
-        window.len() == 36
-            && window.iter().enumerate().all(|(i, b)| if matches!(i, 8 | 13 | 18 | 23) { *b == b'-' } else { b.is_ascii_hexdigit() })
-    }
-    fn uuids(text: &str, names: &mut Vec<String>) -> String {
-        let bytes = text.as_bytes();
-        let (mut out, mut at) = (String::new(), 0);
-        while at < bytes.len() {
-            if at + 36 <= bytes.len() && is_uuid(&bytes[at..at + 36]) {
-                out.push_str(&name(names, &text[at..at + 36]));
-                at += 36;
-            } else {
-                let c = text[at..].chars().next().unwrap();
-                out.push(c);
-                at += c.len_utf8();
-            }
-        }
-        out
-    }
-    fn walk(value: &mut Value, key: Option<&str>, generated: &[&str], names: &mut Vec<String>) {
-        match value {
-            Value::Object(map) => {
-                for (k, v) in map.iter_mut() {
-                    walk(v, Some(k), generated, names);
-                }
-            }
-            Value::Array(items) => items.iter_mut().for_each(|v| walk(v, key, generated, names)),
-            Value::Number(_) if key.is_some_and(|k| k.ends_with("At")) => *value = json!("<clock>"),
-            Value::Number(_) if key == Some("clientHostPid") => *value = json!("<pid>"),
-            Value::String(text) if generated.contains(&text.as_str()) || (text.len() == 32 && text.bytes().all(|b| b.is_ascii_hexdigit())) => {
-                *value = json!(name(names, text));
-            }
-            Value::String(text) => *value = json!(uuids(text, names)),
-            _ => {}
-        }
-    }
-    let mut all = Value::from(frames.to_vec());
-    walk(&mut all, None, generated, &mut Vec::new());
-    all
-}
 
-/// Writes `frames` to the replay's frame log (`MIXDOG_REPLAY_FRAMES`, a directory) when set, so a reviewer can read what
-/// a client received; the comparison never reads it.
-#[cfg(node_twin)]
-pub(crate) fn log(name: &str, frames: &Value) {
-    if let Ok(dir) = std::env::var("MIXDOG_REPLAY_FRAMES") {
-        std::fs::write(format!("{dir}/{name}.json"), serde_json::to_string_pretty(frames).unwrap()).expect("write the frame log");
-    }
-}

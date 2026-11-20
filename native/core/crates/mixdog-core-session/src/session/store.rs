@@ -1474,17 +1474,7 @@ impl StoreThreads {
         Ok(rows)
     }
 
-    /// The sessions whose mark write the index refused and no later projection of the session has restored.
-    #[cfg(all(test, node_twin))]
-    pub(super) fn marks_lost(&self) -> Vec<String> {
-        self.projector.marks_lost()
-    }
 
-    /// Runs `hold` between a marks read's snapshot and its check.
-    #[cfg(all(test, node_twin))]
-    pub(super) fn hold_after_marks_snapshot(&self, hold: impl Fn() + Send + Sync + 'static) {
-        *self.after_snapshot.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(hold));
-    }
 
     /// The next projection is refused by the index, as a full disk would.
     #[cfg(test)]
@@ -1492,11 +1482,6 @@ impl StoreThreads {
         self.projector.refuse_next.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// How many projections have been registered with the index so far.
-    #[cfg(all(test, node_twin))]
-    pub(super) fn projections_sent(&self) -> u64 {
-        self.projector.sent.load(std::sync::atomic::Ordering::SeqCst)
-    }
 
     /// The read gate, shared for one lane job of a read of `id` (see [`ReadGate`]). Taken after any wait on the projector: a
     /// rewrite holds the projector while it waits for the gate. Every read of a thread's log or rows takes it first, so a

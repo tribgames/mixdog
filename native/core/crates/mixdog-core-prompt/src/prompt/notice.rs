@@ -814,9 +814,3 @@ pub fn note_presented(session: &mut Header, sections: &OwnedSections) {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tests;

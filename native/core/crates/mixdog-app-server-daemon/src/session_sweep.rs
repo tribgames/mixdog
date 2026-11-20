@@ -228,49 +228,13 @@ pub async fn run(_started: crate::startup::Started, store: Arc<dyn SweepStore>, 
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use std::collections::HashSet;
-    #[cfg(node_twin)]
-    use std::sync::Mutex;
 
     use super::*;
 
     const NOW: i64 = 10_000_000_000;
 
-    #[cfg(node_twin)]
-    #[derive(Default)]
-    struct Store {
-        rows: Vec<SweepRow>,
-        live: HashSet<String>,
-        /// Sessions an older process still holds: the store's close and delete land nothing
-        /// (`Ok(false)`), as Node's `legacyOwnerVeto` answers.
-        vetoed: HashSet<String>,
-        log: Mutex<Vec<String>>,
-    }
 
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl SweepStore for Store {
-        async fn rows(&self) -> Result<Vec<SweepRow>, String> {
-            Ok(self.rows.clone())
-        }
-        async fn close_idle(&self, row: &SweepRow) -> Result<bool, String> {
-            self.log.lock().unwrap().push(format!("close:{}", row.id));
-            Ok(!self.vetoed.contains(&row.id))
-        }
-        async fn delete(&self, row: &SweepRow) -> Result<bool, String> {
-            self.log.lock().unwrap().push(format!("delete:{}", row.id));
-            Ok(!self.vetoed.contains(&row.id))
-        }
-        fn is_live(&self, id: &str) -> bool {
-            self.live.contains(id)
-        }
-    }
 
-    #[cfg(node_twin)]
-    fn ids(value: &serde_json::Value) -> Vec<String> {
-        value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect()
-    }
     #[tokio::test]
     async fn an_unreadable_store_is_not_swept() {
         struct Broken;
@@ -293,46 +257,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/idle-sweep/golden.json");
-    #[cfg(node_twin)]
-    /// Each scenario is a set of session records and the tally Node's `sweepStaleSessions` returned
-    /// for them over a real store (`record-idle-sweep.mjs`).
-    #[tokio::test]
-    async fn every_recorded_node_sweep_is_answered_the_same() {
-        let golden: serde_json::Value = serde_json::from_str(&GOLDEN).unwrap();
-        for (name, scenario) in golden["scenarios"].as_object().unwrap() {
-            let rows = scenario["rows"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|r| {
-                    let at = NOW - r["ageMs"].as_i64().unwrap();
-                    SweepRow {
-                        id: r["id"].as_str().unwrap().into(),
-                        owner: r["owner"].as_str().unwrap().into(),
-                        status: r["status"].as_str().unwrap().into(),
-                        closed: r["closed"].as_bool().unwrap(),
-                        updated_at: at,
-                        last_heartbeat_at: 0,
-                        created_at: at,
-                        record_mtime: at,
-                        conversation_count: r["conversation"].as_u64().unwrap(),
-                        activity: at,
-                    }
-                })
-                .collect();
-            let store = Store { rows, live: ids(&scenario["live"]).into_iter().collect(), vetoed: ids(&scenario["vetoed"]).into_iter().collect(), ..Store::default() };
-            let tally = sweep_once(&store, NOW).await.unwrap();
-            let sorted = |mut v: Vec<String>| {
-                v.sort();
-                v
-            };
-            assert_eq!(sorted(tally.cleaned), ids(&scenario["cleaned"]), "{name}: closed");
-            assert_eq!(sorted(tally.tombstones_cleaned), ids(&scenario["tombstonesCleaned"]), "{name}: tombstones");
-            assert_eq!(sorted(tally.open_pruned), ids(&scenario["openPruned"]), "{name}: pruned");
-            assert_eq!(tally.remaining as u64, scenario["remaining"].as_u64().unwrap(), "{name}: remaining");
-            assert_eq!(sorted(tally.tombstone_errors.into_iter().map(|(id, _)| id).collect()), ids(&scenario["tombstoneErrors"]), "{name}: unlink errors");
-        }
-    }
 }

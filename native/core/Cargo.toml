@@ -124,8 +124,6 @@ publish = false
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_must_use = "deny"
-# `node_twin`: set by the untracked native/core/.cargo/local.toml on the owner's machine (local-only Node-comparison tests).
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(node_twin)"] }
 
 [workspace.lints.clippy]
 disallowed_methods = "deny"

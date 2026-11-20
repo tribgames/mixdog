@@ -1,7 +1,7 @@
 //! A recorded offload-prune scenario stored in the core:
 //! the recorded session, its sidecars aged as the scenario's, and what is on disk at each point the scenario observed (its
-//! tool-result directory whole and its stored transcript whole). Used by the session crate's replay
-//! (`offload_prune_order_tests.rs`) and by the host's, whose turns run through the product run host.
+//! tool-result directory whole and its stored transcript whole). Used by the host's replay
+//! (`mixdog-core` `run_host/offload_prune_behaviour_tests.rs`), whose turns run through the product run host.
 
 use std::future::Future;
 use std::path::Path;

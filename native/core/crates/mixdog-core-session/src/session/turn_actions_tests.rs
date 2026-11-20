@@ -3,12 +3,8 @@
 //! code that answers them (`benchmarks/rust-core/recorders/record-turn-ops.mjs`).
 
 use std::sync::Mutex;
-#[cfg(node_twin)]
-use std::time::Duration;
 
 use async_trait::async_trait;
-#[cfg(node_twin)]
-use mixdog_app_protocol::rpc::RequestId;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
 use mixdog_core_api::domain::ext::ImageProfile;
@@ -30,14 +26,8 @@ use super::composer_image;
 use super::secret_input::SECRET_INPUT_TIMEOUT;
 use super::secret_input::SecretInputService;
 use super::secret_input::SecretSlots;
-#[cfg(node_twin)]
-use super::secret_input::required_request_id;
 use super::staged_originals::StagedOriginals;
 
-#[cfg(node_twin)]
-fn text<'a>(value: &'a Value, key: &str) -> &'a str {
-    value[key].as_str().unwrap()
-}
 
 fn sha(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
@@ -62,43 +52,8 @@ async fn provide_secret_holds_the_value_and_answers_only_that_it_was_taken() {
     assert!(!slots.has(id), "no value is kept without an op id");
 }
 
-#[cfg(node_twin)]
-struct Resizer {
-    recorded: Value,
-    profile: Mutex<Option<ImageProfile>>,
-}
 
-#[cfg(node_twin)]
-#[async_trait]
-impl ProfiledImageResizer for Resizer {
-    async fn resize_profiled(&self, _: &ThreadId, _: &[u8], _: &str, profile: ImageProfile) -> Result<Option<ResizedImage>, ProfiledResizeError> {
-        *self.profile.lock().unwrap() = Some(profile);
-        if let Some(error) = self.recorded.get("error") {
-            return Err(ProfiledResizeError::Invalid(text(error, "message").to_owned()));
-        }
-        let ok = &self.recorded["ok"];
-        let dims = &ok["dimensions"];
-        let n = |key: &str| u32::try_from(dims[key].as_u64().unwrap()).unwrap();
-        Ok(Some(ResizedImage {
-            data_base64: text(ok, "data").to_owned(),
-            mime: text(ok, "mimeType").to_owned(),
-            original_w: n("originalWidth"),
-            original_h: n("originalHeight"),
-            display_w: n("displayWidth"),
-            display_h: n("displayHeight"),
-        }))
-    }
-}
 
-#[cfg(node_twin)]
-/// An input as recorded: a payload too big to keep is its character and length.
-fn input_of(recorded: &Value) -> Value {
-    let mut input = recorded.clone();
-    if let Some(repeat) = recorded["data"].get("repeat") {
-        input["data"] = json!(repeat.as_str().unwrap().repeat(recorded["data"]["count"].as_u64().unwrap() as usize));
-    }
-    input
-}
 
 #[tokio::test]
 async fn a_resizer_that_returns_no_image_never_lets_the_picked_bytes_through() {
@@ -121,13 +76,6 @@ async fn a_resizer_that_returns_no_image_never_lets_the_picked_bytes_through() {
     assert_eq!(run(Vec::new(), "image/png").await.err().unwrap(), "image is empty");
 }
 
-#[cfg(node_twin)]
-fn units_of(text: &Value) -> String {
-    match text {
-        Value::String(s) => s.clone(),
-        long => long["unit"].as_str().unwrap().repeat(usize::try_from(long["times"].as_u64().unwrap()).unwrap()) + long["suffix"].as_str().unwrap(),
-    }
-}
 
 /// A message keeps every original whose bytes are in the store; only one that is not there loses its original (the image
 /// keeps its resized copy).
@@ -616,146 +564,3 @@ async fn a_message_the_intake_refuses_answers_its_text() {
 }
 
 
-#[cfg(node_twin)]
-fn golden(name: &str) -> Value {
-    let text = match name {
-        "secret-slots.json" => include_str!("../../../../fixtures/turn-ops/secret-slots.json"),
-        "composer-image.json" => mixdog_testkit::fixture!("../../fixtures/turn-ops/composer-image.json"),
-        other => panic!("{other}"),
-    };
-    serde_json::from_str(text).unwrap()
-}
-#[cfg(node_twin)]
-#[tokio::test(start_paused = true)]
-async fn secret_slots_follow_the_recorded_cases() {
-    let doc = golden("secret-slots.json");
-    for case in doc["cases"].as_array().unwrap() {
-        let name = text(case, "name");
-        if let Some(id) = case.get("requestId").and_then(Value::as_str) {
-            let slots = SecretSlots::new(SECRET_INPUT_TIMEOUT);
-            let accepted = slots.provide(id, text(case, "value"));
-            assert_eq!(json!(accepted), case["accepted"], "{name}");
-            assert_eq!(json!(slots.has(id)), case["held"], "{name}");
-            assert_eq!(json!(slots.take(id)), case["taken"], "{name}");
-            assert_eq!(json!(slots.take(id)), case["takenAgain"], "{name}");
-        } else if let Some(before) = case.get("before") {
-            let id = "secret_0123456789ab";
-            let username = doc["suffixes"]["username"].as_str().unwrap();
-            let save = doc["suffixes"]["save"].as_str().unwrap();
-            let slots = SecretSlots::new(SECRET_INPUT_TIMEOUT);
-            let ids = [id.to_owned(), format!("{id}{username}"), format!("{id}{save}")];
-            assert!(slots.provide(id, "a"));
-            assert!(slots.provide(&ids[1], "user"));
-            assert!(slots.provide(&ids[2], "1"));
-            let held = |slots: &SecretSlots| json!(ids.iter().map(|id| slots.has(id)).collect::<Vec<_>>());
-            assert_eq!(&held(&slots), before, "{name}");
-            slots.discard(id);
-            assert_eq!(held(&slots), case["after"], "{name}");
-        } else if let Some(ms) = case.get("timeoutMs").and_then(Value::as_u64) {
-            let slots = SecretSlots::new(Duration::from_millis(ms));
-            assert!(slots.provide("secret_0123456789ab", "gone"));
-            mixdog_rt::time::sleep(Duration::from_millis(ms * 4)).await;
-            assert_eq!(json!(slots.has("secret_0123456789ab")), case["held"], "{name}");
-        } else {
-            let slots = SecretSlots::new(SECRET_INPUT_TIMEOUT);
-            assert!(slots.provide("secret_0123456789ab", "first"));
-            assert!(slots.provide("secret_0123456789ab", "second"));
-            assert_eq!(json!(slots.take("secret_0123456789ab")), case["taken"], "{name}");
-        }
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn the_request_id_is_checked_as_the_card_handler_checks_it() {
-    for case in golden("secret-slots.json")["requiredIds"].as_array().unwrap() {
-        let id = match &case["value"] {
-            Value::String(s) => RequestId::String(s.clone()),
-            Value::Number(n) => RequestId::Integer(n.as_i64().unwrap()),
-            _ => continue,
-        };
-        match required_request_id(&id) {
-            Ok(trimmed) => assert_eq!(json!(trimmed), case["text"], "{case}"),
-            Err(message) => assert_eq!(message, text(&case["error"], "message"), "{case}"),
-        }
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn the_provider_picks_the_image_profile() {
-    for case in golden("composer-image.json")["profiles"].as_array().unwrap() {
-        let provider = case["provider"].as_str().unwrap_or_default();
-        let expected = if text(case, "profile") == "openai" { ImageProfile::OpenAi } else { ImageProfile::Anthropic };
-        assert_eq!(composer_image::image_profile_for_provider(provider), expected, "{case}");
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn image_metadata_reads_as_node_wrote_it() {
-    for case in golden("composer-image.json")["metadata"].as_array().unwrap() {
-        let dims = &case["dims"];
-        let got = if dims.is_null() {
-            let source = text(case, "source");
-            (!source.is_empty()).then(|| format!("[Image source: {source}]"))
-        } else {
-            let n = |key: &str| dims[key].as_u64().unwrap() as u32;
-            composer_image::image_metadata_text((n("originalWidth"), n("originalHeight")), (n("displayWidth"), n("displayHeight")), text(case, "source"))
-        };
-        assert_eq!(got.map(Value::String).unwrap_or(Value::Null), case["text"], "{case}");
-    }
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn resize_image_answers_as_the_composer_action_does() {
-    for case in golden("composer-image.json")["resize"].as_array().unwrap() {
-        let name = text(case, "name");
-        let dir = tempfile::tempdir().unwrap();
-        let originals = std::sync::Arc::new(StagedOriginals::new(dir.path()));
-        let resizer = Resizer { recorded: case["resizer"].clone(), profile: Mutex::new(None) };
-        let stage = |bytes: Vec<u8>| {
-            let originals = originals.clone();
-            async move { stage_bytes(&originals, bytes).await }
-        };
-        let got = composer_image::resize_image(&resizer, &ThreadId::from("t"), &input_of(&case["input"]), text(case, "provider"), stage).await;
-        match (&got, case["answer"].get("ok"), case["answer"].get("error")) {
-            (Ok(answer), Some(ok), _) => assert_eq!(answer, ok, "{name}"),
-            (Err(message), _, Some(error)) => assert_eq!(message, text(error, "message"), "{name}"),
-            other => panic!("{name}: {other:?}"),
-        }
-        if let Some(profile) = *resizer.profile.lock().unwrap() {
-            let expected = composer_image::image_profile_for_provider(text(case, "provider"));
-            assert_eq!(profile, expected, "{name}");
-        }
-    }
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn stage_attachment_original_answers_as_the_action_does() {
-    for case in golden("composer-image.json")["stage"].as_array().unwrap() {
-        let name = text(case, "name");
-        let dir = tempfile::tempdir().unwrap();
-        let originals = std::sync::Arc::new(StagedOriginals::new(dir.path()));
-        let stage = |bytes: Vec<u8>| {
-            let originals = originals.clone();
-            async move { stage_bytes(&originals, bytes).await }
-        };
-        let got = composer_image::stage_original_payload(&input_of(&case["input"]), stage).await;
-        match (&got, case["answer"].get("ok"), case["answer"].get("error")) {
-            (Ok(answer), Some(ok), _) => assert_eq!(answer, ok, "{name}"),
-            (Err(message), _, Some(error)) => assert_eq!(message, text(error, "message"), "{name}"),
-            other => panic!("{name}: {other:?}"),
-        }
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn base64_decodes_as_node_does_over_utf16_code_units() {
-    let doc = golden("composer-image.json");
-    assert!(doc["base64"].as_array().unwrap().len() > 400);
-    for case in doc["base64"].as_array().unwrap() {
-        let bytes = composer_image::node_base64_decode(&units_of(&case["text"]));
-        assert_eq!(json!(bytes.len()), case["length"], "{case}");
-        assert_eq!(json!(sha(&bytes)), case["sha256"], "{case}");
-    }
-    // Node's probe: each `Ł` (U+0141) reads by its low byte, as `A`.
-    assert_eq!(composer_image::node_base64_decode("ŁŁŁŁ"), vec![0, 0, 0]);
-}

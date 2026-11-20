@@ -1024,21 +1024,7 @@ mod tests {
     //! Node recorded. The peers are scripted; the ICE servers come from the relay in the core and
     //! from the test in Node's recording, so they are not compared.
 
-    #[cfg(node_twin)]
-    use std::time::Duration;
 
-    #[cfg(node_twin)]
-    use mixdog_app_protocol::media::MediaFormat;
-    #[cfg(node_twin)]
-    use mixdog_app_protocol::media::MediaPurpose;
-    #[cfg(node_twin)]
-    use mixdog_core_api::HostMediaSink;
-    #[cfg(node_twin)]
-    use mixdog_core_api::call::CallContext;
-    #[cfg(node_twin)]
-    use mixdog_core_api::ConnectionNotifier;
-    #[cfg(node_twin)]
-    use mixdog_protocol::Origin;
     use mixdog_remote::access::runtime::LegLink;
     use mixdog_remote::access::runtime::RemoteEvents;
     use mixdog_remote::access::runtime::RuntimeConfig;
@@ -1052,50 +1038,14 @@ mod tests {
     use mixdog_remote::section::RemoteSection;
     use mixdog_remote::section::RemoteSectionValue;
     use mixdog_remote::webrtc::signal::candidate_json;
-    #[cfg(node_twin)]
-    use mixdog_remote::webrtc::signal::parse_candidate;
-    #[cfg(node_twin)]
-    use tokio::sync::mpsc;
 
     use super::*;
 
-    #[cfg(node_twin)]
-    const HOST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/live-view-host/host.json");
 
-    #[cfg(node_twin)]
-    /// A phone's stream options in the host scenarios (Node's host recording starts from a streamed page, whatever its size).
-    fn stream_options() -> Value {
-        json!({ "maxWidth": 1170, "maxHeight": 2532 })
-    }
 
-    #[cfg(node_twin)]
-    struct Desktop(Mutex<Vec<(String, Value)>>);
 
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl HostChannel for Desktop {
-        async fn request(&self, _capability: HostCapability, method: Method, params: Value) -> Result<Value, HostError> {
-            lock(&self.0).push((method.as_str().to_owned(), params));
-            Ok(json!({}))
-        }
 
-        fn notify(&self, _capability: HostCapability, method: Method, params: Value) -> Result<(), CoreError> {
-            lock(&self.0).push((method.as_str().to_owned(), params));
-            Ok(())
-        }
-    }
 
-    #[cfg(node_twin)]
-    struct Phones(mpsc::UnboundedSender<(u64, Value)>);
-
-    #[cfg(node_twin)]
-    impl ConnectionNotifier for Phones {
-        fn notify(&self, to: ConnectionId, method: Method, params: Value) -> Result<(), CoreError> {
-            assert_eq!(method.as_str(), "browser/webrtcSignal");
-            self.0.send((to.0, params["signal"].clone())).unwrap();
-            Ok(())
-        }
-    }
 
     type SenderListener = Box<dyn Fn(SenderEvent) + Send + Sync>;
 
@@ -1113,20 +1063,6 @@ mod tests {
             self.logged.notify_waiters();
         }
 
-        /// A step's effects run on the host's own tasks; the next step starts once the recorded commands
-        /// of this one have all reached the peers, as Node's microtasks had settled them.
-        #[cfg(node_twin)]
-        async fn until_logged(&self, count: usize) {
-            loop {
-                let arrived = self.logged.notified();
-                tokio::pin!(arrived);
-                arrived.as_mut().enable();
-                if lock(&self.log).len() >= count {
-                    return;
-                }
-                mixdog_rt::time::timeout(Duration::from_secs(10), arrived).await.unwrap_or_else(|_| panic!("a peer command never arrived"));
-            }
-        }
     }
 
     impl Peers for Scripted {
@@ -1200,173 +1136,16 @@ mod tests {
         ))
     }
 
-    #[cfg(node_twin)]
-    fn connection_of(client: &str) -> u64 {
-        match client {
-            "client_A" => 1,
-            "client_B" => 2,
-            other => panic!("unmapped client {other}"),
-        }
-    }
 
-    #[cfg(node_twin)]
-    fn request(connection: u64, method: &'static str, params: Value) -> CoreRequest {
-        CoreRequest { method: Method(method), params, op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, tokio_util::sync::CancellationToken::new()) }
-    }
 
-    #[cfg(node_twin)]
-    /// Without what differs by design: the ICE servers (the relay's in the core, the test's in Node's recording).
-    fn without_ice(mut value: Value) -> Value {
-        if let Some(object) = value.as_object_mut() {
-            object.shift_remove("iceServers");
-            object.shift_remove("sourceKey");
-            object.shift_remove("iceTransportPolicy");
-        }
-        value
-    }
 
-    #[cfg(node_twin)]
-    fn sender_event(event: &Value) -> Option<SenderEvent> {
-        let id = || event["connectionId"].as_str().unwrap().to_owned();
-        Some(match event["type"].as_str().unwrap() {
-            "offer" => SenderEvent::Offer { connection_id: id(), sdp: event["sdp"].as_str().unwrap().to_owned() },
-            "candidate" => SenderEvent::Candidate { connection_id: id(), candidate: parse_candidate(&event["candidate"]).unwrap() },
-            "connected" => SenderEvent::Connected { connection_id: id(), certificate: Some(event["remoteCertificate"].clone()).filter(|c| !c.is_null()) },
-            "frame-done" => return None,
-            other => panic!("unmapped sender event {other}"),
-        })
-    }
 
-    #[cfg(node_twin)]
-    /// The scenarios whose steps map one to one onto the service: no settlement of a pending host call, no timer, and the page is there before a viewer.
-    const REPLAYED: [&str; 6] = [
-        "negotiation: offer, answer, candidates both ways, DTLS",
-        "the viewer leaves: stopped, closed, its connection ended",
-        "a sender that is gone fails every live connection",
-        "a phone close that demotes sends the demote before the call settles",
-        "a static page: the newest delivered picture goes again to a connection that comes up",
-        "a static page: a second viewer connecting gets the newest picture too",
-    ];
 
-    #[cfg(node_twin)]
-    async fn replay(scenario: &Value, dir: &std::path::Path) {
-        let name = scenario["name"].as_str().unwrap();
-        let desktop = Arc::new(Desktop(Mutex::default()));
-        let (push_tx, mut pushes) = mpsc::unbounded_channel();
-        let peers = Arc::new(Scripted::default());
-        let media = HostMedia::new(1 << 20);
-        let service = LiveViewService::with_peers(desktop.clone(), Arc::new(Phones(push_tx)), media.clone(), runtime(dir), peers.clone(), Arc::new(PairedScreenAccess::new(Arc::new(|_| None), Arc::new(|_| false), Arc::new(|_| true))));
-        let session = "sess_1";
-        for connection in [1, 2] {
-            service.call(request(connection, "browser/stream", json!({ "sessionId": session, "on": true, "request": stream_options() }))).await.unwrap();
-        }
-        // Node tells the desktop at every subscription (`remote-browser-streams.ts` `subscribe`), each time with the session's stream.
-        let started = lock(&desktop.0).clone();
-        assert_eq!(started.len(), 2, "{name}: one view request per subscription");
-        for (method, params) in &started {
-            assert_eq!((method.as_str(), &params["tabId"], &params["on"], &params["streamId"]), ("host/browser/viewFrames", &json!(session), &json!(true), &json!(1)));
-        }
-        let mut states: Vec<String> = Vec::new();
-        for (number, (step, want)) in scenario["steps"].as_array().unwrap().iter().zip(scenario["recorded"].as_array().unwrap()).enumerate() {
-            let what = format!("{name} step {number} {}", step["op"]);
-            let logged = lock(&peers.log).len();
-            match step["op"].as_str().unwrap() {
-                "page" => {
-                    let params = json!({ "tabId": session, "documentId": step["documentId"], "geometry": step["geometry"] });
-                    service.notify(Method("host/browser/page"), params, ConnectionId(99));
-                }
-                "signal" => {
-                    let connection = connection_of(step["client"].as_str().unwrap());
-                    let outcome = service.call(request(connection, "browser/webrtcSignal", json!({ "signal": step["raw"] }))).await;
-                    states.push(match outcome {
-                        Ok(_) => "ok".to_owned(),
-                        Err(CoreError::DomainError { message, .. }) => format!("threw:{}", message.unwrap_or_default()),
-                        Err(other) => panic!("{what}: {other:?}"),
-                    });
-                }
-                "sender" => {
-                    if let Some(event) = sender_event(&step["event"]) {
-                        service.inner.host().sender_event(event);
-                    }
-                }
-                "senderGone" => service.inner.host().sender_event(SenderEvent::Gone),
-                "viewerLeft" => {
-                    let connection = connection_of(step["client"].as_str().unwrap());
-                    service.call(request(connection, "browser/stream", json!({ "sessionId": session, "on": false }))).await.unwrap();
-                    // The phone streams again (the second connection keeps the stream alive meanwhile).
-                    service.call(request(connection, "browser/stream", json!({ "sessionId": session, "on": true, "request": stream_options() }))).await.unwrap();
-                }
-                "frame" => {
-                    let geometry = &step["picture"]["geometry"];
-                    let stream_id = lock(&service.inner.state).streams[session].stream_id;
-                    let header = MediaFrameHeader {
-                        purpose: MediaPurpose::BrowserView,
-                        flags: 0,
-                        stream_id,
-                        width: geometry["pixelWidth"].as_u64().unwrap() as u16,
-                        height: geometry["pixelHeight"].as_u64().unwrap() as u16,
-                        format: MediaFormat::Jpeg,
-                    };
-                    let mut frame = header.encode().to_vec();
-                    frame.extend_from_slice(step["picture"]["data"].as_str().unwrap().as_bytes());
-                    media.frame(ConnectionId(0), Bytes::from(frame));
-                }
-                other => panic!("{what}: unmapped op {other}"),
-            }
-            let trace = want["trace"].as_array().unwrap();
-            let expected_pushes: Vec<(u64, Value)> = trace
-                .iter()
-                .filter(|entry| entry[0] == "sendSignal")
-                .map(|entry| (connection_of(entry[1].as_str().unwrap()), without_ice(entry[2].clone())))
-                .collect();
-            let mut got_pushes = Vec::new();
-            for _ in 0..expected_pushes.len() {
-                let (to, signal) = mixdog_rt::time::timeout(Duration::from_secs(10), pushes.recv()).await.unwrap_or_else(|_| panic!("{what}: a signal never reached its phone")).unwrap();
-                got_pushes.push((to, without_ice(signal)));
-            }
-            // Each phone has its own delivery lane, so the order between two phones is not a contract; each phone's own order is.
-            let per_phone = |pushes: Vec<(u64, Value)>| {
-                let mut lanes: std::collections::BTreeMap<u64, Vec<Value>> = std::collections::BTreeMap::new();
-                for (phone, signal) in pushes {
-                    lanes.entry(phone).or_default().push(signal);
-                }
-                lanes
-            };
-            assert_eq!(per_phone(got_pushes), per_phone(expected_pushes), "{what}: signals to the phones");
-            assert!(pushes.try_recv().is_err(), "{what}: no signal beyond the recorded ones");
-            let expected_commands: Vec<Value> = trace
-                .iter()
-                .filter(|entry| entry[0] == "sender" && entry[1]["type"] != "frame")
-                .map(|entry| without_ice(entry[1].clone()))
-                .collect();
-            peers.until_logged(logged + expected_commands.len()).await;
-            let got_commands: Vec<Value> = lock(&peers.log)[logged..].iter().cloned().map(without_ice).collect();
-            assert_eq!(got_commands, expected_commands, "{what}: peer commands");
-            if step["op"] == "signal" {
-                assert_eq!(json!(states), want["signals"], "{what}: settled calls");
-            }
-        }
-    }
 
-    #[cfg(node_twin)]
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_service_serves_nodes_recorded_host_scenarios_end_to_end() {
-        mixdog_rt::testing::tokens();
-        let recorded: Value = serde_json::from_str(&HOST).unwrap();
-        let scenarios = recorded["scenarios"].as_array().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        for name in REPLAYED {
-            let scenario = scenarios.iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no recorded scenario {name}"));
-            replay(scenario, dir.path()).await;
-        }
-    }
 }
 
 
 
-#[cfg(all(test, node_twin))]
-#[path = "live_view_streams_replay.rs"]
-mod streams_replay;
 
 #[cfg(test)]
 #[path = "live_view_flow_tests.rs"]

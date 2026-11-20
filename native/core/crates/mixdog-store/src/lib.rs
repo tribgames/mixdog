@@ -46,9 +46,3 @@ mod store_tests;
 mod summary_tests;
 #[cfg(test)]
 mod lost_blob_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod summary_replay_tests;

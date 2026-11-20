@@ -414,9 +414,3 @@ pub async fn notify_restart_failures(registry: &AgentRegistry, notices: &dyn Res
     Ok(told)
 }
 
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tests;

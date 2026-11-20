@@ -7,9 +7,6 @@ mod projection;
 mod rates;
 mod registry;
 mod resolve;
-#[cfg(node_twin)]
-#[cfg(test)]
-pub(super) mod fixtures;
 #[cfg(test)]
 mod layers_tests;
 

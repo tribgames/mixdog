@@ -3,12 +3,7 @@
 //! No real relay or account credentials are involved; a Rust phone peer completes the E2EE
 //! handshake and exchanges an application frame through the relay.
 
-#[cfg(node_twin)]
-use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-#[cfg(node_twin)]
-#[allow(clippy::disallowed_types, reason = "test runs the unmodified Node relay as the reference peer")]
-use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,22 +19,11 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_util::sync::CancellationToken;
 
-/// The relay a case runs against; `stop` closes it (dropping it kills a Node relay).
+/// The relay a case runs against; `stop` closes it.
 enum Relay {
-    #[cfg(node_twin)]
-    Node { child: Child, port: u16, _data: tempfile::TempDir },
     Rust { running: mixdog_relay::server::RunningRelay, port: u16, _data: tempfile::TempDir },
 }
 
-#[cfg(node_twin)]
-impl Drop for Relay {
-    fn drop(&mut self) {
-        if let Self::Node { child, .. } = self {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
 
 async fn next<T>(rx: &mut mpsc::Receiver<T>) -> T {
     rx.recv().await.expect("closed")
@@ -84,40 +68,6 @@ async fn http(port: u16, method: &str, path: &str, origin: Option<&str>, body: O
 }
 
 impl Relay {
-    #[cfg(node_twin)]
-    #[allow(
-        clippy::disallowed_methods,
-        clippy::disallowed_types,
-        reason = "test runs the unmodified Node relay as the reference peer"
-    )]
-    fn spawn_node() -> Self {
-        let server = std::env::var("MIXDOG_RELAY_SERVER").map(PathBuf::from).unwrap_or_else(|_| {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../apps/relay/server.mjs")
-        });
-        let data = tempfile::tempdir().unwrap();
-        let mut child = Command::new("node")
-            .arg(server)
-            .env("PORT", "0")
-            .env("DATA_DIR", data.path())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        let mut lines = BufReader::new(child.stdout.take().unwrap());
-        let mut port = 0;
-        let mut line = String::new();
-        while lines.read_line(&mut line).unwrap() > 0 {
-            if let Some(rest) = line.split("listening on :").nth(1) {
-                port = rest.split_whitespace().next().unwrap().parse().unwrap();
-                break;
-            }
-            line.clear();
-        }
-        assert_ne!(port, 0, "relay did not report its port");
-        // Keep draining so the relay never blocks on a full pipe.
-        std::thread::spawn(move || while lines.read_line(&mut String::new()).unwrap_or(0) > 0 {});
-        Self::Node { child, port, _data: data }
-    }
 
     async fn spawn_rust() -> Self {
         let data = tempfile::tempdir().unwrap();
@@ -133,22 +83,13 @@ impl Relay {
 
     fn port(&self) -> u16 {
         match self {
-            #[cfg(node_twin)]
-            Self::Node { port, .. } => *port,
             Self::Rust { port, .. } => *port,
         }
     }
 
     async fn stop(self) {
-        #[cfg(node_twin)]
-        if let Self::Rust { running, .. } = &self {
-            running.close().await;
-        }
-        #[cfg(not(node_twin))]
-        {
-            let Self::Rust { running, .. } = &self;
-            running.close().await;
-        }
+        let Self::Rust { running, .. } = &self;
+        running.close().await;
     }
 }
 /// Runs the case against the relay and, when it fails, fails naming the runtime.
@@ -159,11 +100,6 @@ async fn against(runtime: &str, relay: Relay) {
     if let Err(error) = outcome {
         panic!("{runtime} relay: {error}");
     }
-}
-#[cfg(node_twin)]
-#[tokio::test(flavor = "multi_thread")]
-async fn leg_pairs_and_serves_a_phone_through_the_node_relay() {
-    against("node", Relay::spawn_node()).await;
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn leg_pairs_and_serves_a_phone_through_the_rust_relay() {

@@ -7,8 +7,6 @@ use mixdog_term::paste::{PastedImage, PromptContent};
 use mixdog_tui::app::AppCtx;
 use mixdog_tui::pickers::PickerKind;
 use mixdog_tui::pickers::provider::{ModelLabels, OnboardingState, PanelOwner, Prefetch, ProviderHost, ProviderPanel, ProviderSetup, RowKind, SetupOptions, cancel, oauth_cancel_return, oauth_settled, open_auth_step, open_models_step, open_provider_setup, prefetched_agents, prefetched_provider_models, select, start_onboarding};
-#[cfg(node_twin)]
-use mixdog_tui::pickers::provider::{confirm, finish_onboarding, highlight, oauth_failure_return, oauth_success_return, onboarding_cancel, opener_named, output_style_advance, output_style_back, resolve_onboarding_completed, run_return_to, theme_advance, theme_back};
 use mixdog_tui::slash::host::{
     PromptSurface, SlashHost, SlashState, SubmitOptions, TextPrompt, Tone,
 };

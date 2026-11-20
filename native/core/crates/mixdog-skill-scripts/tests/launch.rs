@@ -13,15 +13,11 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
-#[cfg(node_twin)]
-use std::sync::LazyLock;
 
 use mixdog_fsio::Unlaned;
 use mixdog_mcp::launcher;
 use mixdog_skill_scripts::Outcome;
 use mixdog_skill_scripts::validate_skill::run_validate_skill;
-#[cfg(node_twin)]
-use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Shell {
@@ -304,40 +300,3 @@ fn stdout_and_stderr_of_a_user_script_keep_the_order_they_were_written_in() {
 }
 
 
-#[cfg(node_twin)]
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/skill-scripts/golden.json");
-#[cfg(node_twin)]
-static RECORDING: LazyLock<Value> = LazyLock::new(|| serde_json::from_str(&GOLDEN).expect("golden.json is JSON"));
-#[cfg(node_twin)]
-#[test]
-fn validate_skill_prints_what_the_recording_holds() {
-    let wanted = |case: &Value, status: i64| {
-        case["observed"]["status"].as_i64() == Some(status)
-            && case["input"]["files"].as_object().is_some_and(|files| files.values().all(Value::is_string))
-            && case["input"].get("dirs").is_none()
-    };
-    for status in [0, 1] {
-        let case = RECORDING["cases"]["validate"].as_array().expect("cases").iter().find(|case| wanted(case, status)).expect("a case with this status");
-        for shell in shells() {
-            let root = tempfile::tempdir().expect("temp dir");
-            for (rel, text) in case["input"]["files"].as_object().expect("files") {
-                let path = root.path().join(rel);
-                mixdog_testkit::create_dir_all(path.parent().expect("a parent"));
-                mixdog_testkit::write(&path, text.as_str().expect("text"));
-            }
-            let fixed = root.path().display().to_string().replace('\\', "/");
-            let mut args = vec![validate_script().display().to_string()];
-            args.extend(case["argv"].as_array().expect("argv").iter().map(|arg| arg.as_str().expect("a string").replace("<root>", &fixed)));
-            let run = run_launcher(shell, &args, &[]);
-            let native = root.path().display().to_string();
-            let normal = |text: &str| text.replace("\r\n", "\n").replace(&native, "<root>").replace(&fixed, "<root>").replace('\\', "/");
-            let observed = &case["observed"];
-            assert_eq!(normal(&run.stdout), observed["stdout"].as_str().expect("stdout"), "{shell:?}: stdout of {}", case["case"]);
-            assert_eq!(normal(&run.stderr), observed["stderr"].as_str().expect("stderr"), "{shell:?}: stderr of {}", case["case"]);
-            assert_eq!(i64::from(run.code), status, "{shell:?}: exit code of {}", case["case"]);
-            // validate-skill writes its warnings and errors before its verdict: one file holding both streams has them in that order.
-            let in_order = format!("{}{}", observed["stderr"].as_str().expect("stderr"), observed["stdout"].as_str().expect("stdout"));
-            assert_eq!(normal(&run.merged), in_order, "{shell:?}: both streams of {} in call order", case["case"]);
-        }
-    }
-}

@@ -206,13 +206,6 @@ pub(crate) fn compact_event_detail(event: &CompactEvent) -> String {
     parts.join(" · ")
 }
 
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "live_rows_usage_tests.rs"]
-mod usage_tests;
 
 #[cfg(test)]
 mod tests {
@@ -274,54 +267,6 @@ mod tests {
     }
 
 
-#[cfg(node_twin)]
-    #[test]
-    #[allow(clippy::disallowed_methods)] // fixture loading in a test
-    fn the_marker_text_equals_the_recorded_node_text() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/agent/compact_marker/cases.json");
-        let golden: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-        let blank = |status, trigger| CompactEvent {
-            dropped_count: 0,
-            dropped: None,
-            trigger,
-            status,
-            before_tokens: 0,
-            duration_ms: 0,
-            after_tokens: 0,
-            before_messages: 0,
-            after_messages: 0,
-            pressure_tokens: 0,
-            trigger_tokens: 0,
-            boundary_tokens: 0,
-            target_budget_tokens: 0,
-        };
-        let details = golden["details"].as_array().unwrap();
-        assert!(details.iter().any(|d| d["detail"].as_str().unwrap().contains('→')));
-        for case in details {
-            let e = &case["event"];
-            let event = CompactEvent {
-                duration_ms: e["durationMs"].as_u64().unwrap(),
-                before_tokens: e["beforeTokens"].as_u64().unwrap(),
-                after_tokens: e["afterTokens"].as_u64().unwrap(),
-                ..blank(CompactStatus::Compacted, CompactTrigger::Auto)
-            };
-            assert_eq!(compact_event_detail(&event), case["detail"].as_str().unwrap(), "{e}");
-        }
-        for case in golden["labels"].as_array().unwrap() {
-            let status = match case["status"].as_str().unwrap() {
-                "compacted" => CompactStatus::Compacted,
-                "no_change" => CompactStatus::NoChange,
-                "skipped" => CompactStatus::Skipped,
-                _ => CompactStatus::Failed,
-            };
-            let trigger = match case["trigger"].as_str().unwrap() {
-                "reactive" => CompactTrigger::Reactive,
-                "cache_expired" => CompactTrigger::CacheExpired,
-                _ => CompactTrigger::Auto,
-            };
-            assert_eq!(compact_event_label(&blank(status, trigger)), case["label"].as_str().unwrap(), "{case}");
-        }
-    }
 }
 
 

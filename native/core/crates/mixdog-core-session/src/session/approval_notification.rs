@@ -224,13 +224,6 @@ impl SessionDirectory {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "approval_notification_tests.rs"]
-mod tests;
 
 #[cfg(test)]
 #[path = "approval_notification_rule_tests.rs"]

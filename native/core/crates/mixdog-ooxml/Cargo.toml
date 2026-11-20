@@ -35,8 +35,6 @@ mixdog-raster = { workspace = true }
 [dev-dependencies]
 base64 = { workspace = true }
 tempfile = { workspace = true }
-# `test-support`: the write note the integration tests save with.
-mixdog-office-base = { workspace = true, features = ["test-support"] }
 flate2 = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tar = { workspace = true }

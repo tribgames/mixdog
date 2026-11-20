@@ -98,32 +98,6 @@ mod tests {
         (ThreadTodos::new(threads.clone(), rig.clock.clone()), threads, thread, rig)
     }
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/todo-list/golden.json");
-        let bytes = mixdog_statefile::read_content(&path).expect("read golden.json").expect("golden.json exists");
-        serde_json::from_slice(&bytes).expect("golden.json parses")
-    }
-
-    /// `todoPhases`: a stored record is untrusted. Every case is Node's own `todoPhases` over the
-    /// same stored record (`fixtures/todo-list/golden.json`, recorded by `record-todo-list.mjs`).
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[cfg(node_twin)]
-    async fn a_stored_list_reads_as_node_normalizes_it() {
-        let golden = golden();
-        let cases = golden["reads"].as_array().expect("reads");
-        assert!(cases.len() >= 7);
-        for case in cases {
-            let record = case["todo"].clone();
-            let (todos, _, thread, _rig) = store(json!({ "todo": record })).await;
-            let list = todos.read(&thread).await;
-            assert_eq!(json!(list.phases), case["phases"], "{}", case["name"]);
-            if let Some(at) = record.get("updatedAt").and_then(Value::as_i64) {
-                assert_eq!(list.updated_at_ms, at, "{}", case["name"]);
-            }
-        }
-    }
-
     /// The tool's operations through the production `run` and `ThreadTodos::update` over `SessionThreads`: a commit
     /// leaves the list and the session's `updatedAt` at the call's time, a refusal leaves the header as it was. (The
     /// tool takes Node's `init`/`append`/`rm` by item wording beside `set`/`advance` and step numbers. What a stored

@@ -14,17 +14,11 @@ use tokio_util::sync::CancellationToken;
 use super::*;
 use crate::accounts::rotation::{AccountRotation, UsageProbe};
 use crate::accounts::{AccountStore};
-#[cfg(node_twin)]
-use crate::accounts::BlockOptions;
 use crate::accounts::QuotaWindowInput;
 use crate::admission::{Admission, LaneKey, LaneSettings};
-#[cfg(node_twin)]
-use crate::admission::Block;
 use crate::oauth::pace::SystemPace;
 use crate::warmer::gate::{AccountGate, GateTarget, ProviderSwitch, QuotaResumes, UsageSnapshots, WarmGate};
 use crate::warmer::send::{Deadlines, WarmContext};
-#[cfg(node_twin)]
-use crate::warmer::stream::WarmUsage;
 
 // ---- the scripted POST -------------------------------------------------------------------------
 
@@ -38,25 +32,7 @@ enum Reply {
     SseThenHang(Vec<Vec<u8>>),
 }
 
-#[cfg(node_twin)]
-fn chunks_of(spec: &Value) -> Vec<Vec<u8>> {
-    spec["chunks"].as_array().unwrap().iter().map(|c| c.as_str().unwrap().as_bytes().to_vec()).collect()
-}
 
-#[cfg(node_twin)]
-fn reply_of(spec: &Value) -> Reply {
-    match spec["kind"].as_str().unwrap() {
-        "sse" => Reply::Sse(chunks_of(spec)),
-        "sse-hang" => Reply::SseThenHang(chunks_of(spec)),
-        "hang" => Reply::Hang,
-        "status" => Reply::Status {
-            status: spec["status"].as_u64().unwrap() as u16,
-            headers: spec["headers"].as_object().into_iter().flatten().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect(),
-            body: spec["body"].as_str().unwrap_or_default().to_owned(),
-        },
-        _ => Reply::Throw(spec["message"].as_str().unwrap().to_owned()),
-    }
-}
 
 #[derive(Default)]
 struct WarmHttp {
@@ -160,57 +136,13 @@ fn gate() -> (AccountGate, tempfile::TempDir) {
     (gate, dir)
 }
 
-#[cfg(node_twin)]
-/// Adds the recorded roster in its order.
-async fn build_roster(gate: &AccountGate, roster: &Value) {
-    for row in roster.as_array().unwrap() {
-        let id = account_of(row["ref"].as_str().unwrap());
-        gate.store.register("anthropic-oauth", &id, "", false).await.unwrap();
-        if let Some(usage) = row.get("usage").filter(|u| !u.is_null()) {
-            let windows = usage["quotaWindows"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|w| QuotaWindowInput {
-                    label: w["label"].as_str().unwrap().to_owned(),
-                    used_pct: w["usedPct"].as_f64(),
-                    reset_at: w.get("resetAt").map(|_| now_ms() + 3_600_000),
-                    ..QuotaWindowInput::default()
-                })
-                .collect();
-            gate.store.record_usage("anthropic-oauth", &id, windows).await.unwrap();
-        }
-        if let Some(ms) = row["blockMs"].as_i64() {
-            let options = BlockOptions { server_scheduled: true, ..BlockOptions::default() };
-            gate.store.block("anthropic-oauth", &id, now_ms() + ms, "", options).await.unwrap();
-        }
-    }
-}
 
-#[cfg(node_twin)]
-fn account_of(reference: &str) -> String {
-    match reference {
-        "" => String::new(),
-        "nobody" => "nobody".to_owned(),
-        // A v4-shaped id per recorded name.
-        other => format!("00000000-0000-4000-8000-{:012x}", other.bytes().fold(7u64, |h, b| h.wrapping_mul(131).wrapping_add(u64::from(b))) & 0xffff_ffff_ffff),
-    }
-}
 
 fn target(provider: &str, account: &str) -> GateTarget {
     GateTarget { provider: provider.to_owned(), account_id: account.to_owned(), model: "claude-opus-4-7".into(), session_id: String::new() }
 }
 
-#[cfg(node_twin)]
-fn usage_fields(usage: &WarmUsage) -> Value {
-    serde_json::json!({ "cachedTokens": usage.cached, "inputTokens": usage.input, "outputTokens": usage.output, "cacheWriteTokens": usage.cache_write })
-}
 
-#[cfg(node_twin)]
-fn recorded_fields(usage: &Value) -> Value {
-    let n = |key: &str| usage.get(key).and_then(Value::as_f64).unwrap_or(0.0);
-    serde_json::json!({ "cachedTokens": n("cachedTokens"), "inputTokens": n("inputTokens"), "outputTokens": n("outputTokens"), "cacheWriteTokens": n("cacheWriteTokens") })
-}
 
 fn warm_request() -> ModelRequest {
     let mut request = request(base_messages(), RequestOptions::default());
@@ -375,144 +307,6 @@ impl crate::registry::accounting::UsagePricing for NoPrice {
 }
 
 
-#[cfg(node_twin)]
-fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../../../fixtures/cache-warm-send/golden.json")).unwrap()
-}
-#[cfg(node_twin)]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_account_gate_answers_as_nodes_does_for_every_recorded_case() {
-    let golden = golden();
-    let (gate, _dir) = gate();
-    let rows = golden["gate"].as_array().unwrap();
-    assert_eq!(rows.len(), 9);
-    for (index, row) in rows.iter().enumerate() {
-        if index == 2 {
-            build_roster(&gate, &golden["roster"]).await;
-        }
-        let account = account_of(row["ref"].as_str().unwrap());
-        let now = now_ms() + row["nowPlusMs"].as_i64().unwrap();
-        let got = gate.block_at(&target(row["provider"].as_str().unwrap(), &account), now).await;
-        assert_eq!(got.as_deref(), row["reason"].as_str(), "{}", row["name"]);
-    }
-}
-#[cfg(node_twin)]
-fn recorded_deadlines(golden: &Value) -> Deadlines {
-    let ms = |key: &str| std::time::Duration::from_millis(golden["deadlines"][key].as_u64().unwrap());
-    Deadlines { first_byte: ms("firstByteMs"), sse_idle: ms("sseIdleMs") }
-}
-/// Replays the recorded sends whose `timed` flag is `timed` and returns what differs from Node.
-#[cfg(node_twin)]
-async fn replay(timed: bool) -> Vec<String> {
-    let golden = golden();
-    let deadlines = recorded_deadlines(&golden);
-    let (gate, _dir) = gate();
-    build_roster(&gate, &golden["roster"]).await;
-    let mut failures = Vec::new();
-    for row in golden["sends"].as_array().unwrap().iter().filter(|r| r["timed"] == timed) {
-        let name = row["name"].as_str().unwrap();
-        let provider = row["provider"].as_str().unwrap();
-        let account = account_of(row["ref"].as_str().unwrap());
-        let http = Arc::new(WarmHttp::default());
-        let (adapter, _store) = adapter_of(provider, &http);
-        // A lane of its own per scenario: Node opened a fresh instance for each.
-        let target = target(provider, &account);
-        let scenario_gate = AccountGate {
-            admission: Arc::new(Admission::new()),
-            lane_settings: gate.lane_settings.clone(),
-            store: gate.store.clone(),
-            rotation: gate.rotation.clone(),
-            switch: gate.switch.clone(),
-            resumes: gate.resumes.clone(),
-            snapshots: gate.snapshots.clone(),
-            scope: gate.scope.clone(),
-            now_ms: gate.now_ms.clone(),
-        };
-        for (i, run) in row["runs"].as_array().unwrap().iter().enumerate() {
-            let responses = row["responses"].as_array().unwrap();
-            http.script.lock().unwrap().push_back(reply_of(&responses[i.min(responses.len() - 1)]));
-            let cancel = CancellationToken::new();
-            if row["aborted"] == true {
-                cancel.cancel();
-            }
-            if let Some(after) = row["abortAfterMs"].as_u64().filter(|ms| *ms > 0) {
-                let later = cancel.clone();
-                tokio::spawn(async move {
-                    mixdog_rt::time::sleep(std::time::Duration::from_millis(after)).await;
-                    later.cancel();
-                });
-            }
-            let mut reports = Vec::new();
-            let got = adapter
-                .send_cache_warm(&warm_request(), &WarmContext { gate: &scenario_gate, target: &target, deadlines, report: &|_| {} }, &cancel, &mut |u| reports.push(usage_fields(u)))
-                .await;
-            let want_reports: Vec<Value> = run["reports"].as_array().unwrap().iter().map(recorded_fields).collect();
-            if reports != want_reports {
-                failures.push(format!("{name}[{i}]: reports {reports:?} want {want_reports:?}"));
-            }
-            match (&got, run.get("error")) {
-                (Ok(usage), None) => {
-                    if usage_fields(usage) != recorded_fields(&run["usage"]) {
-                        failures.push(format!("{name}[{i}]: usage {usage:?}"));
-                    }
-                }
-                (Err(failure), Some(error)) => {
-                    if failure.message != error["message"].as_str().unwrap() {
-                        failures.push(format!("{name}[{i}]: message\n got {}\nwant {}", failure.message, error["message"]));
-                    }
-                    let carried = failure.usage.as_ref().map_or(Value::Null, usage_fields);
-                    let want = if error["usage"].is_null() { Value::Null } else { recorded_fields(&error["usage"]) };
-                    if carried != want {
-                        failures.push(format!("{name}[{i}]: usage carried {carried} want {want}"));
-                    }
-                    // What the lane and roster judge a refusal by.
-                    let status = failure.error.as_ref().and_then(|e| e.status).map(u64::from);
-                    if status != error["status"].as_u64() {
-                        failures.push(format!("{name}[{i}]: status {status:?} want {}", error["status"]));
-                    }
-                    if let Some(kind) = error["providerErrorType"].as_str() {
-                        let code = failure.error.as_ref().and_then(|e| e.code.as_deref());
-                        if code != Some(kind) {
-                            failures.push(format!("{name}[{i}]: error type {code:?} want {kind}"));
-                        }
-                    }
-                }
-                _ => failures.push(format!("{name}[{i}]: outcome {got:?} want {run}")),
-            }
-            let lane = scenario_gate.admission.lane(&LaneKey::new(ProviderId::from(provider), if account.is_empty() { "default" } else { account.as_str() }), (scenario_gate.lane_settings)(&LaneKey::new(ProviderId::from(provider), "x")));
-            let block = match scenario_gate.admission.immediate_block(&lane) {
-                Some(Block::Cooldown) => Some("rate-limit cooldown"),
-                Some(Block::Throttled) => Some("account throttled"),
-                None => None,
-            };
-            if block != run["laneBlock"].as_str() {
-                failures.push(format!("{name}[{i}]: lane {block:?} want {}", run["laneBlock"]));
-            }
-        }
-        let posts = http.sent.lock().unwrap().len();
-        if posts as u64 != row["posts"].as_u64().unwrap() {
-            failures.push(format!("{name}: {posts} POSTs, want {}", row["posts"]));
-        }
-    }
-    failures
-}
-#[cfg(node_twin)]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn every_recorded_warm_send_ends_as_nodes_does() {
-    let rows = golden()["sends"].as_array().unwrap().iter().filter(|r| r["timed"] == false).count();
-    assert_eq!(rows, 16);
-    let failures = replay(false).await;
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-/// The recorded deadlines and caller aborts, on the paused clock.
-#[cfg(node_twin)]
-#[tokio::test(start_paused = true)]
-async fn every_recorded_deadline_and_abort_ends_as_nodes_does() {
-    let rows = golden()["sends"].as_array().unwrap().iter().filter(|r| r["timed"] == true).count();
-    assert_eq!(rows, 4);
-    let failures = replay(true).await;
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
 
 // ---- the account gate and the warm's own outcomes ----------------------------------------------
 

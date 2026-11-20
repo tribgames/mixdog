@@ -46,56 +46,6 @@ pub fn exists(path: impl AsRef<Path>) -> io::Result<bool> {
     }
 }
 
-/// Every file under `root` with its bytes, by its path relative to `root` (`/`-separated).
-#[cfg(test)]
-#[cfg(node_twin)]
-pub(crate) fn files_under(root: impl AsRef<Path>) -> std::collections::BTreeMap<String, Vec<u8>> {
-    fn walk(lane: &InLane<DurabilityIo>, dir: &Path, prefix: &str, out: &mut std::collections::BTreeMap<String, Vec<u8>>) -> io::Result<()> {
-        for name in mixdog_statefile::list_dir(lane, dir)? {
-            let (path, rel) = (dir.join(&name), format!("{prefix}{name}"));
-            if mixdog_statefile::metadata(lane, &path)?.is_dir() {
-                walk(lane, &path, &format!("{rel}/"), out)?;
-            } else {
-                out.insert(rel, mixdog_statefile::read_range(lane, &path, 0, usize::MAX)?);
-            }
-        }
-        Ok(())
-    }
-    let root = root.as_ref().to_owned();
-    on_lane(move |lane| {
-        let mut out = std::collections::BTreeMap::new();
-        walk(lane, &root, "", &mut out).map(|()| out)
-    })
-    .unwrap()
-}
-
-/// `readdirSync(root, { recursive: true, withFileTypes: true }).filter(isFile)` as relative paths: Node's order, each
-/// directory's entries as the OS lists them, the subdirectories walked after, breadth first.
-#[cfg(test)]
-#[cfg(node_twin)]
-pub(crate) fn list_files(root: impl AsRef<Path>) -> Vec<String> {
-    let root = root.as_ref().to_owned();
-    on_lane(move |lane| {
-        let mut files = Vec::new();
-        let mut dirs = vec![root.clone()];
-        let mut next = 0;
-        while next < dirs.len() {
-            let dir = dirs[next].clone();
-            next += 1;
-            for name in mixdog_statefile::list_dir(lane, &dir).unwrap() {
-                let path = dir.join(&name);
-                let kind = mixdog_statefile::symlink_metadata(lane, &path).unwrap().file_type();
-                if kind.is_dir() {
-                    dirs.push(path);
-                } else if kind.is_file() {
-                    files.push(path.strip_prefix(&root).unwrap().to_string_lossy().into_owned());
-                }
-            }
-        }
-        files
-    })
-}
-
 /// `std::fs::create_dir_all`.
 pub fn create_dir_all(path: impl AsRef<Path>) {
     let path = path.as_ref().to_owned();

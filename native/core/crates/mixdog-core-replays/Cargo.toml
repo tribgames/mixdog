@@ -78,7 +78,6 @@ mixdog-services = { workspace = true, features = ["assigned-pg-port", "test-supp
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-testkit = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "sync", "time"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
@@ -92,9 +91,6 @@ mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", 
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
-# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (<build-tools>\unify-test-features.py).
-fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }

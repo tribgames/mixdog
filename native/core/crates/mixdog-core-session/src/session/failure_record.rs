@@ -540,38 +540,6 @@ pub(crate) fn failed_completion(record: &Map<String, Value>, facts: &Facts<'_>) 
 mod tests {
     use super::*;
 
-    #[cfg(node_twin)]
-    /// A provider failure as the run host reports it: the `ProviderError` the adapter classified, through
-    /// [`provider_turn_error`], plus what no `ProviderError` states (the pool's proof, a timeout's phase) from `fields`.
-    fn reported(case: &Value) -> TurnError {
-        use mixdog_core_api::domain::provider::ErrorKind;
-
-        let fields = &case["fields"];
-        let kind = match case["errorKind"]["kind"].as_str().unwrap() {
-            "quota_exhausted" => ErrorKind::QuotaExhausted,
-            "rate_limited" => ErrorKind::RateLimited,
-            "overloaded" => ErrorKind::Overloaded,
-            "billing" => ErrorKind::Billing,
-            "unknown" => ErrorKind::Unknown,
-            other => panic!("a kind the golden does not use: {other}"),
-        };
-        let mut refusal = ProviderError::new(kind, DeliveryState::Accepted);
-        refusal.message = case["message"].as_str().unwrap().to_owned();
-        refusal.status = fields["status"].as_u64().map(|status| u16::try_from(status).unwrap());
-        refusal.code = fields["code"].as_str().map(str::to_owned);
-        refusal.retry_after = fields["retryAfterMs"].as_u64().map(std::time::Duration::from_millis);
-        refusal.reset_at = fields["resetAt"].as_u64().map(|ms| std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms));
-        let mut error = provider_turn_error(&refusal, "anthropic-oauth", Value::Null);
-        let mut facts = ProviderFacts::of(&error).unwrap();
-        facts.quota_exhausted = fields.get("quotaExhausted").map(|proof| serde_json::from_value(proof.clone()).unwrap());
-        facts.timeout = fields.get("timeoutPhase").map(|phase| TimeoutFacts {
-            phase: serde_json::from_value(phase.clone()).unwrap(),
-            waited_ms: fields["waitedMs"].as_u64().unwrap_or(0),
-            attempts: fields["attempts"].as_u64().unwrap_or(0),
-        });
-        error.data = facts.into_data(error.data);
-        error
-    }
 
     /// `providerKind` is the classified kind; an untyped error's usage-limit or billing wording reads as that kind
     /// (`legacyQuotaWording`), but never an error with a status, a code or retry advice.
@@ -744,35 +712,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    #[test]
-    fn a_failure_reads_as_nodes_turn_failure_record() {
-        let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/failed-completion/golden.json")).unwrap();
-        for case in gold["cases"].as_array().unwrap() {
-            let error = TurnError { message: case["message"].as_str().unwrap().to_owned(), data: json!({}), provider_error: None };
-            let route = Route { provider: case["route"]["provider"].as_str().unwrap(), model: case["route"]["model"].as_str().unwrap() };
-            let got = failure_record(&error, &route).unwrap();
-            assert_eq!(got["errorKind"], case["errorKind"], "{case}");
-            assert_eq!(got.get("quota").cloned().unwrap_or(Value::Null), case["quota"], "{case}");
-            assert_eq!(got["detail"], case["detail"], "{case}");
-            assert_eq!(got["errorDetails"], case["errorDetails"], "{case}");
-        }
-    }
-    #[cfg(node_twin)]
-    /// Node's `turnFailureRecord` for the errors a provider raises (`fixtures/turn-failure`, recorded by
-    /// `record-turn-failure.mjs`): the kind with its code, status, retry advice and reset, the quota stop (the pool's
-    /// proof, or an exhausted quota whose reset the provider named), and the text, a first-byte timeout naming the
-    /// turn's own provider.
-    #[test]
-    fn a_provider_failure_reads_as_nodes_turn_failure_record() {
-        let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/turn-failure/golden.json")).unwrap();
-        for case in gold["cases"].as_array().unwrap() {
-            let route = Route { provider: case["route"]["provider"].as_str().unwrap_or_default(), model: case["route"]["model"].as_str().unwrap() };
-            let got = failure_record(&reported(case), &route).unwrap();
-            assert_eq!(got["errorKind"], case["errorKind"], "{}", case["name"]);
-            assert_eq!(got.get("quota").cloned().unwrap_or(Value::Null), case["quota"], "{}", case["name"]);
-            assert_eq!(got["detail"], case["detail"], "{}", case["name"]);
-            assert_eq!(got["errorDetails"], case["errorDetails"], "{}", case["name"]);
-        }
-    }
 }

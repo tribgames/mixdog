@@ -199,59 +199,13 @@ pub fn session_context_meta(catalog: &CatalogService, provider: &str, model: &st
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use std::sync::Arc;
 
-    #[cfg(node_twin)]
-    use async_trait::async_trait;
-    #[cfg(node_twin)]
-    use mixdog_ai::catalog::CatalogSnapshot;
-    #[cfg(node_twin)]
-    use mixdog_ai::catalog::ModelsDevSource;
-    #[cfg(node_twin)]
-    use mixdog_ai::oauth::CredentialIo;
-    #[cfg(node_twin)]
-    use mixdog_ai::transport::http::HttpResponse;
-    #[cfg(node_twin)]
-    use mixdog_ai::transport::http::HttpSend;
-    #[cfg(node_twin)]
-    use mixdog_core_api::domain::provider::DeliveryState;
-    #[cfg(node_twin)]
-    use mixdog_core_api::domain::provider::ErrorKind;
-    #[cfg(node_twin)]
-    use mixdog_core_api::domain::provider::ProviderError;
-    #[cfg(node_twin)]
-    use mixdog_core_api::domain::provider::WireRequest;
     use serde_json::json;
 
     use super::*;
 
-    #[cfg(node_twin)]
-    fn fields(meta: &ContextMeta) -> Value {
-        json!({
-            "contextWindow": meta.context_window, "rawContextWindow": meta.raw_context_window,
-            "effectiveContextWindowPercent": meta.effective_context_window_percent,
-            "autoCompactTokenLimit": meta.auto_compact_token_limit, "compactBoundaryTokens": meta.compact_boundary_tokens,
-        })
-    }
 
-    #[cfg(node_twin)]
-    struct Offline;
 
-    #[async_trait]
-    #[cfg(node_twin)]
-    impl HttpSend for Offline {
-        async fn send(
-            &self,
-            _: WireRequest,
-            _exchange: mixdog_ai::transport::Exchange,
-        ) -> Result<HttpResponse, ProviderError> {
-            Err(ProviderError::new(
-                ErrorKind::Transient,
-                DeliveryState::NotSent,
-            ))
-        }
-    }
 
     #[test]
     fn the_catalog_outranks_a_stale_cached_window_and_a_live_field_outranks_both() {
@@ -264,42 +218,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/session_context_meta.json")).expect("fixture")
-    }
-    /// Every recorded case equals Node's answer, given the cached row and the catalog row Node read.
-    #[test]
-    #[cfg(node_twin)]
-    fn every_window_equals_nodes() {
-        let golden = golden();
-        let cases = golden["cases"].as_array().expect("cases");
-        assert!(cases.len() > 800);
-        for case in cases {
-            let row = |key: &str| case[key].as_object().cloned();
-            let got = resolve_context_meta(row("info").as_ref(), row("catalogInfo").as_ref(), case["provider"].as_str().unwrap(), case["model"].as_str().unwrap(), &case["seed"], case["wholeWindow"].as_bool().unwrap());
-            assert_eq!(fields(&got), case["meta"], "{case}");
-        }
-    }
-    /// A cold catalog reads the same as Node's cold catalog: the cases Node answered with no
-    /// provider row are the ones Rust answers from `CatalogService`.
-    #[tokio::test]
-    #[cfg(node_twin)]
-    async fn a_cold_catalog_answers_as_nodes_does() {
-        let dir = tempfile::tempdir().unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
-        let catalog = CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await;
-        let golden = golden();
-        let mut checked = 0;
-        for case in golden["cases"].as_array().unwrap().iter().filter(|c| c["info"].is_null() && !c["provider"].as_str().unwrap().is_empty()) {
-            let (provider, model) = (case["provider"].as_str().unwrap(), case["model"].as_str().unwrap());
-            let got = session_context_meta_with(&catalog, provider, model, &case["seed"], case["wholeWindow"].as_bool().unwrap()).expect("meta");
-            assert_eq!(fields(&got), case["meta"], "{case}");
-            checked += 1;
-        }
-        assert!(checked > 200);
-        assert!(session_context_meta(&catalog, "", "m", &json!({})).is_none());
-    }
 }

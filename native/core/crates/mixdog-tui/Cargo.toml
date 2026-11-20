@@ -58,7 +58,6 @@ mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] 
 mixdog-launch = { workspace = true, features = ["fake-core"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
-mixdog-office-base = { workspace = true, features = ["test-support"] }
 mixdog-office-com = { workspace = true, features = ["test-support"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }

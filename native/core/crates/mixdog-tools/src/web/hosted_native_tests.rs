@@ -417,8 +417,6 @@ fn a_turn_hears_the_newest_live_registration_of_its_session() {
 }
 
 
-#[cfg(node_twin)]
-const GOLDEN: &str = include_str!("../../../../fixtures/hosted-search/golden.json");
 
 /// Cases that differ only in the thread's Main route: the route and the candidates it resolves to.
 fn main_route_cases() -> Vec<Value> {
@@ -459,12 +457,6 @@ async fn one_host_answers_each_thread_with_its_own_main_route() {
     for (index, case) in cases.iter().enumerate().rev() {
         expect_case(&routes, &thread_of(index), case).await;
     }
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn every_send_is_asked_answered_accounted_and_reported_like_node() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-    check_sends(golden["sends"].as_array().unwrap(), golden["startedAt"].as_i64().unwrap()).await;
 }
 
 /// One search through the real routes and sender for each case: its provider scripted with the case's replies, then the

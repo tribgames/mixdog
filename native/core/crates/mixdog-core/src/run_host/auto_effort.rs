@@ -186,27 +186,6 @@ impl EffortDecisionLog {
         }
     }
 
-    /// With a smaller segment than Node's 4 MiB.
-    #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the code around it is the same as in a test build"))]
-    #[cfg(node_twin)]
-    fn with_segment_bytes(mut self, segment_bytes: u64) -> Self {
-        self.segment_bytes = segment_bytes;
-        self
-    }
-
-    /// Returns once every append recorded so far, and every rotation one started, has finished.
-    #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the code around it is the same as in a test build"))]
-    #[cfg(node_twin)]
-    async fn appended(&self) {
-        let mut running = self.pending.subscribe();
-        mixdog_core_session::session::testing::awaiting(|| "every effort-decision append and rotation to finish".to_owned(), async move {
-            let _ = running.wait_for(|running| *running == 0).await;
-        })
-        .await;
-    }
-
     /// `process.env.MIXDOG_EFFORT_DECISIONS_LOG`, else the data directory's own log
     /// (`join(resolvePluginData(), 'effort-judge', 'decisions.jsonl')`), read at each append.
     fn destination(&self) -> Result<PathBuf, PathBuf> {
@@ -471,9 +450,3 @@ impl TurnAutoEffort {
 
 mod decision_log;
 
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tests;

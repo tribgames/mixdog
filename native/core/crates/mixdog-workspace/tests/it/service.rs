@@ -909,59 +909,9 @@ fn futures_block<F: std::future::Future>(f: F) -> F::Output {
     tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(f))
 }
 
-#[cfg(node_twin)]
-fn strip_mtime(mut value: Value) -> Value {
-    match &mut value {
-        Value::Object(map) => {
-            map.remove("mtimeMs");
-            for v in map.values_mut() {
-                *v = strip_mtime(v.take());
-            }
-        }
-        Value::Array(items) => {
-            for v in items.iter_mut() {
-                *v = strip_mtime(v.take());
-            }
-        }
-        _ => {}
-    }
-    value
-}
 
-/// The recorded Node error text, as the reason the Rust core must answer with.
-#[cfg(node_twin)]
-fn expect_error(message: &str, got: &CoreError, ctx: &str, root: &str) {
-    let ok = match got {
-        CoreError::PreconditionFailed { .. } => message.starts_with("File changed on disk"),
-        CoreError::InvalidParams { expected, .. } => {
-            // Search-pattern text is shown to the user: byte-equal. Others map by reason.
-            if message.starts_with("Invalid search pattern") { &**expected == message } else { message == "Entry name is invalid." }
-        }
-        // A local caller's refusal of a path beyond the project (Node's service threw its plain `Error`; the phone's answer is the test above).
-        CoreError::PermissionDenied { .. } => message == "Path is outside the project." || message == "Path resolves outside the project.",
-        CoreError::DomainError { code, message: got, .. } => match code.as_deref() {
-            // A system error: Node's whole text, the recorded `<ROOT>` standing for this world's folder.
-            Some("ENOENT") => got.as_deref().map(|text| text.replace(root, "<ROOT>")).as_deref() == Some(message),
-            // Node's plain `Error`: the text, no code.
-            None => got.as_deref() == Some(message),
-            _ => false,
-        },
-        _ => false,
-    };
-    assert!(ok, "{ctx}: recorded {message:?}, got {got:?}");
-}
 
-#[cfg(node_twin)]
-fn tree(root: &std::path::Path, files: &[(&str, &[u8])]) {
-    for (rel, data) in files {
-        let path = root.join(rel);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, data).unwrap();
-    }
-}
 
-#[cfg(node_twin)]
-include!("node-twin/service.rs");
 
 /// `project/create` leaves `<project>/.mixdog/project.id` holding the folder's name and a newline (memory classification reads only
 /// that), a path given with a trailing separator or a `..` spelling is the same project, and `project/touch` leaves the marker for a
@@ -1309,18 +1259,6 @@ fn an_invalid_search_pattern_is_refused_with_the_reason_a_user_reads() {
     }
 }
 
-/// The corpus's scrubbing: the temp root becomes `<WORK>`, millisecond clocks 0, huge bodies their length.
-#[cfg(node_twin)]
-fn scrub(value: &Value, work: &str) -> Value {
-    match value {
-        Value::String(s) if s.encode_utf16().count() > 100_000 => Value::String(format!("<LEN:{}>", s.encode_utf16().count())),
-        Value::String(s) => Value::String(s.replace(work, "<WORK>")),
-        Value::Number(n) if n.as_u64().is_some_and(|n| (1_600_000_000_000..1_800_000_000_000).contains(&n)) => json!(0),
-        Value::Array(items) => Value::Array(items.iter().map(|v| scrub(v, work)).collect()),
-        Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), scrub(v, work))).collect()),
-        other => other.clone(),
-    }
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn lsp_feed_carries_node_keyed_sections_with_a_snapshot_for_late_subscribers() {
@@ -1360,72 +1298,9 @@ async fn lsp_feed_carries_node_keyed_sections_with_a_snapshot_for_late_subscribe
 
 // ---- the phone's start calls: what Node's `canonicalDirectory`, `knownProject` and `enter` answered (fixtures/phone-chat/host.json) --------
 
-/// The fixture's managed worktrees: `(worktree folder, owner Project, ready)`. A stand-in for the worktree manager's registry behind the daemon's
-/// `SessionProjectWorkspaces::managed`, the one resolver the service takes (`set_managed_projects`).
-#[cfg(node_twin)]
-struct Worktrees(CoreState, Vec<(String, String, bool)>);
 
-#[cfg(node_twin)]
-#[async_trait::async_trait]
-impl mixdog_workspace::service::ManagedProjects for Worktrees {
-    async fn owner(&self, path: &str) -> Option<(String, String)> {
-        let real = canonical(std::path::Path::new(path)).ok()?.to_string_lossy().into_owned();
-        let below = |folder: &str| real == folder || real.starts_with(&format!("{folder}{}", std::path::MAIN_SEPARATOR));
-        let (_, owner, _) = self.1.iter().find(|(folder, _, ready)| *ready && below(folder))?;
-        self.0.project(owner).await.ok().flatten()?;
-        Some((owner.clone(), real))
-    }
 
-    // The start calls never ask for a recovery folder: the registry's refusal stands, and a recovery call runs as it is.
-    async fn recovery_root(&self, _path: &str) -> Option<std::path::PathBuf> {
-        None
-    }
 
-    async fn recovery_store(
-        &self,
-        _root: &std::path::Path,
-        _directory: &std::path::Path,
-        _action: mixdog_workspace::service::RecoveryUse,
-        run: std::pin::Pin<Box<dyn std::future::Future<Output = mixdog_workspace::error::WsResult<serde_json::Value>> + Send>>,
-    ) -> mixdog_workspace::error::WsResult<serde_json::Value> {
-        run.await
-    }
-}
-
-#[cfg(node_twin)]
-fn domain(error: &CoreError) -> (Option<String>, Option<String>) {
-    match error {
-        CoreError::DomainError { code, message, .. } => (code.as_ref().map(|c| c.to_string()), message.as_ref().map(|m| m.to_string())),
-        other => panic!("not a domain error: {other:?}"),
-    }
-}
-
-/// The adapter's sequence for `startProject` / `startProjectTask` (remote-chat-host.ts): the folder the blank snapshot names, and the
-/// folders `project/create` registered (Node's `addProject` calls) on the way.
-#[cfg(node_twin)]
-async fn start_through_core(env: &Env, call: &str, path: &str) -> (Result<String, CoreError>, Vec<String>) {
-    let mut added = Vec::new();
-    let folder = if call == "startProject" {
-        match self::call(env, "project/create", json!({ "path": path })).await {
-            Ok(created) => {
-                let folder = created["project"]["path"].as_str().unwrap().to_owned();
-                added.push(folder.clone());
-                let _ = self::call(env, "project/touch", json!({ "path": folder })).await;
-                Ok(folder)
-            }
-            Err(error) => Err(error),
-        }
-    } else {
-        match self::call(env, "project/directory", json!({ "path": path, "owner": true })).await {
-            Ok(answer) => {
-                let _ = self::call(env, "project/touch", json!({ "path": path })).await;
-                Ok(answer["path"].as_str().unwrap().to_owned())
-            }
-            Err(error) => Err(error),
-        }
-    };
-    (folder, added)
-}
 
 
 /// Node read a file once, through one authorized handle (`readProjectTextFileAuthorized`), and answered that one version. The windows of one

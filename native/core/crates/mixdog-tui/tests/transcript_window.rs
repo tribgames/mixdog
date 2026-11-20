@@ -10,61 +10,15 @@ use mixdog_tui::transcript::window::geometry::FrameProps;
 use mixdog_tui::transcript::window::heights::{HeightParams, ItemHeights};
 use mixdog_tui::transcript::window::instance_state::WindowState;
 use mixdog_tui::transcript::window::render_window::{AnchorPoint, WindowTuning, resolve_anchor_scroll_offset, upper_bound};
-#[cfg(node_twin)]
-use mixdog_tui::transcript::window::render_window::{transcript_render_window, transcript_swap_returns_to_tail};
 use mixdog_tui::transcript::window::row_index::{Items, RowIndex};
-#[cfg(node_twin)]
-use mixdog_tui::transcript::window::selection_shift::{Cell, SelectionRect, compare_cell_order, selection_rect_is_degenerate, selection_rects_equal, shift_selection_rect_y, status_band_row_range, transcript_viewport_row_range};
 use serde_json::{Value, json};
 
-#[cfg(node_twin)]
-fn number(value: &Value) -> f64 {
-    value.as_f64().unwrap_or(f64::NAN)
-}
 
-#[cfg(node_twin)]
-fn count(value: &Value) -> usize {
-    value.as_u64().expect("a count") as usize
-}
 
-#[cfg(node_twin)]
-fn row_index(rows: &[usize]) -> RowIndex {
-    let mut prefix_rows = vec![0];
-    for row in rows {
-        prefix_rows.push(prefix_rows.last().copied().unwrap_or(0) + row);
-    }
-    RowIndex { rows: rows.to_vec(), total_rows: prefix_rows.last().copied().unwrap_or(0), prefix_rows }
-}
 
-#[cfg(node_twin)]
-fn rows_of(value: &Value) -> Vec<usize> {
-    value.as_array().expect("rows").iter().map(count).collect()
-}
 
-#[cfg(node_twin)]
-fn items_of(count: usize) -> Vec<Value> {
-    (0..count).map(|index| json!({"id": format!("i{index}"), "kind": "user"})).collect()
-}
 
-#[cfg(node_twin)]
-fn rect_of(value: &Value) -> SelectionRect {
-    let int = |key: &str| value[key].as_i64().expect("a coordinate");
-    SelectionRect {
-        mode: value["mode"].as_str().map(str::to_owned),
-        x1: int("x1"),
-        y1: int("y1"),
-        x2: int("x2"),
-        y2: int("y2"),
-        clip_y1: value["clipY1"].as_i64(),
-        clip_y2: value["clipY2"].as_i64(),
-        capture_text: value["captureText"].as_bool(),
-    }
-}
 
-#[cfg(node_twin)]
-fn cell_of(value: &Value) -> Cell {
-    Cell { x: value["x"].as_i64().expect("x"), y: value["y"].as_i64().expect("y") }
-}
 
 fn params(columns: usize, tool_output_expanded: bool) -> HeightParams {
     HeightParams { columns, tool_output_expanded }
@@ -214,6 +168,3 @@ fn a_session_switch_never_lends_the_old_rows_to_the_new_transcript() {
     assert_eq!(state.commit_total_rows(frame.geometry.total_rows), 0);
 }
 
-#[cfg(node_twin)]
-#[path = "node-twin/transcript_window.rs"]
-mod node_twin;

@@ -259,29 +259,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/rooms/row_message/golden.json");
-    /// Every recorded Node row: the canonical descriptor, the stored message, or the refusal.
-    #[cfg(node_twin)]
-    #[test]
-    fn every_recorded_row_equals_node() {
-        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-        for case in golden["cases"].as_array().unwrap() {
-            let name = case["name"].as_str().unwrap();
-            let row = &case["row"];
-            match case.get("error") {
-                Some(error) => assert_eq!(normalize_room_row(row).unwrap_err(), error.as_str().unwrap(), "{name}"),
-                None => {
-                    assert_eq!(normalize_room_row(row).unwrap(), case["normalized"], "{name}");
-                    let mut stamped = row.clone();
-                    if stamped.get("at").is_none() {
-                        stamped["at"] = json!(424242);
-                    }
-                    assert_eq!(room_row_message(&stamped, 0).unwrap(), case["message"], "{name}");
-                }
-            }
-        }
-        let bare = room_row_message(&json!({ "id": "i1", "kind": "interrupted" }), 777).unwrap();
-        assert_eq!(bare, golden["noAt"]);
-    }
 }

@@ -59,7 +59,6 @@ mixdog-core-goal = { workspace = true }
 mixdog-core-ports = { workspace = true }
 mixdog-core-prompt = { workspace = true }
 mixdog-statefile = { workspace = true }
-sha2 = { workspace = true }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
 mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }

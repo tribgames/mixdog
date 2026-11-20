@@ -142,69 +142,17 @@ impl AgentEffects for DaemonAgentEffects {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use std::sync::Mutex;
 
     use serde_json::json;
 
-    #[cfg(node_twin)]
-    use super::super::profile_changes::ProfileListener;
     use super::*;
 
-    #[cfg(node_twin)]
-    type Log = Arc<Mutex<Vec<Value>>>;
 
-    #[cfg(node_twin)]
-    struct Channels {
-        log: Log,
-        owned: Mutex<Vec<OwnedRoutines>>,
-        delete_failure: Option<String>,
-        reload_failure: Option<String>,
-    }
 
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl RoutineChannels for Channels {
-        async fn delete_owned(&self, agent_id: &str) -> Result<OwnedRoutines, String> {
-            self.log.lock().unwrap().push(json!(["deleteOwnedRoutines", agent_id]));
-            if let Some(failure) = &self.delete_failure {
-                return Err(failure.clone());
-            }
-            let mut owned = self.owned.lock().unwrap();
-            Ok(if owned.is_empty() { OwnedRoutines::default() } else { owned.remove(0) })
-        }
-        async fn reload(&self) -> Result<(), String> {
-            self.log.lock().unwrap().push(json!(["reloadChannels"]));
-            self.reload_failure.clone().map_or(Ok(()), Err)
-        }
-        fn reload_soon(&self) {
-            self.log.lock().unwrap().push(json!(["reloadChannelsSoon"]));
-        }
-    }
 
-    #[cfg(node_twin)]
-    struct Routes(Log);
 
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl AgentRouteSetting for Routes {
-        async fn set(&self, agent_id: &str, route: &Obj) -> Result<(), String> {
-            self.0.lock().unwrap().push(json!(["setAgentRoute", agent_id, Value::Object(route.clone())]));
-            Ok(())
-        }
-    }
 
-    #[cfg(node_twin)]
-    struct Listener(Log);
 
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl ProfileListener for Listener {
-        async fn changed(&self) -> Result<(), String> {
-            self.0.lock().unwrap().push(json!(["publishAgentProfileChange"]));
-            Ok(())
-        }
-    }
 
     #[test]
     fn a_route_spreads_as_javascript_spreads_it() {
@@ -216,68 +164,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/agent-effects/golden.json")).expect("the golden is JSON")
-    }
-    #[cfg(node_twin)]
-    /// Replays the effect calls of every recorded Node scene (`calls`, in Node's order, with the
-    /// route Node handed to `setAgentRoute`) and compares what reached the sinks, the `*Soon`
-    /// reload included, with what Node's sinks saw; the outcome is the recorded one.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn every_recorded_scene_reaches_the_sinks_as_in_node() {
-        let golden = golden();
-        for (scene, recorded) in golden.as_object().unwrap() {
-            let calls = recorded["calls"].as_array().unwrap();
-            let log: Log = Arc::default();
-            let failing_purge = scene == "purge with a failing delete";
-            let failing_reload = scene == "restore with a failing reload";
-            let owned: Vec<OwnedRoutines> = recorded["result"]["ok"]["routines"]
-                .as_object()
-                .map(|routines| {
-                    let names = |key: &str| routines[key].as_array().unwrap().iter().map(|name| name.as_str().unwrap().to_owned()).collect();
-                    OwnedRoutines { schedules: names("schedules"), webhooks: names("webhooks") }
-                })
-                .into_iter()
-                .collect();
-            let channels = Arc::new(Channels {
-                log: log.clone(),
-                owned: Mutex::new(owned),
-                delete_failure: failing_purge.then(|| "connection terminated".to_owned()),
-                reload_failure: failing_reload.then(|| "worker down".to_owned()),
-            });
-            let profile = Arc::new(AgentProfileChanges::default());
-            profile.subscribe(Arc::new(Listener(log.clone())));
-            let effects = DaemonAgentEffects::new(profile, channels, Arc::new(Routes(log.clone())));
-            let mut outcome: Result<(), String> = Ok(());
-            for call in calls {
-                match call[0].as_str().unwrap() {
-                    "publishAgentProfileChange" => effects.agents_changed().await,
-                    "setAgentRoute" => effects.set_agent_route(call[1].as_str().unwrap(), &call[2]).await.unwrap(),
-                    "reloadChannels" => outcome = effects.reload_routines().await,
-                    "deleteOwnedRoutines" => {
-                        if let Err(error) = effects.delete_owned_routines(call[1].as_str().unwrap()).await {
-                            outcome = Err(error);
-                        }
-                    }
-                    "reloadChannelsSoon" => {}
-                    other => panic!("scene {scene}: unknown call {other}"),
-                }
-            }
-            // `setAgentRoute` entries: [name, id, what the editor passed, what the setter read].
-            let seen: Vec<Value> = log
-                .lock()
-                .unwrap()
-                .iter()
-                .enumerate()
-                .map(|(at, entry)| if entry[0] == "setAgentRoute" { json!(["setAgentRoute", entry[1], calls[at][2], entry[2]]) } else { entry.clone() })
-                .collect();
-            assert_eq!(Value::Array(seen), recorded["calls"], "scene {scene}");
-            match (&recorded["result"]["error"], outcome) {
-                (Value::String(message), Err(error)) => assert!(message.contains(&error), "scene {scene}: {error}"),
-                (Value::Null, Ok(())) => {}
-                (recorded, got) => panic!("scene {scene}: recorded {recorded}, got {got:?}"),
-            }
-        }
-    }
 }

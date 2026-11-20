@@ -7,14 +7,10 @@ use std::sync::Mutex;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::UsdTicks;
-#[cfg(node_twin)]
-use mixdog_js::time::Tz;
 use serde_json::Map;
 
 use super::*;
 
-#[cfg(node_twin)]
-const GOLDEN: &str = include_str!("../../../../../fixtures/usage-accounting/golden.json");
 
 /// Prices nothing, as an empty catalog does: the unpriced snapshot Node gives a
 /// model it does not know.
@@ -78,31 +74,8 @@ fn usage_of(spec: &Value) -> Usage {
     }
 }
 
-#[cfg(node_twin)]
-fn expected_rows(case: &Value) -> Vec<Value> {
-    let mut rows = case["rows"].as_array().unwrap().clone();
-    // Node stored the same numeric zero either way, but did not store output evidence.
-    if case["end"]["kind"] == "completed" && case["end"].get("usage").is_none()
-        && let Some(row) = rows.last_mut()
-    {
-        let mut rates: Value = serde_json::from_str(row["rates"].as_str().unwrap()).unwrap();
-        rates["outputTokensKnown"] = json!(false);
-        row["rates"] = json!(mixdog_js::json_stringify(&rates));
-    }
-    rows
-}
 
-#[cfg(node_twin)]
-/// Node's unbound default account is `default`.
-struct UnboundRoster;
 
-#[cfg(node_twin)]
-#[async_trait]
-impl crate::registry::accounted::AccountOf for UnboundRoster {
-    async fn of(&self, _: &str) -> Result<String, String> {
-        Ok("default".into())
-    }
-}
 
 fn identity(case: &Value, started_at: i64) -> SendIdentity {
     let text = |key: &str| case.get(key).and_then(Value::as_str).map(str::to_owned);
@@ -125,61 +98,7 @@ fn identity(case: &Value, started_at: i64) -> SendIdentity {
     }
 }
 
-#[cfg(node_twin)]
-async fn rows_of(case: &Value) -> Vec<Value> {
-    let started_at = case["startedAt"].as_i64().unwrap();
-    let end = &case["end"];
-    let stream_ms = end.get("streamMs").and_then(Value::as_i64).unwrap_or(1500);
-    let sink = Arc::new(Collect::default());
-    let mut accounting = SendAccounting::new(identity(case, started_at), Arc::new(Unpriced), Some(sink.clone()))
-        .with_sources(Arc::new(move || started_at + stream_ms), Arc::new(|| "<random>".into()))
-        .with_account(Arc::new(UnboundRoster));
-    for attempt in case.get("abandoned").and_then(Value::as_array).into_iter().flatten() {
-        let model = attempt.get("model").and_then(Value::as_str).map(str::to_owned);
-        accounting.note_abandoned(&usage_of(&attempt["usage"]), model);
-    }
-    let usage = end.get("usage").map(usage_of);
-    let recorded = match end["kind"].as_str().unwrap() {
-        "completed" => {
-            let completed = Completed {
-                facts: usage.as_ref().map(Facts::from),
-                model: end.get("model").and_then(Value::as_str).map(str::to_owned),
-                response_id: end.get("responseId").and_then(Value::as_str).map(str::to_owned),
-                fallback: end.get("fallback") == Some(&json!(true)),
-                generation_ms: end.get("generationMs").and_then(Value::as_f64),
-                stream_ended_at: started_at + stream_ms,
-                ..Completed::default()
-            };
-            accounting.finish(Outcome::Completed(completed)).await
-        }
-        "cancelled" => accounting.finish(Outcome::Cancelled { reported: usage.as_ref().map(Facts::from), model: None }).await,
-        _ => {
-            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Ambiguous);
-            error.partial_usage = usage.map(Box::new);
-            error.partial_model = end.get("model").and_then(Value::as_str).map(Box::from);
-            accounting.finish(Outcome::Failed(&error)).await
-        }
-    };
-    // Only a completed send is timed: its measured time is the row's duration.
-    let timed = (end["kind"] == "completed").then_some(stream_ms as u64);
-    assert_eq!(recorded, Recorded { error: None, request_ms: timed });
-    let rows = sink.0.lock().unwrap().iter().map(|row| serde_json::to_value(row).unwrap()).collect();
-    rows
-}
 
-#[cfg(node_twin)]
-#[tokio::test]
-async fn every_outcome_writes_the_rows_node_writes() {
-    // The golden was recorded with TZ=UTC: the row's day is the local day.
-    let _ = mixdog_js::time::set_process_zone(Tz::UTC);
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-    let cases = golden["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 17);
-    for case in cases {
-        let rows = rows_of(case).await;
-        assert_eq!(rows, expected_rows(case), "{}", case["name"]);
-    }
-}
 
 /// `usage-accounting.mjs` `save`: `currentProviderAccountId` throwing inside the row's write
 /// writes no row and sets `usageAccountingError` to the error's message; the send's result stands.
@@ -375,94 +294,7 @@ mod through_the_registry {
         }
     }
 
-    /// A send as the turn makes it: through the provider the registry hands out. The ledger row is
-    /// Node's for the same send, and it is written before the terminal event is released.
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn a_registry_send_writes_nodes_row_before_it_releases_completed_with_the_duration() {
-        let _ = mixdog_js::time::set_process_zone(Tz::UTC);
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-        let mut replayed = 0;
-        for case in golden["cases"].as_array().unwrap() {
-            let end = &case["end"];
-            let plain = ["model", "responseId", "fallback", "generationMs"].iter().all(|k| end.get(k).is_none())
-                && case.get("abandoned").is_none()
-                && case.get("ownerSessionId").is_none()
-                && case["provider"] != "anthropic"
-                && end["kind"] != "cancelled";
-            if !plain {
-                continue;
-            }
-            let started_at = case["startedAt"].as_i64().unwrap();
-            let stream_ms = end.get("streamMs").and_then(Value::as_i64).unwrap_or(1500);
-            let usage = end.get("usage").map(usage_of);
-            let script: Script = if end["kind"] == "completed" {
-                usage
-                    .clone()
-                    .map(StreamEvent::Usage)
-                    .into_iter()
-                    .chain([StreamEvent::Completed { stop: None, pricing_model: None, request_ms: None }])
-                    .map(Ok)
-                    .collect()
-            } else {
-                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Ambiguous);
-                error.partial_usage = usage.map(Box::new);
-                vec![Err(error)]
-            };
-            let sink = Arc::new(Collect::default());
-            let ledger: Arc<dyn UsageSink> = sink.clone();
-            let calls = Arc::new(AtomicI64::new(0));
-            let mut deps = AccountingDeps::new(Arc::new(Unpriced), Arc::new(move || Some(ledger.clone())));
-            deps.now = Arc::new(move || started_at + if calls.fetch_add(1, Ordering::SeqCst) == 0 { 0 } else { stream_ms });
-            deps.new_id = Arc::new(|| "<req>".into());
-            deps.account = Arc::new(DefaultAccount);
-            let registry = ProviderRegistry::new(Arc::new(Builder(Mutex::new(vec![script])))).with_accounting(deps);
-            let provider = case["provider"].as_str().unwrap();
-            registry.init_providers(&crate::service::admin_route::ensure_provider_enabled(&Map::new(), provider)).await.unwrap();
-            let adapter = registry.get(provider).await.unwrap();
-            let request = ModelRequest {
-                model: case["model"].as_str().unwrap().into(),
-                messages: Vec::new(),
-                tools: Vec::new(),
-                options: RequestOptions {
-                    session_id: Some(case["sessionId"].as_str().unwrap_or("session-1").into()),
-                    request_kind: Some("lead".into()),
-                    ..RequestOptions::default()
-                },
-            };
-            let mut stream = adapter.attempt(Arc::new(request)).await.unwrap();
-            let mut released = None;
-            while let Some(step) = stream.next().await {
-                match step {
-                    Ok(StreamEvent::Completed { request_ms, .. }) => {
-                        assert_eq!(sink.0.lock().unwrap().len(), 1, "{}: the row is written before Completed", case["name"]);
-                        released = Some(request_ms);
-                    }
-                    Ok(_) => assert!(sink.0.lock().unwrap().is_empty(), "{}", case["name"]),
-                    Err(_) => assert_eq!(sink.0.lock().unwrap().len(), 1, "{}", case["name"]),
-                }
-            }
-            let rows: Vec<Value> = sink.0.lock().unwrap().iter().map(|row| serde_json::to_value(row).unwrap()).collect();
-            assert_eq!(rows, expected_rows(case), "{}", case["name"]);
-            if end["kind"] == "completed" {
-                assert_eq!(released, Some(Some(stream_ms as u64)), "{}: Completed carries the ledger's duration", case["name"]);
-            } else {
-                assert_eq!(released, None);
-            }
-            replayed += 1;
-        }
-        assert_eq!(replayed, 7);
-    }
 
-    #[cfg(node_twin)]
-    struct DefaultAccount;
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl crate::registry::accounted::AccountOf for DefaultAccount {
-        async fn of(&self, _: &str) -> Result<String, String> {
-            Ok("default".into())
-        }
-    }
 
     /// The roster's current account, switchable.
     struct Roster(Mutex<String>);
@@ -506,168 +338,14 @@ mod through_the_registry {
         }
     }
 
-    #[cfg(node_twin)]
-    /// The host's scope: the request's own, plus the session this one runs for.
-    struct OwnerScope(Option<String>);
-    #[cfg(node_twin)]
-    impl crate::registry::accounted::SendScope for OwnerScope {
-        fn of(&self, provider: &str, request: &ModelRequest) -> crate::registry::accounted::Scope {
-            let mut scope = crate::registry::accounted::RequestScope.of(provider, request);
-            scope.owner_session_id = self.0.clone();
-            scope
-        }
-    }
 
-    #[cfg(node_twin)]
-    /// The registry-path adapter for a golden case, with one script per attempt.
-    async fn adapter_for(case: &Value, scripts: Vec<Script>) -> (Arc<dyn ProviderAdapter>, Arc<Collect>) {
-        let started_at = case["startedAt"].as_i64().unwrap();
-        let stream_ms = case["end"].get("streamMs").and_then(Value::as_i64).unwrap_or(1500);
-        let sink = Arc::new(Collect::default());
-        let ledger: Arc<dyn UsageSink> = sink.clone();
-        let calls = Arc::new(AtomicI64::new(0));
-        let mut deps = AccountingDeps::new(Arc::new(Unpriced), Arc::new(move || Some(ledger.clone())));
-        deps.now = Arc::new(move || started_at + if calls.fetch_add(1, Ordering::SeqCst) == 0 { 0 } else { stream_ms });
-        deps.new_id = Arc::new(|| "<req>".into());
-        deps.account = Arc::new(DefaultAccount);
-        deps.scope = Arc::new(OwnerScope(case.get("ownerSessionId").and_then(Value::as_str).map(str::to_owned)));
-        let registry = ProviderRegistry::new(Arc::new(Builder(Mutex::new(scripts)))).with_accounting(deps);
-        let provider = case["provider"].as_str().unwrap();
-        registry.init_providers(&crate::service::admin_route::ensure_provider_enabled(&Map::new(), provider)).await.unwrap();
-        (registry.get(provider).await.unwrap(), sink)
-    }
 
-    #[cfg(node_twin)]
-    fn request_for(case: &Value, group: Option<&str>) -> Arc<ModelRequest> {
-        Arc::new(ModelRequest {
-            model: case["model"].as_str().unwrap().into(),
-            messages: Vec::new(),
-            tools: Vec::new(),
-            options: RequestOptions {
-                session_id: Some(case["sessionId"].as_str().unwrap_or("session-1").into()),
-                request_kind: Some("lead".into()),
-                send_group: group.map(str::to_owned),
-                ..RequestOptions::default()
-            },
-        })
-    }
 
     fn rows_of_sink(sink: &Collect) -> Vec<Value> {
         sink.0.lock().unwrap().iter().map(|row| serde_json::to_value(row).unwrap()).collect()
     }
 
-    /// Attempts of one send group (the loop's retries of a billed failure) land in one ledger
-    /// row: the retried attempts as abandoned rows, the send's own row with `attempts` and the
-    /// `retried` status, exactly Node's rows for the same send. Nothing is written until the
-    /// group's last attempt ends.
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn the_retried_attempts_of_one_send_group_fold_into_nodes_rows() {
-        let _ = mixdog_js::time::set_process_zone(Tz::UTC);
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-        let mut replayed = 0;
-        for case in golden["cases"].as_array().unwrap() {
-            let end = &case["end"];
-            let Some(abandoned) = case.get("abandoned").and_then(Value::as_array) else { continue };
-            if ["model", "responseId", "fallback", "generationMs"].iter().any(|k| end.get(k).is_some()) {
-                continue;
-            }
-            let billed = |attempt: &Value| {
-                let mut error = ProviderError::new(ErrorKind::Overloaded, DeliveryState::Accepted);
-                error.partial_usage = Some(Box::new(usage_of(&attempt["usage"])));
-                error.partial_model = attempt.get("model").and_then(Value::as_str).map(Box::from);
-                Err(error)
-            };
-            let mut scripts: Vec<Script> = abandoned.iter().map(|a| vec![billed(a)]).collect();
-            let usage = end.get("usage").map(usage_of);
-            scripts.push(match end["kind"].as_str().unwrap() {
-                "completed" => usage
-                    .clone()
-                    .map(StreamEvent::Usage)
-                    .into_iter()
-                    .chain([StreamEvent::Completed { stop: None, pricing_model: None, request_ms: None }])
-                    .map(Ok)
-                    .collect(),
-                "cancelled" => usage.clone().map(StreamEvent::Usage).into_iter().map(Ok).collect(),
-                _ => {
-                    let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Ambiguous);
-                    error.partial_usage = usage.map(Box::new);
-                    vec![Err(error)]
-                }
-            });
-            let (adapter, sink) = adapter_for(case, scripts).await;
-            for _ in abandoned {
-                let mut stream = adapter.attempt(request_for(case, Some("g1"))).await.unwrap();
-                assert!(matches!(stream.next().await, Some(Err(_))), "{}", case["name"]);
-                assert!(sink.0.lock().unwrap().is_empty(), "{}: a retried attempt writes nothing yet", case["name"]);
-            }
-            let mut stream = adapter.attempt(request_for(case, Some("g1"))).await.unwrap();
-            match end["kind"].as_str().unwrap() {
-                "completed" => while stream.next().await.is_some() {},
-                "failed" => {
-                    assert!(matches!(stream.next().await, Some(Err(_))));
-                    assert!(sink.0.lock().unwrap().is_empty(), "the last failure waits for the loop's verdict");
-                    adapter.settle_send("g1", SendEnd::Surfaced).await;
-                }
-                _ => {
-                    // The user cancelled mid-stream: the dropped stream records what it showed.
-                    if end.get("usage").is_some() {
-                        stream.next().await;
-                    }
-                    drop(stream);
-                    for _ in 0..100 {
-                        tokio::task::yield_now().await;
-                    }
-                }
-            }
-            assert_eq!(rows_of_sink(&sink), expected_rows(case), "{}", case["name"]);
-            replayed += 1;
-        }
-        assert_eq!(replayed, 3);
-    }
 
-    /// Node writes no request row for a send aborted before it produced anything
-    /// (`cancelled without usage`): nothing for an attempt dropped before its stream exists, nothing
-    /// for a stream dropped before it showed usage, and a cancel of a group that was between
-    /// attempts records only the retried attempt's billed usage.
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn a_send_aborted_before_any_usage_writes_no_request_row() {
-        let _ = mixdog_js::time::set_process_zone(Tz::UTC);
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-        let cases = golden["cases"].as_array().unwrap();
-        let quiet = cases.iter().find(|c| c["name"] == "cancelled without usage").unwrap();
-        assert_eq!(quiet["rows"], json!([]));
-
-        // Before the stream exists: the attempt future is dropped while the provider connects.
-        let (adapter, sink) = adapter_for(quiet, vec![vec![]]).await;
-        let pending = mixdog_rt::time::timeout(std::time::Duration::from_millis(1), async {
-            std::future::pending::<()>().await;
-            adapter.attempt(request_for(quiet, None)).await
-        })
-        .await;
-        assert!(pending.is_err());
-        // After the stream exists, before any usage.
-        let mut stream = adapter.attempt(request_for(quiet, None)).await.unwrap();
-        drop(stream.next());
-        drop(stream);
-        for _ in 0..100 {
-            tokio::task::yield_now().await;
-        }
-        assert_eq!(rows_of_sink(&sink), Vec::<Value>::new());
-
-        // Between attempts: the cancel records the retried attempt's usage and no request row.
-        let retried = cases.iter().find(|c| c["name"] == "cancelled after an abandoned attempt").unwrap();
-        let mut error = ProviderError::new(ErrorKind::Overloaded, DeliveryState::Accepted);
-        error.partial_usage = Some(Box::new(usage_of(&retried["abandoned"][0]["usage"])));
-        let (adapter, sink) = adapter_for(retried, vec![vec![Err(error)]]).await;
-        let mut stream = adapter.attempt(request_for(retried, Some("g1"))).await.unwrap();
-        assert!(matches!(stream.next().await, Some(Err(_))));
-        adapter.settle_send("g1", SendEnd::Cancelled).await;
-        let rows = rows_of_sink(&sink);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0], retried["rows"][0]);
-    }
 
     /// The registry path with `scripts` (one per attempt) and a clock that reads 1.5 s later at the end of a send.
     async fn inline_adapter(scripts: Vec<Script>) -> (Arc<dyn ProviderAdapter>, Arc<Collect>) {

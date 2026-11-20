@@ -165,49 +165,7 @@ pub fn keep_native(native: &[ModelRecord], enriched: Vec<ModelRecord>) -> Vec<Mo
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(node_twin)]
-    use crate::catalog::lookup::fixtures::GOLDEN;
-    #[cfg(node_twin)]
-    use crate::catalog::lookup::fixtures::LITELLM;
-    #[cfg(node_twin)]
-    use crate::catalog::lookup::fixtures::MODELS_DEV;
-    #[cfg(node_twin)]
-    use crate::catalog::lookup::fixtures::json;
-    #[cfg(node_twin)]
-    use crate::catalog::lookup::fixtures::rosters;
-    #[cfg(node_twin)]
-    use crate::catalog::lookup::project_litellm;
-    #[cfg(node_twin)]
-    use crate::catalog::lookup::project_models_dev;
 
-    /// A recorded Node input row as a listed record.
-    #[cfg(node_twin)]
-    fn listed(input: &Value) -> ModelRecord {
-        let mut record = ModelRecord::new(input["id"].as_str().unwrap());
-        record.display_name = input.get("display").and_then(Value::as_str).map(str::to_owned);
-        record.name = input.get("name").and_then(Value::as_str).map(str::to_owned);
-        record.context_window = input.get("contextWindow").and_then(Value::as_u64);
-        record.max_context_window = input.get("maxContextWindow").and_then(Value::as_u64);
-        record.runtime_context_window = input.get("runtimeContextWindow").and_then(Value::as_u64);
-        record.max_output_tokens = input.get("outputTokens").and_then(Value::as_u64);
-        record.input_cost_per_m = finite(input.get("inputCostPerM"));
-        record.output_cost_per_m = finite(input.get("outputCostPerM"));
-        record.cache_read_cost_per_m = finite(input.get("cacheReadCostPerM"));
-        record.cache_write_cost_per_m = finite(input.get("cacheWriteCostPerM"));
-        record.supports_images = input.get("supportsVision").and_then(Value::as_bool);
-        record.supports_reasoning = input.get("supportsReasoning").and_then(Value::as_bool);
-        record.supports_prompt_caching = input.get("supportsPromptCaching").and_then(Value::as_bool);
-        record.reasoning_content_field = input.get("reasoningContentField").and_then(Value::as_str).map(str::to_owned);
-        record.reasoning_levels = input
-            .get("reasoningLevels")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
-            .unwrap_or_default();
-        if let Some(options) = input.get("reasoningOptions") {
-            record.picker.reasoning_options = serde_json::from_value(options.clone()).unwrap();
-        }
-        record
-    }
 
     #[test]
     fn only_a_stated_cache_read_price_marks_prompt_caching() {
@@ -304,54 +262,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    #[test]
-    fn every_enriched_row_equals_nodes() {
-        let litellm = project_litellm(&json(LITELLM));
-        let models_dev = project_models_dev(&json(MODELS_DEV));
-        let rosters = rosters();
-        let (litellm, models_dev) = (crate::catalog::Overlay::from_projected_litellm(&litellm), crate::catalog::Overlay::from_projected_models_dev(&models_dev));
-        let lookup = Lookup { litellm: &litellm, models_dev: &models_dev, rosters: &rosters };
-        let golden = json(&GOLDEN);
-        let cases = golden["enriched"].as_array().unwrap();
-        assert!(cases.len() >= 13);
-        for case in cases {
-            let (input, out) = (&case["input"], &case["out"]);
-            let got = enrich_listed(&lookup, input["provider"].as_str().unwrap(), vec![listed(input)]).remove(0);
-            let what = format!("{input}");
-            assert_eq!(got.display_name.as_deref(), out.get("display").and_then(Value::as_str).filter(|s| !s.is_empty()), "display {what}");
-            assert_eq!(got.context_window, positive(out.get("contextWindow")), "contextWindow {what}");
-            assert_eq!(got.max_output_tokens, positive(out.get("outputTokens")), "outputTokens {what}");
-            let flag = |key: &str, own: Option<bool>| own.or(out.get(key).and_then(Value::as_bool));
-            assert_eq!(got.supports_images, flag("supportsVision", listed(input).supports_images), "vision {what}");
-            assert_eq!(got.supports_reasoning, flag("supportsReasoning", listed(input).supports_reasoning), "reasoning {what}");
-            assert_eq!(got.supports_prompt_caching, flag("supportsPromptCaching", listed(input).supports_prompt_caching), "promptCaching {what}");
-            let field = |v: Option<&Value>| v.and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
-            assert_eq!(got.reasoning_content_field, field(out.get("reasoningContentField")), "reasoningContentField {what}");
-            // A model the catalog does not know comes back untouched: no ladder.
-            assert_eq!(json!(got.picker.reasoning_options), out.get("reasoningOptions").cloned().unwrap_or(json!([])), "reasoningOptions {what}");
-            assert_eq!(got.mode.as_deref(), out.get("mode").and_then(Value::as_str), "mode {what}");
-            let got_prices = [got.input_cost_per_m, got.output_cost_per_m, got.cache_read_cost_per_m, got.cache_write_cost_per_m];
-            let node_prices = ["inputCostPerM", "outputCostPerM", "cacheReadCostPerM", "cacheWriteCostPerM"].map(|key| finite(out.get(key)));
-            assert_eq!(got_prices, node_prices, "prices {what}");
-        }
-    }
-    #[cfg(node_twin)]
-    #[test]
-    fn a_listed_price_survives_a_model_the_catalog_does_not_know() {
-        let litellm = project_litellm(&json(LITELLM));
-        let models_dev = project_models_dev(&json(MODELS_DEV));
-        let rosters = rosters();
-        let (litellm, models_dev) = (crate::catalog::Overlay::from_projected_litellm(&litellm), crate::catalog::Overlay::from_projected_models_dev(&models_dev));
-        let lookup = Lookup { litellm: &litellm, models_dev: &models_dev, rosters: &rosters };
-        let mut row = ModelRecord::new("go-only-model");
-        row.input_cost_per_m = Some(0.4);
-        row.output_cost_per_m = Some(1.6);
-        row.cache_read_cost_per_m = Some(f64::NAN);
-        let got = enrich_listed(&lookup, "opencode-go-oauth", vec![row]).remove(0);
-        assert_eq!((got.input_cost_per_m, got.output_cost_per_m), (Some(0.4), Some(1.6)));
-        assert_eq!(got.cache_read_cost_per_m, None, "a price that is not finite is left out");
-    }
 }
 
 

@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // The Rust-core lanes that stand in for the Node CI steps the cut removed (release.yml `rust-lanes`). Each lane is one
 // `cargo test` run per filter over tests that exist in a clean checkout of native/core: nothing here selects a
-// `cfg(node_twin)` test (the Node-comparison material, local-only and never compiled in CI), and the lane filters are
-// kept to modules and test binaries that are tracked. cargo passes a filter that matches nothing, and libtest skips an
+// local-only Node-comparison test, and the lane filters are kept to modules and test binaries that are tracked. cargo passes a filter that matches nothing, and libtest skips an
 // ignored test it matched, so each run first lists what the filter selects (`-- --list`, less `-- --list --ignored`)
 // and fails on zero; k1-lanes.test.mjs checks, without cargo, that every filter still has an ungated test to select.
 // Usage: node scripts/rust-core/k1-lanes.mjs [--list] [--dry-run] [--runner "cargo test"] [lane...]   (no lane: all;
@@ -20,8 +19,8 @@ const CORE = resolve(dirname(fileURLToPath(import.meta.url)), '../../native/core
 // package.json scripts and workflow steps each lane stands in for (what it protected); `unproven` names what of the old
 // step no selected test proves, and why. The filters are libtest substrings of the full test name (module path and
 // function): a module path or a file stem where a whole area is meant, a function name only where one test is the point.
-// The compact lane leaves out compact_handoff and compact_summary: those modules are cfg(node_twin) and never compile in
-// CI, so it keeps the compaction tests that run in a clean checkout.
+// The compact lane leaves out compact_handoff and compact_summary: those modules are local-only and not in a clean
+// checkout, so it keeps the compaction tests that run there.
 export const LANES = {
   'shell-direct-exe': {
     replaces: 'scripts/suite-shell-direct-exe-test.mjs',
@@ -79,7 +78,7 @@ export const LANES = {
       'compact_image',
     ],
     unproven:
-      'the handoff and summary wording (compact_handoff, compact_summary): they assert the Node recording byte for byte and are compiled only with --cfg node_twin',
+      'the handoff and summary wording (compact_handoff, compact_summary): they assert the Node recording byte for byte and are local-only, never in a clean checkout',
   },
   'turn-contract': {
     replaces: 'scripts/run-advisory-spec.mjs (runtime-turn-contract-test.mjs)',
@@ -190,7 +189,7 @@ export async function selectedTests(lane, filter = null, { pkg = LANES[lane].pkg
 // checks that no lane selects a file of this list, and that no file a lane selects calls an installer (this list may
 // lag the sources; that check reads them).
 // These installs belong to process entry points, not to libtest cases sharing a
-// backend. The relay twin and Office protocol fixtures launch dedicated helper
+// backend. The Office protocol fixtures launch dedicated helper
 // executables. Keep them explicit and source-checked, rather than excluding a
 // package or every file below src/.
 export const BACKEND_PROCESS_ENTRIES = [
@@ -200,7 +199,6 @@ export const BACKEND_PROCESS_ENTRIES = [
   'native/core/crates/mixdog-exthost-worker/src/methods/document_engine.rs',
   'native/core/crates/mixdog-office-com/src/host/mod.rs',
   'native/core/crates/mixdog-relay/src/server/mod.rs',
-  'native/core/crates/mixdog-relay/src/server/twin.rs',
 ];
 
 export const BACKEND_INSTALLERS = [

@@ -31,9 +31,7 @@ mixdog-statefile = { workspace = true }
 mixdog-xlsx-formula = { workspace = true }
 
 [dev-dependencies]
-sha2 = { workspace = true }
 tempfile = { workspace = true }
-mixdog-office-base = { workspace = true, features = ["test-support"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "sync"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set

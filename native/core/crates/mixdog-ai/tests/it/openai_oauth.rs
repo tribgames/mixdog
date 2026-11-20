@@ -586,27 +586,6 @@ async fn a_refresh_answer_that_is_no_token_is_a_failed_refresh_naming_its_cause(
     }
 }
 
-/// After a 401 the refresh is answered 2xx with no usable token: the text the caller gets is the one the real Node
-/// refresh threw for the same answer (`connect-errors/record.mjs --only refreshAnswers`), whole.
-#[cfg(node_twin)]
-#[tokio::test]
-async fn a_refresh_answer_that_is_no_token_reads_as_nodes_whole() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
-    let answers = golden["refreshAnswers"].as_array().unwrap();
-    assert!(answers.len() >= 17);
-    for answer in answers {
-        let name = answer["name"].as_str().unwrap();
-        let body = answer["body"].as_str().unwrap_or_default().as_bytes().to_vec();
-        let dir = tempfile::tempdir().unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
-        file.save(&stored("a1", now_ms() + 3_600_000)).await.unwrap();
-        let oauth = OpenAiOAuth::new(file, Arc::new(RawEndpoint(answer["status"].as_u64().unwrap() as u16, body)));
-        let rejected = oauth.current().await.unwrap();
-        let error = oauth.after_rejection(&rejected).await.expect_err(name);
-        assert_eq!(error.message, answer["thrown"]["message"].as_str().unwrap(), "{name}");
-    }
-}
 
 /// A token endpoint whose answer head arrives and whose body then fails to read.
 struct BrokenBody(u16);

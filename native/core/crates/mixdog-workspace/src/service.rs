@@ -664,11 +664,6 @@ impl WorkspaceService {
         Self::build(deps, Arc::new(Transfers::default()))
     }
 
-    /// A service over a transfer table whose clock a test moves (the whole download path then runs on that clock).
-    #[cfg(all(test, node_twin))]
-    pub(crate) fn new_with_transfers(deps: Deps, transfers: Arc<Transfers>) -> WsResult<Arc<Self>> {
-        Self::build(deps, transfers)
-    }
 
     fn build(deps: Deps, transfers: Arc<Transfers>) -> WsResult<Arc<Self>> {
         let router = Arc::new(Router { fs: Mutex::default() });

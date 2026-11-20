@@ -144,8 +144,6 @@ mod tests {
     use mixdog_tools::orch::util::PortError;
     use mixdog_tools::state::goal::{GoalSettlement, GoalSnapshot};
     use serde_json::json;
-    #[cfg(node_twin)]
-    use serde_json::Value;
 
     use super::*;
 
@@ -282,16 +280,6 @@ mod tests {
     }
 
 
-    /// `_isMutationTool || _isShellTool` of Node's `tool-classify.mjs` on 19 calls.
-    #[test]
-    #[cfg(node_twin)]
-    fn mutating_calls_follow_node() {
-        let golden: Value = serde_json::from_str(include_str!("golden/mutating_calls.json")).unwrap();
-        for row in golden.as_array().unwrap() {
-            let (name, args) = (row[0].as_str().unwrap(), &row[1]);
-            assert_eq!(json!(is_mutating_call(name, args)), row[2], "{name} {args}");
-        }
-    }
 }
 
 

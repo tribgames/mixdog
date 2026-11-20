@@ -533,94 +533,9 @@ mod tests {
         assert_eq!(only, "[unsupported image file_id for OpenAI Chat-compatible request: file-9]");
     }
 
-    #[cfg(node_twin)]
-    use super::*;
-    #[cfg(node_twin)]
-    use crate::providers::listing_row::testing::fixture;
-    #[cfg(node_twin)]
-    use mixdog_core_api::domain::provider::ToolCall;
 
-    #[cfg(node_twin)]
-    fn part(spec: &JsonValue) -> ContentPart {
-        let text = |key: &str| spec[key].as_str().unwrap().to_owned();
-        let b64 = |bytes: &[u8]| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes);
-        let file = |filename: String, mime: &str, data: String| ContentPart::File {
-            source: BinarySource::Base64(data),
-            mime_type: mime.to_owned(),
-            filename: Some(filename),
-            text: None,
-        };
-        match spec["kind"].as_str().unwrap() {
-            "text" => ContentPart::Text(text("text"), None),
-            "image_url" => ContentPart::Image(ImageSource::Url(text("url"))),
-            "image_base64" => ContentPart::Image(ImageSource::Base64 { data: text("data"), mime_type: text("mime"), width: None, height: None }),
-            "image_file_id" => ContentPart::Image(ImageSource::FileId(text("id"))),
-            "file_text" => file(text("filename"), "text/plain", b64(spec["text"].as_str().unwrap().as_bytes())),
-            "file_binary" => file(text("filename"), "application/octet-stream", b64(&[0, 1, 2, 255])),
-            other => panic!("unknown part kind {other}"),
-        }
-    }
 
-    #[cfg(node_twin)]
-    fn message(spec: &JsonValue) -> Message {
-        let role = match spec["role"].as_str().unwrap() {
-            "system" => Role::System,
-            "developer" => Role::Developer,
-            "user" => Role::User,
-            "assistant" => Role::Assistant,
-            _ => Role::Tool,
-        };
-        let parts = spec["parts"].as_array().unwrap().iter().map(part).collect();
-        let mut message = Message::new(role, Content::Parts(parts));
-        message.tool_call_id = spec["toolCallId"].as_str().map(str::to_owned);
-        message.tool_calls = spec["toolCalls"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|c| ToolCall {
-                id: c["id"].as_str().unwrap().to_owned(),
-                name: c["name"].as_str().unwrap().to_owned(),
-                arguments: c["arguments"].clone(),
-                native_type: None,
-            })
-            .collect();
-        message
-    }
 
-    /// Multipart content of every role lowers to Node's Chat Completions
-    /// messages: text joined by newlines outside user messages, media dropped
-    /// from system/assistant text, a tool result's media moved to a user
-    /// message, a non-text file named by `name (mime, N bytes)`.
-    #[cfg(node_twin)]
-    #[test]
-    fn multipart_content_lowers_as_nodes_to_openai_messages() {
-        let golden = fixture("oracles/chat-parts-messages.json");
-        let profile = CompatProfile::deepseek();
-        let owner = ProviderId::from("deepseek");
-        let mut checked = 0;
-        for case in golden["cases"].as_array().unwrap() {
-            let name = case["name"].as_str().unwrap();
-            let messages: Vec<Message> = case["messages"].as_array().unwrap().iter().map(message).collect();
-            let got = lower_messages(&profile.chat, &owner, &messages, false).unwrap();
-            let mut node = case["node"].clone();
-            if name == "empty-text-part" {
-                // Node lowers an empty text part to its own JSON as text; a part with no text is dropped here.
-                let junk = json!({"type": "text", "text": "{\"type\":\"text\",\"text\":\"\"}"});
-                let parts = node[0]["content"].as_array_mut().unwrap();
-                assert_eq!(parts.remove(0), junk);
-            }
-            if name == "tool-with-media" {
-                // Node dropped a tool result's file-id image, which this wire cannot carry; the core never drops an image
-                // silently: its placeholder stays in the result's text (`a_file_id_image_in_a_tool_result_leaves_its_placeholder_in_the_text`).
-                let text = node[1]["content"].as_str().unwrap();
-                assert_eq!(text, "alpha\nbeta\n--- notes.txt (text/plain, 10 bytes) ---\nhello file\n[file not sent inline: blob.bin (application/octet-stream, 4 bytes) — this type has no inline form; open it from disk with read]", "Node recorded something else");
-                node[1]["content"] = json!(text.replacen("beta\n", "beta\n[unsupported image file_id for OpenAI Chat-compatible request: file-123]\n", 1));
-            }
-            assert_eq!(JsonValue::Array(got), node, "{name}");
-            checked += 1;
-        }
-        assert_eq!(checked, 11);
-    }
 }
 
 

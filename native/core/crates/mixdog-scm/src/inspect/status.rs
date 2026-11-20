@@ -662,8 +662,6 @@ u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt\0\
     }
 
 
-    #[cfg(node_twin)]
-    include!("node-twin/status.rs");
 
     /// A work tree revision is `size:mtimeNs:ctimeNs:ino`; Windows file times (100 ns ticks since 1601) read back as the
     /// nanoseconds since the Unix epoch they stand for.

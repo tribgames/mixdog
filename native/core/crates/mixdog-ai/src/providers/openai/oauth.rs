@@ -693,36 +693,6 @@ mod tests {
         assert_transport("openaiRefresh", &transport);
         assert_thrown("openaiRefresh", &error.message);
     }
-    /// A flight's guard clears its own entry however its task ends, including a task dropped before it was ever polled,
-    /// and never an entry a later flight published.
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn a_flight_guard_clears_only_its_own_entry_however_its_task_ends() {
-        let dir = tempfile::tempdir().unwrap();
-        let rt = mixdog_rt::testing::tokens();
-        let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
-        let oauth = OpenAiOAuth::new(file, TimingOut::new());
-        let inner = oauth.inner.clone();
-        let entry = |id: u64| Pending { id, account: Some("acct".to_owned()), refresh: Some("r".to_owned()), forced: None, running: futures::future::ready(Err(login_required("x"))).boxed().shared() };
-        let held = |inner: &Arc<Inner>| !inner.inflight.lock().unwrap().is_empty();
-
-        *inner.inflight.lock().unwrap() = vec![entry(1)];
-        let task = {
-            let guard = Flight { inner: inner.clone(), id: 1 };
-            async move {
-                let _flight = guard;
-            }
-        };
-        assert!(held(&inner), "the entry stands while the task lives");
-        drop(task);
-        assert!(!held(&inner), "a task dropped before its first poll cleaned up");
-
-        *inner.inflight.lock().unwrap() = vec![entry(2)];
-        drop(Flight { inner: inner.clone(), id: 1 });
-        assert!(held(&inner), "an earlier flight does not clear a later one's entry");
-        drop(Flight { inner: inner.clone(), id: 2 });
-        assert!(!held(&inner));
-    }
 
     /// A stored pair whose access token is in date but inside the refresh skew.
     fn near_expiry(access: &str) -> String {

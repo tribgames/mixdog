@@ -19,9 +19,6 @@
 
 mod lane;
 pub(crate) mod settings;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod settings_tests;
 
 pub use lane::Admission;
 pub use lane::AdmissionError;

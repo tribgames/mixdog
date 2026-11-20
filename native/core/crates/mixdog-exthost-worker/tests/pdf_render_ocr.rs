@@ -53,22 +53,7 @@ async fn ask(pool: &ExtHostPool, method: &str, params: Value, approved: &[&Path]
     }
 }
 
-#[cfg(node_twin)]
-fn unhex(text: &str) -> Vec<u8> {
-    (0..text.len() / 2).map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).expect("hex")).collect()
-}
 
-/// The call's parameters from the recorded options.
-#[cfg(node_twin)]
-fn params_of(path: &Path, options: &Value) -> Value {
-    let mut params = json!({"path": path});
-    for key in ["pages", "maxWidth", "maximumScale"] {
-        if let Some(value) = options.get(key) {
-            params[key] = value.clone();
-        }
-    }
-    params
-}
 
 fn refusal(outcome: Result<Value, ExtError>) -> (String, String) {
     match outcome {
@@ -83,38 +68,6 @@ fn file_names(dir: &Path) -> Vec<String> {
     names
 }
 
-/// Each recorded image against the answered entry: the geometry and pages, and its bytes, which follow in `images` order (a
-/// chunk carries at most 64 KiB, so an image may span several).
-#[cfg(node_twin)]
-fn check_images(name: &str, answered: &Value, recorded: &Value, chunks: &[Vec<u8>]) {
-    let images = answered["images"].as_array().expect("images");
-    let expected = recorded["images"].as_array().expect("recorded images");
-    assert_eq!(images.len(), expected.len(), "{name}: image count");
-    let sent = chunks.concat();
-    let counted: u64 = images.iter().map(|entry| entry["bytes"].as_u64().expect("bytes")).sum();
-    assert_eq!(sent.len() as u64, counted, "{name}: the chunks are the images' bytes, nothing else");
-    let mut offset = 0;
-    for (at, (entry, golden)) in images.iter().zip(expected).enumerate() {
-        for key in ["page", "pages", "width", "height", "mimeType"] {
-            assert_eq!(entry.get(key), golden.get(key), "{name}: image {at} {key}");
-        }
-        let file = Path::new(entry["path"].as_str().expect("path")).file_name().expect("file name").to_string_lossy().into_owned();
-        assert_eq!(Some(file.as_str()), golden["file"].as_str(), "{name}: image {at} file");
-        assert!(entry.get("data").is_none(), "{name}: image {at} carries bytes, not data");
-        let bytes = entry["bytes"].as_u64().expect("bytes") as usize;
-        assert_eq!(sent[offset..offset + 4], PNG_MAGIC, "{name}: image {at}'s bytes start where the one before ends, a PNG");
-        offset += bytes;
-        if let Some(sheet) = golden.get("pageImages").and_then(Value::as_array) {
-            let pages = entry["pageImages"].as_array().expect("pageImages");
-            assert_eq!(pages.len(), sheet.len(), "{name}: thumbnails of image {at}");
-            for (page, thumbnail) in pages.iter().zip(sheet) {
-                for key in ["page", "width", "height"] {
-                    assert_eq!(page.get(key), thumbnail.get(key), "{name}: thumbnail {key}");
-                }
-            }
-        }
-    }
-}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_path_outside_the_approved_set_is_refused_by_both_methods() {
@@ -131,41 +84,6 @@ async fn a_path_outside_the_approved_set_is_refused_by_both_methods() {
 }
 
 
-#[cfg(node_twin)]
-fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
-}
-#[cfg(node_twin)]
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn render_answers_the_recorded_cases_with_the_images_as_chunks() {
-    let golden: Value = serde_json::from_str(&mixdog_testkit::read_string(fixtures().join("office-render-pages/golden.json"))).expect("the golden parses");
-    let pool = pool(2);
-    let cases = golden["cases"].as_array().expect("cases");
-    assert!(cases.len() >= 15);
-    for case in cases {
-        let name = case["name"].as_str().expect("name");
-        let scratch = tempfile::tempdir().expect("scratch");
-        let file = scratch.path().join("doc.pdf");
-        std::fs::write(&file, unhex(case["pdf"].as_str().expect("pdf"))).expect("the PDF is written");
-        let (chunks, outcome) = ask(&pool, "pdf.render", params_of(&file, &case["options"]), &[scratch.path()]).await;
-        match (case.get("result"), case.get("error")) {
-            (Some(recorded), _) => {
-                let answered = outcome.unwrap_or_else(|error| panic!("{name}: {error:?}"));
-                assert_eq!(answered["pageCount"], recorded["pageCount"], "{name}: page count");
-                assert_eq!(answered["visualCoverage"], recorded["visualCoverage"], "{name}: coverage");
-                check_images(name, &answered, recorded, &chunks);
-            }
-            (None, Some(message)) => {
-                let (code, text) = refusal(outcome);
-                assert_eq!((code.as_str(), text.as_str()), ("failed", message.as_str().expect("message")), "{name}");
-                assert!(chunks.is_empty(), "{name}: a refusal sends no image");
-            }
-            _ => panic!("{name}: neither a result nor an error"),
-        }
-        assert_eq!(file_names(scratch.path()), vec!["doc.pdf".to_owned()], "{name}: the worker writes nothing beside the PDF");
-    }
-    pool.close().await;
-}
 /// A PDF of `pages` pages of 200x100 points, each with one filled rectangle.
 fn pdf_of(pages: usize) -> Vec<u8> {
     let mut objects: Vec<String> = Vec::new();

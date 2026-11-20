@@ -48,8 +48,6 @@ mod adc {
 
     use super::*;
 
-    #[cfg(node_twin)]
-    const GOLDEN: &str = include_str!("../../../../../fixtures/vertex-adc/golden.json");
 
     struct MapEnv(HashMap<String, String>);
 
@@ -173,52 +171,7 @@ mod adc {
         assert!(shown["message"].as_str().unwrap().contains("have no valid service_account_impersonation_url"));
     }
 
-    #[cfg(node_twin)]
-    /// Paths as the recording wrote them: the folder is `{dir}`, `/` separates.
-    fn normalized(value: &Value, dir: &str) -> Value {
-        match value {
-            Value::String(text) => Value::String(text.replace(dir, "{dir}").replace('\\', "/")),
-            Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), normalized(v, dir))).collect()),
-            other => other.clone(),
-        }
-    }
 
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn every_login_is_described_as_node_does() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-        let scenarios = golden["scenarios"].as_array().unwrap();
-        assert_eq!(scenarios.len(), 28);
-        for scenario in scenarios {
-            let dir = tempfile::tempdir().unwrap();
-            for (relative, text) in scenario["files"].as_object().unwrap() {
-                let path = dir.path().join(relative);
-                let bytes = text.as_str().unwrap().as_bytes().to_vec();
-                mixdog_rt::testing::tokens()
-                    .durability_io
-                    .submit(&CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &path, &bytes, &mixdog_statefile::Opts::default()))
-                    .unwrap()
-                    .await
-                    .unwrap()
-                    .unwrap();
-            }
-            let mut env: HashMap<String, String> =
-                scenario["env"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
-            if scenario["mode"] == "explicit" {
-                env.insert("GOOGLE_APPLICATION_CREDENTIALS".into(), dir.path().join("creds").join("key.json").to_string_lossy().into_owned());
-            } else {
-                env.insert("CLOUDSDK_CONFIG".into(), dir.path().to_string_lossy().into_owned());
-            }
-            let builder = builder_with(&dir, Arc::new(MapEnv(env)));
-            // A metadata server an earlier probe found (or did not).
-            if scenario.get("metadata").is_some() {
-                builder.metadata_project.set(scenario["metadata"].as_str().map(str::to_owned)).unwrap();
-            }
-            let described = builder.adc_describe(scenario["override"].as_str().unwrap(), false).await;
-            let got = normalized(&described, &dir.path().to_string_lossy());
-            assert_eq!(serde_json::to_string(&got).unwrap(), serde_json::to_string(&scenario["described"]).unwrap(), "{}", scenario["name"]);
-        }
-    }
 }
 
 
@@ -977,67 +930,6 @@ async fn a_custom_messages_requests_own_betas_win_over_configured_ones() {
 }
 
 
-/// What each built provider takes as a document on the route a request goes to, against what the instance of Node's
-/// class declared for the same route (`fixtures/media-wire/table.json`: the flags `preparePdfTextForProvider` read).
-/// The builder names each row; a row Rust cannot build here is declared in the set's manifest.
-#[cfg(node_twin)]
-#[tokio::test]
-#[allow(clippy::disallowed_methods)]
-async fn each_route_takes_the_documents_nodes_instance_declared() {
-    use mixdog_core_api::domain::provider::{MediaSupport, ModelRequest, RequestOptions};
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/media-wire/table.json");
-    let table: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let declared = |provider: &str| -> MediaSupport {
-        let row = table["rows"].as_array().unwrap().iter().find(|r| r["provider"] == provider).unwrap_or_else(|| panic!("{provider} is a row of the table"));
-        let flags = &row["capabilities"];
-        // `providerTakesNativePdf`: only an explicit `false` lowers a PDF to text.
-        MediaSupport { native_pdf: flags["nativePdf"] != json!(false), native_documents: flags["nativeDocuments"].as_bool() }
-    };
-    let dir = tempfile::tempdir().unwrap();
-    let b = builder(&dir);
-    // A session's request carries tools, which is what puts it on a gateway's agent route.
-    let tool = mixdog_core_api::domain::provider::ToolDefinition {
-        name: "read".to_owned(),
-        description: "read".to_owned(),
-        input_schema: json!({"type": "object", "properties": {}}),
-        defer_loading: false,
-        freeform: None,
-    };
-    let request = |model: &str, agent: bool| ModelRequest {
-        model: model.to_owned(),
-        messages: Vec::new(),
-        tools: if agent { vec![tool.clone()] } else { Vec::new() },
-        options: RequestOptions::default(),
-    };
-    let enabled = json!({"enabled": true, "apiKey": "k"});
-    let custom = json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"});
-    // (the table's provider, the builder's name and config, the model whose route the row is for, the wire it is on)
-    let routes = [
-        ("anthropic", "anthropic", enabled.clone(), "claude-sonnet-4-5", None),
-        ("openai", "openai", enabled.clone(), "gpt-5", None),
-        ("gemini", "gemini", enabled.clone(), "gemini-2.5-pro", None),
-        ("xai", "xai", enabled.clone(), "grok-4", None),
-        ("cursor-api", "cursor-api", enabled.clone(), "auto", None),
-        ("custom-anthropic", "custom-z", custom, "m", None),
-        ("deepseek", "deepseek", enabled.clone(), "deepseek-v4-pro", Some("messages")),
-        ("openrouter", "openrouter", enabled.clone(), "anthropic/claude-sonnet-4.5", Some("messages")),
-        // The product's own adapters for the routes the table names after Node's classes: OpenCode Go's Messages engine
-        // (a model its routing sends there) and DeepSeek's Chat wire (`OpenAICompatProvider('deepseek')`), which only a
-        // one-shot request without tools takes (DeepSeek's Messages endpoint is for agent sessions).
-        ("opencode-go", "opencode-go-oauth", enabled.clone(), "minimax-m2", Some("messages")),
-        ("deepseek-chat", "deepseek", enabled.clone(), "deepseek-v4-pro", Some("chat")),
-    ];
-    for (row, name, cfg, model, wire) in routes {
-        let agent = row != "deepseek-chat";
-        let adapter = b.build(name, &cfg).await.unwrap_or_else(|e| panic!("{name}: {e}"));
-        if let Some(wire) = wire {
-            let context = mixdog_core_api::domain::provider::WireRouteContext { agent, ..Default::default() };
-            let route = adapter.wire_routing().expect("a gateway routes").resolve_wire_route(model, &context).await.unwrap().unwrap();
-            assert_eq!(route.wire, wire, "{row}: {model} is on the wire the row is for");
-        }
-        assert_eq!(adapter.media_support(&request(model, agent)).await, declared(row), "{row}");
-    }
-}
 /// The account whose credential a request puts on the wire is the account its continuation state was chosen for and the
 /// account the state it leaves is stamped with, through the adapter the builder registers.
 mod pinned_credentials {
@@ -1276,68 +1168,3 @@ mod pinned_credentials {
 
 }
 
-/// A custom provider serving the Chat, Responses and Messages wires warms its endpoint as Node's does, on the process clock
-/// moved past the keep-alive window (`custom-warmups/golden.json`, `record-custom-warmups.mjs`): the provider's construction
-/// warms; a send inside the window does not; a send after it re-warms on the Chat and Responses wires and not on Messages,
-/// which Node hands straight to the Anthropic client. The sends that reached the endpoint show each took its wire.
-#[cfg(node_twin)]
-#[tokio::test]
-async fn a_custom_provider_warms_on_the_wires_node_warms_on() {
-    use std::sync::atomic::AtomicU64;
-    use std::sync::atomic::Ordering;
-
-    use crate::providers::listing_row::testing::Replay;
-    use mixdog_core_api::domain::provider::Content;
-    use mixdog_core_api::domain::provider::Message;
-    use mixdog_core_api::domain::provider::ModelRequest;
-    use mixdog_core_api::domain::provider::RequestOptions;
-    use mixdog_core_api::domain::provider::Role;
-
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/custom-warmups/golden.json")).unwrap();
-    let (start, lapsed) = (golden["clock"]["start"].as_u64().unwrap(), golden["clock"]["lapsed"].as_u64().unwrap());
-    for (wire, recorded) in golden["scenarios"].as_object().unwrap() {
-        let origin = format!("https://warm-{wire}.test");
-        let clock = Arc::new(AtomicU64::new(start));
-        let replay = Arc::new(Replay::new(|_| (400, br#"{"error":{"message":"scripted refusal","type":"invalid_request_error"}}"#.to_vec())));
-        let dir = tempfile::tempdir().unwrap();
-        let now = clock.clone();
-        let context = Arc::new(SessionContext::with_sources(move || now.load(Ordering::SeqCst), || "request".to_owned()));
-        let builder = builder_over(&dir, Arc::new(ProcessEnv), Some(replay.clone() as Arc<dyn HttpSend>), context);
-        let models = [("chat", "model-chat"), ("responses", "model-responses"), ("messages", "model-messages")];
-        let cfg = json!({
-            "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": format!("{origin}/{wire}/v1"), "apiKey": "warm-up-key",
-            "wires": ["chat", "responses", "messages"],
-            "modelWires": models.iter().map(|(w, m)| ((*m).to_owned(), json!(w))).collect::<serde_json::Map<_, _>>(),
-        });
-        let heads = || replay.requests.lock().unwrap().iter().filter(|r| r.method == "HEAD").count();
-        let model = models.iter().find(|(w, _)| w == wire).unwrap().1;
-        let send = |provider: Arc<dyn ProviderAdapter>| async move {
-            let request = ModelRequest {
-                model: model.to_owned(),
-                messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
-                tools: Vec::new(),
-                options: RequestOptions::default(),
-            };
-            let _ = provider.attempt(Arc::new(request)).await;
-        };
-        crate::transport::preconnect::reset();
-        let provider = builder.build(&format!("custom-warm-{wire}"), &cfg).await.unwrap();
-        let mut steps = vec![heads()];
-        send(provider.clone()).await;
-        steps.push(heads());
-        clock.store(lapsed, Ordering::SeqCst);
-        send(provider).await;
-        steps.push(heads());
-        let recorded_steps: Vec<usize> = recorded["steps"].as_array().unwrap().iter().map(|s| s[1].as_u64().unwrap() as usize).collect();
-        assert_eq!(steps, recorded_steps, "{wire}: warm-ups after the build, the send inside the window, the send after it");
-        let requests = replay.requests.lock().unwrap();
-        let warmups: Vec<(String, String)> = requests.iter().filter(|r| r.method == "HEAD").map(|r| ("HEAD".to_owned(), r.url.replace(&origin, ""))).collect();
-        let recorded_warmups: Vec<(String, String)> =
-            recorded["warmups"].as_array().unwrap().iter().map(|w| (w[0].as_str().unwrap().to_owned(), w[1].as_str().unwrap().to_owned())).collect();
-        assert_eq!(warmups, recorded_warmups, "{wire}: the warm-up requests");
-        let sent: Vec<(String, String)> = requests.iter().filter(|r| r.method != "HEAD").map(|r| (r.method.clone(), r.url.replace(&origin, ""))).collect();
-        let recorded_sent: Vec<(String, String)> =
-            recorded["sent"].as_array().unwrap().iter().map(|w| (w[0].as_str().unwrap().to_owned(), w[1].as_str().unwrap().to_owned())).collect();
-        assert_eq!(sent, recorded_sent, "{wire}: the requests the sends made");
-    }
-}

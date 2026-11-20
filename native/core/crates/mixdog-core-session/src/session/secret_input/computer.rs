@@ -460,39 +460,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../../fixtures/secret-input/computer.json")).unwrap()
-    }
-    #[cfg(node_twin)]
-    /// The commands the helper receives are the ones the real Node `typeComputerSecret` sent
-    /// (`fixtures/secret-input/computer.json`), and the helper is armed exactly when Node armed focus.
-    #[tokio::test]
-    async fn the_helper_gets_the_commands_the_recorded_node_fill_sent() {
-        let mut replayed = 0;
-        for case in golden()["type"].as_array().unwrap() {
-            let name = case["name"].as_str().unwrap();
-            let Some(session) = case["command"]["session_id"].as_str().filter(|s| !s.is_empty()) else { continue };
-            let helper = Arc::new(Helper { script: case["script"].as_array().unwrap().clone(), sent: Mutex::new(Vec::new()), armed: AtomicUsize::new(0) });
-            let slots = Arc::new(SecretSlots::new(Duration::from_secs(3600)));
-            let commands = Arc::new(HostComputerCommands::new(Arc::new(Hosts(Some(helper.clone()))), free_lock()));
-            let fill = SecretFill::new(slots.clone(), Arc::new(Open(case["gateHeld"] != json!(true))), commands, Arc::new(NoDesktop));
-            let thread = ThreadId::from(session);
-            if let Some(provided) = case["provide"].as_str() {
-                assert!(slots.provide(ID, provided), "{name}");
-            }
-            if let Some(bind) = case["bind"].as_object() {
-                let got = |key: &str| bind[key].as_str().unwrap().to_owned();
-                assert!(slots.bind_computer(ID, &got("session"), &got("windowId"), &got("ref")), "{name}");
-            }
-            let command = &case["command"];
-            let named = |key: &str| command.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
-            let outcome = fill.computer_input(&thread, command["request_id"].as_str().unwrap(), &named("window_id"), &named("ref")).await;
-            assert_eq!(json!(outcome), case["outcome"], "{name}");
-            assert_eq!(json!(helper.sent.lock().unwrap().clone()), case["commands"], "{name}");
-            assert_eq!(json!(helper.armed.load(Ordering::SeqCst) > 0), case["after"]["focusArmed"], "{name}");
-            replayed += 1;
-        }
-        assert!(replayed > 10, "{replayed}");
-    }
 }

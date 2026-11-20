@@ -233,10 +233,6 @@ impl DefinitionSetup {
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
-mod kinds;
 
 /// `args.<key>` as the editor receives it: the text, `undefined` when absent.
 fn text_arg(args: &Value, key: &str) -> String {

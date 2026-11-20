@@ -531,42 +531,7 @@ impl ProcessManager for ExitSignal {
 }
 // ---- the shell's refusal of a command the built-in tools cover: recorded from Node ----
 
-/// A workspace file's bytes from its recipe: hex, or text (repeated, with a trailing piece, in UTF-16 with a BOM).
-#[cfg(node_twin)]
-fn recipe_bytes(f: &JsonValue) -> Vec<u8> {
-    if let Some(h) = f.get("hex").and_then(JsonValue::as_str) {
-        return (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap()).collect();
-    }
-    let mut text = f["text"].as_str().unwrap().to_owned();
-    if let Some(times) = f.get("repeat").and_then(JsonValue::as_u64) {
-        text = text.repeat(times as usize);
-    }
-    if let Some(tail) = f.get("tail").and_then(JsonValue::as_str) {
-        text.push_str(tail);
-    }
-    if f.get("enc").and_then(JsonValue::as_str) == Some("utf16le") {
-        let mut out = vec![0xff, 0xfe];
-        for unit in text.encode_utf16() {
-            out.extend_from_slice(&unit.to_le_bytes());
-        }
-        return out;
-    }
-    text.into_bytes()
-}
 
-/// The recorded workspace under `dir`, and its path as Node spells it (no verbatim prefix).
-#[cfg(node_twin)]
-fn recorded_files(dir: &std::path::Path, files: &serde_json::Map<String, JsonValue>) -> std::path::PathBuf {
-    let root = dir.join("ws");
-    for (rel, f) in files {
-        let path = root.join(rel);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        if f.get("remove").is_none() {
-            std::fs::write(path, recipe_bytes(f)).unwrap();
-        }
-    }
-    std::path::PathBuf::from(std::fs::canonicalize(&root).unwrap().to_string_lossy().trim_start_matches(r"\\?\"))
-}
 
 /// Every completion the owner's default delivery took, with its text.
 #[derive(Default)]
@@ -579,8 +544,6 @@ impl TaskNotifier for Told {
     }
 }
 
-#[cfg(node_twin)]
-mod node_cases;
 
 mod unconfirmed_foreground;
 
@@ -2183,15 +2146,6 @@ async fn a_kill_that_cannot_be_sent_holds_the_row_and_a_later_kill_clears_it() {
     assert!(control.hold("task-x").is_none());
     assert!(control.hold("task-y").is_some(), "the other job is still held");
 }
-/// A call's context over the recorded workspace, offering the tools the case names (null: no session information).
-#[cfg(node_twin)]
-fn cover_ctx(rig: &Rig, root: &std::path::Path, offers: &JsonValue, call: &str) -> ToolContext {
-    let mut c = ctx(rig, call);
-    c.files = Arc::new(mixdog_workspace::localfs::LocalFileService::new());
-    c.cwd = AbsPath::new(root).unwrap();
-    c.options.offered_tools = offers.as_array().map(|tools| Arc::new(tools.iter().map(|t| t.as_str().unwrap().to_owned()).collect()));
-    c
-}
 /// The ownership record and logs of a job another runtime ran, as it left them in `rig`'s log folder.
 fn kept_job(rig: &Rig, id: &str, record: serde_json::Value, stdout: &str) {
     let jobs = rig.dir.path().join("l");
@@ -2489,25 +2443,6 @@ async fn a_running_background_shell_is_listed_and_read_as_its_header() {
         shown,
         "background task\ntask_id: task-gold\nsurface: shell\nstatus: running\nstarted: 2026-01-02T03:04:05.678Z\nlogs: /l/task-gold.{stdout,stderr}.log"
     );
-}
-/// The recorded answers to every wrong `task` argument (the guard, then the handler), text for text.
-#[cfg(node_twin)]
-#[tokio::test]
-async fn task_arguments_are_answered_as_nodes_guard_answers_them() {
-    let rig = rig();
-    let c = ctx(&rig, "c0");
-    let answers: JsonValue = serde_json::from_str(&std::fs::read_to_string(format!("{}/../../fixtures/tool-arg-answers/answers.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
-    let mut failures = Vec::new();
-    let mut compared = 0;
-    for case in answers["cases"].as_array().unwrap().iter().filter(|c| c["tool"] == "task") {
-        let got = body(rig.task.call(&c, case["input"].clone()).await);
-        if got != case["text"].as_str().unwrap() {
-            failures.push(format!("{}: want {:?}, got {got:?}", case["name"], case["text"]));
-        }
-        compared += 1;
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert!(compared >= 37, "{compared}");
 }
 /// What the model reads for a timeout, a cancelled foreground command, a hold that ran out, an explicit background start
 /// and the cancel of a running and an ended task.
@@ -2870,134 +2805,4 @@ async fn a_stalled_turns_reap_stops_and_splits_the_shells_of_the_turn() {
         assert!(control.take_reaped(&owner).0.is_empty(), "{name}: the list is handed out once");
     }
 }
-/// Node's recorded table (`record-shell-cover.mjs`) through the shell tool itself, every command under both shell families:
-/// the tools the session offers, and either the refusal (an error with Node's text, nothing runs) or the run, which starts
-/// the command the guard handed on, in the folder it named, with its notes in the answer. Path rules differ per platform,
-/// so the table is replayed on the platform it was recorded on.
-///
-/// Outcomes are compared whole, by equality: the answer's note lines (the lines between its status line and the blank line
-/// after it) equal the recording's `notes` in order, and the command started equals the recording's `args.command`, in the
-/// recording's folder. Two representations differ for a reason that is not behaviour, normalised before comparing:
-/// (1) PowerShell receives its script framed on stdin (`<utf-16 length>\n<command>`): the length line is checked and
-/// removed; (2) an inline `node -e` command is moved by the tool into a file and started as
-/// `node "<file>"`: that form stands for the recorded command only when the file the tool wrote held exactly the recorded script
-/// (read when the command reached the process manager).
-#[cfg(node_twin)]
-#[cfg(windows)]
-#[tokio::test]
-async fn the_shell_tool_answers_the_whole_cover_table_as_node_does() {
-    use std::sync::atomic::Ordering::SeqCst;
-    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-cover/cases.json")).unwrap();
-    assert_eq!(doc["platform"], "win32");
-    let dir = tempfile::tempdir().unwrap();
-    let root = recorded_files(dir.path(), doc["files"].as_object().unwrap());
-    let forward = root.to_string_lossy().replace('\\', "/");
-    let back = root.to_string_lossy().into_owned();
-    let fix = |s: &str| s.replace(&forward, "<WS>").replace(&back, "<WS>");
-    let spelled = |p: &str| p.replace('\\', "/").trim_start_matches("//?/").to_ascii_lowercase();
-    let rigs = [("posix", rig_shell(mixdog_rt::testing::tokens(), Arc::new(OsPromptElevation), None, false)), ("powershell", rig_shell(mixdog_rt::testing::tokens(), Arc::new(OsPromptElevation), None, true))];
-    for (_, rig) in &rigs {
-        rig.processes.exit_at_once.store(true, SeqCst);
-    }
-    let mut failures = Vec::new();
-    let cases = doc["cases"].as_array().unwrap();
-    // The recording is Node's; the cases the Rust guard decided to answer differently are marked in `departures.json`.
-    let departed = super::guard::departed(cases, mixdog_testkit::fixture!("../../fixtures/shell-cover/departures.json"));
-    for (n, case) in cases.iter().enumerate() {
-        let rig = &rigs.iter().find(|(shell, _)| case["shellType"] == *shell).unwrap().1;
-        let c = cover_ctx(rig, &root, &case["offers"], &format!("cover{n}"));
-        let mut args = serde_json::json!({ "command": case["args"]["command"].as_str().unwrap().replace("<WS>", &forward) });
-        if let Some(cwd) = case["args"]["cwd"].as_str() {
-            args["cwd"] = cwd.replace("<WS>", &forward).into();
-        }
-        let spawned = rig.processes.cwds.lock().unwrap().len();
-        let spawned_seen = rig.processes.seen.lock().unwrap().len();
-        let fed_before = rig.processes.fed.lock().unwrap().len();
-        let outcome = rig.shell.call(&c, args).await;
-        let want = departed.get(&n).unwrap_or(&case["result"]);
-        let mut got = String::new();
-        let same = match (&outcome, want["failure"].as_str()) {
-            (Err(e), Some(failure)) => fix(&e.message_for_model) == failure && rig.processes.cwds.lock().unwrap().len() == spawned,
-            (Ok(_), None) => {
-                let started = rig.processes.cwds.lock().unwrap().iter().skip(spawned).map(|c| c.as_path().to_string_lossy().into_owned()).collect::<Vec<_>>();
-                let command = want["args"]["command"].as_str().unwrap().replace("<WS>", &forward);
-                // An inline `node -e "<body>"` script is the one command the tool itself moves into a file before it starts.
-                let inline_body = command.strip_prefix("node -e \"").and_then(|b| b.strip_suffix('"'));
-                // The command the process manager was handed, as a recorded command (rules in the test's header): a
-                // `node "<file>"` whose file held exactly the recorded script stands for the recorded command.
-                let unhoist = |script: &str| match (inline_body, script.strip_prefix("node \"").and_then(|p| p.strip_suffix('"'))) {
-                    (Some(want_body), Some(file)) if rig.processes.hoisted.lock().unwrap().get(file).is_some_and(|contents| contents == want_body) => command.clone(),
-                    _ => script.to_owned(),
-                };
-                let handed = if case["shellType"] == "posix" {
-                    let seen = rig.processes.seen.lock().unwrap();
-                    match (seen.len() - spawned_seen, seen.last()) {
-                        (1, Some((CommandSpec::Shell { script, .. }, _))) => Some(unhoist(script)),
-                        _ => None,
-                    }
-                } else {
-                    let fed = rig.processes.fed.lock().unwrap();
-                    let framed = if fed.len() - fed_before == 1 { fed.last().unwrap().as_str() } else { "" };
-                    framed.split_once('\n').filter(|(len, script)| len.parse::<usize>().ok() == Some(script.encode_utf16().count())).map(|(_, script)| unhoist(script))
-                };
-                let folder = want["args"]["cwd"].as_str().map_or(root.clone(), |cwd| root.join(cwd.replace("<WS>", &forward))).to_string_lossy().into_owned();
-                // The answer is `<status>\n<notes, one per line>\n\n<output>`: its notes, in order, are the recording's.
-                let text = fix(&body(outcome));
-                let header = text.split("\n\n").next().unwrap();
-                let notes: Vec<&str> = header.split('\n').skip(1).collect();
-                let want_notes: Vec<&str> = want["notes"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
-                got.push_str(&format!("{handed:?} {notes:?}"));
-                handed.as_deref() == Some(command.as_str()) && started.len() == 1 && spelled(&started[0]) == spelled(&folder) && notes == want_notes
-            }
-            _ => false,
-        };
-        if !same {
-            failures.push(format!("{} {} offers {}\n  want {want}\n  got {got}", case["shellType"], case["args"], case["offers"]));
-        }
-    }
-    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n"));
-}
 
-/// `shell` and `task`, built through their runtime constructors, are the definitions Node sends
-/// (`fixtures/tool-definitions/definitions.json`, through `mixdog_js::fixture_tools`): the shell text of the
-/// runtime's shell kind, with and without background tasks, and the task tool for the Lead and for a delegated agent.
-#[cfg(node_twin)]
-#[test]
-fn the_shell_and_task_tools_are_nodes_definitions() {
-    let node = |key: &str| mixdog_js::fixture_tools::definition(key).expect("a recorded Node definition");
-    let same = |got: &ToolSpec, node: &serde_json::Value, what: &str| {
-        assert_eq!(&got.definition(), node, "{what}");
-        assert_eq!(got.annotations.to_json().to_string(), node["annotations"].to_string(), "{what} annotations");
-    };
-    let rig = rig();
-    for powershell in [false, true] {
-        for background in [true, false] {
-            let mut config = rig.runtime.config.clone_for_test();
-            config.windows = powershell;
-            let shell = ShellTool::with_background(ExecRuntime::new(config), background);
-            let kind = if powershell { "powershell" } else { "posix" };
-            let mut recorded = node(&format!("shell@{kind}{}", if background { "" } else { "-foreground" }));
-            if !background {
-                // v1.4.5 advertised these even in foreground-only mode.
-                let properties = recorded["inputSchema"]["properties"].as_object_mut().unwrap();
-                properties.shift_remove("wait_ms");
-                properties.shift_remove("background");
-                // With no hold to be separate from, the foreground-only text drops that clause.
-                let timeout = properties.get_mut("timeout_ms").unwrap();
-                let text = timeout["description"].as_str().unwrap().replace(", separate from the 60s hold", "");
-                timeout["description"] = text.into();
-            }
-            same(shell.spec(), &recorded, &format!("shell {kind} background {background}"));
-        }
-    }
-    // The task description is the current wording (the wait rules), recorded after v1.4.5; every other field is Node's.
-    let current = |got: &ToolSpec, mut recorded: serde_json::Value| {
-        let live = got.definition();
-        recorded["description"] = live["description"].clone();
-        recorded["inputSchema"]["properties"]["task_id"]["description"] = live["inputSchema"]["properties"]["task_id"]["description"].clone();
-        recorded
-    };
-    same(rig.task.spec(), &current(rig.task.spec(), node("task")), "task");
-    let agent = rig.task.agent_spec().expect("task has an agent text");
-    same(agent, &current(agent, node("task@agent")), "agent task");
-}

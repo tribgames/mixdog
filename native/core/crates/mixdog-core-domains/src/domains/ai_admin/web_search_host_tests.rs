@@ -1,9 +1,5 @@
-//! The daemon's search host against the Node recording of the hosted search
-//! (`fixtures/hosted-search/golden.json`, `benchmarks/rust-core/recorders/record-hosted-search.mjs`):
-//! the recorded runtimes' Main route and stored web-search route, replayed through the real config,
-//! readiness and registry, give each thread the candidates Node resolved for it. The cases that
-//! consult a catalog row are `mixdog-tools`' (`hosted_native_tests.rs`), where the row is the
-//! recording's.
+//! The daemon's search host: a thread is its own session, a provider is the registry's, and the routes it reads are the stored
+//! web-search route and the thread's Main route.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,8 +17,6 @@ use mixdog_core_config::config::{Config, ConfigLanes};
 use mixdog_core_ports::ports::route::{LiveRoute, Route};
 use mixdog_rt::LaneToken as _;
 use mixdog_tools::web::SearchHost;
-#[cfg(node_twin)]
-use mixdog_tools::web::{ConfiguredSearchRoutes, SearchCandidate, SearchRoutes};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -95,44 +89,8 @@ async fn host(agent: Value, cells: HashMap<ThreadId, Route>) -> (tempfile::TempD
     (dir, Arc::new(RegistrySearchHost { cells: Arc::new(Cells(cells)), config, catalog, readiness, registry }))
 }
 
-#[cfg(node_twin)]
-fn view(candidate: &SearchCandidate) -> Value {
-    json!({
-        "provider": candidate.provider,
-        "model": candidate.model,
-        "effort": candidate.effort,
-        "fast": candidate.fast,
-        "modelParameters": candidate.model_parameters,
-        "toolType": candidate.tool_type,
-    })
-}
 
-/// What the recording says `thread`'s search resolves to for `case`.
-#[cfg(node_twin)]
-async fn expect(routes: &ConfiguredSearchRoutes, thread: &ThreadId, case: &Value) {
-    let name = &case["name"];
-    let got = routes.candidates(thread).await;
-    match (&case["candidates"], &case["error"]) {
-        (Value::Array(want), _) => {
-            let want: Vec<Value> = want
-                .iter()
-                .map(|c| json!({ "provider": c["provider"], "model": c["model"], "effort": c["effort"], "fast": c["fast"], "modelParameters": c["modelParameters"], "toolType": c["toolType"] }))
-                .collect();
-            let got: Vec<Value> = got.unwrap_or_else(|error| panic!("{name}: {error}")).iter().map(view).collect();
-            assert_eq!(got, want, "{name}");
-            if want.is_empty() {
-                assert_eq!(routes.no_candidate_message(thread).await, case["noCandidate"].as_str().unwrap(), "{name}");
-            }
-        }
-        (_, Value::String(error)) => assert_eq!(&got.unwrap_err(), error, "{name}"),
-        _ => panic!("{name}: no expectation"),
-    }
-}
 
-#[cfg(node_twin)]
-fn main_of(case: &Value) -> Route {
-    case["main"].as_object().cloned().unwrap_or_default()
-}
 
 #[tokio::test]
 async fn a_thread_is_its_own_session_and_a_provider_is_the_registrys() {
@@ -144,44 +102,3 @@ async fn a_thread_is_its_own_session_and_a_provider_is_the_registrys() {
 }
 
 
-#[cfg(node_twin)]
-const GOLDEN: &str = include_str!("../../../../../fixtures/hosted-search/golden.json");
-/// The recorded route cases that read no catalog row.
-#[cfg(node_twin)]
-fn route_cases() -> Vec<Value> {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-    golden["routes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|case| ["cached", "listed", "global"].iter().all(|key| case.get(*key).is_none()))
-        .cloned()
-        .collect()
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn the_hosts_candidates_are_the_ones_node_resolves() {
-    let cases = route_cases();
-    assert!(cases.len() > 5);
-    for case in &cases {
-        let agent = match case.get("webSearchRoute") {
-            Some(route) => json!({ "webSearchRoute": route }),
-            None => json!({}),
-        };
-        let (_dir, host) = host(agent, HashMap::from([(thread_of(0), main_of(case))])).await;
-        expect(&ConfiguredSearchRoutes::new(host), &thread_of(0), case).await;
-    }
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn one_host_answers_each_thread_with_its_own_main_route() {
-    // The recorded cases that differ only in their Main route share the stored route (none).
-    let cases: Vec<Value> = route_cases().into_iter().filter(|case| case.get("webSearchRoute").is_none()).collect();
-    assert!(cases.len() > 2);
-    let cells = cases.iter().enumerate().map(|(index, case)| (thread_of(index), main_of(case))).collect();
-    let (_dir, host) = host(json!({}), cells).await;
-    let routes = ConfiguredSearchRoutes::new(host);
-    for (index, case) in cases.iter().enumerate().rev() {
-        expect(&routes, &thread_of(index), case).await;
-    }
-}

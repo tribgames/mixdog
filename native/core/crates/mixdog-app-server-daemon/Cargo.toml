@@ -106,9 +106,9 @@ mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 # The unpair replay drives the downloads' clock by file, which only a build with this feature reads.
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
-# The real session directory (`held_runs_tests`: the approval predicate over real threads and connections).
+# The real session directory (real threads and connections).
 mixdog-core-session = { workspace = true, features = ["crash-gates", "replay-settled", "test-support", "virtual-clock"] }
-# The replay of Node's review-signal recording (`compose::review_restart_tests`).
+# The core's turn review, as the composition holds it (`compose_flip.rs`, `turn_review`).
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 # The op scopes of the remote access service in the composed test (support::testing::scopes).
 mixdog-core-base = { workspace = true, features = ["test-support"] }

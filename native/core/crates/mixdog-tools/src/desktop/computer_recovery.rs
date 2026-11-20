@@ -212,11 +212,6 @@ mod tests {
         );
     }
 
-    /// `computerToolErrorRecovery` as Node's is for the message and what `{code, next, guidance}` it gives.
-    #[cfg(all(test, node_twin))]
-    fn recorded(recovery: Option<Recovery>) -> Value {
-        recovery.map_or(Value::Null, |r| json!({ "code": r.code, "next": r.next, "guidance": r.guidance }))
-    }
 
     /// Codes `computerToolErrorRecovery` classifies (the helper and the core emit them): the model is told what to do next.
     const WITH_RECOVERY: [&str; 23] = [
@@ -385,41 +380,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/computer-error-recovery/golden.json");
-    #[cfg(node_twin)]
-    fn cases() -> Vec<Value> {
-        let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
-        golden["cases"].as_array().expect("cases").clone()
-    }
-    /// Every failure category over every target a call can name: the recovery and the text the model reads, whole.
-    #[cfg(node_twin)]
-    #[test]
-    fn recovery_and_error_text_equal_the_recorded_node_output() {
-        let mut compared = 0;
-        for case in cases() {
-            let name = case["case"].as_str().expect("name");
-            let observed = &case["observed"];
-            if let Some(code) = case["input"]["code"].as_str() {
-                for row in observed.as_array().expect("rows") {
-                    let message = format!("{code}: private window details");
-                    assert_eq!(recorded(tool_error_recovery(&message, &row["args"])), row["recovery"], "{name} / {}", row["label"]);
-                    assert_eq!(format_tool_error(&message, &row["args"]), row["text"], "{name} / {}", row["label"]);
-                    compared += 1;
-                }
-            } else if name == "separators, prefixes and codeless sentences" {
-                let args = json!({ "action": "act", "input": { "window_id": "hwnd:0x1" } });
-                for row in observed.as_array().expect("rows") {
-                    let message = row["message"].as_str().expect("message");
-                    assert_eq!(recorded(tool_error_recovery(message, &args)), row["recovery"], "{message:?}");
-                    assert_eq!(format_tool_error(message, &args), row["text"], "{message:?}");
-                    compared += 1;
-                }
-            } else {
-                assert_eq!(format_tool_error("", &json!({})), observed["empty"]);
-                compared += 1;
-            }
-        }
-        assert!(compared > 100, "{compared}");
-    }
 }

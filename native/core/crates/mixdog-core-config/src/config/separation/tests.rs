@@ -1,22 +1,13 @@
-//! The boot pass and the canonical storage of the agent section against Node's recording (`fixtures/defaults-separation/twin.json`, recorded by
-//! `benchmarks/rust-core/recorders/record-defaults-separation.mjs`): the file the pass leaves, the
-//! copy it backs up, the roster of switched-off agents the config holds afterwards, and the marker a
-//! first write into an empty config stamps.
+//! Claiming a backup folder: a taken name and two racing claims get different folders.
 
 use std::path::Path;
 use std::sync::Arc;
 
 use mixdog_core_api::mock::MockStatePublisher;
-#[cfg(node_twin)]
-use serde_json::Value;
 
 use super::*;
-#[cfg(node_twin)]
-use crate::config::AgentRoutes;
 use crate::config::ConfigLanes;
 
-#[cfg(node_twin)]
-const NOW_MS: i64 = 1_800_000_000_123;
 
 pub(in crate::config) async fn open(dir: &Path) -> Config {
     let tokens = mixdog_rt::testing::tokens();
@@ -39,16 +30,7 @@ pub(in crate::config) async fn put(path: std::path::PathBuf, text: String) {
     .await;
 }
 
-/// The file at `path` as text.
-#[cfg(node_twin)]
-async fn text_of(path: std::path::PathBuf) -> Vec<u8> {
-    lane(move |_| mixdog_statefile::read_content(&path).expect("read").expect("a file")).await
-}
 
-#[cfg(node_twin)]
-fn same(got: &Doc, want: &Value) -> bool {
-    js_deep_equal(&Value::Object(got.clone()), want)
-}
 
 /// Two claims of the same name are given different folders (`mkdirSync` throwing `EEXIST` moves on to the next
 /// name): a name already taken, and two claims racing for one name.
@@ -78,121 +60,3 @@ async fn claims_that_collide_get_different_folders() {
 }
 
 
-#[cfg(node_twin)]
-fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/defaults-separation/twin.json")).expect("twin.json")
-}
-/// The data directory a case starts from. Node kept one shared model list per route; the core keeps the signed-in
-/// account's own, named by the saved credential, so a recorded list is written as that account's.
-#[cfg(node_twin)]
-async fn put_files(dir: &std::path::Path, case: &Value) {
-    const ACCOUNT: &str = "acct-1";
-    let key = mixdog_ai::catalog::account_fingerprint(&[ACCOUNT]);
-    for (rel, text) in case["files"].as_object().expect("files") {
-        let text = text.as_str().expect("text");
-        let (file, text) = mixdog_ai::catalog::keyed_from_shared(rel, text, &key);
-        if file != *rel {
-            put(dir.join("openai-oauth.json"), serde_json::json!({ "account_id": ACCOUNT }).to_string()).await;
-        }
-        put(dir.join(file), text).await;
-    }
-}
-/// Node's file after the pass (`key`: `output` or `final`), with one departure: the web-search route keeps an explicit `fast`
-/// (`stored_web_search_route`), so a reloaded route reads back at the speed it was saved at; Node's canonical save dropped
-/// `fast: false`.
-#[cfg(node_twin)]
-fn node_file(case: &Value, key: &str) -> Value {
-    let mut want = case[key].clone();
-    if let Some(fast) = case["input"]["agent"]["webSearchRoute"]["fast"].as_bool()
-        && let Some(route) = want.pointer_mut("/agent/webSearchRoute").and_then(Value::as_object_mut)
-    {
-        route.entry("fast").or_insert(Value::Bool(fast));
-    }
-    want
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn the_boot_pass_leaves_the_file_node_left() {
-    let twin = twin();
-    let cases = twin["cases"].as_array().expect("cases");
-    assert_eq!(cases.len(), 12);
-    for case in cases {
-        let name = case["name"].as_str().expect("name");
-        let dir = tempfile::tempdir().expect("dir");
-        put_files(dir.path(), case).await;
-        let input = case["inputText"].as_str().expect("input");
-        put(dir.path().join("mixdog-config.json"), input.to_owned()).await;
-        let config = open(dir.path()).await;
-        config.separate_defaults(NOW_MS).await.expect(name);
-
-        // What the file holds afterwards (the pass, then the canonical agent section), in memory and on disk.
-        let want = node_file(case, "final");
-        assert!(same(&config.full(), &want), "{name}: {:?}", config.full());
-        let stored: Value = serde_json::from_slice(&text_of(dir.path().join("mixdog-config.json")).await).expect("json");
-        assert!(js_deep_equal(&stored, &want), "{name}: on disk {stored}");
-
-        // The copy taken before the rewrite: the file as it was, in a folder named for the moment.
-        let folder = dir.path().join("backups");
-        let backups: Vec<String> = lane(move |lane| mixdog_statefile::list_dir(lane, &folder).unwrap_or_default()).await;
-        let wanted = case["backups"].as_array().expect("backups");
-        assert_eq!(backups.len(), wanted.len(), "{name}: backups {backups:?}");
-        for (made, node) in backups.iter().zip(wanted) {
-            assert!(made.starts_with("defaults-separation-") && made.ends_with('Z') && made.len() == "defaults-separation-".len() + 24, "{name}: {made}");
-            assert!(node["name"].as_str().expect("name").starts_with("defaults-separation-<iso>"), "{name}: Node's folder {node}");
-            let text = String::from_utf8(text_of(dir.path().join("backups").join(made).join("mixdog-config.json")).await).expect("utf8");
-            assert_eq!(Some(text.as_str()), node["text"].as_str(), "{name}: the backup is the file as it was");
-        }
-
-        // The roster of switched-off agents the loaded config holds.
-        let routes = AgentRoutes::new(config, dir.path());
-        let off: Vec<&str> = case["disabledAgents"].as_array().expect("roster").iter().map(|id| id.as_str().expect("id")).collect();
-        for id in ["worker", "heavy-worker", "reviewer", "advisor", "security", "front-worker", "writer", "maintainer", "explore", "custom", "mine"] {
-            assert_eq!(routes.is_disabled(id), off.contains(&id), "{name}: {id}");
-        }
-    }
-}
-/// The pass alone (what Node's `ensureDefaultsSeparated` published, before the agent section was made canonical).
-#[cfg(node_twin)]
-#[tokio::test]
-async fn the_pass_alone_writes_what_node_published() {
-    for case in twin()["cases"].as_array().expect("cases") {
-        let name = case["name"].as_str().expect("name");
-        let dir = tempfile::tempdir().expect("dir");
-        put_files(dir.path(), case).await;
-        let input = case["input"].as_object().expect("input");
-        if !needs_separation(input) {
-            // No separation to publish: Node's first write is then `loadConfig`'s save of the canonical agent
-            // section, which the boot pass makes here (and which is the file's last write too, so `output` is `final`).
-            put(dir.path().join("mixdog-config.json"), case["inputText"].as_str().expect("input").to_owned()).await;
-            let config = open(dir.path()).await;
-            config.separate_defaults(NOW_MS).await.expect(name);
-            assert!(same(&config.full(), &node_file(case, "output")), "{name}: {:?}", config.full());
-            continue;
-        }
-        let mut separated = separate_defaults_in_config(input, dir.path());
-        separated.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
-        let written = super::super::canonical::canonicalize(separated);
-        assert!(same(&written, &node_file(case, "output")), "{name}: {written:?}");
-    }
-}
-/// A file created by this code is born separated (`withFreshDefaultsVersion`): the first write into
-/// an empty config stamps the marker, whatever it writes.
-#[cfg(node_twin)]
-#[tokio::test]
-async fn the_first_write_into_an_empty_config_stamps_the_marker() {
-    let twin = twin();
-    let dir = tempfile::tempdir().expect("dir");
-    let config = open(dir.path()).await;
-    config
-        .update_agent(|agent| {
-            agent.insert("recap".into(), serde_json::json!({ "enabled": false }));
-            Ok(())
-        })
-        .await
-        .expect("write");
-    assert!(same(&config.full(), &twin["born"]["written"]), "{:?}", config.full());
-    let empty = tempfile::tempdir().expect("dir");
-    let config = open(empty.path()).await;
-    config.update(|_| Ok(())).await.expect("write");
-    assert!(same(&config.full(), &twin["born"]["empty"]), "{:?}", config.full());
-}

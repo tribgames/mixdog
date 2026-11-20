@@ -67,12 +67,6 @@ impl Rig {
         value(&*self.service, request(method, params, op)).await
     }
 
-    #[cfg(node_twin)]
-    fn user(&self, rel: &str, text: &str) {
-        let path = self.data.path().join(rel);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, text).unwrap();
-    }
 }
 
 /// The code and the message of a refusal, as the wire carries them.
@@ -88,15 +82,6 @@ fn refusal(error: CoreError) -> (Option<String>, String) {
     }
 }
 
-/// `<DATA>` for the data dir and `/` separators, as the golden is written.
-#[cfg(node_twin)]
-fn normal(value: Value, data: &std::path::Path) -> Value {
-    let text = value
-        .to_string()
-        .replace(&data.to_string_lossy().replace('\\', "\\\\"), "<DATA>")
-        .replace("\\\\", "/");
-    serde_json::from_str(&text).unwrap()
-}
 
 /// Node's `rmSync` refuses a directory with `ERR_FS_EISDIR` before any syscall.
 #[test]
@@ -237,8 +222,6 @@ fn a_failed_write_reads_as_the_node_error_of_the_same_step() {
 }
 
 
-#[cfg(node_twin)]
-const GOLDEN: &str = include_str!("../goldens/instructions.json");
 async fn rig() -> Rig {
     let data = tempfile::tempdir().unwrap();
     let shipped = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -263,188 +246,6 @@ async fn rig() -> Rig {
         data,
         next_op: 1,
     }
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn the_scenario_answers_what_the_node_api_answered() {
-    let steps: Vec<Value> = serde_json::from_str(GOLDEN).unwrap();
-    let mut rig = rig().await;
-    let shipped_balanced = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/domains/goldens/instructions-shipped/orchestration/balanced.md"),
-    )
-    .unwrap();
-    for step in &steps {
-        let name = step["name"].as_str().unwrap();
-        if name == "list with problems" {
-            rig.user("orchestration/focused.md", " \n\t\n");
-            rig.user(
-                "output-styles/minimal.md",
-                "---\nname: other\n---\n\nBody\n",
-            );
-            rig.user(
-                "output-styles/detailed.md",
-                "---\nname: detailed\ntitle: Mine\n---\n\nMy detailed\r\nbody  \r\n",
-            );
-        }
-        let save = |group: &str, id: &str, body: &str| json!({ "input": { "group": group, "id": id, "body": body } });
-        let result = match name {
-            "list" | "list with problems" => {
-                rig.call("instructions/listInstructionFiles", json!({}))
-                    .await
-            }
-            "get balanced" => {
-                rig.call(
-                    "instructions/getInstructionFile",
-                    json!({ "group": "delegation", "id": "balanced" }),
-                )
-                .await
-            }
-            "save crlf" => {
-                rig.call(
-                    "instructions/saveInstructionFile",
-                    save("delegation", "balanced", "  Hello\r\nWorld  \r\n"),
-                )
-                .await
-            }
-            "save style" => {
-                rig.call(
-                    "instructions/saveInstructionFile",
-                    save("outputStyle", "simple", "Short answers only."),
-                )
-                .await
-            }
-            "save equal to shipped" => {
-                rig.call(
-                    "instructions/saveInstructionFile",
-                    save("delegation", "balanced", &shipped_balanced),
-                )
-                .await
-            }
-            "save stale revision" => {
-                let mut params = save("delegation", "swarm", "x");
-                params["input"]["expectedRevision"] = json!("nope");
-                rig.call("instructions/saveInstructionFile", params).await
-            }
-            "save null revision" => {
-                let mut params = save("delegation", "swarm", "x");
-                params["input"]["expectedRevision"] = Value::Null;
-                rig.call("instructions/saveInstructionFile", params).await
-            }
-            "save nel" => {
-                rig.call(
-                    "instructions/saveInstructionFile",
-                    save("delegation", "focused", "\u{85}Keep\u{85}"),
-                )
-                .await
-            }
-            "save current revision" => {
-                let current = rig
-                    .call(
-                        "instructions/getInstructionFile",
-                        json!({ "group": "delegation", "id": "swarm" }),
-                    )
-                    .await
-                    .unwrap();
-                let mut params = save("delegation", "swarm", "Swarm text");
-                params["input"]["expectedRevision"] = current["revision"].clone();
-                rig.call("instructions/saveInstructionFile", params).await
-            }
-            "save empty" => {
-                rig.call(
-                    "instructions/saveInstructionFile",
-                    save("delegation", "none", " \r\n "),
-                )
-                .await
-            }
-            "save nul" => {
-                rig.call(
-                    "instructions/saveInstructionFile",
-                    save("delegation", "none", "a\0b"),
-                )
-                .await
-            }
-            "reset without override" => {
-                rig.call(
-                    "instructions/resetInstructionFile",
-                    json!({ "group": "delegation", "id": "none" }),
-                )
-                .await
-            }
-            "reset" => {
-                rig.call(
-                    "instructions/resetInstructionFile",
-                    json!({ "group": "delegation", "id": "swarm" }),
-                )
-                .await
-            }
-            "reset stale" => {
-                rig.call(
-                    "instructions/resetInstructionFile",
-                    json!({ "group": "outputStyle", "id": "simple", "expectedRevision": "nope" }),
-                )
-                .await
-            }
-            "reset null revision" => {
-                rig.call(
-                    "instructions/resetInstructionFile",
-                    json!({ "group": "outputStyle", "id": "simple", "expectedRevision": null }),
-                )
-                .await
-            }
-            "bad mode" => {
-                rig.call(
-                    "instructions/getInstructionFile",
-                    json!({ "group": "delegation", "id": "wild" }),
-                )
-                .await
-            }
-            "bad style" => {
-                rig.call(
-                    "instructions/getInstructionFile",
-                    json!({ "group": "outputStyle", "id": "loud" }),
-                )
-                .await
-            }
-            "bad group" => {
-                rig.call(
-                    "instructions/getInstructionFile",
-                    json!({ "group": "prompts", "id": "x" }),
-                )
-                .await
-            }
-            "save too large" => {
-                rig.call(
-                    "instructions/saveInstructionFile",
-                    save("delegation", "none", &"a".repeat(262_144)),
-                )
-                .await
-            }
-            other => panic!("unknown step {other}"),
-        };
-        match (result, step.get("ok")) {
-            (Ok(got), Some(want)) => {
-                assert_eq!(
-                    normal(got, rig.data.path()),
-                    normal(want.clone(), std::path::Path::new("<none>")),
-                    "step {name}"
-                );
-            }
-            (Err(got), None) => {
-                let (code, message) = refusal(got);
-                assert_eq!(
-                    message,
-                    step["error"].as_str().unwrap(),
-                    "message of step {name}"
-                );
-                // Node sets a code on the conflict only; the other refusals are plain errors.
-                assert_eq!(code.as_deref(), step["code"].as_str(), "code of step {name}");
-            }
-            (got, _) => panic!("step {name}: {got:?}"),
-        }
-    }
-    // Every successful save and reset announced; reads and refusals did not.
-    assert_eq!(*rig.announced.0.lock().unwrap(), 6);
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn a_mutation_waits_for_the_lock_of_its_file() {

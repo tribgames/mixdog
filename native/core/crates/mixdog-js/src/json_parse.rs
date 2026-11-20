@@ -462,27 +462,3 @@ mod tests {
 
 impl std::error::Error for JsonSyntaxError {}
 
-/// The rows of the recorded JSON answers of the reference runtime; compiled only on the machine that holds them.
-#[cfg(all(test, node_twin))]
-mod node_twin {
-    use super::*;
-    use crate::json::stringify_indent_parsed;
-
-    /// `[input, {ok: JSON.stringify(JSON.parse(input), null, 2)} | {err: true}]` rows.
-    const ROWS: &str = include_str!("../testdata/json_parse.json");
-
-    #[test]
-    fn parse_and_rewrite_match_the_recorded_rows() {
-        let rows: Vec<(String, Value)> = serde_json::from_str(ROWS).expect("fixture");
-        assert!(rows.len() > 60);
-        for (input, expected) in rows {
-            match (parse(&input), expected.get("ok")) {
-                (Ok(value), Some(text)) => {
-                    assert_eq!(Value::String(stringify_indent_parsed(&value, 2)), *text, "{input:?}");
-                }
-                (Err(_), None) => {}
-                (got, _) => panic!("{input:?}: recorded {expected}, got {got:?}"),
-            }
-        }
-    }
-}

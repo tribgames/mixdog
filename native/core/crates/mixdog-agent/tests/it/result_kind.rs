@@ -21,26 +21,3 @@ fn the_error_prefix_ignores_case_and_file_not_found_has_no_leading_boundary() {
 }
 
 
-#[cfg(node_twin)]
-/// Every case of Node's `classifyResultKind` recording (`fixtures/result-classification/golden.json`,
-/// `record-result-classification.mjs`): 13 tool names over 45 texts, plus a generated grid over every phrase of both navigation regexes (four letter cases, seven neighbours before and\n/// after) and over the error prefix (separators, openings, lead-ins), answered as Node answers them.
-#[test]
-fn the_returned_text_is_classified_as_nodes_classify_result_kind_classifies_it() {
-    let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/result-classification/golden.json")).unwrap();
-    let cases = golden["cases"].as_array().unwrap();
-    assert!(cases.len() > 9000, "the recording is whole");
-    for case in cases {
-        let Some(text) = case["text"].as_str() else {
-            // A result that is not text is `normal`; the host's outputs are always text.
-            assert_eq!(case["kind"], "normal");
-            continue;
-        };
-        let want = match case["kind"].as_str().unwrap() {
-            "error" => ResultKind::Error,
-            "zero-match" => ResultKind::ZeroMatch,
-            "normal" => ResultKind::Normal,
-            other => panic!("kind {other}"),
-        };
-        assert_eq!(classify_result_kind(text, case["tool"].as_str().unwrap()), want, "tool {} text {text:?}", case["tool"]);
-    }
-}

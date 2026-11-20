@@ -6,15 +6,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-#[cfg(node_twin)]
-use mixdog_fsio::Unlaned;
 use mixdog_relay::http1::{Handler, HandlerFuture, Headers, HeaderValue, Limits, Request, ResponseWriter, UpgradeRequest, fail_request};
 use mixdog_relay::net::{Server, tls};
-#[cfg(node_twin)]
-use mixdog_rt::time::Instant;
 use mixdog_rt::time::{sleep, timeout};
-#[cfg(node_twin)]
-use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -181,10 +175,6 @@ async fn route(events: Arc<Mutex<Vec<String>>>, mut request: Request, mut respon
 
 // ---- the byte comparison ----
 
-#[cfg(node_twin)]
-fn latin1_bytes(text: &str) -> Vec<u8> {
-    text.chars().map(|c| c as u8).collect()
-}
 
 fn latin1_text(bytes: &[u8]) -> String {
     bytes.iter().map(|&b| char::from(b)).collect()
@@ -205,114 +195,10 @@ fn mask_date(text: &str) -> String {
     out
 }
 
-#[cfg(node_twin)]
-struct Outcome {
-    received: Vec<u8>,
-    closed_by_server: bool,
-    elapsed_ms: u128,
-}
 
-#[cfg(node_twin)]
-fn number(value: &Value, key: &str) -> u64 {
-    value[key].as_u64().unwrap_or_else(|| panic!("{key} is not a number"))
-}
 
-/// Plays the steps of a recorded connection against `addr` and reads as the recording's `end` says.
-#[cfg(node_twin)]
-async fn play(addr: SocketAddr, conn: &Value) -> Outcome {
-    let stream = TcpStream::connect(addr).await.unwrap();
-    let (mut rd, mut wr) = stream.into_split();
-    let received = Arc::new(Mutex::new(Vec::new()));
-    let closed = Arc::new(AtomicBool::new(false));
-    let last_data = Arc::new(Mutex::new(Instant::now()));
-    let reader = {
-        let (received, closed, last_data) = (received.clone(), closed.clone(), last_data.clone());
-        tokio::spawn(async move {
-            let mut chunk = [0u8; 8192];
-            loop {
-                match rd.read(&mut chunk).await {
-                    Ok(0) | Err(_) => {
-                        closed.store(true, Ordering::SeqCst);
-                        return;
-                    }
-                    Ok(read) => {
-                        received.lock().unwrap().extend_from_slice(&chunk[..read]);
-                        *last_data.lock().unwrap() = Instant::now();
-                    }
-                }
-            }
-        })
-    };
-    let started = Instant::now();
-    let mut dropped = false;
-    for step in conn["steps"].as_array().unwrap() {
-        if let Some(text) = step["send"].as_str() {
-            wr.write_all(&latin1_bytes(text)).await.unwrap();
-        } else if step["wait"].is_number() {
-            sleep(Duration::from_millis(number(step, "wait"))).await;
-        } else if step["close"].as_bool() == Some(true) {
-            reader.abort();
-            dropped = true;
-            let _ = wr.shutdown().await;
-        }
-    }
-    if dropped {
-        // The connection is closed from this side: nothing to wait for.
-    } else if conn["end"] == "eof" {
-        let limit = Duration::from_millis(number(conn, "maxMs"));
-        while !closed.load(Ordering::SeqCst) && started.elapsed() < limit {
-            sleep(Duration::from_millis(20)).await;
-        }
-    } else {
-        let quiet = Duration::from_millis(number(conn, "quietMs"));
-        *last_data.lock().unwrap() = Instant::now();
-        while !closed.load(Ordering::SeqCst) && last_data.lock().unwrap().elapsed() < quiet {
-            sleep(Duration::from_millis(20)).await;
-        }
-    }
-    let closed_by_server = closed.load(Ordering::SeqCst) && !dropped;
-    let elapsed_ms = started.elapsed().as_millis();
-    reader.abort();
-    let received = received.lock().unwrap().clone();
-    Outcome { received, closed_by_server, elapsed_ms }
-}
 
-/// Where two texts first differ, with a little of each side.
-#[cfg(node_twin)]
-fn first_difference(expected: &str, actual: &str) -> String {
-    let at = expected.chars().zip(actual.chars()).take_while(|(a, b)| a == b).count();
-    let clip = |text: &str| text.chars().skip(at.saturating_sub(20)).take(70).collect::<String>();
-    format!("at {at}: expected {:?} got {:?}", clip(expected), clip(actual))
-}
 
-#[cfg(node_twin)]
-async fn run_scenario(scenario: Value) -> Vec<String> {
-    let name = scenario["name"].as_str().unwrap().to_owned();
-    let limits = if scenario["server"] == "short" {
-        Limits { headers_timeout: Duration::from_millis(600), request_timeout: Duration::from_millis(1200), ..Limits::default() }
-    } else {
-        Limits::default()
-    };
-    let server = Server::start(0, None, Arc::new(EchoHandler::default()), limits).await.unwrap();
-    let addr: SocketAddr = ([127, 0, 0, 1], server.port()).into();
-    let mut failures = Vec::new();
-    for (index, conn) in scenario["conns"].as_array().unwrap().iter().enumerate() {
-        let outcome = play(addr, conn).await;
-        let expected = mask_date(conn["received"].as_str().unwrap());
-        let actual = mask_date(&latin1_text(&outcome.received));
-        if expected != actual {
-            failures.push(format!("{name} #{index}: {}", first_difference(&expected, &actual)));
-        }
-        if conn["closedByServer"].as_bool().unwrap() != outcome.closed_by_server {
-            failures.push(format!("{name} #{index}: the server's close differs (node {})", conn["closedByServer"]));
-        }
-        if name == "idle close after 5 s" && !(5800..=7500).contains(&outcome.elapsed_ms) {
-            failures.push(format!("{name} #{index}: closed after {} ms, node after {}", outcome.elapsed_ms, conn["elapsedMs"]));
-        }
-    }
-    server.terminate_connections();
-    failures
-}
 
 // ---- what a recording cannot show ----
 
@@ -557,20 +443,6 @@ async fn tls_is_served_with_no_alpn_and_an_upgrade_hands_over_the_decrypted_stre
 }
 
 
-#[cfg(node_twin)]
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn every_exchange_recorded_from_node_comes_back_byte_for_byte() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/node-http-echo.recording.json");
-    let recording: Value = serde_json::from_str(&mixdog_fsio::read_to_string(&Unlaned, path).unwrap()).unwrap();
-    let scenarios = recording["scenarios"].as_array().unwrap().clone();
-    assert!(scenarios.len() >= 16, "the recording lost scenarios");
-    let tasks: Vec<_> = scenarios.into_iter().map(|scenario| tokio::spawn(run_scenario(scenario))).collect();
-    let mut failures = Vec::new();
-    for task in tasks {
-        failures.extend(task.await.unwrap());
-    }
-    assert!(failures.is_empty(), "{} exchanges differ from node:\n{}", failures.len(), failures.join("\n"));
-}
 
 // ---- framing, as raw bytes ----
 

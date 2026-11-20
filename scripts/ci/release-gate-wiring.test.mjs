@@ -548,8 +548,6 @@ test('release-gate.yml: the build is a clean checkout and no tracked script read
     assert.ok(index >= 0, `${name} checks its checkout`);
     assert.ok(stepsOf(gate.jobs[name]).findIndex((step) => step.uses?.startsWith('actions/checkout@')) < index);
   }
-  // the build is never given the cfg: no job sets it in the environment
-  assert.doesNotMatch(gateText, /(RUSTFLAGS|rustflags)[^\n]*node_twin/);
   // core-tests runs the archive of core-build on every system, a pull request's subset included: the whole workspace is
   // selected by a push to main and a manual run (scope all), which is what the release gate runs
   assert.match(read('scripts/ci/core-select.mjs'), /if \(whole\) \{\s*scope = 'all'/);

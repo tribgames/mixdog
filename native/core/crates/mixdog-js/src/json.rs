@@ -282,22 +282,3 @@ mod tests {
     }
 }
 
-/// The rows of the recorded JSON answers of the reference runtime; compiled only on the machine that holds them.
-#[cfg(all(test, node_twin))]
-mod node_twin {
-    use super::*;
-
-    /// `[input, JSON.stringify(JSON.parse(input)), JSON.stringify(JSON.parse(input), null, 2)]` rows.
-    const ROWS: &str = include_str!("../testdata/json_stringify.json");
-
-    #[test]
-    fn stringify_matches_the_recorded_rows() {
-        let rows: Vec<(String, String, String)> = serde_json::from_str(ROWS).expect("fixture");
-        assert!(rows.len() > 50);
-        for (input, compact, pretty) in rows {
-            let value: Value = serde_json::from_str(&input).expect("input");
-            assert_eq!(stringify(&value), compact, "{input}");
-            assert_eq!(stringify_indent(&value, 2), pretty, "{input} (indent 2)");
-        }
-    }
-}

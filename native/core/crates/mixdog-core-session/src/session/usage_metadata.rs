@@ -55,82 +55,11 @@ impl SessionMetadata for SessionDirectory {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use std::sync::Arc;
 
-    #[cfg(node_twin)]
-    use mixdog_store::sqlite::DirtyMark;
-    #[cfg(node_twin)]
-    use mixdog_store::sqlite::SqliteStore;
-    #[cfg(node_twin)]
-    use mixdog_store::summary::CatalogHead;
-    #[cfg(node_twin)]
-    use serde_json::Value;
 
-    #[cfg(node_twin)]
-    use super::*;
 
-    #[cfg(node_twin)]
-    /// The index of a data dir holding each of `headers` as a listed session.
-    async fn index(data: &std::path::Path, headers: &[Value]) -> Arc<SqliteStore> {
-        let tokens = mixdog_rt::testing::tokens();
-        let root = data.to_path_buf();
-        let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
-            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
-        })
-        .expect("lane")
-        .await
-        .expect("job ran")
-        .expect("index");
-        let store = Arc::new(index);
-        for header in headers {
-            let header = header.as_object().expect("header").clone();
-            let session = header["id"].as_str().expect("id").to_owned();
-            store.upsert(CatalogHead { session, log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.expect("upsert");
-        }
-        store
-    }
 
-    #[cfg(node_twin)]
-    /// `ThreadStore::session_meta` of the real store, over the same index calls.
-    async fn meta_of(store: &SqliteStore, id: &str) -> Option<SessionMeta> {
-        let summary = store.summary(id).await.expect("summary")?;
-        let title = store.title(id).await.expect("title");
-        Some(SessionMeta::of(title, &summary))
-    }
 
-    #[cfg(node_twin)]
-    /// Every case of `fixtures/session-metadata/golden.json`: what Node's `readStoredSessionMetadata`
-    /// gave for the log record of that header, whether `isLeadVisibleRow` takes it as the usage
-    /// service asks, and the records Node reads as `null`.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn metadata_equals_nodes() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/session-metadata/golden.json")).expect("golden json");
-        let cases = golden["cases"].as_array().expect("cases");
-        let nulls = golden["nulls"].as_array().expect("nulls");
-        let mut headers: Vec<Value> = cases.iter().map(|case| case["header"].clone()).collect();
-        // The index holds a deleted session as a row with the delete mark; the others have no row.
-        headers.push(json!({ "id": "s_unlinked", "title": "deleted", "deleted": true }));
-        let data = tempfile::tempdir().expect("data dir");
-        let store = index(data.path(), &headers).await;
-        for case in cases {
-            let id = case["id"].as_str().expect("id");
-            let mut got = describe(id, meta_of(&store, id).await).unwrap_or_else(|| panic!("{id} is listed"));
-            let mut want = case["expected"].clone();
-            // Node's `session.owner || null`; the list row holds `|| 'user'`, which `isLeadVisibleRow` applies too.
-            if want["owner"].is_null() {
-                want["owner"] = json!("user");
-            }
-            assert_eq!(got, want, "{id}");
-            got["preview"] = json!("x");
-            let visible = mixdog_store::sqlite::lead::is_lead_visible_row(got.as_object().expect("row"));
-            assert_eq!(visible, case["leadVisible"], "{id} lead visible");
-        }
-        for null in nulls {
-            let id = null["id"].as_str().expect("id");
-            assert_eq!(describe(id, meta_of(&store, id).await), None, "{id}: {}", null["how"]);
-        }
-    }
 }
 
 

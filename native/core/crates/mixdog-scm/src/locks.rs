@@ -151,9 +151,6 @@ impl Drop for RepoGuard {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-mod node_cases;
 
 #[cfg(test)]
 mod tests {
@@ -246,8 +243,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    include!("node-twin/locks_tests.rs");
 
     /// A repository key spells `.`/`..` out, separates with `/` and ignores a trailing separator; on Windows it folds case too.
     #[test]

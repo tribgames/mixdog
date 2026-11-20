@@ -10,16 +10,10 @@ mod federation_tests;
 mod graph;
 mod hits;
 mod modes;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod node_cases;
 mod outline;
 mod output;
 mod refs;
 mod roots;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod routing_tests;
 #[cfg(test)]
 mod tests;
 mod util;

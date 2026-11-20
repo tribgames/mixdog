@@ -418,25 +418,10 @@ pub fn clamp_effort_opts(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use serde_json::json;
 
     use super::*;
 
-    #[cfg(node_twin)]
-    fn strs(v: &Value) -> Vec<String> {
-        v.as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_owned()).collect()
-    }
 
-    #[cfg(node_twin)]
-    fn entry_for(rejections: &Value, provider: &str, model: &Value) -> Option<RejectionEntry> {
-        let id = clean(model.get("id")).to_lowercase();
-        let found = rejections["models"].get(format!("{}:{id}", provider.trim()))?;
-        Some(RejectionEntry {
-            rejected: found.get("rejected").map(strs).unwrap_or_default(),
-            allowed: found.get("allowed").map(strs).unwrap_or_default(),
-        })
-    }
 
     #[test]
     fn a_projection_collapses_changes_that_share_a_wire_value() {
@@ -453,68 +438,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(mixdog_testkit::fixture!("fixtures/effort/golden.json")).expect("golden parses")
-    }
-    #[cfg(node_twin)]
-    #[test]
-    fn inputs_and_saved_efforts_equal_node() {
-        for case in golden()["normalize"].as_array().unwrap() {
-            let input = case["input"].get("value");
-            let got = normalize_effort_input(input);
-            match (&case["input_result"]["ok"], &case["input_result"]["error"]) {
-                (_, Value::String(message)) => assert_eq!(got, Err(message.clone()), "{case}"),
-                (Value::Null, _) => assert_eq!(got, Ok(None), "{case}"),
-                (ok, _) => assert_eq!(got, Ok(Some(ok.as_str().unwrap().to_owned())), "{case}"),
-            }
-            assert_eq!(normalize_saved_effort(input).map(Value::from).unwrap_or(Value::Null), case["saved"], "{case}");
-        }
-    }
-    #[cfg(node_twin)]
-    #[test]
-    fn options_coercions_and_items_equal_node() {
-        let golden = golden();
-        let rejections = &golden["rejections"];
-        for case in golden["options"].as_array().unwrap() {
-            let provider = case["provider"].as_str().unwrap();
-            let entry = entry_for(rejections, provider, &case["model"]);
-            assert_eq!(effort_options_for(provider, &case["model"], entry.as_ref()), strs(&case["options"]), "{case}");
-        }
-        for case in golden["items"].as_array().unwrap() {
-            let provider = case["provider"].as_str().unwrap();
-            let entry = entry_for(rejections, provider, &case["model"]);
-            let got: Vec<Value> = effort_items_for(provider, &case["model"], Some("high"), entry.as_ref())
-                .into_iter()
-                .map(|i| json!({"value": i.value, "label": i.label, "description": i.description}))
-                .collect();
-            assert_eq!(Value::Array(got), case["items"], "{case}");
-        }
-        for case in golden["coerce"].as_array().unwrap() {
-            let provider = case["provider"].as_str().unwrap();
-            let entry = entry_for(rejections, provider, &case["model"]);
-            let effort = case["effort"].as_str().unwrap_or("");
-            let got = coerce_effort_for(provider, &case["model"], effort, entry.as_ref());
-            assert_eq!(got.map(Value::from).unwrap_or(Value::Null), case["result"], "{case}");
-        }
-    }
-    #[cfg(node_twin)]
-    #[test]
-    fn stepping_down_from_a_rejected_level_equals_node() {
-        let golden = golden();
-        for case in golden["nearest"].as_array().unwrap() {
-            let rejected: BTreeSet<String> = strs(&case["rejected"]).into_iter().collect();
-            let got = nearest_accepted_effort(case["requested"].as_str().unwrap(), &rejected, case["allowHigher"].as_bool().unwrap());
-            assert_eq!(got.map(Value::from).unwrap_or(Value::Null), case["result"], "{case}");
-        }
-        let rejections = &golden["rejections"];
-        for case in golden["clamp"].as_array().unwrap() {
-            let model = json!({"id": case["model"]});
-            let entry = entry_for(rejections, case["provider"].as_str().unwrap(), &model);
-            let levels = case["levels"].as_array().map(|_| strs(&case["levels"]));
-            let levels: Option<Vec<&str>> = levels.as_ref().map(|l| l.iter().map(String::as_str).collect());
-            let got = clamp_effort_opts(&case["opts"], case.get("config").filter(|c| !c.is_null()), levels.as_deref(), entry.as_ref());
-            assert_eq!(got, case["result"], "{case}");
-        }
-    }
 }

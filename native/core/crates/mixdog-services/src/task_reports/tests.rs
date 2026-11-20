@@ -1,5 +1,4 @@
-//! The report chain reads against `fixtures/memory-jobs/golden.json` (recorded from the Node
-//! product; only with the `node_twin` cfg) and the follow and re-attach behavior over a scripted host and a paused clock.
+//! The report chain's follow and re-attach behavior over a scripted host and a paused clock.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -14,29 +13,7 @@ use super::follow::*;
 use super::rearm::*;
 use super::{progress_run_id, turn_report_run_id};
 
-#[cfg(node_twin)]
-fn outcome_json(outcome: &Outcome) -> Value {
-    match outcome {
-        Outcome::Open => json!("open"),
-        Outcome::Ended { status, text } => json!({"status": status, "text": text}),
-    }
-}
 
-#[cfg(node_twin)]
-fn pending_of(state: &Value) -> Pending {
-    let set = |key: &str| -> HashSet<String> { state[key].as_array().map(|a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect()).unwrap_or_default() };
-    Pending {
-        agent_working: set("agentWorking"),
-        owed: state["owed"].as_array().map(|a| a.iter().map(|o| Owed { text: o["text"].as_str().unwrap().into(), meta: o["meta"].clone() }).collect()).unwrap_or_default(),
-        pool: state["pool"].as_array().cloned().unwrap_or_default(),
-        agent_task_owners: set("agentTaskOwners"),
-        working: set("working"),
-        agent_tasks: state["agentTasks"]
-            .as_array()
-            .map(|a| a.iter().map(|t| AgentTask { task_id: t["taskId"].as_str().unwrap().into(), session_id: t["sessionId"].as_str().map(str::to_owned), running: t["running"].as_bool().unwrap() }).collect())
-            .unwrap_or_default(),
-    }
-}
 
 #[test]
 fn queue_row_names_follow_the_task_sessions() {
@@ -223,56 +200,6 @@ async fn recovery_reports_a_gone_session_once_and_skips_this_process_s_own_watch
 }
 
 
-#[cfg(node_twin)]
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/memory-jobs/golden.json");
-#[cfg(node_twin)]
-fn golden() -> Value {
-    serde_json::from_str(&GOLDEN).expect("golden parses")
-}
-#[cfg(node_twin)]
-#[test]
-fn the_chain_reads_equal_node() {
-    for (name, case) in golden()["chain"].as_object().unwrap() {
-        let messages: Vec<Value> = case["messages"].as_array().unwrap().clone();
-        let run_id = case["runId"].as_str().unwrap();
-        let outcome = submission_outcome(&messages, run_id).as_ref().map_or(Value::Null, outcome_json);
-        assert_eq!(outcome, case["outcome"], "{name} outcome");
-        let latest = latest_turn_outcome(&messages, run_id).map_or(Value::Null, |(id, outcome, at, ambiguous)| {
-            json!({"id": id, "outcome": outcome.as_ref().map_or(Value::Null, outcome_json), "at": mixdog_js::json_number(at), "ambiguous": ambiguous})
-        });
-        assert_eq!(latest, case["latest"], "{name} latest");
-        if let Some(expected) = case.get("submissionIds") {
-            let ids: Vec<Vec<String>> = messages.iter().map(submission_ids_of).collect();
-            let expected: Vec<Vec<String>> = expected.as_array().unwrap().iter().map(|a| a.as_array().unwrap().iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).collect();
-            assert_eq!(ids, expected, "{name} submission ids");
-        }
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn pending_agent_work_equals_node() {
-    let g = golden();
-    for case in g["rowStatus"].as_array().unwrap() {
-        assert_eq!(has_pending_agent_work(&case["row"]), case["pending"].as_bool().unwrap(), "{}", case["row"]);
-    }
-    for case in g["pending"].as_array().unwrap() {
-        let state = &case["state"];
-        let task_ids: Option<HashSet<String>> = state["taskIds"].as_array().map(|a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect());
-        let got = pending_work_of(case["sessionId"].as_str().unwrap(), &pending_of(state), task_ids.as_ref());
-        assert_eq!(got, case["pending"].as_bool().unwrap(), "{state}");
-    }
-    let pool = g["pending"][4]["state"]["pool"].as_array().unwrap().clone();
-    let mut owners: Vec<String> = sessions_with_pending_work(&pool).into_iter().collect();
-    owners.sort();
-    assert_eq!(json!(owners), g["sessionsPending"]);
-    for case in g["closure"].as_array().unwrap() {
-        let task_ids: HashSet<String> = case["taskIds"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect();
-        let pending = Pending { pool: pool.clone(), ..Pending::default() };
-        let mut sessions: Vec<String> = closure_sessions("lead", &task_ids, &pending).into_iter().collect();
-        sessions.sort();
-        assert_eq!(json!(sessions), case["sessions"], "{}", case["taskIds"]);
-    }
-}
 /// A stored task session: a request and its one final answer, "all done" (`simple`), or an answer that hands work off, the handed-off
 /// task's result and the final answer after it, "final answer" (`handedOff`).
 fn conversation(name: &str) -> Vec<Value> {

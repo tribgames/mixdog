@@ -123,38 +123,3 @@ mod tests {
     }
 }
 
-/// The recorded collation of the reference runtime; compiled only on the machine that holds it.
-#[cfg(all(test, node_twin))]
-mod node_twin {
-    use super::*;
-
-    fn golden() -> serde_json::Value {
-        serde_json::from_str(include_str!("../testdata/locale_compare.json")).expect("golden")
-    }
-
-    #[test]
-    fn pairs_equal_the_recorded_order() {
-        let g = golden();
-        let pairs = g["pairs"].as_array().unwrap();
-        assert!(pairs.len() > 1000);
-        for p in pairs {
-            let (a, b) = (p[0].as_str().unwrap(), p[1].as_str().unwrap());
-            let want = match p[2].as_i64().unwrap() {
-                -1 => Ordering::Less,
-                1 => Ordering::Greater,
-                _ => Ordering::Equal,
-            };
-            assert_eq!(locale_compare(a, b), want, "{a:?} vs {b:?}");
-        }
-    }
-
-    #[test]
-    fn sorts_equal_the_recorded_sorts() {
-        for s in golden()["sorted"].as_array().unwrap() {
-            let mut got: Vec<&str> = s["input"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-            got.sort_by(|a, b| locale_compare(a, b));
-            let want: Vec<&str> = s["sorted"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-            assert_eq!(got, want);
-        }
-    }
-}

@@ -107,90 +107,9 @@ impl ModelTraits for CatalogGoogleTraits {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use mixdog_core_api::domain::provider::Content;
-    #[cfg(node_twin)]
-    use mixdog_core_api::domain::provider::Message;
-    #[cfg(node_twin)]
-    use mixdog_core_api::domain::provider::ModelRequest;
-    #[cfg(node_twin)]
-    use mixdog_core_api::domain::provider::RequestOptions;
-    #[cfg(node_twin)]
-    use mixdog_core_api::domain::provider::Role;
-    #[cfg(node_twin)]
-    use mixdog_protocol::ProviderId;
-    #[cfg(node_twin)]
-    use serde_json::Value;
 
-    #[cfg(node_twin)]
-    use super::*;
-    #[cfg(node_twin)]
-    use crate::providers::google::request::Dialect;
-    #[cfg(node_twin)]
-    use crate::providers::google::request::build_request;
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../../fixtures/google-traits/golden.json")).expect("fixture")
-    }
 
-    /// Node's real `isGeminiFamilyModel` over ids the catalog never describes.
-    #[cfg(node_twin)]
-    #[test]
-    fn the_family_is_the_wire_ids_and_not_the_catalogs() {
-        let traits = CatalogGoogleTraits(Vec::new());
-        for case in golden()["families"].as_array().unwrap() {
-            let model = case["model"].as_str().unwrap();
-            assert_eq!(traits.is_gemini_family(model), case["isGemini"].as_bool().unwrap(), "{model:?}");
-        }
-    }
 
-    /// Node's real `geminiThinkingConfig`: a 2.5 model is budget-only with an empty catalog
-    /// (`gemini-2.5-pro` at effort `low` is `{"thinkingBudget":1024}`, never a `thinkingLevel`),
-    /// and every other case gives Node's config or Node's error text.
-    #[cfg(node_twin)]
-    #[test]
-    fn a_gemini_2_5_model_takes_the_budget_only_contract() {
-        let traits = CatalogGoogleTraits(Vec::new());
-        let dialect = Dialect {
-            owner: ProviderId::from("gemini"),
-            system_role: Some("system"),
-            function_ids: true,
-            family_gated: false,
-            default_tool_mode: None,
-            omit_ignored_sampling: false,
-        };
-        let cases = golden()["configs"].as_array().unwrap().clone();
-        assert!(cases.len() > 100);
-        for case in cases {
-            let model = case["model"].as_str().unwrap();
-            let options = &case["options"];
-            let mut request = ModelRequest {
-                model: model.into(),
-                messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
-                tools: Vec::new(),
-                options: RequestOptions { effort: options["effort"].as_str().map(str::to_owned), ..RequestOptions::default() },
-            };
-            let mut parameters = serde_json::Map::new();
-            for key in ["thinkingLevel", "thinkingBudget"] {
-                if !options[key].is_null() {
-                    parameters.insert(key.into(), options[key].clone());
-                }
-            }
-            if !parameters.is_empty() {
-                request.options.model_parameters = Some(Value::Object(parameters));
-            }
-            let got = build_request(&request, &dialect, &traits);
-            let what = format!("{model} {options}");
-            match case.get("error") {
-                Some(error) => assert_eq!(got.unwrap_err().message, error.as_str().unwrap(), "{what}"),
-                None => {
-                    let body = got.unwrap_or_else(|e| panic!("{what}: {e:?}"));
-                    let config = body.get("generationConfig").and_then(|g| g.get("thinkingConfig")).cloned().unwrap_or(Value::Null);
-                    assert_eq!(config, case["config"], "{what}");
-                }
-            }
-        }
-    }
 }
 

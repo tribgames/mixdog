@@ -14,8 +14,6 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 serde_json = { workspace = true }
-# The helpers of the twin test (`twin`): locate the Node source, run a recorder, load a golden.
-mixdog-office-base = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }

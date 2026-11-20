@@ -93,10 +93,6 @@ impl DomainService for ThreadSearchService {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "thread_search_tests.rs"]
-mod node_answers;
 
 #[cfg(test)]
 mod tests {

@@ -25,21 +25,6 @@ fn text(reply: &PageReply) -> &str {
     std::str::from_utf8(reply.body.as_deref().expect("a body")).expect("utf-8")
 }
 
-/// The reply Node recorded, compared with ours: status, headers in order, body bytes (null = `end()` without data).
-#[cfg(node_twin)]
-fn assert_matches_node(ours: &PageReply, recorded: &Value, what: &str) {
-    assert_eq!(i64::from(ours.status), recorded["status"].as_i64().expect("status"), "{what}: status");
-    let headers: Vec<(String, String)> = recorded["headers"]
-        .as_array()
-        .expect("headers")
-        .iter()
-        .map(|pair| (pair[0].as_str().expect("name").to_owned(), pair[1].as_str().expect("value").to_owned()))
-        .collect();
-    let mine: Vec<(String, String)> = ours.headers.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect();
-    assert_eq!(mine, headers, "{what}: headers");
-    let body = recorded["body"].as_str().map(|body| body.as_bytes().to_vec());
-    assert_eq!(ours.body, body, "{what}: body");
-}
 
 // ---- /app and /app/latest.json ----
 
@@ -185,78 +170,8 @@ fn the_phone_app_is_told_by_its_user_agent_token() {
 }
 
 
-#[cfg(node_twin)]
-fn golden() -> Value {
-    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/relay-pages/golden.json")).expect("the recording parses")
-}
 // ---- byte equality with the Node pages ----
 
-#[cfg(node_twin)]
-#[test]
-fn the_app_page_and_the_latest_release_equal_the_node_replies() {
-    let golden = golden();
-    assert_eq!(golden["apkUrl"], RELEASE_URL);
-    assert_eq!(golden["fallbackUrl"], ANDROID_FALLBACK_URL);
-    let cases = golden["app"].as_array().expect("app cases");
-    assert!(!cases.is_empty());
-    for case in cases {
-        let url = case["androidUrl"].as_str().expect("url");
-        let method = case["method"].as_str().expect("method");
-        let agent = case["userAgent"].as_str();
-        let what = format!("/app {url} {method} {agent:?}");
-        assert_matches_node(&AppPages::new(url).app_page(request(method, agent)), &case["reply"], &what);
-    }
-    let cases = golden["latest"].as_array().expect("latest cases");
-    assert!(!cases.is_empty());
-    for case in cases {
-        let url = case["androidUrl"].as_str().expect("url");
-        let method = case["method"].as_str().expect("method");
-        assert_matches_node(&AppPages::new(url).latest_release(request(method, None)), &case["reply"], &format!("latest {url} {method}"));
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn the_connect_page_equals_the_node_reply() {
-    let golden = golden();
-    let cases = golden["connect"].as_array().expect("connect cases");
-    assert!(!cases.is_empty());
-    for case in cases {
-        let method = case["method"].as_str().expect("method");
-        assert_matches_node(&connect_page(request(method, None)), &case["reply"], &format!("/connect {method}"));
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn the_update_page_equals_the_node_reply_and_escapes_the_versions() {
-    let golden = golden();
-    let cases = golden["updatePc"].as_array().expect("update cases");
-    assert!(!cases.is_empty());
-    for case in cases {
-        let method = case["method"].as_str().expect("method");
-        let current = case["current"].as_str().expect("current");
-        let min = case["min"].as_str().expect("min");
-        assert_matches_node(&update_pc_page(method, current, min), &case["reply"], &format!("update {method} {current:?} {min:?}"));
-    }
-    let page = render_update_pc_page("<b>", "\"x\" & 'y'");
-    assert!(page.contains("data-current=\"&#60;b&#62;\" data-min=\"&#34;x&#34; &#38; &#39;y&#39;\""));
-}
-#[cfg(node_twin)]
-#[test]
-fn the_release_file_is_judged_as_node_judges_it() {
-    let golden = golden();
-    let cases = golden["readAndroidUrl"].as_array().expect("file cases");
-    assert!(!cases.is_empty());
-    let dir = tempfile::tempdir().expect("tempdir");
-    for (index, case) in cases.iter().enumerate() {
-        let file = dir.path().join(format!("case-{index}.json"));
-        if let Some(contents) = case["contents"].as_str() {
-            mixdog_fsio::write(&Unlaned, &file, contents).expect("write");
-        }
-        let (url, line) = read_android_url(&file);
-        assert_eq!(url, case["url"].as_str().expect("url"), "{}", case["contents"]);
-        assert_eq!(line.is_some(), case["warned"].as_bool().expect("warned"), "{}", case["contents"]);
-    }
-}
 
 #[test]
 fn the_connect_page_is_served_to_get_and_head_and_refused_to_other_methods() {

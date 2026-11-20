@@ -757,24 +757,7 @@ mod tests {
         assert!(check("browser_devtools", json!({"action":"intercept"})).is_ok());
     }
 
-    /// The host commands the tool sent, answering each as the desktop would a navigate it admitted.
-    #[cfg(node_twin)]
-    #[derive(Default)]
-    struct Sent(std::sync::Mutex<Vec<Value>>);
 
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl HostCommands for Sent {
-        async fn browser(&self, _: &mixdog_protocol::ThreadId, action: &str, input: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
-            assert_eq!(action, "navigate");
-            self.0.lock().unwrap().push(input);
-            Ok(json!({ "text": "Navigated" }))
-        }
-
-        async fn visualize(&self, _: &mixdog_protocol::ThreadId, _: &str, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
-            unreachable!("a browser call")
-        }
-    }
 
     /// A host that holds every browser command until it is released, counting those that reached it.
     #[derive(Default)]
@@ -1010,52 +993,6 @@ mod tests {
         assert!(validate("browser", &json!({"action": "click", "input": {"ref": "e1"}}), &browser).is_ok());
     }
 
-    /// The runtime leg of the mail-link navigation case: every `navigate` hands the host the command the browser client
-    /// builds (its fields beside `action` and `session_id`, the `mail_link` included), and a refused call reaches no host.
-    #[cfg(node_twin)]
-    #[test]
-    fn a_navigate_hands_the_host_the_mail_link_nodes_runtime_hands_the_bridge() {
-        let _turn = mail_links::replay::exclusive();
-        let case = mail_links::replay::Case::of("a link the runtime read in a mail opens");
-        let sent = Arc::new(Sent::default());
-        let tool = BrowserTool::browser(sent.clone());
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let mut navigates = 0;
-        for op in &case.ops {
-            let session = op["session"].as_str().unwrap();
-            match op["op"].as_str().unwrap() {
-                "record" => mail_links::record(session, op["mail"].as_str().unwrap(), case.at(&op["at"])),
-                "probe" => assert_eq!(mail_links::link_for(session, op["url"].as_str().unwrap(), case.at(&op["at"])), case.link(&op["link"]), "{}", op["why"]),
-                "navigate" => {
-                    navigates += 1;
-                    let mut ctx = crate::orch::tests::ctx();
-                    ctx.thread_id = mixdog_protocol::ThreadId::from(session);
-                    let before = sent.0.lock().unwrap().len();
-                    let outcome = runtime.block_on(tool.call(&ctx, json!({ "action": "navigate", "input": op["input"] })));
-                    let reached = sent.0.lock().unwrap().len() - before;
-                    let why = &op["why"];
-                    if op["command"].is_null() {
-                        assert_eq!(reached, 0, "{why}: nothing reaches the host");
-                        let text = op["text"].as_str().unwrap();
-                        assert_eq!(format!("Error: {}", outcome.expect_err("Node refused it").message_for_model), text, "{why}");
-                        continue;
-                    }
-                    assert!(outcome.is_ok(), "{why}");
-                    assert_eq!(reached, 1, "{why}");
-                    let mut want = op["command"].as_object().unwrap().clone();
-                    for key in ["action", "session_id", "turn_id"] {
-                        want.remove(key);
-                    }
-                    if let Some(link) = want.get_mut("mail_link") {
-                        link["read_at"] = json!(case.at(&link["read_at"]));
-                    }
-                    assert_eq!(sent.0.lock().unwrap().last().unwrap(), &Value::Object(want), "{why}");
-                }
-                other => panic!("unexpected recorded operation {other}"),
-            }
-        }
-        assert_eq!(navigates, 7);
-    }
 }
 
 

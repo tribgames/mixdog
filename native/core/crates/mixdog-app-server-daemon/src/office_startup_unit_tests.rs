@@ -1,5 +1,5 @@
 //! The sweep's own rules (one at a time, a bound on an unanswered host, none after one that did not finish), against a stand-in
-//! host. What the sweep removes is Node's recording, replayed in `compose/office_startup_tests.rs`.
+//! host.
 
 use std::sync::atomic::AtomicUsize;
 

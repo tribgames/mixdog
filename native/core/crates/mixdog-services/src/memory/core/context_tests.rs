@@ -6,17 +6,9 @@
 
 use std::sync::Arc;
 
-#[cfg(node_twin)]
-use serde_json::Value;
 
 use super::CoreMemoryContext;
-#[cfg(node_twin)]
-use super::format_core_memory_lines;
 
-#[cfg(node_twin)]
-fn strings(value: &Value) -> Vec<String> {
-    value.as_array().expect("array").iter().map(|v| v.as_str().expect("string").to_owned()).collect()
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_snapshot_rewritten_after_the_first_load_is_read_again() {
@@ -38,40 +30,3 @@ async fn a_snapshot_rewritten_after_the_first_load_is_read_again() {
 }
 
 
-#[cfg(node_twin)]
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/memory/core-memory-context/golden.json");
-#[cfg(node_twin)]
-#[tokio::test(flavor = "multi_thread")]
-async fn the_block_matches_what_node_injects() {
-    let golden: Value = serde_json::from_str(&GOLDEN).expect("golden parses");
-    let lane = mixdog_rt::testing::tokens().durability_io;
-    let mut loaded = 0;
-    for case in golden["cases"].as_array().expect("cases") {
-        let name = case["name"].as_str().expect("name");
-        let expected = case["expected"].as_str().expect("expected");
-        if let Some(lines) = case.get("format") {
-            assert_eq!(format_core_memory_lines(&strings(lines)), expected, "{name}");
-            continue;
-        }
-        let root = tempfile::tempdir().expect("temp dir");
-        let data = root.path().join("data");
-        std::fs::create_dir_all(&data).expect("data dir");
-        if let Some(file) = case["file"].as_str() {
-            std::fs::write(data.join("core-memory.json"), file).expect("snapshot");
-        }
-        let work = root.path().join("cwd");
-        let cwd = case["cwd"].as_str().expect("cwd").split('/').fold(work.clone(), |path, part| path.join(part));
-        std::fs::create_dir_all(&cwd).expect("cwd");
-        if let Some(marker) = case["marker"].as_str() {
-            let dir = work.join("project").join(".mixdog");
-            std::fs::create_dir_all(&dir).expect("marker dir");
-            std::fs::write(dir.join("project.id"), marker).expect("marker");
-        }
-        let opted_out = case["optsOut"].as_bool().expect("optsOut");
-        let context = CoreMemoryContext::new(lane, data, Arc::new(move || opted_out));
-        let got = context.load(cwd.to_str().expect("utf-8 path"), case["agentId"].as_str().expect("agent")).await;
-        assert_eq!(got, expected, "{name}");
-        loaded += 1;
-    }
-    assert!(loaded > 50, "the golden holds the loader cases");
-}

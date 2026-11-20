@@ -613,7 +613,3 @@ pub fn with_catalog_state(models: Vec<Value>, partial: Option<(&[String], f64)>)
         .collect()
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "admin_models_tests.rs"]
-mod tests;

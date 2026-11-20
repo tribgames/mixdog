@@ -133,8 +133,6 @@ mod tests {
     use mixdog_store::schema::blob::Slot;
     use mixdog_store::schema::record::ItemRecord;
 
-    #[cfg(node_twin)]
-    use mixdog_protocol::ThreadItem;
 
     use super::*;
     use crate::session::transcript::transcript_convert::message_items;
@@ -168,12 +166,6 @@ mod tests {
         assert_eq!(id_of(&live), "a1:model:200");
     }
 
-    #[cfg(node_twin)]
-    fn live_item(shown: &Shown) -> &ThreadItem {
-        match shown {
-            Shown::Item(item) | Shown::Update(item) => item,
-        }
-    }
 
     #[test]
     fn a_switch_is_recorded_once_and_a_bare_boundary_shows_nothing() {
@@ -185,129 +177,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// Node's recorded folds (`record-model-switch.mjs`): the anchor message after the boundary
-    /// is recorded, and the rows a restore shows for the session.
-    #[test]
-    fn the_fold_and_the_rows_equal_nodes() {
-        use crate::session::transcript::transcript_rows::Restored;
-        use crate::session::transcript::transcript_rows::restore;
-
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/migration/model-switch/cases.json");
-        let fixture: Value = serde_json::from_slice(&std::fs::read(path).expect("cases.json")).expect("json");
-        for case in fixture["cases"].as_array().expect("cases") {
-            let name = case["name"].as_str().unwrap_or("?");
-            let mut messages = case["messages"].as_array().expect("messages").clone();
-            if let Some(anchor) = case["anchor"].as_u64() {
-                for boundary in case["boundaries"].as_array().expect("boundaries") {
-                    if let Some(folded) = with_model_switch(&messages[anchor as usize], boundary) {
-                        messages[anchor as usize] = folded;
-                    }
-                }
-                assert_eq!(messages[anchor as usize], case["after"][anchor as usize], "{name}: anchor");
-            }
-            let mut rows = Vec::new();
-            for (index, message) in messages.iter().enumerate() {
-                for restored in restore(&record(&format!("m{index}"), message), message) {
-                    if let Restored::Row { mut row, .. } = restored {
-                        row.shift_remove("id");
-                        rows.push(Value::Object(row));
-                    }
-                }
-            }
-            let want: Vec<Value> = case["rows"]
-                .as_array()
-                .expect("rows")
-                .iter()
-                .map(|row| {
-                    let mut row = row.clone();
-                    row.as_object_mut().expect("row").shift_remove("id");
-                    row
-                })
-                .filter(|row| row["kind"] == "statusdone" || row["kind"] == "assistant")
-                .collect();
-            let got: Vec<Value> =
-                rows.into_iter().filter(|row| row["kind"] == "statusdone" || row["kind"] == "assistant").collect();
-            assert_eq!(got, want, "{name}: rows");
-        }
-    }
-    #[cfg(node_twin)]
-    /// A reader's path: the anchor row plus its stored entries (`HistoryRow.model_switches`)
-    /// show Node's rows, and the live row for the last entry is the restored row's twin.
-    #[test]
-    fn a_stored_anchor_row_shows_nodes_switch_rows() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/migration/model-switch/cases.json");
-        let fixture: Value = serde_json::from_slice(&std::fs::read(path).expect("cases.json")).expect("json");
-        let mut checked = 0;
-        for case in fixture["cases"].as_array().expect("cases") {
-            let name = case["name"].as_str().unwrap_or("?");
-            let Some(anchor) = case["anchor"].as_u64() else { continue };
-            let boundaries = case["boundaries"].as_array().expect("boundaries");
-            let entries: Vec<ModelSwitchEntry> =
-                boundaries.iter().filter_map(|b| serde_json::from_value(b.clone()).ok()).collect();
-            let body = case["messages"][anchor as usize].clone();
-            let mut row = record("anchor", &body);
-            fold_model_switches(&mut row, &entries);
-            let Slot::Inline(folded) = &row.body else { panic!("inline") };
-            // A stored entry always names its model (`ModelSwitchEntry`), so a model-less boundary
-            // (Node keeps it in meta but shows no row) never reaches a reader: nothing folds.
-            if entries.len() == boundaries.len() {
-                assert_eq!(folded, &case["after"][anchor as usize], "{name}: folded body");
-            } else {
-                assert_eq!(folded, &body, "{name}: a boundary the store cannot hold folds nothing");
-            }
-            let shown = message_items(&row, folded);
-            let switched = case["rows"].as_array().expect("rows").iter().filter(|r| r["status"] == "model-switched").count();
-            let got = shown.iter().filter(|s| matches!(s, Shown::Item(ThreadItem::StatusRow { .. }))).count();
-            assert_eq!(got, switched, "{name}: switch rows");
-            if let Some(last) = entries.last() {
-                let live = live_model_switch(&row, last).expect("live row");
-                assert!(shown.contains(&live), "{name}: live row equals the restored one");
-            }
-            checked += 1;
-        }
-        assert!(checked >= 4);
-    }
-    #[cfg(node_twin)]
-    /// A boundary on the compaction summary (or its context ack) shows Node's rows: the summary
-    /// bubble stays hidden and the "Model switched" rows follow; live and restored rows agree.
-    #[test]
-    fn a_summary_anchor_shows_nodes_switch_rows_after_the_divider() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/migration/model-switch/cases.json");
-        let fixture: Value = serde_json::from_slice(&std::fs::read(path).expect("cases.json")).expect("json");
-        let mut checked = 0;
-        for case in fixture["cases"].as_array().expect("cases") {
-            let name = case["name"].as_str().unwrap_or("?");
-            let anchor = case["anchor"].as_u64().expect("anchor") as usize;
-            let source = case["messages"][anchor]["meta"]["source"].as_str().unwrap_or("");
-            if !matches!(source, "compact-summary" | "context-ack") {
-                continue;
-            }
-            let entries: Vec<ModelSwitchEntry> =
-                case["boundaries"].as_array().expect("boundaries").iter().filter_map(|b| serde_json::from_value(b.clone()).ok()).collect();
-            let shown = divider_model_switches("k1", &entries);
-            let strip = |mut row: Value| {
-                row.as_object_mut().expect("row").shift_remove("id");
-                row
-            };
-            let want: Vec<Value> = case["rows"].as_array().expect("rows").iter().cloned().map(strip).collect();
-            assert!(want.iter().all(|row| row["kind"] == "statusdone"), "{name}: the summary bubble is hidden");
-            assert_eq!(shown.len(), want.len(), "{name}: switch rows");
-            for (item, node) in shown.iter().zip(&want) {
-                let ThreadItem::StatusRow { kind, meta, .. } = item else { panic!("{name}: a status row") };
-                assert_eq!(kind, "statusdone");
-                assert_eq!(meta.label, node["label"].as_str().map(str::to_owned), "{name}: label");
-                assert_eq!(meta.ext.get("status"), node.get("status"), "{name}: status");
-                assert_eq!(meta.provider.as_deref(), node["provider"].as_str(), "{name}: provider");
-                assert_eq!(meta.model_id.as_deref(), node["modelId"].as_str(), "{name}: model");
-                assert_eq!(meta.at, node["at"].as_i64(), "{name}: at");
-            }
-            if let Some(last) = entries.last() {
-                let live = live_divider_model_switch("k1", last).expect("live row");
-                assert!(shown.iter().any(|item| *live_item(&live) == *item), "{name}: live row equals the restored one");
-            }
-            checked += 1;
-        }
-        assert!(checked >= 3);
-    }
 }

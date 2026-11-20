@@ -557,13 +557,6 @@ mod tests {
         assert_eq!(without(&merged, " a "), s(&["b", "y", "x"]));
     }
 
-    #[cfg(node_twin)]
-    fn wait(next: Next) -> (u64, u64) {
-        match next {
-            Next::Wait { epoch, delay } => (epoch, delay.as_millis() as u64),
-            other => panic!("a wait was expected, got {other:?}"),
-        }
-    }
 
     /// The replay barrier's positions: an append pushed before the barrier holds it until its flush landed, one pushed after
     /// it does not, and an append before it whose flush failed is its error.
@@ -736,85 +729,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/prompt-history-retry/golden.json")).expect("golden.json")
-    }
-    #[cfg(node_twin)]
-    /// Recorded from Node's own `writeRetryDelayMs` (`record-prompt-history-retry.mjs`).
-    #[test]
-    fn the_retry_delay_is_nodes() {
-        for (failures, ms) in golden()["retryDelaysMs"].as_object().unwrap() {
-            assert_eq!(write_retry_delay(failures.parse().unwrap()), Duration::from_millis(ms.as_u64().unwrap()), "failures {failures}");
-        }
-        assert_eq!(write_retry_delay(u32::MAX), Duration::from_millis(WRITE_RETRY_MAX_MS));
-        assert_eq!(golden()["windowMs"].as_u64().unwrap(), WRITE_BEHIND_MS);
-    }
-    #[cfg(node_twin)]
-    /// Node's real `appendPromptHistory` with an unwritable directory, under a fake clock: when its
-    /// flush attempts come.
-    #[test]
-    fn a_failed_flush_waits_as_nodes_does() {
-        let golden = golden();
-        let recorded: Vec<u64> = golden["scenarioA"]["gapsMs"].as_array().unwrap().iter().map(|g| g.as_u64().unwrap()).collect();
-        let mut queue = AppendQueue::default();
-        let (mut epoch, first) = wait(queue.push("first".into()));
-        assert_eq!(first, golden["scenarioA"]["firstAttemptAtMs"].as_u64().unwrap(), "the first flush waits the window");
-        let mut waits = Vec::new();
-        for _ in &recorded {
-            let batch = queue.due(epoch).expect("the wait ends in a flush");
-            assert_eq!(batch, s(&["first"]), "the same append is retried");
-            let (next, delay) = wait(queue.flushed(batch));
-            epoch = next;
-            waits.push(delay);
-        }
-        assert_eq!(waits, recorded);
-        let batch = queue.due(epoch).unwrap();
-        assert_eq!(queue.flushed(Vec::new()), Next::Idle, "a landed flush ends it");
-        assert_eq!(batch, s(&["first"]));
-        assert_eq!(wait(queue.push("again".into())).1, WRITE_BEHIND_MS);
-        let batch = queue.due(7 + 1).expect("a new append waits the window again");
-        assert_eq!(wait(queue.flushed(batch)).1, write_retry_delay(1).as_millis() as u64, "and the failure count starts over");
-    }
-    #[cfg(node_twin)]
-    /// An append during a backoff wait re-arms the window (Node `scheduleWriteBehind`, :269): the next
-    /// attempt came 350 ms after the second one against a 1000 ms backoff.
-    #[test]
-    fn an_append_during_a_backoff_wait_re_arms_the_window_as_nodes_does() {
-        let golden = golden()["scenarioB"].clone();
-        let mut queue = AppendQueue::default();
-        let (epoch, _) = wait(queue.push("first".into()));
-        let batch = queue.due(epoch).unwrap();
-        let (epoch, delay) = wait(queue.flushed(batch));
-        let batch = queue.due(epoch).unwrap();
-        let (backoff_epoch, backoff) = wait(queue.flushed(batch));
-        assert_eq!(WRITE_BEHIND_MS + delay, golden["secondAttemptAtMs"].as_u64().unwrap(), "the second attempt: the window, then the first backoff");
-        assert_eq!(backoff, golden["backoffWouldHaveBeenMs"].as_u64().unwrap());
-        // 100 ms into the wait a second prompt arrives.
-        let (window_epoch, window) = wait(queue.push("second".into()));
-        assert_eq!(golden["arrivedAfterSecondAttemptMs"].as_u64().unwrap() + window, golden["thirdAttemptAfterSecondAttemptMs"].as_u64().unwrap());
-        assert_eq!(queue.due(backoff_epoch), None, "the backoff wait it replaced wakes nothing");
-        assert_eq!(queue.due(window_epoch), Some(s(&["first", "second"])), "the retry goes with the new prompt, oldest first");
-    }
-    #[cfg(node_twin)]
-    /// `FLUSH_CAP` appends flush at once, fewer at the window (the recording of 4 and of 5).
-    #[test]
-    fn the_cap_flushes_at_once_and_fewer_wait_the_window() {
-        let recorded = golden()["scenarioC"].clone();
-        for run in recorded.as_array().unwrap() {
-            let count = run["appends"].as_u64().unwrap() as usize;
-            let mut queue = AppendQueue::default();
-            let mut last = Next::Idle;
-            for n in 0..count {
-                last = queue.push(format!("p{n}"));
-            }
-            match (run["firstAttemptAtMs"].as_u64().unwrap(), last) {
-                (0, Next::Flush(batch)) => assert_eq!(batch.len(), count),
-                (ms, Next::Wait { delay, .. }) => assert_eq!(delay.as_millis() as u64, ms),
-                (ms, other) => panic!("{count} appends flushed at {ms} ms in Node, got {other:?}"),
-            }
-        }
-    }
 
     /// A prompt whose write failed is not lost: the thread flushes it after the window and retries on
     /// Node's backoff. The clock is paused and held, so it moves only by the advances below: each follows the actor's arming of the

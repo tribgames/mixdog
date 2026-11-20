@@ -17,12 +17,6 @@ pub async fn read_query_pg(db: &Db, sql: &str, params: &[P]) -> Result<Vec<tokio
         Ok(tx.query(sql, &refs(params)).await?)
     })
     .await?;
-    #[cfg(all(node_twin, test))]
-    ANSWERS.with(|answers| {
-        if let Some(answers) = answers.borrow_mut().as_mut() {
-            answers.push(rows.iter().map(crate::memory::replays::pg::node_pg_row).collect());
-        }
-    });
     Ok(rows)
 }
 
@@ -48,9 +42,6 @@ thread_local! {
     /// When set, every recall statement sent on this thread, in order, as Node's `db.query` calls (a read-path statement
     /// is preceded by its `SET LOCAL`).
     pub(crate) static STATEMENTS: std::cell::RefCell<Option<Vec<(String, Vec<P>)>>> = const { std::cell::RefCell::new(None) };
-    /// When set, the rows PostgreSQL answered each read-path statement on this thread with, as node-pg gives them.
-    #[cfg(all(node_twin, test))]
-    pub(crate) static ANSWERS: std::cell::RefCell<Option<Vec<Vec<mixdog_testkit::Exact>>>> = const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]

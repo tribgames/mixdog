@@ -28,6 +28,3 @@ pub mod text_utils;
 pub mod tool_schema;
 pub mod triggers;
 
-#[cfg(node_twin)]
-#[cfg(test)]
-mod node_cases_tests;

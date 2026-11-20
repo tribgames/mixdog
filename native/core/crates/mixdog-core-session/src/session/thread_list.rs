@@ -817,10 +817,6 @@ mod tests {
         }
     }
 
-    #[cfg(node_twin)]
-    fn recorded() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/session-list/golden.json")).expect("golden json")
-    }
 
     fn golden() -> Value {
         json!({ "sessions": [
@@ -973,49 +969,6 @@ mod tests {
         let single = page(1, None).await.expect("page");
         assert_eq!(ids(&single), ["s_c"]);
         assert!(single["nextCursor"].is_string(), "more follow");
-    }
-    #[cfg(node_twin)]
-    /// Every page `listStoredSessionSummaryPage` answered over Node's crafted records (the limit
-    /// rules, the order, `nextCursor`), and the rows of those pages as Node's `_sessionSummary` built
-    /// them. A limit the protocol cannot carry (negative, fractional) is refused by the wire type
-    /// before it reaches the handler, so only the in-range limits run here.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn pages_equal_nodes() {
-        let golden = recorded();
-        let data = crate::session::testing::DataDir::default();
-        let service = service(&data, &golden).await;
-        let summaries: std::collections::HashMap<&str, &Value> =
-            golden["sessions"].as_array().expect("sessions").iter().map(|s| (s["record"]["id"].as_str().expect("id"), &s["summary"])).collect();
-        let mut walked = 0;
-        for walk in golden["walks"].as_array().expect("walks") {
-            let limit = walk["limit"].as_f64();
-            if limit.is_some_and(|l| l.fract() != 0.0 || l < 0.0) {
-                continue;
-            }
-            for page in walk["pages"].as_array().expect("pages") {
-                let mut params = json!({});
-                if let Some(limit) = limit {
-                    params["limit"] = json!(limit as u64);
-                }
-                if let Some(cursor) = page["cursor"].as_str() {
-                    params["cursor"] = json!(cursor);
-                }
-                let answer = value(&service, request(LIST, params, None)).await.expect("list");
-                let ids: Vec<&str> = answer["data"].as_array().expect("data").iter().map(|row| row["id"].as_str().expect("id")).collect();
-                let want: Vec<&str> = page["ids"].as_array().expect("ids").iter().map(|id| id.as_str().expect("id")).collect();
-                assert_eq!(ids, want, "limit {} cursor {}", walk["limit"], page["cursor"]);
-                assert_eq!(answer["nextCursor"].as_str(), page["nextCursor"].as_str());
-                for row in answer["data"].as_array().expect("data") {
-                    let node = summaries[row["id"].as_str().expect("id")];
-                    for field in ["title", "updatedAt", "messageCount", "cwd", "preview"] {
-                        assert_eq!(row[field], node[field], "{field} of {}", row["id"]);
-                    }
-                    assert_eq!(row["working"] == json!(true), row["id"] == "s_a");
-                }
-                walked += 1;
-            }
-        }
-        assert!(walked > 8);
     }
 
     /// Rooms `room01` (listed) and `gone01` (no listed row): a room's log row gets its `agentRoom`.

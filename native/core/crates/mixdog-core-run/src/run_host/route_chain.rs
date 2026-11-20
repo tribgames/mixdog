@@ -301,22 +301,6 @@ pub async fn primary_route(session: &Value, config: &Obj, bots: &dyn BotRoutes) 
 mod tests {
     use super::*;
 
-    #[cfg(node_twin)]
-    struct Bots;
-    #[async_trait::async_trait]
-    #[cfg(node_twin)]
-    impl BotRoutes for Bots {
-        async fn bot_route(&self, id: &str) -> Result<Option<Option<Value>>, RouteReadUnavailable> {
-            Ok(match id {
-                "botty" => Some(Some(json!({ "provider": "xai", "model": "grok-4", "fallbacks": [{ "provider": "anthropic", "model": "claude-sonnet-4" }] }))),
-                "nobot" => Some(None),
-                _ => None,
-            })
-        }
-        async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, RouteReadUnavailable> {
-            Ok(None)
-        }
-    }
 
     /// A session resolves from its reserved id and its owner fields; an agent-owned or agent-only one is coding; an invalid `ownerAgentId` is no agent.
     #[test]
@@ -329,81 +313,8 @@ mod tests {
         assert_eq!(resolve_session_mode(&json!({ "id": "sess_x", "visibility": "agent-only", "ownerAgentId": "b" })), (CODING_MODE, String::new()));
     }
 
-    /// A store whose read never ran: every reader reports it, and none falls back to the config's
-    /// route (a different model) or to "no chain".
-    #[cfg(node_twin)]
-    struct Unreadable;
-    #[async_trait::async_trait]
-    #[cfg(node_twin)]
-    impl BotRoutes for Unreadable {
-        async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, RouteReadUnavailable> {
-            Err(RouteReadUnavailable)
-        }
-        async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, RouteReadUnavailable> {
-            Err(RouteReadUnavailable)
-        }
-    }
 
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("golden/route_chain.json")).expect("fixture")
-    }
-    /// Every reader against Node's real `route-fallback-chain.mjs` on one config and 16 sessions.
-    #[tokio::test]
-    #[cfg(node_twin)]
-    async fn the_readers_follow_node() {
-        let golden = golden();
-        let config = golden["config"].as_object().unwrap();
-        for (name, row) in golden["sessions"].as_object().unwrap() {
-            let session = &row["session"];
-            let mode = resolve_session_mode(session);
-            assert_eq!(json!({ "mode": mode.0, "agentId": mode.1 }), row["mode"], "{name} mode");
-            assert_eq!(json!(route_fallback_hopped(session)), row["hopped"], "{name} hopped");
-            assert_eq!(session_route_primary(session), row["primary"], "{name} primary");
-            assert_eq!(session_chain_source(session, config, &Bots).await.unwrap().unwrap_or(Value::Null), row["source"], "{name} source");
-            let (chain, from_settings) = live_route_fallbacks(session, config, &Bots).await.unwrap();
-            assert_eq!(json!({ "chain": chain, "fromSettings": from_settings }), row["live"], "{name} live");
-            assert_eq!(json!(next_route_fallback_index(session, &chain)), row["next"], "{name} next");
-            assert_eq!(route_fallback_position(session, config, &Bots).await.unwrap(), row["position"], "{name} position");
-            assert_eq!(Value::Object(primary_route(session, config, &Bots).await.unwrap()), row["primaryRoute"], "{name} primaryRoute");
-            assert_eq!(Value::Object(route_leaf(Some(session))), row["leaf"], "{name} leaf");
-        }
-    }
-    #[test]
-    #[cfg(node_twin)]
-    fn same_route_model_follows_node() {
-        for row in golden()["same"].as_array().unwrap() {
-            let side = |v: &Value| (!v.is_null()).then(|| v.clone());
-            let (a, b) = (side(&row[0]), side(&row[1]));
-            assert_eq!(json!(same_route_model(a.as_ref(), b.as_ref())), row[2], "{row}");
-        }
-    }
-    #[tokio::test]
-    #[cfg(node_twin)]
-    async fn a_session_on_the_owners_primary_takes_the_owners_chain() {
-        let golden = golden();
-        let config = golden["config"].as_object().unwrap();
-        let chain = owner_route_fallbacks(CODING_MODE, "lead", "openai-oauth", "gpt-5", config, &Bots).await.unwrap();
-        assert_eq!(chain.len(), 3);
-        assert!(owner_route_fallbacks(CODING_MODE, "lead", "groq", "llama-3", config, &Bots).await.unwrap().is_empty());
-        assert!(owner_route_fallbacks(AGENT_MODE, "nobot", "xai", "grok-4", config, &Bots).await.unwrap().is_empty());
-    }
-    #[tokio::test]
-    #[cfg(node_twin)]
-    async fn a_bot_route_read_that_never_ran_is_an_error_not_the_configs_route() {
-        let golden = golden();
-        let config = golden["config"].as_object().unwrap();
-        // A bot session: its own route comes from the store; the config has an `agents` entry for
-        // it that would silently stand in.
-        let session = json!({ "id": "sess_home_botty", "owner": "user", "provider": "xai", "model": "grok-4" });
-        assert_eq!(owner_route_fallbacks(AGENT_MODE, "botty", "xai", "grok-4", config, &Unreadable).await, Err(RouteReadUnavailable));
-        assert_eq!(owner_configured_route(AGENT_MODE, "botty", config, &Unreadable).await, Err(RouteReadUnavailable));
-        assert_eq!(session_chain_source(&session, config, &Unreadable).await, Err(RouteReadUnavailable));
-        assert_eq!(live_route_fallbacks(&session, config, &Unreadable).await, Err(RouteReadUnavailable));
-        assert_eq!(route_fallback_position(&session, config, &Unreadable).await, Err(RouteReadUnavailable));
-        assert_eq!(primary_route(&session, config, &Unreadable).await, Err(RouteReadUnavailable));
-    }
 }
 
 

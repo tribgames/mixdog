@@ -3,14 +3,10 @@
 //! `cargo test -p mixdog-office-com --test dispatch_live -- --ignored`.
 #![cfg(windows)]
 
-#[cfg(node_twin)]
-use mixdog_office_com::com::Error;
 use mixdog_office_com::com::SafeArray;
 use mixdog_office_com::com::Value;
 use mixdog_office_com::com::live::Sta;
 use mixdog_office_com::com::live::create_object;
-#[cfg(node_twin)]
-use serde_json::Value as Json;
 
 fn live_enabled() -> bool {
     std::env::var("MIXDOG_TEST_LIVE_OFFICE").is_ok_and(|value| value == "1")
@@ -63,58 +59,3 @@ fn dispatch_live_roundtrip() {
 }
 
 
-#[cfg(node_twin)]
-const CORPUS: &str = include_str!("fixtures/errors/corpus.json");
-#[cfg(node_twin)]
-fn corpus_entry(id: &str) -> Json {
-    let corpus: Json = serde_json::from_str(CORPUS).expect("corpus.json parses");
-    corpus["entries"]
-        .as_array()
-        .and_then(|entries| entries.iter().find(|entry| entry["id"] == id))
-        .cloned()
-        .unwrap_or_else(|| panic!("the corpus has no entry {id}"))
-}
-#[cfg(node_twin)]
-fn assert_matches_corpus(id: &str, error: &Error) {
-    let entry = corpus_entry(id);
-    assert_eq!(entry["reproduced"], true, "{id} was not reproduced when the corpus was recorded");
-    let com = error.as_com().unwrap_or_else(|| panic!("{id}: a COM failure, got {error}"));
-    assert_eq!(i64::from(com.hresult), entry["hresult"].as_i64().expect("hresult"), "{id}");
-    assert_eq!(i64::from(com.inner_hresult), entry["innerHResult"].as_i64().expect("innerHResult"), "{id}");
-    assert_eq!(com.message, entry["message"].as_str().expect("message"), "{id}");
-}
-#[cfg(node_twin)]
-#[test]
-#[ignore = "starts Excel and Word; MIXDOG_TEST_LIVE_OFFICE=1"]
-fn dispatch_live_errors() {
-    if !live_enabled() {
-        return;
-    }
-    let _sta = Sta::enter().expect("apartment");
-    let missing = std::env::temp_dir().join("mixdog-errors-corpus-no-such-file.xlsx");
-    let missing = Value::from(missing.to_string_lossy().into_owned());
-
-    let excel = create_object("Excel.Application").expect("Excel");
-    excel.put("Visible", Value::Bool(false)).expect("hidden");
-    excel.put("DisplayAlerts", Value::I4(0)).expect("no alerts");
-    let workbooks = excel.get("Workbooks").expect("Workbooks").into_obj().expect("object");
-    let opened = workbooks.call("Open", &[missing.clone()]);
-    assert_matches_corpus("excel-open-missing-file", &opened.expect_err("a missing file"));
-    let workbook = workbooks.call("Add", &[]).expect("Add").into_obj().expect("object");
-    let sheet = workbook.get("Worksheets").expect("Worksheets").into_obj().expect("object").item(1).expect("Item").into_obj().expect("object");
-    let range = sheet.call("Range", &[Value::from("A1")]).expect("Range").into_obj().expect("object");
-    assert_matches_corpus("excel-range-item-zero", &range.call("Item", &[Value::I4(0)]).expect_err("Item(0)"));
-    assert_matches_corpus("excel-worksheet-name-set", &sheet.put("Name", Value::from("a:b")).expect_err("a bad name"));
-    assert_eq!(excel.get("NoSuchProperty").expect("a missing property answers null"), Value::Null);
-    workbook.call("Close", &[Value::Bool(false)]).expect("Close");
-    excel.call("Quit", &[]).expect("Quit");
-
-    let word = create_object("Word.Application").expect("Word");
-    word.put("Visible", Value::Bool(false)).expect("hidden");
-    let documents = word.get("Documents").expect("Documents").into_obj().expect("object");
-    let document = documents.call("Add", &[]).expect("Add").into_obj().expect("object");
-    assert_matches_corpus("word-parameterized-get", &document.get_with("Compatibility", &[Value::I4(9999)]).expect_err("Compatibility(9999)"));
-    assert_matches_corpus("word-parameterized-set", &document.put_with("Compatibility", &[Value::I4(9999)], Value::Bool(true)).expect_err("set"));
-    document.call("Close", &[Value::I4(0)]).expect("Close");
-    word.call("Quit", &[Value::I4(0)]).expect("Quit");
-}

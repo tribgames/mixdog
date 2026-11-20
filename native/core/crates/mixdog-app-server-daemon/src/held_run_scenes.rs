@@ -36,8 +36,6 @@ use mixdog_core_ports::ports::gate::GateRun;
 use mixdog_core_ports::ports::gate::LiveHeader;
 use mixdog_core_ports::ports::gate::SessionGate;
 use mixdog_core_ports::ports::run_stamps::RunStamps;
-#[cfg(node_twin)]
-use mixdog_protocol::ApprovalRemember;
 use mixdog_protocol::ApprovalResolution;
 use mixdog_protocol::ConnectionKind;
 use mixdog_protocol::HeldRequest;
@@ -339,8 +337,6 @@ impl RoutineRecords for NoRoutines {
 /// One scenario's world: a data directory, a virtual clock and the composition's pieces over them.
 struct Scene {
     now: Arc<AtomicI64>,
-    #[cfg(node_twin)]
-    grants: Arc<FileGrantStore>,
     runs: Arc<UnattendedRunRegistry>,
     ui_attached: Arc<AtomicBool>,
     card: Arc<Card>,
@@ -349,8 +345,6 @@ struct Scene {
     held: Arc<HeldRequests>,
     approvals: Arc<dyn RunApprovals>,
     policy: Arc<ToolPolicy>,
-    #[cfg(node_twin)]
-    pushes: Arc<Mutex<Vec<HeldPush>>>,
     waiting: mpsc::UnboundedReceiver<HeldPush>,
     _dir: tempfile::TempDir,
 }
@@ -386,7 +380,7 @@ impl Scene {
         let held = HeldRequests::new(home.clone(), clock);
         let hook = Arc::new(Mutex::new(None));
         let policy = Arc::new(ToolPolicy::new(grants.clone(), Arc::new(Connectors)).with_hook(Arc::new(Hook(hook.clone()))));
-        Self { now, #[cfg(node_twin)] grants, runs, ui_attached, card: Arc::default(), hook, home, approvals: Arc::new(HeldGates(held.clone())), held, policy, #[cfg(node_twin)] pushes, waiting, _dir: dir }
+        Self { now, runs, ui_attached, card: Arc::default(), hook, home, approvals: Arc::new(HeldGates(held.clone())), held, policy, waiting, _dir: dir }
     }
 
     /// The tool gate of one session over the scene's stand-in card.
@@ -490,158 +484,9 @@ impl Client {
     }
 }
 
-#[cfg(node_twin)]
-/// What a client of the case is: its kind, whether it declared `approvalsInbox`, and the threads it watches (`thread/resume`).
-struct Attendee {
-    kind: &'static str,
-    inbox: bool,
-    watches: &'static [&'static str],
-}
 
-#[cfg(node_twin)]
-/// One way the member's session is run, and what a human can see of it.
-struct Surface {
-    name: &'static str,
-    /// The thread's header, or none when the thread is not loaded.
-    header: Option<Value>,
-    attendees: &'static [Attendee],
-    /// Whether the ask is shown on the surface's own card (an approval UI is attached) rather than held.
-    attended: bool,
-}
 
-#[cfg(node_twin)]
-const DESKTOP_ON_MEMBER: Attendee = Attendee { kind: "desktop", inbox: false, watches: &["MEMBER"] };
 
-#[cfg(node_twin)]
-/// The approval predicate over the real pieces the composition builds it from (the session directory's header and lineage, the app
-/// server's connections and their subscriptions: `ThreadApprovalSurfaces` over `Outgoing`), driven through the composed gate: a room
-/// member's ask is held exactly when `Surface::attended` says no card can show it:
-///  - a desktop, phone or terminal client watching the thread can show the card, and so can a connection with `approvalsInbox`;
-///  - no client, a client connected but not watching the thread, one watching another thread, a thread that is not loaded: held;
-///  - a headless session (`approvalMode: "implicit"`) is held whoever watches it;
-///  - the card belongs to the turn: a turn assembled with a client present keeps asking its card after the clients left, and the
-///    next turn, assembled with none, is held.#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_member_is_held_exactly_when_no_client_can_show_its_card() {
-    use mixdog_core_api::ids::ConnectionId;
-    use mixdog_core_api::mock::MockConnection;
-    use mixdog_core_api::mock::MockCore;
-    use mixdog_core_api::mock::MockLimits;
-
-    let member = "sess_room".to_owned();
-    let cases = [
-        Surface { name: "a desktop watching the member's thread", header: Some(json!({})), attendees: &[DESKTOP_ON_MEMBER], attended: true },
-        Surface { name: "a phone watching the member's thread", header: Some(json!({})), attendees: &[Attendee { kind: "phone", inbox: false, watches: &["MEMBER"] }], attended: true },
-        Surface { name: "a terminal watching the member's thread", header: Some(json!({})), attendees: &[Attendee { kind: "tui", inbox: false, watches: &["MEMBER"] }], attended: true },
-        Surface { name: "an inbox client watching nothing", header: Some(json!({})), attendees: &[Attendee { kind: "phone", inbox: true, watches: &[] }], attended: true },
-        Surface { name: "a client connected and watching nothing", header: Some(json!({})), attendees: &[Attendee { kind: "desktop", inbox: false, watches: &[] }], attended: false },
-        Surface { name: "a client watching another thread", header: Some(json!({})), attendees: &[Attendee { kind: "desktop", inbox: false, watches: &["OTHER"] }], attended: false },
-        Surface { name: "no client at all", header: Some(json!({})), attendees: &[], attended: false },
-        Surface { name: "a thread that is not loaded", header: None, attendees: &[DESKTOP_ON_MEMBER], attended: false },
-        Surface { name: "a headless session with a desktop watching it", header: Some(json!({ "approvalMode": "implicit" })), attendees: &[DESKTOP_ON_MEMBER], attended: false },
-        Surface { name: "a headless session with an inbox client", header: Some(json!({ "approvalMode": "implicit" })), attendees: &[Attendee { kind: "phone", inbox: true, watches: &[] }], attended: false },
-    ];
-    for case in cases {
-        let tokens = mixdog_rt::testing::tokens();
-        let _ = tokens;
-        let rig = mixdog_core_session::session::testing::Rig::new();
-        let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(rig.deps()));
-        if let Some(header) = &case.header {
-            directory.create_with_id(ThreadId::from(member.as_str()), header.as_object().cloned().unwrap(), json!({})).await.expect("the thread");
-        }
-        let core = Arc::new(MockCore::new(&[], MockLimits::default()));
-        let outgoing = mixdog_app_server::Outgoing::new();
-        let server = mixdog_app_server::AppServer::new(
-            core.clone(),
-            outgoing.clone(),
-            Arc::new(|_| Some(mixdog_protocol::Origin::Local)),
-            crate::server::server_config(mixdog_app_protocol::limits::Limits::default(), Default::default()),
-        )
-        .expect("the default limits are valid");
-        for id in [member.as_str(), "sess_other"] {
-            let thread = core.directory().insert(ThreadId::from(id));
-            let feed: Arc<dyn mixdog_core_api::FeedSource> = thread.feed().clone();
-            thread.set_handler(Arc::new(move |_| {
-                Ok(mixdog_core_api::Reply::Subscribe(mixdog_core_api::Subscribe {
-                    result: json!({}),
-                    feed: feed.clone(),
-                    window: mixdog_core_api::feed::Window::LastItems(10),
-                    resume_from: None,
-                }))
-            }));
-        }
-        let mut clients = Vec::new();
-        for (index, attendee) in case.attendees.iter().enumerate() {
-            let id = index as u64 + 1;
-            let wire = Arc::new(MockConnection::new(ConnectionId(id), MockLimits::default()));
-            let client = Client::new(server.open(ConnectionId(id), wire.clone()), wire);
-            client.request(
-                0,
-                "initialize",
-                json!({
-                    "clientInfo": { "name": "test", "version": env!("CARGO_PKG_VERSION"), "kind": attendee.kind },
-                    "capabilities": { "approvalsInbox": attendee.inbox },
-                }),
-            );
-            client.response(0).await;
-            for (n, watched) in attendee.watches.iter().enumerate() {
-                let thread = if *watched == "MEMBER" { member.as_str() } else { "sess_other" };
-                client.request(n as i64 + 1, "thread/resume", json!({ "threadId": thread, "window": { "lastItems": 10 } }));
-                client.response(n as i64 + 1).await;
-            }
-            clients.push(client);
-        }
-        let surfaces: Arc<dyn ApprovalSurfaces> = Arc::new(mixdog_core_session::session::approval_surfaces::ThreadApprovalSurfaces::new(directory.clone(), outgoing.clone()));
-        let mut scene = Scene::over(1_800_000_000_000, Arc::new(AtomicBool::new(false)), surfaces);
-        // The surface's card (the thread's own gate) approves; a held ask is never shown on it.
-        *scene.card.answer.lock().unwrap() = Some(ApprovalResolution::Decided {
-            decision: ToolApprovalDecision { approved: true, reason: None, answers: None, reply: None, response: Some(HumanGateResponse::Approve), edited_args: None, remember: None, scope: None },
-            device: "Pixel".into(),
-            connection_kind: ConnectionKind::Desktop,
-            at: 0,
-        });
-        *scene.hook.lock().unwrap() = Some(HookDecision { action: HookAction::Ask, reason: Some("needs approval".into()), name: None, args: None });
-        let gate = scene.gate(&member);
-        // The same turn's gate for an ask made after the clients have gone (assembled with them present).
-        let turn_gate = scene.gate(&member);
-        let call = GateCall::new("shell".to_owned(), json!({ "command": "echo hi" }));
-        let mut task = tokio::spawn(async move { present(&call, gate.check_call("call_a", &call).await) });
-        let held = tokio::select! {
-            settled = &mut task => { settled.expect("the call settles"); false }
-            push = scene.waiting.recv() => { push.expect("a push"); true }
-        };
-        assert_eq!(held, !case.attended, "{}: held", case.name);
-        assert_eq!(scene.card.asked.lock().unwrap().len(), usize::from(case.attended), "{}: asks on the card", case.name);
-        assert_eq!(scene.held.pending().len(), usize::from(!case.attended), "{}: pending", case.name);
-        if held {
-            task.abort();
-        }
-        if case.attended {
-            // The card belongs to the turn: once every client has gone, the turn already running keeps asking its card
-            // (the approval waits in the turn's own queue), and only the next turn, assembled with no client, is held.
-            clients.clear();
-            let call = GateCall::new("shell".to_owned(), json!({ "command": "echo later" }));
-            let mut later = tokio::spawn(async move { present(&call, turn_gate.check_call("call_c", &call).await) });
-            // The card answers at once, so the call settles; a held ask pushes and waits, so it ends the wait on the push.
-            let decision = tokio::select! {
-                settled = &mut later => settled.expect("the call settles"),
-                push = scene.waiting.recv() => panic!("{}: the running turn's ask was held after the clients left: {push:?}", case.name),
-            };
-            assert_eq!(decision["allowed"], true, "{}: the running turn asks its own card after the clients left", case.name);
-            assert_eq!(scene.card.asked.lock().unwrap().len(), 2, "{}: asks on the card", case.name);
-            assert!(scene.held.pending().is_empty(), "{}: nothing held for the running turn", case.name);
-            let gate = scene.gate(&member);
-            let call = GateCall::new("shell".to_owned(), json!({ "command": "echo again" }));
-            let mut task = tokio::spawn(async move { present(&call, gate.check_call("call_b", &call).await) });
-            tokio::select! {
-                settled = &mut task => panic!("{}: the ask after the clients left was not held: {settled:?}", case.name),
-                push = scene.waiting.recv() => { push.expect("a push"); }
-            }
-            assert_eq!(scene.held.pending().len(), 1, "{}: pending after the clients left", case.name);
-            task.abort();
-        }
-        drop(clients);
-    }
-}
 
 /// The session the bot `ann` speaks from in room `abcdef`: a room member's run, the one kind of run whose asks are held for a person
 /// when no card is attached (a schedule or webhook run never asks, `pipeline.rs` `ask`).

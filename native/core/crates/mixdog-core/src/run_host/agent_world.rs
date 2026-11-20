@@ -2,9 +2,7 @@
 //! `cycle1-agent` (or title, or explore) dispatch reads of the configuration and the product
 //! around it, and what the inline host checks before it runs one.
 //!
-//! Each value is Node's, checked against `fixtures/agent-world` (recorded by
-//! `benchmarks/rust-core/recorders/record-agent-world.mjs` from the real modules):
-//! `getHiddenAgent` (`defaults/agents.json` with the frontmatter of its `systemFile`),
+//! The values are Node's: `getHiddenAgent` (`defaults/agents.json` with the frontmatter of its `systemFile`),
 //! `resolveRuntimeSpec`, and `contextSelectionFromState(resolveRouteContextState(..))`.
 //! `configuredAgentRouteCandidates` is the config's `agents.<role>` entry: Node asks the bot store
 //! first, but an internal role is never a bot (agent creation refuses a name that collides with
@@ -325,18 +323,6 @@ mod tests {
             }
         }
     }
-
-    /// `serde_json` keeps `120000` and `120000.0` apart; JavaScript has one number type.
-    #[cfg(node_twin)]
-    fn floats(value: Value) -> Value {
-        match value {
-            Value::Number(n) => serde_json::json!(n.as_f64().unwrap()),
-            Value::Array(items) => Value::Array(items.into_iter().map(floats).collect()),
-            Value::Object(map) => Value::Object(map.into_iter().map(|(k, v)| (k, floats(v))).collect()),
-            other => other,
-        }
-    }
-
     #[test]
     fn the_route_candidates_of_a_role_are_its_configured_route() {
         let config = serde_json::json!({ "agents": { "maintainer": { "provider": "p", "model": "m" }, "explore": "" } });
@@ -452,27 +438,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    const GOLDEN: &str = include_str!("../../../../fixtures/agent-world/golden.json");
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(GOLDEN).unwrap()
-    }
-    #[test]
-    #[cfg(node_twin)]
-    fn the_runtime_spec_is_what_node_resolved() {
-        for case in golden()["runtimeSpec"].as_array().unwrap() {
-            let preset = &case["preset"];
-            let got = resolve_runtime_spec(preset, case["agentId"].as_str().unwrap());
-            assert_eq!(got, case["spec"], "{preset}");
-        }
-    }
-    #[test]
-    #[cfg(node_twin)]
-    fn a_routes_context_choice_is_what_node_selected() {
-        for case in golden()["contextSelection"].as_array().unwrap() {
-            let got = Value::Object(context_selection(&case["route"], &Table));
-            assert_eq!(floats(got), floats(case["selection"].clone()), "{}", case["route"]);
-        }
-    }
 }

@@ -166,27 +166,6 @@ pub struct AgentHomeDelivery {
     drain_calls: watch::Sender<u64>,
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-impl AgentHomeDelivery {
-    /// The calls of `drain`, from now on.
-    pub(super) fn drain_calls(&self) -> watch::Receiver<u64> {
-        self.drain_calls.subscribe()
-    }
-
-    /// Resolves once no pass runs in any home, the passes those passes started included.
-    pub(super) async fn idle(&self) {
-        loop {
-            let running: Vec<watch::Receiver<()>> = lock(&self.book).running.values().cloned().collect();
-            if running.is_empty() {
-                return;
-            }
-            for pass in running {
-                Drained(pass).wait().await;
-            }
-        }
-    }
-}
 
 impl AgentHomeDelivery {
     #[allow(clippy::too_many_arguments)] // the Node options bag: one seam per field

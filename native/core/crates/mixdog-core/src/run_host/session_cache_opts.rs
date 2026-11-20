@@ -160,43 +160,6 @@ fn refreshed_with_env(header: &Header, auto_clear: &Value, env_ttl: &str) -> Opt
 mod tests {
     use super::*;
 
-    /// Node's `isLeadCacheClass(agent, session)`, kept to read the recorded Node answers: the Lead, a raw caller and an
-    /// agent-mode Lead; never an internal role or a delegated worker.
-    #[cfg(node_twin)]
-    fn node_lead_cache_class(agent: Option<&str>, header: &Header) -> bool {
-        if agent.is_some_and(|a| hidden_agent_traits(a).is_some()) || is_agent_owner(header) {
-            return false;
-        }
-        agent.is_none_or(|a| a == "lead") || is_agent_mode_session(header)
-    }
-
-    /// Every recorded Node case is Node's answer except the one departure: a delegated worker or internal role that is not
-    /// a one-shot maintenance role no longer has Node's flat `5m` tail, it resolves as a Lead with the same saved settings
-    /// would (`cache_strategy`). Lead and one-shot cases are still asserted as Node recorded them.
-    #[test]
-    #[cfg(node_twin)]
-    fn every_policy_equals_nodes_except_the_agent_tail_departure() {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/session_cache_opts.json")).expect("fixture");
-        let cases = golden["cases"].as_array().expect("cases");
-        assert!(cases.len() > 1000);
-        let mut departed = 0;
-        for case in cases {
-            let header: Header = case["header"].as_object().cloned().expect("header");
-            let agent = case["agent"].as_str();
-            let provider = case["provider"].as_str().unwrap();
-            let got = opts_with(provider, agent, &case["autoClear"], "").unwrap_or(Value::Null);
-            if is_explicit_breakpoint(provider) && !is_one_shot(agent) && !node_lead_cache_class(agent, &header) {
-                departed += 1;
-                assert_eq!(case["opts"]["cacheStrategy"]["messages"], "5m", "Node's recorded answer for an agent: {case}");
-                let as_lead = opts_with(provider, None, &case["autoClear"], "").unwrap_or(Value::Null);
-                assert_eq!(got, as_lead, "an agent resolves as a Lead with the same settings: {case}");
-            } else {
-                assert_eq!(got, case["opts"], "{case}");
-            }
-        }
-        assert!(departed > 0, "the recorded cases hold agent shapes");
-    }
-
     fn lead(opts: Value) -> Header {
         let mut header = Header::new();
         for (key, value) in [("id", json!("sess_1")), ("provider", json!("anthropic-oauth")), ("providerCacheOpts", opts)] {

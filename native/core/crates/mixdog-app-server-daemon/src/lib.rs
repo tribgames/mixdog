@@ -23,8 +23,6 @@ pub mod compose;
 #[cfg(test)]
 mod compose_test_support;
 pub mod compose_core;
-#[cfg(all(test, windows, node_twin))]
-mod lead_request_tests;
 pub mod compose_mcp;
 pub mod compose_computer;
 pub mod compose_computer_bridge;
@@ -56,9 +54,6 @@ pub mod late_lifecycle;
 pub mod memory_agent_watch;
 pub mod prewarm_world;
 pub mod setup_host;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod warmup_schedulers_replay;
 #[cfg(test)]
 mod warmup_scheduler_tests;
 pub mod compose_domains;
@@ -82,9 +77,6 @@ pub mod domain_seams;
 pub mod js_runtime;
 pub mod event_pipeline;
 pub mod held_requests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod held_runs_tests;
 #[cfg(test)]
 mod held_run_scenes;
 #[cfg(test)]
@@ -93,9 +85,6 @@ mod workers_stop_tests;
 mod ssh_origin_tests;
 #[cfg(test)]
 mod model_proxy_client_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod session_host_replay_tests;
 #[cfg(test)]
 mod session_host_tests;
 pub mod memory_callers;

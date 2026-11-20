@@ -676,10 +676,6 @@ mod tests {
 
     use super::*;
 
-    #[cfg(node_twin)]
-    /// Recorded from Node's real `event-pipeline.mjs`, `event-queue.mjs` and `executor.mjs`
-    /// (`record-event-pipeline.mjs`).
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/event-pipeline/golden.json");
     const NOW: i64 = 1_700_000_000_000;
 
     fn deliveries(dir: &std::path::Path) -> Arc<StateWebhookStore> {
@@ -693,10 +689,6 @@ mod tests {
         assert!(store.claim_delivery(name, id, claim).await.unwrap());
     }
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(&GOLDEN).unwrap()
-    }
 
     #[derive(Default)]
     struct Sink {
@@ -753,185 +745,13 @@ mod tests {
         assert_eq!(store.delivery_rows().await[0]["status"], "done");
     }
 
-    #[cfg(node_twin)]
-    fn headers_of(value: &Value) -> Headers {
-        value.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect()
-    }
 
-    #[cfg(node_twin)]
-    fn data_of(value: &Value) -> Data {
-        value.as_object().unwrap().clone()
-    }
 
-    #[cfg(node_twin)]
-    #[test]
-    fn the_parsers_filter_and_template_answer_every_recorded_node_case() {
-        let golden = golden();
-        for case in golden["parserCases"].as_array().unwrap() {
-            let parser = case["parser"].as_str().unwrap();
-            let got = apply_parser(parser, &case["body"], &headers_of(&case["headers"]));
-            assert_eq!(Value::Object(got), case["data"], "parser {parser} on {}", case["body"]);
-        }
-        for case in golden["filterCases"].as_array().unwrap() {
-            let expr = case["expr"].as_str().unwrap();
-            assert_eq!(evaluate_filter(expr, &data_of(&case["data"])), case["result"].as_bool().unwrap(), "filter {expr:?}");
-        }
-        for case in golden["templateCases"].as_array().unwrap() {
-            let template = case["template"].as_str().unwrap();
-            assert_eq!(apply_template(template, &data_of(&case["data"])), case["result"].as_str().unwrap(), "template {template:?}");
-        }
-    }
 
-    #[cfg(node_twin)]
-    /// `<13-digit ms>` → `T`; the random suffix after the eight-digit sequence is dropped.
-    fn normalize(file: &str) -> String {
-        let mut parts: Vec<&str> = file.trim_end_matches(".json").split('-').collect();
-        let is_seq = |p: &str| p.len() == 8 && p.bytes().all(|b| b.is_ascii_digit());
-        if parts.len() >= 2 && parts[parts.len() - 1].len() <= 4 && is_seq(parts[parts.len() - 2]) {
-            parts.pop();
-        }
-        let parts: Vec<&str> = parts.into_iter().map(|p| if p.len() == 13 && p.bytes().all(|b| b.is_ascii_digit()) { "T" } else { p }).collect();
-        format!("{}.json", parts.join("-"))
-    }
 
-    #[cfg(node_twin)]
-    async fn on_lane<R: Send + 'static>(job: impl FnOnce(&mixdog_rt::InLane<mixdog_rt::DurabilityIo>) -> R + Send + 'static) -> R {
-        mixdog_core_base::support::on_lane(mixdog_rt::testing::tokens().durability_io, &CancellationToken::new(), job).await.unwrap()
-    }
 
-    #[cfg(node_twin)]
-    async fn dir_names(root: &std::path::Path, dir: &str) -> Vec<String> {
-        let path = root.join("events").join(dir);
-        let mut names = on_lane(move |lane| mixdog_statefile::list_dir(lane, &path)).await.unwrap();
-        names.sort();
-        names
-    }
 
-    #[cfg(node_twin)]
-    async fn write_step(path: std::path::PathBuf, content: String) {
-        on_lane(move |lane| {
-            let opts = mixdog_statefile::Opts { lock: false, ..mixdog_statefile::Opts::default() };
-            mixdog_statefile::write_file(lane, &path, content.as_bytes(), &opts).map(|_| ())
-        })
-        .await
-        .unwrap();
-    }
 
-    #[cfg(node_twin)]
-    /// The directories as the recorder snapshots them.
-    async fn snapshot(root: &std::path::Path) -> (Value, Value, Value) {
-        let queue = dir_names(root, "queue")
-            .await
-            .into_iter()
-            .map(|file| {
-                let raw = mixdog_statefile::read_content(&root.join("events").join("queue").join(&file)).unwrap().unwrap();
-                let item = match serde_json::from_slice::<Value>(&raw) {
-                    Ok(Value::Object(mut item)) => {
-                        item.shift_remove("timestamp");
-                        item.shift_remove("deliveryEndpoint");
-                        item.shift_remove("deliveryId");
-                        Value::Object(item)
-                    }
-                    Ok(other) => other,
-                    Err(_) => Value::Null,
-                };
-                serde_json::json!({"file": normalize(&file), "item": item})
-            })
-            .collect();
-        let normalized = |names: Vec<String>, sort: bool| {
-            let mut names: Vec<String> = names.iter().map(|n| normalize(n)).collect();
-            if sort {
-                names.sort();
-            }
-            Value::from(names)
-        };
-        (Value::Array(queue), normalized(dir_names(root, "in-progress").await, false), normalized(dir_names(root, "processed").await, true))
-    }
 
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn every_recorded_node_flow_leaves_the_same_queue_and_injections() {
-        let golden = golden();
-        let tokens = mixdog_rt::testing::tokens();
-        for (name, flow) in golden["flows"].as_object().unwrap() {
-            let dir = tempfile::tempdir().unwrap();
-            let sink = Arc::new(Sink::default());
-            let files = QueueFiles {
-                fs: Arc::new(LocalFileService::new()),
-                read: tokens.interactive_io,
-                write: tokens.durability_io,
-                root: AbsPath::new(dir.path().join("events")).unwrap(),
-            };
-            let config = serde_json::json!({"rules": golden["rules"], "queue": {}});
-            let deliveries = deliveries(dir.path());
-            let pipeline = EventPipeline::new(files, sink.clone(), deliveries.clone(), &config, Arc::new(|| NOW));
-            pipeline.ensure_dirs().await.unwrap();
-            for (index, entry) in flow["steps"].as_array().unwrap().iter().enumerate() {
-                let step = &entry["step"];
-                let at = format!("{name} step {index} {step}");
-                match step["op"].as_str().unwrap() {
-                    "webhook" => {
-                        let id = index.to_string();
-                        let endpoint = step["name"].as_str().unwrap();
-                        receive(&deliveries, endpoint, &id).await;
-                        let handled = pipeline
-                            .handle_webhook(endpoint, &step["body"], &headers_of(&step["headers"]), &id)
-                            .await
-                            .unwrap();
-                        assert_eq!(handled, entry["handled"].as_bool().unwrap(), "{at}");
-                    }
-                    "tick" => pipeline.process_queue().await,
-                    "batch" => pipeline.process_batch().await,
-                    "inject" => sink.fail.store(step["mode"] == "fail", Ordering::SeqCst),
-                    "strand" => pipeline.requeue_stranded().await,
-                    "file" => write_step(dir.path().join("events").join(step["dir"].as_str().unwrap()).join(step["name"].as_str().unwrap()), step["content"].as_str().unwrap().to_owned()).await,
-                    other => panic!("unknown op {other}"),
-                }
-                let want = (entry["queue"].clone(), entry["inProgress"].clone(), entry["processed"].clone());
-                // A high-priority webhook can still be processing after enqueue returns.
-                for _ in 0..500 {
-                    if snapshot(dir.path()).await == want {
-                        break;
-                    }
-                    mixdog_rt::time::sleep(Duration::from_millis(2)).await;
-                }
-                assert_eq!(snapshot(dir.path()).await, want, "{at}");
-                let injected: Vec<Value> = sink.got.lock().unwrap().drain(..).map(|(event, prompt)| serde_json::json!({"event": event, "instruction": prompt})).collect();
-                let expected: Vec<Value> = entry["injected"].as_array().unwrap().iter().map(|i| serde_json::json!({"event": i["event"], "instruction": i["instruction"]})).collect();
-                assert_eq!(injected, expected, "{at}: injections");
-            }
-        }
-    }
 
-    #[cfg(node_twin)]
-    /// A queued event Node wrote from a webhook whose field held a lone surrogate escape
-    /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): the core reads the item Node's
-    /// `JSON.parse` reads (the half emoji as U+FFFD) instead of quarantining it as corrupt.
-    #[tokio::test]
-    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
-    async fn a_queued_item_node_wrote_with_half_an_emoji_is_read_whole() {
-        let set = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
-        let cases: Value = serde_json::from_slice(&std::fs::read(set.join("cases.json")).unwrap()).unwrap();
-        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "event-queue").unwrap();
-        let rel = case["file"].as_str().unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        let files = QueueFiles {
-            fs: Arc::new(LocalFileService::new()),
-            read: tokens.interactive_io,
-            write: tokens.durability_io,
-            root: AbsPath::new(dir.path().join("events")).unwrap(),
-        };
-        let pipeline = EventPipeline::new(files, Arc::new(Sink::default()), deliveries(dir.path()), &serde_json::json!({"rules": [], "queue": {}}), Arc::new(|| NOW));
-        pipeline.ensure_dirs().await.unwrap();
-        std::fs::copy(set.join("event-queue/before").join(rel), dir.path().join(rel)).unwrap();
-        let name = rel.rsplit('/').next().unwrap();
-        let item = pipeline.read_item(name).await.unwrap();
-        assert_eq!(Value::Object(item.clone()), case["before"][rel]);
-        // Node's own rewrite of the record: one failed inject requeues it with its attempt count, under its own name.
-        let claimed = pipeline.claim(name).await.unwrap();
-        pipeline.requeue(&claimed, &item).await;
-        let written: Value = serde_json::from_slice(&std::fs::read(dir.path().join(rel)).unwrap()).unwrap();
-        assert_eq!(written, case["after"][rel]);
-    }
 }

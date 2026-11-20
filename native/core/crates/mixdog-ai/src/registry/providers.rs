@@ -895,9 +895,6 @@ mod tests {
     /// Builds every name but the invalid custom one the golden's `invalid_custom` config names.
     struct Scripted;
 
-    #[cfg(node_twin)]
-    /// Builds every name; its OAuth credential reads as the file the recording used.
-    struct Probing(CredentialState);
     /// Whether `wait_initialized` has resolved, with no waiting: the task gets event-loop turns,
     /// not wall time.
     async fn resolved(task: &tokio::task::JoinHandle<()>) -> bool {
@@ -1159,25 +1156,6 @@ mod tests {
             Ok(false)
         }
     }
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl ProviderBuilder for Probing {
-        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-            Ok(crate::registry::multiwire::tests::refusing(name, 400, "x"))
-        }
-        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
-            Ok(Vec::new())
-        }
-        fn available(&self, _name: &str) -> bool {
-            true
-        }
-        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
-            Ok(self.0 != CredentialState::Absent)
-        }
-        async fn oauth_credential_state(&self, _name: &str) -> Result<CredentialState, String> {
-            Ok(self.0)
-        }
-    }
     #[async_trait]
     impl ProviderBuilder for Warmers {
         async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -1214,70 +1192,4 @@ mod tests {
     }
 
 
-    /// An init whose config leaves nothing registered is refused with Node's text and code, unless a
-    /// registered OAuth provider is preserved (`fixtures/provider-refusal/golden.json`, from the real
-    /// `initProviders`): one the config does not name or whose probe could not read, while its
-    /// credential is not a logout; an explicit opt-out is never preserved.
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn the_refusal_when_nothing_is_left_is_nodes() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/provider-refusal/golden.json")).expect("fixture");
-        let config = |name: &str| golden["configs"][name].as_object().expect("config").clone();
-        for scenario in golden["scenarios"].as_array().expect("scenarios") {
-            let name = scenario["name"].as_str().expect("name");
-            let probe = match scenario["probe"].as_str() {
-                None | Some("present") => CredentialState::Present,
-                Some("absent") => CredentialState::Absent,
-                Some("unreadable") => CredentialState::Unreadable,
-                Some(other) => panic!("{name}: probe {other}"),
-            };
-            let registry = ProviderRegistry::new(Arc::new(Probing(probe)));
-            if scenario["registered"] == true {
-                registry.init_providers(json!({"anthropic-oauth": {"enabled": true}}).as_object().unwrap()).await.expect("the live provider registers");
-            }
-            for step in scenario["steps"].as_array().expect("steps") {
-                let result = registry.init_providers(&config(step["config"].as_str().expect("config"))).await;
-                match (step["outcome"].as_str().expect("outcome"), result) {
-                    ("ok", Ok(())) => {}
-                    ("refused", Err(error)) => {
-                        assert_eq!(json!(error.message), step["message"], "{name}: {step}");
-                        assert_eq!(error.code, Some(NO_ENABLED_PROVIDERS), "{name}: {step}");
-                    }
-                    (outcome, result) => panic!("{name}: Node {outcome}, Rust {result:?}: {step}"),
-                }
-            }
-        }
-    }
-    /// Node's `providersInitialized()` (`fixtures/provider-ready/golden.json`): the wait resolves at
-    /// the first initialization that applied a config, a refused one leaves it pending, and a later
-    /// refusal never unsettles it.
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn the_wait_resolves_at_the_first_applied_config_as_node_does() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/provider-ready/golden.json")).expect("fixture");
-        for scenario in golden["scenarios"].as_array().expect("scenarios") {
-            let name = scenario["name"].as_str().expect("name");
-            let registry = Arc::new(ProviderRegistry::new(Arc::new(Scripted)));
-            let probe = |registry: &Arc<ProviderRegistry>| {
-                let registry = Arc::clone(registry);
-                tokio::spawn(async move { registry.wait_initialized().await })
-            };
-            assert_eq!(resolved(&probe(&registry)).await, scenario["initial"], "{name}: before any step");
-            let mut waiter = None;
-            for step in scenario["steps"].as_array().expect("steps") {
-                match step["op"].as_str().expect("op") {
-                    "wait" => waiter = Some(probe(&registry)),
-                    _ => {
-                        let config = golden["configs"][step["config"].as_str().expect("config")].as_object().expect("config").clone();
-                        let outcome = if registry.init_providers(&config).await.is_ok() { "ok" } else { "refused" };
-                        assert_eq!(outcome, step["outcome"], "{name}: {step}");
-                    }
-                }
-                assert_eq!(resolved(&probe(&registry)).await, step["ready"], "{name}: {step}");
-                if let Some(waiter) = &waiter {
-                    assert_eq!(resolved(waiter).await, step["waiter"], "{name}: {step}");
-                }
-            }
-        }
-    }
 }

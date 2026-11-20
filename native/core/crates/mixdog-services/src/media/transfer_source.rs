@@ -19,8 +19,6 @@ use mixdog_workspace::fsops::mime_type;
 use mixdog_workspace::ident::{file_id, path_id};
 use mixdog_workspace::pathguard::canonical;
 use mixdog_workspace::transfer::{SourceFile, TransferSource};
-#[cfg(all(test, node_twin))]
-use mixdog_workspace::transfer::Transfers;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -160,69 +158,6 @@ mod tests {
     }
 
 
-    /// `fixtures/services/media-download-twin.json`
-    /// (`benchmarks/rust-core/recorders/record-media-download.mjs`): Node's real download service
-    /// over the same files. Every offer (name, type, size) and every refusal (kind and text) must
-    /// match. `MIXDOG_FIXTURES_ROOT` overrides the fixture location.
-    #[cfg(node_twin)]
-    #[test]
-    fn offers_and_refusals_match_the_recorded_node_download() {
-        let root = std::env::var("MIXDOG_FIXTURES_ROOT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").to_owned());
-        let twin: Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/services/media-download-twin.json")).unwrap()).unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let base = dir.path().to_string_lossy().replace('\\', "/");
-        for file in twin["files"].as_array().unwrap() {
-            let (name, size) = (file["name"].as_str().unwrap(), file["size"].as_u64().unwrap());
-            let f = File::create(dir.path().join(name)).unwrap();
-            f.set_len(size).unwrap();
-        }
-        for folder in twin["folders"].as_array().unwrap() {
-            std::fs::create_dir(dir.path().join(folder.as_str().unwrap())).unwrap();
-        }
-        let mut differences = Vec::new();
-        for case in twin["cases"].as_array().unwrap() {
-            let name = case["name"].as_str().unwrap();
-            let mut source = serde_json::json!({"kind": "mediaAsset"});
-            if let Some(id) = case.get("assetId") {
-                source["assetId"] = id.clone();
-            }
-            let media = case["media"].clone();
-            let media = (!media.is_null()).then(|| {
-                let mut media = media;
-                if let Some(path) = media.get("path").and_then(Value::as_str) {
-                    media["path"] = Value::String(path.replace("{DIR}", &base));
-                }
-                media
-            });
-            let actual = asset_id(&source).and_then(|_| open_entry(media.as_ref()));
-            let expected = &case["outcome"];
-            let kind = |reason: &Reason| match reason {
-                Reason::NotFound => "not-found",
-                Reason::NotAFile => "not-a-file",
-                Reason::TooLarge => "too-large",
-                Reason::InvalidParams => "invalid",
-                other => panic!("{name}: unexpected reason {other:?}"),
-            };
-            match (&actual, expected.get("ok"), expected.get("error")) {
-                (Ok(_), Some(ok), _) => {
-                    // What a device is offered is what the transfer layer registers from the source's file.
-                    let Ok(source_file) = asset_id(&source).and_then(|_| open_entry(media.as_ref())) else { unreachable!() };
-                    let offered = Transfers::default().begin_source("owner", source_file).unwrap();
-                    if offered.name != ok["name"].as_str().unwrap() || offered.mime_type != ok["mime"].as_str().unwrap() || offered.size != ok["size"].as_u64().unwrap() {
-                        differences.push(format!("{name}: offered ({:?}, {:?}, {}) but Node ({}, {}, {})", offered.name, offered.mime_type, offered.size, ok["name"], ok["mime"], ok["size"]));
-                    }
-                }
-                (Err(got), _, Some(error)) => {
-                    if kind(&got.reason) != error["reason"].as_str().unwrap() || got.message != error["message"].as_str().unwrap() {
-                        differences.push(format!("{name}: refused ({}, {:?}) but Node ({}, {})", kind(&got.reason), got.message, error["reason"], error["message"]));
-                    }
-                }
-                (Ok(_), _, _) => differences.push(format!("{name}: offered, but Node refused with {expected}")),
-                (Err(got), _, _) => differences.push(format!("{name}: refused with {:?}, but Node offered {expected}", got.message)),
-            }
-        }
-        assert!(differences.is_empty(), "{} differences:\n{}", differences.len(), differences.join("\n"));
-    }
 }
 
 

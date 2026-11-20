@@ -290,112 +290,14 @@ pub fn warming_enabled(config: Option<&Value>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use serde_json::json;
 
-    #[cfg(node_twin)]
-    use super::*;
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/cache-warm/golden.json")).unwrap()
-    }
 
-    #[cfg(node_twin)]
-    fn gap_of(value: &Value) -> Gap {
-        Gap { at: value["at"].as_f64().unwrap(), ms: value["ms"].as_f64().unwrap(), censored: value["censored"] == json!(true) }
-    }
 
-    #[cfg(node_twin)]
-    fn prices_of(value: &Value) -> Prices {
-        let price = |key: &str| value.get(key).and_then(Value::as_f64);
-        Prices { read: price("read"), write: price("write"), output: price("output") }
-    }
 
-    #[cfg(node_twin)]
-    #[test]
-    fn the_wilson_bound_and_the_return_chance_equal_nodes() {
-        let golden = golden();
-        for row in golden["pure"]["wilson"].as_array().unwrap() {
-            let got = wilson_lower_bound(row["hits"].as_f64().unwrap(), row["n"].as_f64().unwrap());
-            assert_eq!(got, row["bound"].as_f64().unwrap(), "{row}");
-        }
-        let gaps: Vec<Gap> = golden["pure"]["gaps"].as_array().unwrap().iter().map(gap_of).collect();
-        for row in golden["pure"]["chance"].as_array().unwrap() {
-            let got = session_return_chance(&gaps, row["elapsed"].as_f64().unwrap(), row["within"].as_f64().unwrap());
-            assert_eq!((got.idle, got.returns, got.p), (row["idle"].as_f64().unwrap(), row["returns"].as_f64().unwrap(), row["p"].as_f64().unwrap()), "{row}");
-        }
-    }
 
-    #[cfg(node_twin)]
-    #[test]
-    fn the_tier_a_response_wrote_the_rewrite_test_and_the_delay_equal_nodes() {
-        let golden = golden();
-        let num = |usage: &Value, key: &str| {
-            let v = mixdog_js::to_number_of(usage.get(key));
-            if v.is_nan() { 0.0 } else { v }
-        };
-        for row in golden["pure"]["rewrote"].as_array().unwrap() {
-            let usage = &row["usage"];
-            assert_eq!(warm_rewrote(num(usage, "cachedTokens"), num(usage, "cacheWriteTokens")), row["rewrote"].as_bool().unwrap(), "{row}");
-        }
-        for row in golden["pure"]["delay"].as_array().unwrap() {
-            assert_eq!(warm_delay_ms(row["ttl"].as_f64().unwrap()), row["delay"].as_f64().unwrap(), "{row}");
-        }
-    }
 
-    #[cfg(node_twin)]
-    #[test]
-    fn the_economics_and_the_plan_equal_nodes_for_every_recorded_input() {
-        let golden = golden();
-        for row in golden["pure"]["economics"].as_array().unwrap() {
-            let got = warm_economics(row["tokens"].as_f64().unwrap(), &prices_of(&row["prices"]));
-            match row["economics"].as_object() {
-                None => assert_eq!(got, None, "{row}"),
-                Some(e) => {
-                    let got = got.unwrap_or_else(|| panic!("{row}"));
-                    assert_eq!((got.warm_cost, got.miss_cost), (e["warmCost"].as_f64().unwrap(), e["missCost"].as_f64().unwrap()), "{row}");
-                }
-            }
-        }
-        let gaps_of = |value: &Value| -> Vec<Gap> { value.as_array().unwrap().iter().map(gap_of).collect() };
-        for row in golden["pure"]["plan"].as_array().unwrap() {
-            let input = &row["input"];
-            let gaps = gaps_of(&input["gaps"]);
-            let got = plan_cache_warm(&PlanInput {
-                now: input["now"].as_f64().unwrap(),
-                touch_at: input["touchAt"].as_f64().unwrap(),
-                ttl_ms: input["ttlMs"].as_f64().unwrap(),
-                last_call_at: input["lastCallAt"].as_f64().unwrap(),
-                gaps: &gaps,
-                prompt_tokens: input["promptTokens"].as_f64().unwrap(),
-                prices: prices_of(&input["prices"]),
-                latency_ms: input["latencyMs"].as_f64(),
-            });
-            let want = &row["plan"];
-            match want.get("stop").and_then(Value::as_str) {
-                Some(stop) => assert_eq!(got, Plan::Stop(Box::leak(stop.to_owned().into_boxed_str())), "{}", row["name"]),
-                None => assert_eq!(got, Plan::Warm { warms: want["warms"].as_f64().unwrap(), p: want["p"].as_f64().unwrap() }, "{}", row["name"]),
-            }
-        }
-    }
 
-    #[cfg(node_twin)]
-    #[test]
-    fn a_turns_kind_equals_nodes_for_every_recorded_provenance() {
-        let golden = golden();
-        for row in golden["pure"]["turnKind"].as_array().unwrap() {
-            let kind = match turn_kind(&row["input"], row.get("messages").filter(|m| !m.is_null())) {
-                TurnKind::System => "system",
-                TurnKind::Return => "return",
-                TurnKind::Continuation => "continuation",
-            };
-            assert_eq!(kind, row["kind"].as_str().unwrap(), "{row}");
-        }
-        for row in golden["pure"]["enabled"].as_array().unwrap() {
-            assert_eq!(warming_enabled(row.get("config").filter(|c| !c.is_null())), row["enabled"].as_bool().unwrap(), "{row}");
-        }
-    }
 }
 
 

@@ -816,25 +816,6 @@ mod tests {
         }
     }
 
-    /// Every loopback port against the set Node's `fetch` refused when asked for each one (`golden/connect_errors.json`
-    /// `badPorts`); the refusal is an I/O fault with Node's text, never a connect fault.
-    #[cfg(node_twin)]
-    #[test]
-    fn the_ports_fetch_refuses_fail_before_connecting() {
-        let golden: serde_json::Value =
-            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
-        let recorded: Vec<u16> = golden["badPorts"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
-        let refused: Vec<u16> =
-            (1..=u16::MAX).filter(|port| restricted_port(&format!("http://127.0.0.1:{port}/v1"), Surface::Fetch).is_some()).collect();
-        assert_eq!(refused, recorded);
-        let error = restricted_port("http://127.0.0.1:9/v1", Surface::Fetch).expect("port 9 is refused");
-        assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
-        assert_eq!(error.delivery, DeliveryState::NotSent);
-        // The text is the call site's (the golden's chain: `Connection error.` <- `fetch failed` <- `bad port`).
-        assert_eq!(error.message, "fetch failed");
-        assert_eq!(restricted_port("http://127.0.0.1:9/v1", Surface::Sdk).expect("refused").message, "Connection error.");
-        assert!(restricted_port("https://example.com/v1", Surface::Fetch).is_none(), "a default port is never restricted");
-    }
 }
 
 

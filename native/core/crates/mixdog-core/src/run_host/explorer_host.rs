@@ -206,36 +206,6 @@ mod key_provider_tests {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use serde_json::json;
-
-    #[cfg(node_twin)]
-    use super::*;
-
-    /// `resolveMaintenanceRoute({ agent: 'explore-agent', config, includeDefault: false })`, run
-    /// in Node on these configs (`fixtures/tool-pool/explore-route.json`).
-    #[test]
-    #[cfg(node_twin)]
-    fn the_route_is_the_saved_explore_route_as_node_resolves_it() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/tool-pool/explore-route.json")).expect("fixture");
-        for case in golden["routes"].as_array().expect("routes") {
-            let stored = mixdog_core_config::config::agent_routes::stored_file_of(&case["config"]);
-            let config = stored["agent"].as_object().expect("config");
-            let route = &case["route"];
-            let want = match route {
-                Value::Null | Value::String(_) => Chosen::NoModel,
-                Value::Array(_) => Chosen::Array,
-                _ => Chosen::Route(Candidate {
-                    provider: route["provider"].as_str().expect("provider").to_owned(),
-                    model: route["model"].as_str().expect("model").to_owned(),
-                    effort: route.get("effort").and_then(Value::as_str).map(str::to_owned),
-                    fast: route["fast"] == json!(true),
-                    model_parameters: route.get("modelParameters").cloned(),
-                }),
-            };
-            assert_eq!(choose(config), want, "{}", case["name"]);
-        }
-    }
 }
 
 

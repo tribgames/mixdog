@@ -100,8 +100,6 @@ const KILLED_CORE_PROFILE: &str = "MIXDOG_TEST_KILLED_CORE_PROFILE";
 /// The line [`a_killed_core`] prints once its database is open.
 const OPENED: &str = "the killed core's database is open";
 
-#[cfg(node_twin)]
-mod shared_open;
 mod stop_target;
 
 
