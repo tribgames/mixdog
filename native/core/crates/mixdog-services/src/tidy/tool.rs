@@ -205,6 +205,32 @@ async fn run_suite(engines: &[&Resolved], options: &SuiteOptions) -> SuiteRun {
     all
 }
 
+/// Runs the apply pass over the engines whose preflight succeeded. Structural edits land before the
+/// formatters, which then see (and fix) what they left, such as the blank line a deleted statement
+/// leaves behind. A failed preflight is kept, never replaced by a second attempt, and an engine the
+/// apply pass never reached is reported as not run rather than presented with its preflight row.
+async fn apply_after_preflight(preflight: SuiteRun, runnable: &[&Resolved], options: &SuiteOptions) -> SuiteRun {
+    let eligible: Vec<_> = runnable.iter().zip(&preflight.failed).filter_map(|(&engine, failed)| (!*failed).then_some(engine)).collect();
+    let applied = run_suite(&eligible, options).await;
+    let stopper = applied.results.last().filter(|_| applied.stopped()).and_then(|r| r["id"].as_str()).unwrap_or("").to_owned();
+    let mut applied = applied.results.into_iter().zip(applied.failed);
+    let mut merged = SuiteRun { results: Vec::new(), failed: Vec::new() };
+    for (row, failed) in preflight.results.into_iter().zip(preflight.failed) {
+        let (row, failed) = if failed {
+            (row, failed)
+        } else {
+            applied.next().unwrap_or_else(|| {
+                let mut row = row;
+                row["skipped"] = json!(format!("not run: the apply pass stopped at {stopper}, which could not run"));
+                (row, false)
+            })
+        };
+        merged.results.push(row);
+        merged.failed.push(failed);
+    }
+    merged
+}
+
 /// Whether a row's engine could not complete its run: it could not start, timed out, was
 /// cancelled or had its configuration rejected. Files it could not process are not that.
 fn engine_error(row: &Value, failed: bool) -> bool {
@@ -1543,31 +1569,8 @@ impl TidyTool {
             Value::Null
         };
         if apply && structural_enabled {
-            // Structural edits land before the formatters, which then see (and fix) what they left,
-            // such as the blank line a deleted statement leaves behind. Never replace a failed preflight
-            // with a second attempt or let that engine write.
             options.apply = true;
-            let eligible: Vec<_> = runnable.iter().zip(&suite.failed).filter_map(|(&engine, failed)| (!*failed).then_some(engine)).collect();
-            let applied = run_suite(&eligible, &options).await;
-            let stopper = applied.results.last().filter(|_| applied.stopped()).and_then(|r| r["id"].as_str()).unwrap_or("").to_owned();
-            let mut applied = applied.results.into_iter().zip(applied.failed);
-            // Keep each preflight failure, and report an engine the apply pass never reached as not
-            // run rather than presenting its preflight as an apply result.
-            let mut merged = SuiteRun { results: Vec::new(), failed: Vec::new() };
-            for (row, failed) in suite.results.into_iter().zip(suite.failed) {
-                let (row, failed) = if failed {
-                    (row, failed)
-                } else {
-                    applied.next().unwrap_or_else(|| {
-                        let mut row = row;
-                        row["skipped"] = json!(format!("not run: the apply pass stopped at {stopper}, which could not run"));
-                        (row, false)
-                    })
-                };
-                merged.results.push(row);
-                merged.failed.push(failed);
-            }
-            suite = merged;
+            suite = apply_after_preflight(suite, &runnable, &options).await;
         }
         // A single apply suite ends at an engine that could not run; the engines after it did not run.
         if suite.results.len() < runnable.len() {
