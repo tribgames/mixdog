@@ -16,7 +16,11 @@ use mixdog_app_server_client::{
     discovery::Endpoint,
     ws::{FixedEndpoint, WsConnector},
 };
-use tokio::{net::TcpListener, sync::mpsc, task::JoinHandle};
+use tokio::{
+    net::TcpListener,
+    sync::{mpsc, oneshot},
+    task::JoinHandle,
+};
 use tokio_tungstenite::{
     accept_async,
     tungstenite::{
@@ -25,14 +29,31 @@ use tokio_tungstenite::{
     },
 };
 
-/// How long `settle` lets in-flight frames land on loopback.
+/// How long `settle` lets in-flight client frames land on loopback.
 const SETTLE: Duration = Duration::from_millis(40);
+/// The longest `settle` waits for the client to read up to its ping.
+const BARRIER: Duration = Duration::from_secs(10);
+
+/// The server side of the latest connection as `settle` reaches it: a ping the client answers once it has read every
+/// frame before it.
+#[derive(Clone)]
+struct Barrier {
+    out: mpsc::UnboundedSender<Out>,
+    server_closed: Arc<Mutex<bool>>,
+}
 /// Close code for "end the socket without a close handshake".
 const ABNORMAL: u16 = 1006;
 
 enum Out {
     Text(String),
-    Close { code: u16, reason: String },
+    Close {
+        code: u16,
+        reason: String,
+    },
+    /// A ping; `answered` is told when its pong arrives, and dropped when the socket ends first.
+    Ping {
+        answered: oneshot::Sender<()>,
+    },
 }
 
 struct WsConn {
@@ -91,6 +112,7 @@ struct WsNet {
     /// Single-waiter, as `WsConn::from_client`.
     accepted: Mutex<Option<mpsc::UnboundedReceiver<WsConn>>>,
     fail: Arc<AtomicUsize>,
+    latest: Arc<Mutex<Option<Barrier>>>,
     listener_task: JoinHandle<()>,
 }
 
@@ -100,8 +122,9 @@ impl WsNet {
         let port = listener.local_addr().unwrap().port();
         let fail = Arc::new(AtomicUsize::new(0));
         let (accepted_tx, accepted) = mpsc::unbounded_channel();
+        let latest = Arc::new(Mutex::new(None));
         let listener_task = tokio::spawn({
-            let fail = fail.clone();
+            let (fail, latest) = (fail.clone(), latest.clone());
             async move {
                 loop {
                     let (tcp, _) = listener.accept().await.unwrap();
@@ -110,7 +133,9 @@ impl WsNet {
                         continue;
                     }
                     let Ok(ws) = accept_async(tcp).await else { continue };
-                    let _ = accepted_tx.send(WsConn::serve(ws));
+                    let conn = WsConn::serve(ws);
+                    *latest.lock().unwrap() = Some(Barrier { out: conn.out.clone(), server_closed: conn.server_closed.clone() });
+                    let _ = accepted_tx.send(conn);
                 }
             }
         });
@@ -118,6 +143,7 @@ impl WsNet {
             connector: Arc::new(WsConnector::new(Arc::new(FixedEndpoint(Endpoint { port, token: "t".into() })))),
             accepted: Mutex::new(Some(accepted)),
             fail,
+            latest,
             listener_task,
         }
     }
@@ -137,15 +163,22 @@ impl WsConn {
         let queued = Arc::new(AtomicUsize::new(0));
         let client_close = Arc::new(Mutex::new(None));
         let server_closed = Arc::new(Mutex::new(false));
+        // The pings awaiting their pong; none once the client's side has ended.
+        let pings: Arc<Mutex<Option<std::collections::VecDeque<oneshot::Sender<()>>>>> = Arc::new(Mutex::new(Some(Default::default())));
 
         let reader = tokio::spawn({
-            let (queued, client_close, server_closed) = (queued.clone(), client_close.clone(), server_closed.clone());
+            let (queued, client_close, server_closed, pings) = (queued.clone(), client_close.clone(), server_closed.clone(), pings.clone());
             async move {
                 while let Some(Ok(message)) = stream.next().await {
                     match message {
                         Message::Text(t) => {
                             queued.fetch_add(1, Ordering::SeqCst);
                             let _ = to_test.send(t.to_string());
+                        }
+                        Message::Pong(_) => {
+                            if let Some(answered) = pings.lock().unwrap().as_mut().and_then(std::collections::VecDeque::pop_front) {
+                                let _ = answered.send(());
+                            }
                         }
                         // A close that answers the server's own close is the handshake echo, not the client's decision.
                         Message::Close(frame) if !*server_closed.lock().unwrap() => {
@@ -154,6 +187,7 @@ impl WsConn {
                         _ => {}
                     }
                 }
+                *pings.lock().unwrap() = None;
             }
         });
         let writer = tokio::spawn(async move {
@@ -161,6 +195,17 @@ impl WsConn {
                 match cmd {
                     Out::Text(t) => {
                         if sink.send(Message::text(t)).await.is_err() {
+                            return;
+                        }
+                    }
+                    Out::Ping { answered } => {
+                        {
+                            let mut pings = pings.lock().unwrap();
+                            let Some(waiting) = pings.as_mut() else { continue };
+                            waiting.push_back(answered);
+                        }
+                        if sink.send(Message::Ping(Default::default())).await.is_err() {
+                            *pings.lock().unwrap() = None;
                             return;
                         }
                     }
@@ -196,7 +241,18 @@ impl Net for WsNet {
     fn fail_next(&self, n: usize) {
         self.fail.store(n, Ordering::SeqCst);
     }
+    /// Client frames get [`SETTLE`] to land. The server's own frames have reached the client once it has read up to a
+    /// ping sent after them: it answers on its next read, which it makes only after handing over the frames before. A
+    /// socket that ends first has nothing more to hand over; one that stays open without answering fails the test.
     async fn settle(&self) {
         mixdog_rt::time::sleep(SETTLE).await;
+        let barrier = self.latest.lock().unwrap().clone();
+        let Some(barrier) = barrier.filter(|b| !*b.server_closed.lock().unwrap()) else { return };
+        let (answered, pong) = oneshot::channel();
+        if barrier.out.send(Out::Ping { answered }).is_err() {
+            return;
+        }
+        // The pong, or the socket's end (the waiter dropped), both settle; only the wait running out does not.
+        assert!(mixdog_rt::time::timeout(BARRIER, pong).await.is_ok(), "the client left the ping unanswered for {BARRIER:?} on an open connection");
     }
 }

@@ -140,6 +140,18 @@ fn pump(events: &mut broadcast::Receiver<ClientEvent>, statuses: &mut Vec<String
     }
 }
 
+/// The longest a settle waits for the client to fold what it has read.
+const FOLD_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The peer's frames have reached the client ([`Net::settle`]) and the client has folded every notification among them
+/// into its store.
+async fn settle(net: &dyn Net, client: Option<&Client>) {
+    net.settle().await;
+    if let Some(client) = client {
+        mixdog_rt::time::timeout(FOLD_WAIT, client.folded()).await.expect("the client folds the notifications it has read");
+    }
+}
+
 async fn run(options: Json, steps: Vec<Json>, net: Arc<dyn Net>) {
     let sleeps = Arc::new(Mutex::new(Vec::new()));
     let mut caps = Caps::new();
@@ -220,14 +232,14 @@ async fn run(options: Json, steps: Vec<Json>, net: Arc<dyn Net>) {
                 matches(&s["frame"], &f, &mut caps, "frame");
             }
             "expectNoSend" => {
-                net.settle().await;
+                settle(&*net, client.as_deref()).await;
                 assert_eq!(conn.as_ref().unwrap().queued(), 0, "unexpected client frame");
             }
             "serverSend" => conn.as_ref().unwrap().server_send(&subst(&s["frame"], &caps)),
             "serverSendRaw" => conn.as_ref().unwrap().server_send_raw(s["text"].as_str().unwrap()),
             "serverClose" => conn.as_ref().unwrap().server_close(s["code"].as_u64().unwrap() as u16, s["reason"].as_str().unwrap_or_default()),
             "expectClientClose" => {
-                net.settle().await;
+                settle(&*net, client.as_deref()).await;
                 let want = if s.get("none").is_some() { None } else { Some(s["code"].as_u64().unwrap() as u16) };
                 assert_eq!(conn.as_ref().unwrap().client_close(), want);
             }
@@ -298,22 +310,22 @@ async fn run(options: Json, steps: Vec<Json>, net: Arc<dyn Net>) {
                 client.as_ref().unwrap().respond(address, answer).await.unwrap();
             }
             "close" => client.as_ref().unwrap().close().await,
-            "settle" => net.settle().await,
+            "settle" => settle(&*net, client.as_deref()).await,
             "expectSleeps" => {
-                net.settle().await;
+                settle(&*net, client.as_deref()).await;
                 let got: Vec<u64> = std::mem::take(&mut *sleeps.lock().unwrap());
                 let want: Vec<u64> = s["ms"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
                 assert_eq!(got, want);
             }
             "expectStatus" => {
-                net.settle().await;
+                settle(&*net, client.as_deref()).await;
                 pump(events.as_mut().unwrap(), &mut statuses, &mut blob_failures, &mut addresses);
                 let want: Vec<String> = s["states"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
                 assert_eq!(statuses[status_at..(status_at + want.len()).min(statuses.len())], want[..]);
                 status_at += want.len();
             }
             "expectBlobUnavailable" => {
-                net.settle().await;
+                settle(&*net, client.as_deref()).await;
                 pump(events.as_mut().unwrap(), &mut statuses, &mut blob_failures, &mut addresses);
                 let got: Vec<Json> = blob_failures.drain(..).map(|e| json!({ "kind": e.kind(), "digest": digest_of(&e) })).collect();
                 assert_eq!(Json::Array(got), s["errors"]);

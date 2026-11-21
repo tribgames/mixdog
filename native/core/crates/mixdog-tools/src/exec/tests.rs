@@ -781,12 +781,26 @@ async fn output_past_what_memory_holds_reads_as_its_log_does_in_node() {
 
     rig.shell.call(&ctx(&rig, "b1"), background.clone()).await.unwrap();
     let job = rig.runtime.get(&owner, "task-b1").unwrap();
-    print(&job, &numbered_lines(0..200_000), true);
+    let printed = numbered_lines(0..200_000);
+    print(&job, &printed, true);
     job.settled().await;
     let waited = body(rig.task.call(&ctx(&rig, "b2"), serde_json::json!({"action": "wait", "task_id": "task-b1"})).await);
     assert!(waited.contains("[stdout]\nline 0 x") && waited.contains(&omitted("199959", "12193.7")), "{waited:.600}");
     let tail = body(rig.task.call(&ctx(&rig, "b3"), serde_json::json!({"action": "read", "task_id": "task-b1", "output": "tail"})).await);
-    assert!(tail.contains(&omitted("198959", "12132.2")) && tail.contains(&omitted("1001", "61.6")), "{tail:.600}");
+    // The replay's inner cut shares a budget with the header, whose outer marker names the log path, so its counts depend on
+    // that path's length: the inner marker counts what of the replayed range (from the shown head to the end of what was
+    // printed) the shown head and tail leave out.
+    let (_, replayed) = tail.split_once(&omitted("198959", "12132.2")).unwrap_or_else(|| panic!("{tail:.600}"));
+    let replayed = replayed.split_once('\n').unwrap().1;
+    let (head, rest) = replayed.split_once("[… ").unwrap_or_else(|| panic!("no inner omission: {tail:.600}"));
+    let (marker, tail_rows) = rest.split_once('\n').unwrap();
+    assert!(printed.ends_with(tail_rows.as_bytes()), "the tail is the end of the output: {tail_rows:.200}");
+    let start = printed.windows(head.len()).rposition(|window| window == head.as_bytes()).expect("the head is printed output");
+    let range = &printed[start..];
+    assert_eq!(range.iter().filter(|&&b| b == b'\n').count(), 200_000 - 198_959, "the replay starts where its outer marker ends");
+    let lines = range.iter().filter(|&&b| b == b'\n').count() - head.matches('\n').count() - tail_rows.matches('\n').count();
+    let bytes = range.len() - head.len() - tail_rows.len();
+    assert!(marker.starts_with(&format!("{lines} lines, {} omitted", super::text::format_kb(bytes as u64))), "{marker}");
 
     rig.shell.call(&ctx(&rig, "r1"), background).await.unwrap();
     let job = rig.runtime.get(&owner, "task-r1").unwrap();

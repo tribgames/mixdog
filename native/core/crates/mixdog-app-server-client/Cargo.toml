@@ -26,12 +26,17 @@ tokio-tungstenite = { workspace = true, features = ["connect"] }
 uuid = { workspace = true, features = ["v7"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
+[features]
+# Test-only: `Client::folded`, the wait for the fold lanes that the conformance scenarios settle on. No normal build enables it.
+test-support = []
+
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "macros", "time", "net", "io-util", "test-util"] }
 tempfile = { workspace = true }
+mixdog-app-server-client = { path = ".", features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-app-protocol = { workspace = true }

@@ -19,8 +19,8 @@ use serde_json::json;
 struct NoExec;
 
 impl ExecRunner for NoExec {
-    fn run(&self, _options: &ExecOptions) -> ExecResult {
-        panic!("a clean deck starts no model turn");
+    fn run(&self, options: &ExecOptions) -> ExecResult {
+        panic!("a clean deck starts no model turn, but one was started with:\n{}", options.message);
     }
 }
 
