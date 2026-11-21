@@ -332,7 +332,8 @@ mod tests {
         let top = 842.0 - 54.0 - 9.0 * 1.7;
         let share = (487.0 - 24.0) / 3.0;
         let [typed, mark, group] = &flow.resolved_fields[..] else { panic!("three fields") };
-        assert_eq!((typed["page"].as_f64(), typed["x"].as_f64(), typed["y"].as_f64()), (Some(0.0), Some(54.0), Some(top - 22.0)));
+        // A field names its page by number, the first page being 1.
+        assert_eq!((typed["page"].as_f64(), typed["x"].as_f64(), typed["y"].as_f64()), (Some(1.0), Some(54.0), Some(top - 22.0)));
         assert_eq!((typed["width"].as_f64(), typed["height"].as_f64()), (Some(share), Some(22.0)));
         assert_eq!((mark["x"].as_f64(), mark["y"].as_f64()), (Some(54.0 + (share + 12.0)), Some(top - 22.0 + 4.0)));
         assert_eq!((mark["width"].as_f64(), mark["height"].as_f64(), &mark["labelBeside"]), (Some(14.0), Some(14.0), &json!(true)));

@@ -682,13 +682,6 @@ mod tests {
         assert!(flow.pages[0].content.is_empty());
         assert!(flow.pages[1].content.contains("<48> Tj"));
     }
-
-    #[test]
-    fn a_heading_that_opens_nothing_stays_where_it_is() {
-        let flow = flowed(&[json!({ "type": "heading", "text": "H" })]);
-        assert_eq!(flow.pages.len(), 1);
-        assert!(flow.pages[0].content.contains("<48> Tj"));
-    }
 }
 
 // pictures

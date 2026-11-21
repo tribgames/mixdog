@@ -207,7 +207,7 @@ async fn solo_review_is_neither_listed_nor_selectable_and_a_refusal_keeps_the_sa
     let error = call(&rig, SET_WORKFLOW, json!({ "threadId": "t1", "workflowId": "solo-review" }), 2).await.unwrap_err();
     assert_eq!(error, "workflow \"solo-review\" not found");
     assert_eq!(rig.config.agent(), saved, "a refused selection saves nothing");
-    assert_eq!(rig.config.agent()["workflow"]["active"], json!("default"));
+    assert_eq!(super::ids::active_workflow_id(&rig.config.agent()), "default");
 }
 
 #[tokio::test]

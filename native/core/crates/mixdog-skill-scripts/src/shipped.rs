@@ -44,7 +44,7 @@ pub struct Shipped {
 pub const SHIPPED: &[Shipped] = &[
     Shipped {
         path: "skill-creator/scripts/validate-skill.mjs",
-        sha256: "ee877a2d4f86c627a0a30e6e766a31ac52c32ea152d8214923e32243d203dab7",
+        sha256: "2099ef24aa009f565d53d3ad3fa35cf579153d0481932f6f0a9f6009193a3291",
         native: Some(Native::ValidateSkill),
     },
     Shipped {
@@ -57,7 +57,7 @@ pub const SHIPPED: &[Shipped] = &[
         sha256: "bf5469676e88730562bee6630a1c618bd0aecd5564218faf693318fe8994c24e",
         native: Some(Native::SourceExtract),
     },
-    Shipped { path: "pptx/scripts/qc-pages.mjs", sha256: "da3b2c76ffffd6ca26583a47e45ceb7394e42b1c3015249d32baaa60861eea66", native: Some(Native::QcPages) },
+    Shipped { path: "pptx/scripts/qc-pages.mjs", sha256: "6c0277e4505cfffc4139430bd5a369f377fe682949517eb08cacca95403a8007", native: Some(Native::QcPages) },
     Shipped {
         path: "pptx/scripts/review-deck.mjs",
         sha256: "2d492cd6dd09593c40c732cf2a37725e668465a0d0be81278280c2fbb259bf11",

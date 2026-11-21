@@ -101,6 +101,28 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "a read of the stop latches for the inline tests alone: under `test-support` it would be unused",
     ),
     ("mixdog-core-session/src/session/store.rs", "pub(super) fn refuse_next_projection(", "a fault injection into the projector, for the inline tests alone"),
+    (
+        "mixdog-core-session/src/session/store.rs",
+        "fn spawn_with<P, Q, C>(project: P) -> Self",
+        "a projector over a stand-in projection, for the inline projector tests alone: under `test-support` it would be unused",
+    ),
+    (
+        "mixdog-core-session/src/session/agent_registry/mod.rs",
+        "walks: std::sync::atomic::AtomicUsize,",
+        "a count of the agent-session listings only the inline agent_registry/tests.rs read: kept for a replay build it would be written and read by no one",
+    ),
+    ("mixdog-core-session/src/session/agent_registry/mod.rs", "walks: std::sync::atomic::AtomicUsize::new(0),", "the count above"),
+    ("mixdog-core-session/src/session/agent_registry/mod.rs", "self.walks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);", "the count above"),
+    (
+        "mixdog-core-session/src/session/agent_registry/mod.rs",
+        "pub(crate) async fn idle(&self) {",
+        "a wait for the writers' tasks, for the inline write_marks and release_receipt tests alone: under `test-support` it would be unused",
+    ),
+    (
+        "mixdog-core-session/src/session/agent_registry/mod.rs",
+        "pub(crate) fn ledger_len(&self) -> usize {",
+        "a read of the outcome ledger, for the inline write_marks tests alone: under `test-support` it would be unused",
+    ),
 ];
 
 /// The item an attribute applies to: the next line that is not itself an attribute or a comment.

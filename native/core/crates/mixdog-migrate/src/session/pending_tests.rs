@@ -130,7 +130,7 @@ fn migrated_pending_corpus() -> (PendingCorpus, BTreeMap<String, target::Folded>
 
 #[test]
 fn pending_input_resumes_once_after_publish_is_interrupted() {
-    let PendingCorpus { roots, .. } = pending_corpus();
+    let PendingCorpus { roots, _dir, .. } = pending_corpus();
     let fault = Arc::new(|point: &str| {
         if point == "publish:session/lead:after" {
             return Err(Blocked::journal("stop after queue publish"));
