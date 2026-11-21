@@ -412,6 +412,12 @@ if (acceptanceDebugPort && /^\d+$/.test(acceptanceDebugPort)) {
 if (process.env.MIXDOG_DESKTOP_PERF === '1') installSyncSpawnDiagnostics(() => app.getPath('userData'));
 
 let diagnostics: DesktopDiagnostics | null = null;
+// An uncaught exception is recorded and the app keeps running. With no listener Electron shows a modal error box that
+// stops the main event loop until it is dismissed: the core's ping deadline passes and this window loses its host.
+process.on('uncaughtException', (error) => {
+  console.error('Mixdog desktop uncaught exception:', error);
+  diagnostics?.write('uncaught-exception', { name: error.name, message: error.message, stack: error.stack });
+});
 const bootTimeline = createBootTimeline();
 const writeBootDiagnostic = bootTimeline.write;
 // Resolved at once for the instance that quits on the single-instance lock.
