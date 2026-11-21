@@ -93,6 +93,9 @@ type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
 pub(crate) struct StopSteps {
     steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
     running: std::sync::Mutex<Option<futures::future::Shared<futures::future::BoxFuture<'static, ()>>>>,
+    /// A test's wish: each step's start and end on stderr, so of a stop that does not end the last step said to have begun is named.
+    #[cfg(test)]
+    pub(crate) said: std::sync::atomic::AtomicBool,
 }
 
 impl StopSteps {
@@ -108,10 +111,22 @@ impl StopSteps {
                 Some(run) if run.peek().is_none() => run.clone(),
                 _ => {
                     let steps = std::mem::take(&mut *self.steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+                    #[cfg(test)]
+                    let said = self.said.load(std::sync::atomic::Ordering::SeqCst);
                     let run = async move {
                         for (name, step) in steps {
                             tracing::debug!(step = name, "stopping");
+                            #[cfg(test)]
+                            let began = std::time::Instant::now();
+                            #[cfg(test)]
+                            if said {
+                                eprintln!("[stop] `{name}` begins");
+                            }
                             step.await;
+                            #[cfg(test)]
+                            if said {
+                                eprintln!("[stop] `{name}` ended in {:?}", began.elapsed());
+                            }
                         }
                     }
                     .boxed()
@@ -317,6 +332,8 @@ mod tests {
         stop: tokio_util::sync::CancellationToken,
         why: &'static str,
     ) -> ComposeConfig {
+        // These tests end in seconds; on the macOS runners some ended every stop step and then never ended, a different test each run.
+        crate::compose_test_support::report_threads_if_still_running(std::time::Duration::from_secs(60));
         ComposeConfig {
             pg_install: Some(Arc::new(move |_| Box::pin(async move { Err(mixdog_services::memory::error::MemoryError::Runtime(why.into())) }))),
             ..config_in(data, dir, log, stop)

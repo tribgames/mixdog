@@ -90,7 +90,34 @@ impl Drop for QueuedChange {
     }
 }
 
+/// The path a test awaits a backend event on, and when the first one came ([`await_backend_event`]).
+#[cfg(feature = "count-jobs")]
+static BACKEND_TOLD: Mutex<Option<(PathBuf, Option<Instant>)>> = Mutex::new(None);
+
+/// From now on, the first backend callback of a watcher of this process that names `path` in a change (no access event, no error, no
+/// pathless rescan) is timed ([`backend_told`]). A test places a late push with it: before that callback the wait is the OS's, after it
+/// the service's.
+#[cfg(feature = "count-jobs")]
+pub fn await_backend_event(path: &Path) {
+    *BACKEND_TOLD.lock().unwrap_or_else(PoisonError::into_inner) = Some((path.to_path_buf(), None));
+}
+
+/// When the event awaited by [`await_backend_event`] first came; `None` while none has.
+#[cfg(feature = "count-jobs")]
+pub fn backend_told() -> Option<Instant> {
+    BACKEND_TOLD.lock().unwrap_or_else(PoisonError::into_inner).as_ref().and_then(|(_, told)| *told)
+}
+
 fn enqueue_event(tx: &Sender<Message>, pending: &Arc<AtomicUsize>, event: notify::Result<notify::Event>) {
+    #[cfg(feature = "count-jobs")]
+    if let Ok(event) = &event
+        && !matches!(event.kind, EventKind::Access(_))
+        && let Some((path, told)) = BACKEND_TOLD.lock().unwrap_or_else(PoisonError::into_inner).as_mut()
+        && told.is_none()
+        && event.paths.iter().any(|named| comparable(named) == comparable(path))
+    {
+        *told = Some(Instant::now());
+    }
     let change = QueuedChange::new(pending, &event);
     let _ = tx.send(Message::Event(event, change));
 }

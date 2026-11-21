@@ -49,6 +49,25 @@ async fn header(core: &ComposedCore, thread: &str) -> serde_json::Map<String, Va
     core.real.directory.stored_header(&ThreadId::from(thread)).await.expect("a stored header")
 }
 
+/// A step of a test, its start and its end on stderr: of a child the runner ended for running over its time, the last step said to have
+/// begun is the one that did not end (the Linux and macOS runners of the release gate ended three such children after 480 s with no
+/// line past the composition).
+async fn stage<T>(what: &str, step: impl Future<Output = T>) -> T {
+    let began = std::time::Instant::now();
+    eprintln!("[flow] {what}: begins");
+    let done = step.await;
+    eprintln!("[flow] {what}: ended in {:?}", began.elapsed());
+    done
+}
+
+/// The core's own stop, each of its steps said on stderr as it begins and ends (`StopSteps::said`). The lines place a stop that does not
+/// end only as far as this: with no step said, it is before the steps (the final barriers or the extension host's close); with every
+/// step ended, it is after them (the managed processes' drain or the log's flush).
+async fn stop(core: &ComposedCore) {
+    core.stop_steps.said.store(true, std::sync::atomic::Ordering::SeqCst);
+    stage("the stop", core.stop("test")).await;
+}
+
 fn runtime() -> tokio::runtime::Builder {
     let mut runtime = tokio::runtime::Builder::new_multi_thread();
     runtime.worker_threads(4);
@@ -66,13 +85,12 @@ async fn composed_with_two_threads(dir: PathBuf) -> (ComposedCore, PathBuf, Path
     let tokens = mixdog_rt::testing::tokens();
     let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new());
     let config = tests::config_in(&data, &dir, log, mixdog_rt::CancellationToken::new());
-    let core = mixdog_core_session::session::testing::awaiting_for(LIMIT, || "the core to compose".to_owned(), compose(&tokens, config))
-        .await
-        .expect("the core composes");
+    let composing = mixdog_core_session::session::testing::awaiting_for(LIMIT, || "the core to compose".to_owned(), compose(&tokens, config));
+    let core = stage("the composition", composing).await.expect("the core composes");
     let first_text = first.to_string_lossy().into_owned();
     for id in ["lead", "worker"] {
         let header = json!({ "cwd": first_text }).as_object().cloned().unwrap();
-        core.real.directory.create_with_id(ThreadId::from(id), header, json!({})).await.expect("the thread");
+        stage(&format!("the thread {id}"), core.real.directory.create_with_id(ThreadId::from(id), header, json!({}))).await.expect("the thread");
     }
     (core, first, second)
 }
@@ -82,14 +100,14 @@ async fn composed_with_two_threads(dir: PathBuf) -> (ComposedCore, PathBuf, Path
 fn the_lead_switches_its_own_project_through_the_session_tool() {
     crate::compose_test_support::in_child(module_path!(), "the_lead_switches_its_own_project_through_the_session_tool", runtime(), |dir| async move {
         let (core, first, second) = composed_with_two_threads(dir).await;
-        let answer =
-            session(&core, "lead", SurfaceKind::Lead, &first, json!({ "action": "set-project", "path": second.to_string_lossy() })).await.expect("the switch");
+        let switch = session(&core, "lead", SurfaceKind::Lead, &first, json!({ "action": "set-project", "path": second.to_string_lossy() }));
+        let answer = stage("the switch", switch).await.expect("the switch");
         let answered: Value = serde_json::from_str(&answer).expect("the answer is JSON");
         assert_eq!(answered["sessionId"], "lead");
-        let stored = header(&core, "lead").await;
+        let stored = stage("the stored header", header(&core, "lead")).await;
         assert_eq!(answered["cwd"], stored["cwd"], "the answer is the stored folder");
         assert_eq!(stored["cwd"], json!(second.to_string_lossy()), "{stored:?}");
-        core.stop("test").await;
+        stop(&core).await;
     });
 }
 
@@ -102,12 +120,12 @@ fn an_agent_session_may_not_switch_its_project_through_the_session_tool() {
         runtime(),
         |dir| async move {
             let (core, first, second) = composed_with_two_threads(dir).await;
-            let refused = session(&core, "worker", SurfaceKind::Agent, &first, json!({ "action": "set-project", "path": second.to_string_lossy() }))
-                .await
-                .expect_err("an agent may not switch");
+            let switch = session(&core, "worker", SurfaceKind::Agent, &first, json!({ "action": "set-project", "path": second.to_string_lossy() }));
+            let refused = stage("the refused switch", switch).await.expect_err("an agent may not switch");
             assert_eq!(refused, "session: set-project belongs to the Lead session");
-            assert_eq!(header(&core, "worker").await["cwd"], json!(first.to_string_lossy()), "the refused call stored nothing");
-            core.stop("test").await;
+            let stored = stage("the stored header", header(&core, "worker")).await;
+            assert_eq!(stored["cwd"], json!(first.to_string_lossy()), "the refused call stored nothing");
+            stop(&core).await;
         },
     );
 }
@@ -117,8 +135,8 @@ fn an_agent_session_may_not_switch_its_project_through_the_session_tool() {
 fn the_session_tool_flags_a_thread_through_the_thread_settings_service() {
     crate::compose_test_support::in_child(module_path!(), "the_session_tool_flags_a_thread_through_the_thread_settings_service", runtime(), |dir| async move {
         let (core, _first, second) = composed_with_two_threads(dir).await;
-        session(&core, "lead", SurfaceKind::Lead, &second, json!({ "action": "favorite", "value": true })).await.expect("favorite");
-        assert!(header(&core, "lead").await.contains_key("favoriteAt"), "the flag is stored");
-        core.stop("test").await;
+        stage("the flag", session(&core, "lead", SurfaceKind::Lead, &second, json!({ "action": "favorite", "value": true }))).await.expect("favorite");
+        assert!(stage("the stored header", header(&core, "lead")).await.contains_key("favoriteAt"), "the flag is stored");
+        stop(&core).await;
     });
 }
