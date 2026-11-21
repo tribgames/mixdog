@@ -21,6 +21,10 @@ shiguredo_libvpx = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "net", "io-util"] }
 tracing = { workspace = true }
 webrtc = { workspace = true }
+# TURN over TLS: the verifier of `turns:` servers handed to the vendored webrtc (src/webrtc/peer.rs `turn_tls`).
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+rustls-native-certs = { workspace = true }
+webpki-roots = { workspace = true }
 # WP-REMOTE (e2ee)
 aes-gcm = { workspace = true }
 base64 = { workspace = true }
@@ -56,6 +60,9 @@ mixdog-relay = { workspace = true, features = ["test-support"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net", "test-util"] }
 tempfile = { workspace = true }
+# The stand-in TURN server of src/webrtc/turn_tests.rs: its TLS listener and the test CA that signs it.
+rcgen = { workspace = true }
+tokio-rustls = { workspace = true, features = ["ring", "tls12"] }
 # LR §9 tests: a phone through the in-process relay connection into the real server over the mock core.
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }

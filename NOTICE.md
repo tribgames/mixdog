@@ -166,6 +166,29 @@ terms (`LICENSES/MIT.txt`). The crates are listed with their version and
 copyright line in `LICENSES/rust-crates-NOTICE.txt`; the `rtc-*` sub-crates ship
 no license file of their own and are covered by the `rtc` workspace license.
 
+Four of them are vendored and modified; both license files are kept beside
+each tree (`LICENSE-MIT`, `LICENSE-APACHE`; `rtc-ice`'s and `rtc-turn`'s are
+those of `rtc`):
+
+- `native/core/vendor/webrtc/`
+- `native/core/vendor/rtc/`
+- `native/core/vendor/rtc-ice/`
+- `native/core/vendor/rtc-turn/`
+
+Statement of changes (listed in each tree's `MIXDOG.md` and marked `mixdog` in
+the sources): `webrtc` gathers TURN relay candidates over TCP and TLS as well as
+UDP (`src/peer_connection/transport/turn_stream.rs`, new;
+`src/peer_connection/transport/turn_relayer.rs`, `src/peer_connection/driver.rs`,
+`src/peer_connection/mod.rs`), stops the driver of a dropped connection and
+depends on `rustls`; `rtc` keeps the transport of a local relay candidate's
+TURN allocation in its candidate event and stats entry and can take a relay
+candidate back (`src/peer_connection/mod.rs`, `src/peer_connection/internal.rs`,
+`src/peer_connection/transport/ice/mod.rs`); `rtc-ice`'s agent can remove a
+local candidate with its pairs (`src/agent/mod.rs`); `rtc-turn` reports the success, error and timeout of one Allocate under one
+transaction id and retries a 438 once (`src/client/mod.rs`,
+`src/client/proto.rs`). The manifests drop the examples, tests, benches and
+dev-dependencies.
+
 ## Apache License 2.0
 
 ### OpenAI Codex CLI — Copyright (c) OpenAI

@@ -430,11 +430,8 @@ fn serve(desktop_confirmation_pipe: bool) -> ExitCode {
     {
         use tracing_subscriber::layer::SubscriberExt;
         use tracing_subscriber::util::SubscriberInitExt;
-        tracing_subscriber::registry()
-            .with(tracing_subscriber::EnvFilter::from_default_env())
-            .with(log_filter::RefusedWrites)
-            .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
-            .init();
+        let (levels, webrtc_stack) = log_filter::from_env();
+        tracing_subscriber::registry().with(levels).with(webrtc_stack).with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr)).init();
     }
     #[cfg(feature = "crash-gates")]
     boot_fault::wait_for_launcher();

@@ -1,0 +1,32 @@
+# The crates.io releases the patched copies in this directory are copies of, in Cargo.lock form, for `cargo audit`.
+# A patched copy is a path package: its entry in ../Cargo.lock has no `source`, and cargo-audit skips a package
+# without one, so an advisory against the release a copy was made from would go unreported. This file gives those
+# releases back their registry identity. It is read by .github/workflows/dependency-audit.yml and by nothing else:
+# Cargo never sees it. One entry per `[patch.crates-io]` copy of ../Cargo.toml that the workflow does not name as
+# excluded, at the version of the copy's `Cargo.toml`; the workflow fails on a patch that is missing here, on a
+# version that differs and on an entry without its patch.
+version = 4
+
+[[package]]
+name = "rtc"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e2ca201de5ccc83aa3c08d49a2f08d7ed0aeeb2052fb1ccc517a8b77a6927ce"
+
+[[package]]
+name = "rtc-ice"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "099984f1be120b2e5692f232f8cbb82e53f6b4261c5c2eeda5be6223ba1adaa9"
+
+[[package]]
+name = "rtc-turn"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c53078a0696df5a3a5e4947bc550c5e903b59803b252f1d39062d637ebd3d17e"
+
+[[package]]
+name = "webrtc"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b621e736302bef784948cc8d8099fd0a8fdb5757693c80a344ffbe38c49387d2"

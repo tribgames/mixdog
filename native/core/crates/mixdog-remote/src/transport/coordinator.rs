@@ -482,8 +482,9 @@ fn selected_at_open(pair: Option<&CandidatePair>) -> String {
         CandidateType::Relay => "relay",
     };
     let protocol = match pair.protocol {
-        TransportProtocol::Udp => "udp",
-        TransportProtocol::Tcp => "tcp",
+        Some(TransportProtocol::Udp) => "udp",
+        Some(TransportProtocol::Tcp) => "tcp",
+        None => "unknown",
     };
     if pair.local_type == CandidateType::Relay {
         format!("{kind}/{protocol}/{}", pair.relay_protocol.map_or("unknown", relay_protocol_name))

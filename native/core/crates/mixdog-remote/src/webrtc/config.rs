@@ -50,6 +50,10 @@ pub(crate) struct PeerHooks {
     pub mdns_socket: Option<fn() -> std::io::Result<std::net::UdpSocket>>,
     /// The mDNS mode of every build, in order.
     pub builds: std::sync::Arc<std::sync::Mutex<Vec<rtc::ice::mdns::MulticastDnsMode>>>,
+    /// Verifies `turns:` servers in place of the machine's roots (`peer::turn_tls`).
+    pub turn_tls: Option<std::sync::Arc<rustls::ClientConfig>>,
+    /// Gather relay candidates only, so a connection on one machine cannot open over a host pair.
+    pub relay_only: bool,
 }
 
 impl PeerConfig {
@@ -136,7 +140,8 @@ pub enum CandidatePath {
 pub struct CandidatePair {
     pub local_type: CandidateType,
     pub remote_type: CandidateType,
-    pub protocol: TransportProtocol,
+    /// `None` when the report names a transport that is neither.
+    pub protocol: Option<TransportProtocol>,
     pub relay_protocol: Option<RelayProtocol>,
     pub current_round_trip_time_ms: Option<f64>,
     pub available_outgoing_bitrate: Option<f64>,
@@ -218,7 +223,7 @@ mod tests {
         let mut pair = CandidatePair {
             local_type: CandidateType::Host,
             remote_type: CandidateType::Srflx,
-            protocol: TransportProtocol::Udp,
+            protocol: Some(TransportProtocol::Udp),
             relay_protocol: None,
             current_round_trip_time_ms: None,
             available_outgoing_bitrate: None,

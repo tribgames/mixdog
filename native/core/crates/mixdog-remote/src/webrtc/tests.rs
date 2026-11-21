@@ -58,7 +58,7 @@ fn loopback() -> PeerConfig {
     config
 }
 
-enum PhoneEvent {
+pub(super) enum PhoneEvent {
     Candidate(RTCIceCandidateInit),
     Channel(Arc<dyn DataChannel>),
     Track(Arc<dyn TrackRemote>),
@@ -87,13 +87,13 @@ impl PeerConnectionEventHandler for PhoneHandler {
     async fn on_connection_state_change(&self, _state: RTCPeerConnectionState) {}
 }
 
-struct Phone {
-    pc: Arc<dyn PeerConnection>,
-    events: mpsc::UnboundedReceiver<PhoneEvent>,
+pub(super) struct Phone {
+    pub(super) pc: Arc<dyn PeerConnection>,
+    pub(super) events: mpsc::UnboundedReceiver<PhoneEvent>,
 }
 
 impl Phone {
-    async fn new(with_video: bool) -> Self {
+    pub(super) async fn new(with_video: bool) -> Self {
         let (tx, events) = mpsc::unbounded_channel();
         let mut engine = MediaEngine::default();
         if with_video {
@@ -136,7 +136,7 @@ impl Phone {
     }
 
     /// Applies the desktop's offer and returns the answer SDP.
-    async fn answer(&self, offer_sdp: String) -> String {
+    pub(super) async fn answer(&self, offer_sdp: String) -> String {
         self.pc.set_remote_description(RTCSessionDescription::offer(offer_sdp).unwrap()).await.unwrap();
         let answer = self.pc.create_answer(None).await.unwrap();
         self.pc.set_local_description(answer.clone()).await.unwrap();
@@ -144,7 +144,7 @@ impl Phone {
     }
 }
 
-fn to_candidate(init: RTCIceCandidateInit) -> Candidate {
+pub(super) fn to_candidate(init: RTCIceCandidateInit) -> Candidate {
     Candidate::from_init(init)
 }
 
