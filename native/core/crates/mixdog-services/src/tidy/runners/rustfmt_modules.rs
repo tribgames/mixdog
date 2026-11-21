@@ -114,7 +114,7 @@ fn cargo(bin: &str) -> String {
 enum Load {
     Workspace(Workspace),
     /// cargo cannot load it: cargo fmt formats nothing from it.
-    CannotLoad(String),
+    Refused(String),
     /// What cargo said could not be read whole, so what cargo fmt formats from it is not known.
     Unknown(String),
 }
@@ -139,7 +139,7 @@ async fn load(req: &RunRequest, manifest: &Path) -> Result<Load, String> {
             return Ok(Load::Unknown(format!("cargo metadata for {} printed more than tidy captures", manifest.display())));
         }
         if r.code != 0 {
-            return Ok(Load::CannotLoad(format!("cargo metadata {}", said(&r))));
+            return Ok(Load::Refused(format!("cargo metadata {}", said(&r))));
         }
         let stdout = r.stdout;
         let (root, packages) = match on_lane(req.lane, move || packages(&stdout)).await.map_err(|_| lane_lost())? {
@@ -222,7 +222,7 @@ pub async fn select(req: &RunRequest) -> Result<Selection, String> {
         .collect();
     let trees = walk_all(req, jobs, workspaces.len()).await?;
     let verdict = |found: &Located, index: usize| match &workspaces[index] {
-        Load::CannotLoad(_) => Verdict::Format,
+        Load::Refused(_) => Verdict::Format,
         Load::Unknown(why) => Verdict::Unknown(why.clone()),
         Load::Workspace(_) if trees[index].files.contains(&found.file) => Verdict::Format,
         Load::Workspace(_) => trees[index].failure.clone().map_or(Verdict::NotFormatted, Verdict::Unknown),
@@ -265,7 +265,7 @@ async fn load_owners(
             Some(index) => index,
             None => {
                 let loaded = load(req, &found.manifest).await?;
-                if let Load::CannotLoad(why) = &loaded {
+                if let Load::Refused(why) = &loaded {
                     notes.push(format!("cargo cannot load {}, so its files are formatted alone: {why}", shown(&found.manifest)));
                 }
                 workspaces.push(loaded);

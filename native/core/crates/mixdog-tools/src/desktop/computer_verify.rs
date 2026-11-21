@@ -371,7 +371,7 @@ fn verdict_payload(report: &Report<'_>, predicates: &[Map<String, Value>], state
         payload.insert("target_closed".into(), json!(true));
         payload.insert("unknown_hint".into(), json!("the exact window closed before the wait was decided; list windows to find its replacement"));
     } else if decision == Status::Unknown
-        && let Some((reason, hint)) = unknown_reason(needs_text, &state, gave_up)
+        && let Some((reason, hint)) = unknown_reason(needs_text, state, gave_up)
     {
         payload.insert("unknown_reason".into(), json!(reason));
         payload.insert("unknown_hint".into(), json!(hint));

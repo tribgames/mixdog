@@ -616,7 +616,10 @@ mod retire_tests {
         });
         // Past the shutdown's wait for the close work, so only the retirement can still hold it.
         let past_close_work = std::time::Duration::from_secs(4);
-        assert!(mixdog_rt::time::timeout(past_close_work, &mut stopping).await.is_err(), "the shutdown returned before the unloading runtime's retirement settled");
+        assert!(
+            mixdog_rt::time::timeout(past_close_work, &mut stopping).await.is_err(),
+            "the shutdown returned before the unloading runtime's retirement settled"
+        );
         assert_eq!(marked(&index).await, [id.as_str()]);
         drop(held);
         stopping.await.expect("the shutdown ran");

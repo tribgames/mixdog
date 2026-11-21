@@ -488,10 +488,10 @@ impl ItemDriver for SessionDriver {
             Err(f) => return fail(f),
         };
         for meta in &self.metas {
-            if let Some(set) = meta.session_meta(cx, id)? {
-                if let Some(set) = without_outranked_title(&model.header, set) {
-                    model.metas.push(set);
-                }
+            if let Some(set) = meta.session_meta(cx, id)?
+                && let Some(set) = without_outranked_title(&model.header, set)
+            {
+                model.metas.push(set);
             }
         }
         let source_digest = observe::Observable::of_source(cx, &model)?.digest();

@@ -44,8 +44,7 @@ async fn an_in_place_retry_that_finds_the_sign_out_sends_nothing() {
 
     impl Leaving {
         fn signed_out() -> ProviderError {
-            let mut error =
-                ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Auth, mixdog_core_api::domain::provider::DeliveryState::NotSent);
+            let mut error = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Auth, mixdog_core_api::domain::provider::DeliveryState::NotSent);
             error.reauth_required = true;
             error.message = "Cursor OAuth is not connected.".to_owned();
             error

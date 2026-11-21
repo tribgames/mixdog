@@ -3117,7 +3117,8 @@ async fn a_rewind_behind_the_anchor_before_the_cursor_reconciles_as_a_fold_from_
     assert_eq!(rows, expected);
     assert_eq!(session_rows(&env.data), session_rows(rebuilt.path()));
     let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
-    let (status, damage): (String, Option<String>) = conn.query_row("SELECT status, damage FROM sessions WHERE id = 's1'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    let (status, damage): (String, Option<String>) =
+        conn.query_row("SELECT status, damage FROM sessions WHERE id = 's1'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
     assert_eq!((status.as_str(), damage), ("ok", None));
 }
 
@@ -3747,7 +3748,8 @@ async fn a_rebuild_tells_its_final_row_against_the_row_from_before_it() {
     let after = reopened.summary("s1").await.unwrap().expect("listed");
     assert_eq!(after, before, "the rebuild ends with the row from before it");
     let edges = told.0.lock().unwrap().clone();
-    let told: Vec<_> = edges.iter().filter(|edge| edge.id == "s1").map(|edge| (edge.before.as_ref().map(|row| row.summary.clone()), edge.after.summary.clone())).collect();
+    let told: Vec<_> =
+        edges.iter().filter(|edge| edge.id == "s1").map(|edge| (edge.before.as_ref().map(|row| row.summary.clone()), edge.after.summary.clone())).collect();
     assert_eq!(told, [(Some(before), after)]);
 }
 
@@ -3767,7 +3769,8 @@ async fn a_row_sink_set_during_a_rebuild_is_told_of_its_final_row() {
     mixdog_rt::time::timeout(REPAIR_BOUND, repaired).await.expect("the repairs ended").unwrap().unwrap();
     let after = reopened.summary("s1").await.unwrap().expect("listed");
     let edges = told.0.lock().unwrap().clone();
-    let told: Vec<_> = edges.iter().filter(|edge| edge.id == "s1").map(|edge| (edge.before.as_ref().map(|row| row.summary.clone()), edge.after.summary.clone())).collect();
+    let told: Vec<_> =
+        edges.iter().filter(|edge| edge.id == "s1").map(|edge| (edge.before.as_ref().map(|row| row.summary.clone()), edge.after.summary.clone())).collect();
     assert_eq!(told, [(Some(before), after)]);
 }
 

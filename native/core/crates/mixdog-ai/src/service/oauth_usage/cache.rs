@@ -60,11 +60,17 @@ struct Flight {
 /// An edit the cache file is owed.
 #[derive(Clone)]
 enum FileEdit {
-    Put { key: String, reading: Value },
+    Put {
+        key: String,
+        reading: Value,
+    },
     /// Every reading of a provider: its slots and their models.
     EraseProvider(String),
     /// The readings of one slot (its bare key and its models) that one sign-in measured.
-    EraseStamped { slot: String, stamp: String },
+    EraseStamped {
+        slot: String,
+        stamp: String,
+    },
 }
 
 #[derive(Default)]
@@ -338,16 +344,16 @@ impl UsageCache {
         /// Ends a save that did not reach its own end, which is decided under the state's lock.
         struct Saving {
             owner: Arc<UsageCache>,
-            ended: bool,
+            ended: std::cell::Cell<bool>,
         }
         impl Drop for Saving {
             fn drop(&mut self) {
-                if !self.ended {
+                if !self.ended.get() {
                     self.owner.saving.send_replace(false);
                 }
             }
         }
-        let mut saving = Saving { owner: Arc::clone(self), ended: false };
+        let saving = Saving { owner: Arc::clone(self), ended: std::cell::Cell::new(false) };
         tokio::spawn(async move {
             loop {
                 let owner = &saving.owner;
@@ -364,7 +370,7 @@ impl UsageCache {
                     done
                 };
                 if done {
-                    saving.ended = true;
+                    saving.ended.set(true);
                     break;
                 }
             }
@@ -487,5 +493,4 @@ impl UsageCache {
         let state = self.state();
         (state.acknowledged, state.position)
     }
-
 }

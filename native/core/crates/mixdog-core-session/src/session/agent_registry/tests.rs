@@ -4426,7 +4426,8 @@ async fn a_descendants_unstored_release_is_recovered_by_the_scope_that_released_
     let judged: HashMap<_, _> = members.into_iter().map(|id| (id.to_owned(), registry.turn_mark(id))).collect();
 
     rig.store.refuse_releases.store(true, Ordering::SeqCst);
-    let released = registry.release_closed_at(&lead("lead"), Some("root"), "sess_root", &["sess_kid".to_owned(), "sess_bare".to_owned()], Some(&judged)).releases;
+    let released =
+        registry.release_closed_at(&lead("lead"), Some("root"), "sess_root", &["sess_kid".to_owned(), "sess_bare".to_owned()], Some(&judged)).releases;
     assert_eq!(released.len(), 3);
     assert!(released.iter().all(|release| matches!(release.done.now(), Some(ReleaseOutcome::Refused(_)))), "the store refused each");
     assert!(rig.store.map("sess_kid").is_some_and(|map| map.contains_key("sessionId")), "nothing of the refused release is stored");

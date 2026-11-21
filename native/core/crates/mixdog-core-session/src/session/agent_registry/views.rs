@@ -256,6 +256,9 @@ impl Tags {
 // ---- the views ------------------------------------------------------------------------------
 
 /// A session's row and stored tombstone as readers see them in the views' window.
+/// A session whose derived row changed: its id, the row before and the row after.
+type Moved = (String, Option<Derived>, Option<Derived>);
+
 #[derive(Clone, PartialEq)]
 pub(super) struct Derived {
     /// The session's place in the index order.
@@ -671,7 +674,7 @@ impl State {
     }
 
     /// Reads the written sessions again into `views.derived`: whether a tombstone changed, and the sessions whose row did.
-    fn rederive(&self, views: &mut Views, window: &mut Window, dirty: Vec<String>, now: f64) -> (bool, Vec<(String, Option<Derived>, Option<Derived>)>) {
+    fn rederive(&self, views: &mut Views, window: &mut Window, dirty: Vec<String>, now: f64) -> (bool, Vec<Moved>) {
         let mut tombstones_changed = false;
         let mut moved = Vec::new();
         for id in dirty {
@@ -694,7 +697,7 @@ impl State {
     }
 
     /// Takes each moved row out of every scope view and puts it in where it matches the scope.
-    fn rescope(views: &mut Views, index: &HashMap<String, Row>, moved: Vec<(String, Option<Derived>, Option<Derived>)>) {
+    fn rescope(views: &mut Views, index: &HashMap<String, Row>, moved: Vec<Moved>) {
         for (_, prev, next) in moved {
             let row = next.as_ref().and_then(|d| d.row.clone().map(|row| (d.key.clone(), row)));
             let listed = row.as_ref().filter(|(_, row)| !blocked(row, index)).map(|(key, row)| (key.clone(), Listed::of(row)));

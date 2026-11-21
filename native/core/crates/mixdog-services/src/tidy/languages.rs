@@ -474,7 +474,7 @@ pub fn project_relative(root: &Path, path: &Path) -> Option<String> {
         }
     }
     let parts: Vec<Component> = rest.collect();
-    if parts.iter().any(|c| *c == Component::ParentDir) {
+    if parts.contains(&Component::ParentDir) {
         return None;
     }
     Some(parts.iter().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/"))

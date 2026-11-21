@@ -362,7 +362,7 @@ impl SessionTool {
                 if !self.port.caller(thread).await.ai_titles_enabled {
                     return Err(refused("ai-titles", "session: AI session titles are disabled in settings"));
                 }
-                let title = field(&args, "title");
+                let title = field(args, "title");
                 if title.is_empty() {
                     return Err(invalid("title", "session: title is required for action=rename"));
                 }

@@ -454,7 +454,8 @@ impl ThreadListService {
             let ids: Vec<(usize, ThreadId)> = rooms.iter().map(|(at, row)| (*at, row.id.clone())).collect();
             match self.rooms.with_rooms(rooms.into_iter().map(|(_, row)| row).collect()).await {
                 Ok(stamped) => {
-                    let mut by_id: std::collections::HashMap<String, ThreadSummary> = stamped.into_iter().map(|row| (row.id.as_str().to_owned(), row)).collect();
+                    let mut by_id: std::collections::HashMap<String, ThreadSummary> =
+                        stamped.into_iter().map(|row| (row.id.as_str().to_owned(), row)).collect();
                     kept.extend(ids.into_iter().filter_map(|(at, id)| by_id.remove(id.as_str()).map(|row| (at, row))));
                 }
                 Err(error) => failures.extend(ids.into_iter().map(|(at, id)| (at, id, failed(DOMAIN, error.clone())))),
@@ -896,9 +897,7 @@ mod tests {
     fn room_golden() -> Value {
         let mut golden = golden();
         let sessions = golden["sessions"].as_array_mut().expect("sessions");
-        for (id, title, updated) in
-            [("sess_room_room01", "Old name", 4000), ("sess_rmem_room01_lead", "member", 3500), ("sess_room_gone01", "gone", 3200)]
-        {
+        for (id, title, updated) in [("sess_room_room01", "Old name", 4000), ("sess_rmem_room01_lead", "member", 3500), ("sess_room_gone01", "gone", 3200)] {
             sessions.push(json!({ "record": { "id": id, "title": title, "updatedAt": updated, "createdAt": 500, "cwd": "C:/w" } }));
         }
         golden

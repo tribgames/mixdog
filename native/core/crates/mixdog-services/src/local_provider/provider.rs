@@ -72,6 +72,7 @@ fn llama_server_args(port: u16, api_key: &str, model: &str, alias: &str, context
     args
 }
 
+#[allow(clippy::disallowed_methods, reason = "body of a durability lane job")]
 fn remove_blocking(path: PathBuf) -> std::io::Result<()> {
     std::fs::remove_file(path)
 }

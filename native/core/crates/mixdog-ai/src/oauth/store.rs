@@ -80,16 +80,11 @@ impl CredentialIo {
     }
 }
 
-fn required<L: LaneToken, R: Send + 'static>(
-    lane: L,
-    body: impl FnOnce(&InLane<L>) -> io::Result<R> + Send + 'static,
-) -> impl Future<Output = io::Result<R>> + Send {
-    async move {
-        // Nothing cancels the wait but its caller going away, which drops it.
-        let cancel = CancellationToken::new();
-        let job = lane.submit_wait(&cancel, body).await.map_err(|_| io::Error::other(LaneUnrun))?;
-        job.await.map_err(|_| io::Error::other(LaneUnrun))?
-    }
+async fn required<L: LaneToken, R: Send + 'static>(lane: L, body: impl FnOnce(&InLane<L>) -> io::Result<R> + Send + 'static) -> io::Result<R> {
+    // Nothing cancels the wait but its caller going away, which drops it.
+    let cancel = CancellationToken::new();
+    let job = lane.submit_wait(&cancel, body).await.map_err(|_| io::Error::other(LaneUnrun))?;
+    job.await.map_err(|_| io::Error::other(LaneUnrun))?
 }
 
 /// Tri-state presence. `Unreadable` means the file exists but cannot be read

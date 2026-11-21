@@ -2593,6 +2593,9 @@ enum Headers {
 
 const HEADERS_CLOSED: &str = "the sessions are shutting down: no header is written";
 
+/// Closed writes by number, in order, each with why it was not stored (`None`: stored).
+type Closed = Vec<(u64, Option<String>)>;
+
 /// The queues of the sessions with work accepted and not finished.
 #[derive(Default)]
 struct Lanes {
@@ -2611,7 +2614,7 @@ struct Lanes {
     /// was not stored, and the earlier entries a watermark in `flushes` still selects. So with no flush outstanding
     /// there is at most one entry per session and target, however many of its writes were refused, and none once its
     /// last write is stored.
-    closed: HashMap<(String, Target), Vec<(u64, Option<String>)>>,
+    closed: HashMap<(String, Target), Closed>,
     /// The sessions whose record went ([`WorkerStore::keep`]), each with the numbers, ascending, of the kept writes
     /// that took a record's place: one per record that went, since a session can be made again and deleted again. A
     /// retirement covers the header writes accepted before it: to a flush whose watermark is at or above it they are
@@ -2847,13 +2850,13 @@ impl Writers {
         target: Target,
         release: Option<Receipted>,
         retire: bool,
-    ) -> Result<bool, (&'static str, Option<Receipted>)> {
+    ) -> Result<bool, (&'static str, Option<Box<Receipted>>)> {
         let mut lanes = self.lanes();
         if lanes.sealed {
-            return Err((WRITER_CLOSED, release));
+            return Err((WRITER_CLOSED, release.map(Box::new)));
         }
         if target == Target::Header && lanes.headers != Headers::Open {
-            return Err((HEADERS_CLOSED, release));
+            return Err((HEADERS_CLOSED, release.map(Box::new)));
         }
         let mark = self.marks.accept();
         if retire {
@@ -2949,7 +2952,7 @@ impl Writers {
     /// settled first ([`Self::settle`]), once, by whichever task this is. Nothing waits, nothing is tried again on a
     /// timer, and no other session is held by it.
     async fn run_session(self: Arc<Self>, session: String) {
-        let mut retiring = Retiring { writers: &*self, session: &session, retired: false };
+        let mut retiring = Retiring { writers: &self, session: &session, retired: false };
         loop {
             let (worker, target, order) = {
                 let mut lanes = self.lanes();

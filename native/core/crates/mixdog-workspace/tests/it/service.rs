@@ -63,20 +63,28 @@ fn env_on(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReviewAp
     std::fs::write(root.join("readme.md"), "# hi\n").unwrap();
     let limits = MockLimits::default();
     let (state, _) = CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &base.join("core.sqlite")).unwrap();
-    let service = WorkspaceService::with_backup_clock(Deps {
-        lanes: Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk },
-        feeds: Arc::new(MockScopedFeeds::new(limits)),
-        processes: Arc::new(MockProcessManager::default()),
-        tracked: Arc::new(GitCli),
-        state: state.clone(),
-        recovery_dir: base.join("recovery"),
-        user_data_dir: base.join("userData"),
-        sources: vec![Arc::new(FixedSource(base.join("export.bin")))],
-        code_graph: Some(Arc::new(EchoGraph)),
-        turn_review,
-        releases: mixdog_workspace::release::FolderReleases::new(),
-        upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
-    }, backup_clock)
+    let service = WorkspaceService::with_backup_clock(
+        Deps {
+            lanes: Lanes {
+                interactive: tokens.interactive_io,
+                durability: tokens.durability_io,
+                maintenance: tokens.maintenance_io,
+                cpu_bulk: tokens.cpu_bulk,
+            },
+            feeds: Arc::new(MockScopedFeeds::new(limits)),
+            processes: Arc::new(MockProcessManager::default()),
+            tracked: Arc::new(GitCli),
+            state: state.clone(),
+            recovery_dir: base.join("recovery"),
+            user_data_dir: base.join("userData"),
+            sources: vec![Arc::new(FixedSource(base.join("export.bin")))],
+            code_graph: Some(Arc::new(EchoGraph)),
+            turn_review,
+            releases: mixdog_workspace::release::FolderReleases::new(),
+            upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
+        },
+        backup_clock,
+    )
     .unwrap();
     // Registered as a row: `project/create` also leaves `.mixdog/project.id` in the folder, which
     // the recorded folder listings of this project do not have.

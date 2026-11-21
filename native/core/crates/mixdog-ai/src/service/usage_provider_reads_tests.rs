@@ -532,9 +532,7 @@ async fn a_sign_in_stored_since_the_read_is_not_refreshed(access: &str, refresh:
     let dir = tempfile::tempdir().unwrap();
     let store = AccountStore::new(dir.path().to_path_buf(), io());
     let file = store.credential_file(usage_opencode_go::PROVIDER_ID, "default").unwrap();
-    let sign_in = |access: &str, refresh: &str| {
-        json!({ "access_token": access, "refresh_token": refresh, "org_id": "org-1", "account_id": "acc-1", "email": "me@example.com" })
-    };
+    let sign_in = |access: &str, refresh: &str| json!({ "access_token": access, "refresh_token": refresh, "org_id": "org-1", "account_id": "acc-1", "email": "me@example.com" });
     file.save(&sign_in("oc-access", "oc-refresh")).await.unwrap();
     let net = Net::from(&json!([
         { "url": STATUS, "status": 401, "body": "" },

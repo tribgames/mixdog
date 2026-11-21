@@ -464,9 +464,12 @@ fn notebook_null_property(key: &str) -> String {
     format!("Error: ipynb parse failed — Cannot read properties of null (reading '{key}')")
 }
 
-fn notebook_code_cell(cell: &JsonValue, index: usize, full_path: &str) -> Result<(String, Vec<(&'static str, String)>), String> {
+/// A notebook cell's output images, each as its media type and base64 data.
+type NotebookImages = Vec<(&'static str, String)>;
+
+fn notebook_code_cell(cell: &JsonValue, index: usize, full_path: &str) -> Result<(String, NotebookImages), String> {
     let mut block = notebook_text(cell.get("source")).unwrap_or_default();
-    let mut images: Vec<(&'static str, String)> = Vec::new();
+    let mut images: NotebookImages = Vec::new();
     for out in cell.get("outputs").and_then(JsonValue::as_array).map(Vec::as_slice).unwrap_or_default() {
         if out.is_null() {
             return Err(notebook_null_property("data"));

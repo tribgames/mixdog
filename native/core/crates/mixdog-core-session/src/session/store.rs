@@ -960,7 +960,8 @@ impl Projector {
             let index = retiring.clone();
             Box::pin(async move {
                 let committed = index.queue_retirement(projection, retirement).await.map_err(|error| error.to_string())?;
-                let committed: futures::future::BoxFuture<'static, Result<(), String>> = Box::pin(async move { committed.await.map_err(|error| error.to_string()) });
+                let committed: futures::future::BoxFuture<'static, Result<(), String>> =
+                    Box::pin(async move { committed.await.map_err(|error| error.to_string()) });
                 Ok(committed)
             })
         });

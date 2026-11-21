@@ -75,6 +75,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::disallowed_types, reason = "the test asks the installed git itself for its refusal text")]
     async fn each_git_step_answers_its_trimmed_stdout_or_its_failure_text() {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path().to_path_buf();

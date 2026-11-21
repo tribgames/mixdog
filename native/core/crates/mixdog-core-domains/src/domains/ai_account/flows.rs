@@ -211,6 +211,9 @@ fn login_deadline(provider: &str, device: bool) -> Option<(Duration, Option<&'st
     })
 }
 
+/// A flow claimed for a pasted code: its key, session, settle signal and the trimmed code.
+type Claimed = (String, Arc<dyn LoginSession>, Arc<Notify>, String);
+
 #[derive(Clone)]
 pub struct OAuthFlows {
     inner: Arc<Mutex<Registry>>,
@@ -351,7 +354,7 @@ impl OAuthFlows {
     }
 
     /// Marks the flow as taking a pasted code once it is pending, accepts one and holds a valid `raw_code`.
-    fn claim_for_code(&self, id: &str, raw_code: &str) -> Result<(String, Arc<dyn LoginSession>, Arc<Notify>, String), Failure> {
+    fn claim_for_code(&self, id: &str, raw_code: &str) -> Result<Claimed, Failure> {
         let mut reg = self.lock();
         let key = Self::require(&reg, id)?;
         let flow = reg.flows.get_mut(&key).expect("required flow exists");

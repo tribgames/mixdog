@@ -242,7 +242,9 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     (
         "service/oauth_usage/cache.rs",
         "OWNERS",
-        Survives("the usage cache owners keyed by cache file path and held weakly; an owner leaves when nothing holds it, and a replay's cache file is its own"),
+        Survives(
+            "the usage cache owners keyed by cache file path and held weakly; an owner leaves when nothing holds it, and a replay's cache file is its own",
+        ),
     ),
     ("catalog/overlay.rs", "EMPTY", NotState("the empty overlay document a cold layer reads")),
     ("catalog/lookup/registry.rs", "PRICING_OVERRIDES", NotState("a constant price table")),
