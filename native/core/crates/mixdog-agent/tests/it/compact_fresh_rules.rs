@@ -502,6 +502,52 @@ async fn a_refused_filtered_or_tool_call_summary_is_a_failed_compaction_never_a_
     }
 }
 
+/// The summary call answered on the openai-chat wire with `sse`, decoded and folded as a real send does.
+struct ChatWire(String);
+
+#[async_trait]
+impl SummarySender for ChatWire {
+    async fn send(&self, _: &str, _: &str, _: &SummaryCall) -> Result<SummaryResponse, SummaryFailure> {
+        use mixdog_agent::repair::ToolCallIds;
+        use mixdog_agent::response::ResponseBuilder;
+        use mixdog_ai::providers::compat::profile::CredentialKind;
+        use mixdog_ai::providers::compat::{CompatChatCodec, CompatConfig, CompatProfile};
+        use mixdog_core_api::domain::provider::{ModelRequest, RequestOptions, WireCodec};
+        let profile = CompatProfile::plain("custom-test", "https://llm.example.test/v1", CredentialKind::StaticKey { reauth_on_401: false });
+        let codec = CompatChatCodec::new(profile, CompatConfig::default());
+        let request = ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: RequestOptions::default() };
+        let mut decoder = codec.decoder(&request);
+        let mut events = decoder.feed(self.0.as_bytes()).expect("feeds");
+        events.extend(decoder.finish().expect("finishes"));
+        let mut builder = ResponseBuilder::new("m", ToolCallIds::new(&[]));
+        events.into_iter().for_each(|event| builder.push(event));
+        let response = builder.finish();
+        Ok(SummaryResponse { text: response.content, tool_call: !response.tool_calls.is_empty(), stop: response.stop, usage: None, input_excludes_cache: false })
+    }
+}
+
+fn chat_sse(delta: Value, finish_reason: &str) -> String {
+    let chunk = |delta: Value, finish: Value| format!("data: {}\n\n", json!({"choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}));
+    format!("{}{}data: [DONE]\n\n", chunk(delta, Value::Null), chunk(json!({}), json!(finish_reason)))
+}
+
+#[tokio::test]
+async fn an_openai_chat_summary_that_finished_with_stop_is_accepted_and_a_tool_call_is_still_refused() {
+    fresh!(_meter, ctx, &NoAttachments);
+    let complete = valid_summary("chat");
+    let stopped = ChatWire(chat_sse(json!({"role": "assistant", "content": complete}), "stop"));
+    let got = generate_fresh_handoff_summary(&ctx, &dialogue(), &input(&stopped, 0)).await.expect("a natural chat end is a summary");
+    assert_eq!((got.summary.as_str(), got.repaired), (complete.as_str(), false));
+    assert_eq!(got.stop, Some(StopReason::Other("stop".into())), "the wire's own stop is kept");
+    let cut = ChatWire(chat_sse(json!({"role": "assistant", "content": "The parser was fixed in src/lib.rs."}), "length"));
+    let got = generate_fresh_handoff_summary(&ctx, &dialogue(), &input(&cut, 0)).await.expect("a length cut keeps its text repaired");
+    assert!(got.repaired && summary_is_schema_valid(&got.summary), "{}", got.summary);
+    assert_eq!(got.stop, Some(StopReason::MaxTokens));
+    let call = json!({"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}]});
+    let error = generate_fresh_handoff_summary(&ctx, &dialogue(), &input(&ChatWire(chat_sse(call, "tool_calls")), 0)).await.expect_err("refused");
+    assert!(format!("{error:?}").contains("compact summary rejected"), "{error:?}");
+}
+
 /// A warm session whose fork answers `stop` with `text`.
 struct WarmFork {
     text: String,
