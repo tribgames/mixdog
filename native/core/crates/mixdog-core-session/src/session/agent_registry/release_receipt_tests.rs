@@ -380,7 +380,7 @@ async fn projection_lost(core: &Core, thread: &ThreadId, operation: &str) {
     core.written().await;
     core.directory.release(thread).await;
     assert!(core.directory.handle(thread).is_none(), "the session is unloaded");
-    assert!(core.index.forget_thread_op_elsewhere(thread.as_str(), operation), "the index held the operation's row");
+    core.index.forget_thread_op(thread.as_str(), operation).await.expect("the index held the operation's row");
     core.store.lose_rows(thread.as_str());
 }
 

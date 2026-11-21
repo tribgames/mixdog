@@ -112,7 +112,8 @@ async fn a_replace_that_changes_nothing_deletes_nothing_and_a_second_one_finds_n
     let plain = vec![say("user", "Nothing secret here", 1), say("assistant", &format!("Code {SECRET}"), 2)];
     db.append("s", &plain).await.unwrap();
     let redact = |t: &str| t.replace(SECRET, "[redacted]");
-    assert_eq!(db.replace("s", &plain, &redacted(&plain), &|t: &str| t.to_owned()).await.unwrap(), 0);
+    // Nothing is marked: the transcript as stored is the plain one, as the ingest hands it over with the same redaction.
+    assert_eq!(db.replace("s", &plain, &plain, &|t: &str| t.to_owned()).await.unwrap(), 0);
     assert_eq!(contents(&stored(&raw, "s").await), ["Nothing secret here", format!("Code {SECRET}").as_str()]);
     assert_eq!(db.replace("s", &plain, &redacted(&plain), &redact).await.unwrap(), 1);
     assert_eq!(db.replace("s", &plain, &redacted(&plain), &redact).await.unwrap(), 0);

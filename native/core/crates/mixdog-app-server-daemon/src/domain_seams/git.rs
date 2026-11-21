@@ -78,7 +78,9 @@ mod tests {
     #[allow(clippy::disallowed_types, reason = "the test asks the installed git itself for its refusal text")]
     async fn each_git_step_answers_its_trimmed_stdout_or_its_failure_text() {
         let dir = tempfile::tempdir().unwrap();
-        let base = dir.path().to_path_buf();
+        // Git names the repository it made by its real path: macOS' temp folder is a link into `/private`, and Windows' may be named
+        // with short (8.3) names.
+        let base = mixdog_workspace::pathguard::canonical(dir.path()).unwrap();
         let tokens = mixdog_rt::testing::tokens();
         let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
         let runner = ProcessGit::new(Processes::new(manager, tokens.durability_io), Handle::current(), base.clone());

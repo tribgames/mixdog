@@ -82,7 +82,8 @@ fn lay_out_install(tmp: &Path) -> (tempfile::TempDir, PathBuf) {
 impl Workspace {
     pub fn new(setup: Setup) -> Self {
         let provider = Provider::start();
-        let tmp = Path::new(env!("CARGO_TARGET_TMPDIR"));
+        let tmp_dir = mixdog_testkit::target_tmpdir!();
+        let tmp = tmp_dir.as_path();
         let host_env: BTreeMap<String, String> = std::env::vars().collect();
         let host_data = tmp.join("pty-no-host-data");
         let request = BoundaryRequest {

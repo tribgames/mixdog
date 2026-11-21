@@ -125,6 +125,9 @@ async fn a_source_that_ends_or_fails_is_reported_and_a_replacement_makes_it_live
 
     let (live, live_handle) = scripted();
     shared.set_source(Box::new(live));
+    // The read loop takes the replacement on its own task, clearing the picture as it does; a viewer subscribed before that sees
+    // the clear first.
+    until("the replacement is taken", || shared.state() == SourceState::Live).await;
     let mut shots = shared.subscribe();
     live_handle.feed.send(Ok(Some(picture(1)))).unwrap();
     assert_eq!(next_shot(&mut shots).await.expect("a picture").generation, 2);

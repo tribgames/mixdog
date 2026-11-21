@@ -25,7 +25,7 @@ async fn edit_and_delete_follow_the_listed_revision() {
     let page: Value = serde_json::from_str(&listed.envelope()).expect("envelope");
     let revision_1 = page["entries"][0]["index_revision"].as_str().expect("revision").to_owned();
 
-    let revised = format!("{} Final condition.", "A durable instruction. ".repeat(10));
+    let revised = format!("{}Final condition.", "A durable instruction. ".repeat(10));
     let edited = run(&ctx, &json!({ "op": "edit", "id": 1, "index_revision": revision_1, "summary": revised })).await;
     assert!(!edited.is_error, "{}", edited.text);
     assert!(edited.text.contains("project=COMMON") && edited.text.ends_with(&revised), "{}", edited.text);

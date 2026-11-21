@@ -6795,6 +6795,7 @@ dependencies = [
  "mixdog-store",
  "mixdog-term",
  "mixdog-termtext",
+ "mixdog-testkit",
  "mixdog-tools",
  "mixdog-trace",
  "mixdog-tui-style",

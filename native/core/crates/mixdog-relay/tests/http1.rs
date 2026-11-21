@@ -179,6 +179,57 @@ fn latin1_text(bytes: &[u8]) -> String {
     bytes.iter().map(|&b| char::from(b)).collect()
 }
 
+/// One response off a persistent connection, framed by its `Content-Length` or chunks: (head, body). TCP keeps no write
+/// boundaries, so the head and body may arrive in any number of reads.
+async fn read_framed_response(stream: &mut TcpStream) -> (String, Vec<u8>) {
+    let mut received = Vec::new();
+    let mut chunk = [0u8; 1024];
+    let mut fill = async |received: &mut Vec<u8>| {
+        let read = stream.read(&mut chunk).await.unwrap();
+        assert!(read > 0, "the connection ended inside a response: {:?}", latin1_text(received));
+        received.extend_from_slice(&chunk[..read]);
+    };
+    let head_end = loop {
+        if let Some(at) = received.windows(4).position(|w| w == b"\r\n\r\n") {
+            break at + 4;
+        }
+        fill(&mut received).await;
+    };
+    let head = latin1_text(&received[..head_end]);
+    let header = |name: &str| {
+        head.lines().find_map(|line| line.split_once(':').filter(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, value)| value.trim().to_owned()))
+    };
+    let mut body = Vec::new();
+    let mut at = head_end;
+    if let Some(length) = header("content-length") {
+        let length: usize = length.parse().unwrap();
+        while received.len() < head_end + length {
+            fill(&mut received).await;
+        }
+        body.extend_from_slice(&received[head_end..head_end + length]);
+    } else if header("transfer-encoding").is_some_and(|coding| coding.eq_ignore_ascii_case("chunked")) {
+        loop {
+            let line_end = loop {
+                if let Some(end) = received[at..].windows(2).position(|w| w == b"\r\n") {
+                    break at + end;
+                }
+                fill(&mut received).await;
+            };
+            let size = usize::from_str_radix(latin1_text(&received[at..line_end]).split(';').next().unwrap().trim(), 16).unwrap();
+            at = line_end + 2;
+            while received.len() < at + size + 2 {
+                fill(&mut received).await;
+            }
+            if size == 0 {
+                break;
+            }
+            body.extend_from_slice(&received[at..at + size]);
+            at += size + 2;
+        }
+    }
+    (head, body)
+}
+
 /// The text with the value of every `Date` header replaced.
 fn mask_date(text: &str) -> String {
     let mut out = String::new();
@@ -381,8 +432,8 @@ async fn closing_the_server_closes_idle_connections_and_stops_listening() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
     stream.write_all(GET).await.unwrap();
     let mut chunk = [0u8; 1024];
-    let read = stream.read(&mut chunk).await.unwrap();
-    assert!(latin1_text(&chunk[..read]).ends_with("ok"));
+    let (head, body) = timeout(Duration::from_secs(5), read_framed_response(&mut stream)).await.expect("one whole response within 5 s");
+    assert_eq!(latin1_text(&body), "ok", "{head}");
     assert!(timeout(Duration::from_secs(5), server.close()).await.is_ok(), "close() resolved");
     assert_eq!(stream.read(&mut chunk).await.unwrap_or(0), 0, "the idle connection was closed");
     assert!(TcpStream::connect(addr).await.is_err(), "nothing listens any more");

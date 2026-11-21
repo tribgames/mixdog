@@ -396,7 +396,8 @@ mod tests {
     #[test]
     fn the_checkpoint_keeps_the_documents_extension_and_a_name_is_unique() {
         assert_eq!(extname("C:\\work\\a.b.docx"), ".docx");
-        assert_eq!(extname("C:\\work\\.hidden"), "");
+        // `/` separates on every host; a backslash only on Windows (`C:\work\.hidden` is one file name elsewhere).
+        assert_eq!(extname("/work/.hidden"), "");
         assert_ne!(unique_token(), unique_token());
         assert_eq!(unique_token().len(), 32);
     }
