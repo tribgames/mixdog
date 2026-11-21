@@ -701,6 +701,13 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
     padding: 6px 3px;
   }
 }
+/* Up to three columns have the room at any width: their text keeps the
+   12px inset of the code block and the cards around the table. */
+@container (max-width: 639px) {
+  .markdown table:not(:has(tr > :nth-child(4))) :is(th, td) {
+    padding-inline: 12px;
+  }
+}
 /* A path or URL is one unbreakable word: as a column floor it would push the
    table past the pane, so only these tokens may break anywhere. */
 .markdown :is(th, td) a {

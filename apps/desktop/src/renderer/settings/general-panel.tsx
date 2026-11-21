@@ -279,15 +279,19 @@ function ImportConversationsRow({ pending }: Pick<PanelContext, 'pending'>) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <ResourceRow
-        title={t('Import conversations from other apps')}
-        meta={t('Bring in conversations from Codex, Claude Code, or Cowork (Claude Desktop) and continue them here.')}
-        actions={
+      <div className="mixdog-settings__row">
+        <div className="mixdog-settings__copy">
+          <span className="mixdog-settings__row-title">{t('Import conversations from other apps')}</span>
+          <span className="mixdog-settings__row-desc">
+            {t('Bring in conversations from Codex, Claude Code, or Cowork (Claude Desktop) and continue them here.')}
+          </span>
+        </div>
+        <div className="settings-row-control">
           <ActionButton disabled={Boolean(pending)} onClick={() => setOpen(true)}>
             {t('Import…')}
           </ActionButton>
-        }
-      />
+        </div>
+      </div>
       {open && <ImportConversationsDialog onClose={() => setOpen(false)} />}
     </>
   );

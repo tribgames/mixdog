@@ -1,6 +1,6 @@
 import type { WorkspaceTab } from './nav-types';
 
-const TAB_STANDARD_WIDTH = 160;
+const TAB_STANDARD_WIDTH = 200;
 const TAB_MIN_ACTIVE_WIDTH = 56;
 const TAB_MIN_INACTIVE_WIDTH = 28;
 /* Matched by the tab's CSS min-width. */

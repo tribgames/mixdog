@@ -178,6 +178,17 @@
 .session-sidebar-panels .extensions-pane .settings-group-body {
   gap: 4px;
 }
+/* A page whose one group holds nothing: the empty state stands in the middle
+   of the rail, as on the other rail pages. */
+.session-sidebar-panels
+  .extensions-pane
+  .capability-settings-content:has(> .settings-group:only-child .utility-dock-empty),
+.session-sidebar-panels
+  .extensions-pane
+  .capability-settings-content
+  > .settings-group:only-child:has(.utility-dock-empty) {
+  align-content: stretch;
+}
 .session-sidebar-panels .extensions-pane .schedules-row.utilities-row.extensions-row {
   height: 31px;
   min-height: 31px;

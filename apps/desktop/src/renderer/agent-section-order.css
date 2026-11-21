@@ -1,3 +1,8 @@
+/* A page with no bot yet: its section takes the page, so the empty state
+   stands in the middle as on the other rail pages. */
+.agent-activity-page > .agent-section:has(> .mixy-empty) {
+  flex: 1 1 auto;
+}
 /* Bot rows on the Bots page, while one is dragged to a new place. */
 .agent-activity-page li[data-agent-contact][data-reordering="true"] {
   opacity: var(--mx-op-dim);
