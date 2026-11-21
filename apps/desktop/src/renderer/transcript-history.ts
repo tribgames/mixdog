@@ -36,14 +36,6 @@ export interface TranscriptHistoryWindow<T> {
 const overBounds = (count: number, chars: number) =>
   count > TRANSCRIPT_WINDOW_MAX_ITEMS || chars > TRANSCRIPT_WINDOW_MAX_CHARS;
 
-/** The kept run [start, end) of `items` within the window's bounds, where the
- *  landed page and the reader's rows meet at `joint` (the first row past the
- *  page for a prepend, the page's first row for an append). Rows go from the
- *  far end of the reader's rows first, down to the one row at the joint (the
- *  reading anchor's neighbour); then from the far end of the page, down to its
- *  row nearest the joint; then the joint row itself, so a page always lands
- *  and paging moves on. Only a single row larger than the bound itself can
- *  exceed it. */
 function boundedRun(items: readonly unknown[], joint: number, prepend: boolean): { start: number; end: number } {
   let chars = items.reduce<number>((sum, item) => sum + charsOf(item), 0);
   let start = 0;

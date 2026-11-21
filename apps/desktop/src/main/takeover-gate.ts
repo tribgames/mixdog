@@ -1,14 +1,3 @@
-/**
- * Take over: a session waiting on a `takeover` request (handoff_user) has
- * handed its page or step to the user. Only that session is held: its Browser
- * Use commands are refused (beginOperation, assertFree) and its in-flight ones
- * aborted and drained, until the user answers "done", denies, or the takeover
- * expires (TAKEOVER_EXPIRY_MS) and the request leaves the session snapshot.
- * Other sessions keep working on their own pages. A screen (Computer Use)
- * takeover also holds a human-only approval (human-only-approval.ts): there is
- * one screen, so Computer Use refuses new operations everywhere meanwhile. A
- * browser takeover never touches Computer Use.
- */
 import { withHumanOnlyApproval } from './human-only-approval.ts';
 
 interface TakeoverSnapshotUpdate {
@@ -185,12 +174,6 @@ export function createTakeoverGate(
       expiry.unref?.();
       held.set(sessionId, { id: takeoverId, step, ended, expiry });
       const ready = readyOf(key);
-      // Human control is ready once this session's new commands are refused
-      // (held above) and its in-flight Browser Use commands aborted and
-      // drained: no agent capture lands after it. A screen takeover also
-      // waits for Computer Use to drain (hold enters) and keeps it refused
-      // until the takeover ends; ending it first drops the queued or draining
-      // hand-over, so the screen is never held for a takeover that is over.
       const handOver = async () => {
         await drainOperations(sessionId, ended.signal);
         if (ended.signal.aborted) return;

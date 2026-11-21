@@ -1,8 +1,3 @@
-/**
- * The host's page windows: the guest lifecycle with what every new guest is
- * wired to, optional native presentation, and the per-turn task lifecycle that
- * decides which agent-opened pages close when a turn finishes.
- */
 import type { BrowserWindow, WebContents } from 'electron';
 
 import { DESKTOP_IPC } from '../../shared/contract';

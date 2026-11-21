@@ -1,8 +1,3 @@
-// A browser takeover waiting on the user, per page-owning session. The card
-// registers while it is pending; the phone's streamed page asks it on a tap
-// whether to raise the soft keyboard (the frame is a picture, so the page's
-// focused field cannot ask for the keyboard itself).
-
 /** Each hold is its own token: the same approval can be mounted twice (the
  *  conversation and a handoff copy), and one unmounting must not end the other. */
 const holds = new Map<string, Set<{ tab: string }>>();

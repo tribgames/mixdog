@@ -85,12 +85,6 @@ public static class MixInputObservation {
   public static void End() {}
 }
 public static class MixWin32 {
-  // One stub-owned lock guards the lock state, the foreground, the counters and
-  // the event list, so a state change and its event are one step and the event
-  // order is the order the changes really happened in (an event's index is its
-  // sequence number). Nothing holding it reads stdin, waits on a signal or calls
-  // production code, and NativeLock never waits: production calls it under its
-  // own synchronization.
   static readonly object gate = new object();
   static readonly System.Collections.Generic.List<string> events = new System.Collections.Generic.List<string>();
   static int focusCalls, locks, unlocks, refusedSteals;
@@ -112,12 +106,6 @@ public static class MixWin32 {
     lock (gate) { string text = string.Join(",", events.ToArray()); events.Clear(); return text; }
   }
   static void Marker(string name) { Console.Out.WriteLine(name); Console.Out.Flush(); }
-  // A steal the test triggers. ArmSteal is called inside the operation; the
-  // first foreground read after that reports "awaiting-steal" on stdout and
-  // blocks until the test answers with a line on stdin, then the steal is
-  // attempted on that read. That read is on the calling thread outside the lock
-  // code's synchronization, so the hold's timer can end the lock before or
-  // after the steal without either waiting on the other.
   public static void ArmSteal() { lock (gate) { stealArmed = true; events.Add("armed"); } }
   public static IntPtr Foreground() {
     bool steal;
@@ -536,10 +524,6 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
         false,
       ]
     );
-    // Released first, then rechecked after that wait: input the user gave, or a
-    // third window they picked, while it ran cancels the restore, and so does a
-    // release that failed or that the host never answered, since it may still
-    // hold its lease. An unknown end (a false unlock) holds no lock, so it restores.
     assert.deepEqual(
       rows.slice(17, 22).map((row) => [row.scenario, row.hostCalls, row.release, row.restore]),
       [
@@ -569,12 +553,6 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
         last = at;
       }
     };
-    // Refused the lock itself, the worker gets it through the bridge host: the
-    // late self-activation is refused, the host's hold is released once, and
-    // the reply names the holder. The lease is either accepted, or already past
-    // its deadline when the answer arrives (a stalled worker), and then the
-    // delivery is reported unprotected; the fake host keeps its lock until the
-    // release either way, so the steal is refused in both.
     const [hostLock, hostRefused] = [rows[15], rows[16]];
     assert.deepEqual(
       [hostLock.scenario, hostLock.refused, hostLock.calls, hostLock.restored, hostLock.hostCalls, hostLock.locked],
@@ -606,15 +584,6 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
       ]
     );
     assert.match(rows[12].text, /^invoked; the foreground lock was unavailable/);
-    // What this proves: the operation is gated on the stub's successful-unlock
-    // signal, so it can only return or throw after the lock was really unlocked,
-    // and nothing but the hold's own deadline can have unlocked it there (the
-    // worker's cleanup runs after the operation exits), hence released_by is
-    // 'deadline' on both paths; a worker release that ended a gated hold early
-    // would show as 'worker'. What it does not prove: that the unlock came
-    // within 250 ms (production has no clock seam: QPC in MixForegroundLock.cs,
-    // a direct Timer, a Stopwatch in input-semantic.ps1), nor that every
-    // pre-deadline worker release is rejected in the ungated scenarios.
     for (const [row, marker] of [
       [rows[9], 'op_return:unlocked'],
       [rows[10], 'op_throw:unlocked'],
@@ -629,15 +598,6 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
       assert.equal(count(row, 'unlock:false'), 0, row.events);
       inOrder(row, 'lock:acquired', 'unlock:released', marker);
     }
-    // Worker-owned hold, steal after the operation. Which comes first, the steal
-    // or the hold's own deadline, is scheduling, so each row is read against the
-    // order the stub recorded:
-    //  - steal first: refused by the hold, no focus call, and the hold ended by
-    //    its deadline or by the worker's release once the watch was done;
-    //  - unlock first: the steal lands on an unlocked foreground and is restored,
-    //    and the worker (blocked on the steal's foreground read) cannot have
-    //    unlocked, so it was the deadline.
-    // Either way: one acquisition, one successful unlock, nothing locked at the end.
     const checkLockedSteal = (row) => {
       assert.deepEqual(
         [row.locks, row.unlocks, row.release, row.locked, row.restored],

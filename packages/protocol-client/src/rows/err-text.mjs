@@ -236,6 +236,55 @@ function typedStreamFailureText(error, text, providerLabel) {
   return null;
 }
 
+function timeoutText(text, { name, code, subject }) {
+  const inactivity = /timed out after (\d+)ms of inactivity/i.exec(text);
+  if (name === 'StreamStalledError' || name === 'StreamStalledAbortError' || code === 'ESTREAMSTALL' || inactivity) {
+    const ms = inactivity ? Number(inactivity[1]) : 0;
+    return Number.isFinite(ms) && ms > 0 ? `No progress ${formatDurationMs(ms)}.` : 'No progress.';
+  }
+
+  const firstByte = /first byte timed out after (\d+)ms/i.exec(text);
+  if (name === 'ProviderTimeoutError' || code === 'EPROVIDERTIMEOUT' || firstByte) {
+    const ms = firstByte ? Number(firstByte[1]) : 0;
+    return Number.isFinite(ms) && ms > 0 ? `No first response ${formatDurationMs(ms)}.` : 'No first response.';
+  }
+
+  const firstTransport = /first (?:transport|semantic response) stale\s*\((\d+)ms\)/i.exec(text);
+  if (firstTransport) {
+    return `Agent watchdog stopped the run: no model response in ${formatDurationMs(firstTransport[1])}.`;
+  }
+
+  const firstResponse = /(?:agent\s+)?first response stale\s*\((\d+)ms\)/i.exec(text);
+  if (firstResponse) {
+    return `No first response from the ${subject} within ${formatDurationMs(firstResponse[1])}.`;
+  }
+
+  const stale =
+    /agent (?:task|tool running) stale\s*\((\d+)ms[^)]*\)/i.exec(text) ||
+    /tool running stale\s*\((\d+)ms[^)]*\)/i.exec(text) ||
+    /task stale\s*\((\d+)ms[^)]*\)/i.exec(text);
+  if (stale) {
+    return `The ${subject} went stale after ${formatDurationMs(stale[1])} without new stream/tool progress.`;
+  }
+  return null;
+}
+
+function sessionStopText(text, subject) {
+  if (/Session\s+"sess_[^"]+"\s+closed:\s*aborted during call/i.test(text)) {
+    return `${capitalize(subject)} stopped while waiting for a response.`;
+  }
+  if (/Session\s+"sess_[^"]+"\s+closed:\s*closed during call/i.test(text)) {
+    return `${capitalize(subject)} stopped before the response completed.`;
+  }
+  if (/^Session closed:\s*(?:closeSession|closed|aborted)\b/i.test(text)) {
+    return `${capitalize(subject)} stopped.`;
+  }
+  if (/parent signal aborted/i.test(text)) {
+    return `${capitalize(subject)} was cancelled by its caller.`;
+  }
+  return null;
+}
+
 export function presentErrorText(error, options = {}) {
   const presentation = describeError(error);
   if (['image-size', 'payload-size', 'request', 'model-unavailable', 'tool-schema'].includes(presentation.kind)) {
@@ -313,52 +362,10 @@ export function presentErrorText(error, options = {}) {
     return subject === 'request' ? 'Cancelled' : `${capitalize(subject)} was cancelled.`;
   }
 
-  const inactivity = /timed out after (\d+)ms of inactivity/i.exec(text);
-  if (name === 'StreamStalledError' || name === 'StreamStalledAbortError' || code === 'ESTREAMSTALL' || inactivity) {
-    const ms = inactivity ? Number(inactivity[1]) : 0;
-    return Number.isFinite(ms) && ms > 0 ? `No progress ${formatDurationMs(ms)}.` : 'No progress.';
-  }
-
-  const firstByte = /first byte timed out after (\d+)ms/i.exec(text);
-  if (name === 'ProviderTimeoutError' || code === 'EPROVIDERTIMEOUT' || firstByte) {
-    const ms = firstByte ? Number(firstByte[1]) : 0;
-    return Number.isFinite(ms) && ms > 0 ? `No first response ${formatDurationMs(ms)}.` : 'No first response.';
-  }
-
-  // The agent's own watchdog, worded apart from any provider timeout.
-  const firstTransport = /first (?:transport|semantic response) stale\s*\((\d+)ms\)/i.exec(text);
-  if (firstTransport) {
-    return `Agent watchdog stopped the run: no model response in ${formatDurationMs(firstTransport[1])}.`;
-  }
-
-  const firstResponse = /(?:agent\s+)?first response stale\s*\((\d+)ms\)/i.exec(text);
-  if (firstResponse) {
-    return `No first response from the ${subject} within ${formatDurationMs(firstResponse[1])}.`;
-  }
-
-  const stale =
-    /agent (?:task|tool running) stale\s*\((\d+)ms[^)]*\)/i.exec(text) ||
-    /tool running stale\s*\((\d+)ms[^)]*\)/i.exec(text) ||
-    /task stale\s*\((\d+)ms[^)]*\)/i.exec(text);
-  if (stale) {
-    return `The ${subject} went stale after ${formatDurationMs(stale[1])} without new stream/tool progress.`;
-  }
-
-  if (/Session\s+"sess_[^"]+"\s+closed:\s*aborted during call/i.test(text)) {
-    return `${capitalize(subject)} stopped while waiting for a response.`;
-  }
-
-  if (/Session\s+"sess_[^"]+"\s+closed:\s*closed during call/i.test(text)) {
-    return `${capitalize(subject)} stopped before the response completed.`;
-  }
-
-  if (/^Session closed:\s*(?:closeSession|closed|aborted)\b/i.test(text)) {
-    return `${capitalize(subject)} stopped.`;
-  }
-
-  if (/parent signal aborted/i.test(text)) {
-    return `${capitalize(subject)} was cancelled by its caller.`;
-  }
+  const timeout = timeoutText(text, { name, code, subject });
+  if (timeout) return timeout;
+  const stopped = sessionStopText(text, subject);
+  if (stopped) return stopped;
 
   text = text
     .replace(/Session\s+"sess_[^"]+"\s+closed:\s*/gi, 'Session closed: ')
@@ -394,6 +401,25 @@ export function retryStatusLine({ reason, attempt, maxAttempts, delayMs }) {
   return `${reason} · retry ${count}/${max}${wait > 0 ? ` in ${formatDurationMs(wait)}` : ''}`;
 }
 
+function failureHead(statusNorm, raw, presented, watchdog) {
+  if (/^(cancelled|canceled)$/i.test(statusNorm)) return 'Cancelled';
+  if (
+    /^timeout$/i.test(statusNorm) ||
+    watchdog?.kind === 'timeout' ||
+    /first response stale/i.test(raw) ||
+    /no first response from/i.test(presented) ||
+    /^(?:Model still thinking|Agent watchdog stopped the run):/.test(presented)
+  )
+    return 'Timeout';
+  if (
+    watchdog?.kind === 'stale' ||
+    /(?:agent )?(?:task|tool running) stale|went stale without/i.test(raw) ||
+    /went stale after/i.test(presented)
+  )
+    return 'Stale';
+  return 'Failed';
+}
+
 /**
  * Compact `Failed · reason` label for background task/agent failure cards.
  */
@@ -408,23 +434,7 @@ export function backgroundTaskFailureStatusLabel(status, error, options = {}) {
 
   const presented = presentErrorText(error, { surface, max: 160 });
   const watchdog = watchdogMsFromRawError(raw);
-
-  let head = 'Failed';
-  if (/^(cancelled|canceled)$/i.test(statusNorm)) head = 'Cancelled';
-  else if (
-    /^timeout$/i.test(statusNorm) ||
-    watchdog?.kind === 'timeout' ||
-    /first response stale/i.test(raw) ||
-    /no first response from/i.test(presented) ||
-    /^(?:Model still thinking|Agent watchdog stopped the run):/.test(presented)
-  )
-    head = 'Timeout';
-  else if (
-    watchdog?.kind === 'stale' ||
-    /(?:agent )?(?:task|tool running) stale|went stale without/i.test(raw) ||
-    /went stale after/i.test(presented)
-  )
-    head = 'Stale';
+  const head = failureHead(statusNorm, raw, presented, watchdog);
 
   let reason = '';
   if (/\bcontext too large\b/i.test(presented)) {

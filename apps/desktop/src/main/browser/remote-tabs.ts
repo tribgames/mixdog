@@ -1,8 +1,3 @@
-/**
- * The main-workspace browser tabs a paired client lists: every live page whose
- * id carries the main-tab prefix, in the order first seen. While a client
- * watches, a change to any tab's title, address or loading state is published.
- */
 import { MAIN_BROWSER_PAGE_PREFIX, type DesktopRemoteBrowserTab } from '../../shared/contract-browser';
 
 /** Page events that can change a tab's title, address or loading state. */

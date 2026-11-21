@@ -5,7 +5,6 @@ import { sectionStoreFor } from './section-store';
 import { writeStudioAssetReferences, type StudioReferenceStore } from './studio-draft-cache';
 import {
   callCapability,
-  errorText,
   mediaTransportIsLocal,
   mediaUrl,
   mediaVariantKey,
@@ -15,12 +14,14 @@ import {
   type MediaKind,
   type StudioApi,
 } from './studio-support';
+import { errorMessage } from './editor-pane-session-errors';
 
 const ASSET_PAGE_SIZE = 60;
 /** Pages an external-change sync reads looking for the loaded set. */
 const SYNC_PAGE_LIMIT = 5;
 /** Node's job-status cadence: the gap between a first null read and the second that marks a job lost. */
 const MEDIA_RECHECK_MS = 1_500;
+type NullRead = 'absent' | 'removed';
 const MEDIA_KIND_LIST: readonly MediaKind[] = ['image', 'video'];
 
 interface MediaAssetPage {
@@ -253,13 +254,6 @@ export function useStudioAssetGallery(api: StudioApi, kind: MediaKind, boardId =
     [reloadAssetKind, removeAsset]
   );
 
-  /** Another writer changed the store: fold its newest results in and drop
-   *  the ones gone from the span read, keeping every loaded page (and so the
-   *  scroll and the open asset). Pages are read from the top until one
-   *  overlaps what is loaded; with nothing to anchor on after a few pages the
-   *  loaded set is stale anyway and the kind restarts from its first page.
-   *  Single-flight per kind (see syncAssetKind): a run's additions are
-   *  counted against the rows loaded when it starts. */
   // Set on unmount: syncs then drop their queued follow-up and late results.
   const disposedRef = useRef(false);
   useEffect(() => {
@@ -470,8 +464,7 @@ export function useStudioMediaJobs({
   const [jobs, setJobs] = useState<StudioMediaJob[]>([]);
   const jobsRef = useRef<StudioMediaJob[]>([]);
   jobsRef.current = jobs;
-  // What the window has seen of each job across the effect's re-runs: announced ones, and the first null read of the rest.
-  const trackRef = useRef({ announced: new Set<string>(), misses: new Map<string, 'absent' | 'removed'>() });
+  const trackRef = useRef({ announced: new Set<string>(), firstNullReads: new Map<string, NullRead>() });
   const runningKey = jobs
     .filter((entry) => entry.status === 'running')
     .map((entry) => entry.id)
@@ -480,23 +473,15 @@ export function useStudioMediaJobs({
   useEffect(() => {
     if (!active || !runningKey) return undefined;
     const ids = runningKey.split(',');
-    // Jobs are pushed (section `mediaJobs`, key = job id) on their scoped feed `media:<jobId>`, which main folds into the
-    // mirror while this window watches it (SPEC R14). Node read a job's status every 1.5 s, kept it running with the
-    // progress it had through the first null read and marked it lost on the second. A push has no poll to count, so the
-    // first observation of nothing (the core answering that the job's feed is not there, or the removal of a job it
-    // announced without a result) starts one re-check timer at that same cadence, and only the observation that still
-    // finds nothing then is the second null read. An entry in between resets the count. A request that fails is a
-    // status error: the job stays as it was.
     const sections = sectionStoreFor(api);
     if (!sections) return undefined;
     let stopped = false;
-    const { announced, misses } = trackRef.current;
-    // One re-check per job, armed by its own first null read: another job's timer is never reused for it.
-    const timers = new Map<string, ReturnType<typeof setTimeout>>();
-    const clearMiss = (id: string) => {
-      misses.delete(id);
-      clearTimeout(timers.get(id));
-      timers.delete(id);
+    const { announced, firstNullReads } = trackRef.current;
+    const secondReadTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const clearNullRead = (id: string) => {
+      firstNullReads.delete(id);
+      clearTimeout(secondReadTimers.get(id));
+      secondReadTimers.delete(id);
     };
     const settle = (landed: MediaJob[], lost: string[]) => {
       void (async () => {
@@ -528,12 +513,12 @@ export function useStudioMediaJobs({
             })
           );
         } catch (reason) {
-          if (!stopped) setError(errorText(reason));
+          if (!stopped) setError(errorMessage(reason));
         }
       })();
     };
     const lose = (id: string) => {
-      clearMiss(id);
+      clearNullRead(id);
       announced.delete(id);
       settle([], [id]);
     };
@@ -541,32 +526,32 @@ export function useStudioMediaJobs({
       void Promise.resolve(api.sections?.call('feed/subscribe', { feedId: `media:${id}` })).then(
         (answer) => {
           if (stopped) return;
-          if (!(answer as { absent?: boolean } | undefined)?.absent) clearMiss(id);
+          if (!(answer as { absent?: boolean } | undefined)?.absent) clearNullRead(id);
           else if (second) lose(id);
-          else miss(id, 'absent');
+          else recordFirstNullRead(id, 'absent');
         },
         (reason: unknown) => {
-          if (!stopped) setError(errorText(reason));
+          if (!stopped) setError(errorMessage(reason));
         }
       );
     };
-    const recheck = (id: string) => {
-      timers.delete(id);
-      const how = misses.get(id);
-      if (how === undefined) return;
-      if (sections.get('mediaJobs', id)) clearMiss(id);
-      else if (how === 'absent') subscribeFeed(id, true);
+    const takeSecondRead = (id: string) => {
+      secondReadTimers.delete(id);
+      const firstRead = firstNullReads.get(id);
+      if (firstRead === undefined) return;
+      if (sections.get('mediaJobs', id)) clearNullRead(id);
+      else if (firstRead === 'absent') subscribeFeed(id, true);
       else lose(id);
     };
-    const arm = (id: string) =>
-      void timers.set(
+    const armSecondRead = (id: string) =>
+      void secondReadTimers.set(
         id,
-        setTimeout(() => recheck(id), MEDIA_RECHECK_MS)
+        setTimeout(() => takeSecondRead(id), MEDIA_RECHECK_MS)
       );
-    const miss = (id: string, how: 'absent' | 'removed') => {
-      if (misses.has(id)) return;
-      misses.set(id, how);
-      arm(id);
+    const recordFirstNullRead = (id: string, how: NullRead) => {
+      if (firstNullReads.has(id)) return;
+      firstNullReads.set(id, how);
+      armSecondRead(id);
     };
     const follow = () => {
       const landed: MediaJob[] = [];
@@ -574,24 +559,24 @@ export function useStudioMediaJobs({
         const entry = sections.get('mediaJobs', id);
         if (entry) {
           announced.add(id);
-          clearMiss(id);
+          clearNullRead(id);
           landed.push(entry.value as MediaJob);
-        } else if (announced.has(id)) miss(id, 'removed');
+        } else if (announced.has(id)) recordFirstNullRead(id, 'removed');
       }
       settle(landed, []);
     };
     for (const id of ids) subscribeFeed(id, false);
-    for (const id of ids) if (misses.has(id)) arm(id);
+    for (const id of ids) if (firstNullReads.has(id)) armSecondRead(id);
     const unsubscribe = sections.subscribe('mediaJobs', follow);
     const unsubscribeFeedErrors = sections.onFeedError((feedId, message) => {
       if (!stopped && ids.some((id) => `media:${id}` === feedId)) setError(message);
     });
     void sections.ready().then(follow, (reason: unknown) => {
-      if (!stopped) setError(errorText(reason));
+      if (!stopped) setError(errorMessage(reason));
     });
     return () => {
       stopped = true;
-      for (const timeout of timers.values()) clearTimeout(timeout);
+      for (const timeout of secondReadTimers.values()) clearTimeout(timeout);
       unsubscribe();
       unsubscribeFeedErrors();
       // Leaving the feed removes its sections from this window's mirror: a job that has ended is not kept there.

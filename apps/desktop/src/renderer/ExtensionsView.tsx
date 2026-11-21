@@ -42,10 +42,6 @@ export const ExtensionsPane = memo(function ExtensionsPane({
     setCreateOpen(false);
   }, [section]);
 
-  // Extensions is a RAIL destination, so it renders the page grammar its
-  // siblings (Schedules, Webhooks) share: surface → page → filters → list,
-  // with the title and primary actions in the panel header and detail views
-  // opening as popup dialogs.
   return (
     <div
       className="extensions-pane schedules-pane stable-surface-preserved stable-takeover-surface"

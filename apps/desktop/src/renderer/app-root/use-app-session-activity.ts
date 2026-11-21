@@ -12,10 +12,6 @@ import type { WorkspaceTab } from '../navigation';
 import type { DesktopSessionSummary } from '../../shared/contract';
 import { isIncompleteCatalogError } from '../../shared/session-catalog';
 
-/** Tabs showing a catalog session take its current display title. Only the
- *  sessions with a tab are titled: titling the whole catalog on every
- *  catalog update (four `t()` lookups per session, hundreds of sessions) was
- *  most of the sidebar's 93 ms task when a phone caught up after resume. */
 export function retitleSessionTabs(tabs: WorkspaceTab[], sessions: readonly DesktopSessionSummary[]): WorkspaceTab[] {
   let byId: Map<string, DesktopSessionSummary> | null = null;
   let changed = false;
@@ -70,11 +66,6 @@ export function useAppSessionActivity({
     if (!sessions.length) return;
     setTabs((current) => retitleSessionTabs(current, sessions));
   }, [sessions, setTabs]);
-  // A non-empty host catalog (listing or push) dropped sessions the previous
-  // catalog held: they were deleted elsewhere (IPC, another window, the phone,
-  // a sweep), so their tabs close. Cache seeds, optimistic edits, empty lists
-  // and transport errors never reach this subscription, and a tab for a
-  // session that was never listed (new draft, agent worker) is untouched.
   useEffect(() => {
     const closeTabs = (ids: readonly string[]) => closeSessionTabsEverywhere(ids, setTabs, closePaneTab);
     // An agent's home keeps its fixed id for good: after 대화 초기화 it is

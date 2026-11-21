@@ -34,10 +34,7 @@ export function naturalTriggerWidth(button: HTMLButtonElement): number {
   return width;
 }
 
-// Cursor names its boolean reasoning switch "Thinking" — the same word the
-// activity spinner uses, so the DOM localizer would print the spinner's
-// "in progress" phrasing on a settings row. The row owns its own key and
-// keeps the provider's label wherever no translation exists.
+// Cursor's boolean reasoning switch is named "Thinking"; the DOM localizer would translate it as the spinner's phrase.
 export function modelParameterLabel(parameter: { id: string; label: string }): string {
   // OpenRouter's provider routing: "Routing" alone is the spinner's phrase.
   if (parameter.id === 'providerSort') return t('Routing (model parameter)');

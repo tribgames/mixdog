@@ -37,10 +37,6 @@ export const BROWSER_ACTIONS = Object.freeze([
   'hide',
 ]);
 
-/** Developer controls: environment shaping and page state that everyday page
- *  work never touches. They ride the deferred `browser_devtools` tool so the
- *  schema every turn carries stays the one that clicks, fills, reads, and
- *  navigates; the host serves both tools through one bridge. */
 export const BROWSER_DEVTOOLS_ACTIONS = Object.freeze([
   'emulate',
   'cookies',

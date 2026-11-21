@@ -13,8 +13,9 @@ import {
 } from './hosts.ts';
 
 const DEVICE = '0123456789abcdef0123456789abcdef';
-const json = (status: number, body: unknown): typeof fetch => (async () =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
+const json = (status: number, body: unknown): typeof fetch =>
+  (async () =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
 
 test('a code is six digits however it is typed', () => {
   assert.equal(parseCodeInput('482917'), '482917');
@@ -113,7 +114,10 @@ test('presence: one lookup per relay, keyed by host, unknown when the relay cann
     ],
     'the unreachable relay leaves its PC unknown'
   );
-  const old = await fetchHostPresence(book.hosts, (async () => new Response('Not found', { status: 404 })) as typeof fetch);
+  const old = await fetchHostPresence(
+    book.hosts,
+    (async () => new Response('Not found', { status: 404 })) as typeof fetch
+  );
   assert.equal(old.size, 0, 'a relay without the lookup says nothing');
 });
 

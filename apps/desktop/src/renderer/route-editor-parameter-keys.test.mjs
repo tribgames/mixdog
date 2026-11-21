@@ -25,7 +25,7 @@ const keydown = (target, key) =>
     target.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
   });
 
-test('a model-parameter pane roves with the arrows and ArrowLeft closes it', async (t) => {
+async function openParameterPane(t) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
@@ -85,17 +85,30 @@ test('a model-parameter pane roves with the arrows and ArrowLeft closes it', asy
   );
   assert.ok(parameterRow);
   await act(async () => parameterRow.click());
+  return errors;
+}
 
+test('ArrowDown in a model-parameter pane moves to the next option', async (t) => {
+  await openParameterPane(t);
   const [low, high] = options();
   assert.ok(low && high);
   low.focus();
   await keydown(low, 'ArrowDown');
   // Compare labels, not elements: inspecting a jsdom node on failure never ends.
-  assert.equal(document.activeElement?.textContent, high.textContent, 'ArrowDown moves to the next option');
+  assert.equal(document.activeElement?.textContent, high.textContent);
+});
 
+test('ArrowLeft closes a model-parameter pane', async (t) => {
+  await openParameterPane(t);
+  const [, high] = options();
+  assert.ok(high);
+  high.focus();
   await keydown(high, 'ArrowLeft');
-  assert.equal(options().length, 0, 'ArrowLeft closes the parameter pane');
-  // Sheet rows (parameter rows included) carry stable keys.
+  assert.equal(options().length, 0);
+});
+
+test('sheet rows, parameter rows included, carry stable keys', async (t) => {
+  const errors = await openParameterPane(t);
   assert.deepEqual(
     errors.filter((message) => /unique "key" prop/.test(message)),
     []

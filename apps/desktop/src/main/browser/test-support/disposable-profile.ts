@@ -12,11 +12,7 @@ export interface DisposableProfile {
   remove(): Promise<void>;
 }
 
-/**
- * The profile of one harness run. A killed or timed-out process cannot clean up after itself, so the runner hands it a folder
- * inside its own temp workspace; run alone, the process makes its own and removes it on success and on failure
- * (Chromium can hold profile files briefly after the host closes: retried, and never allowed to change the verdict).
- */
+/** Chromium can hold profile files briefly after the host closes, so removal retries. */
 export function disposableProfile(env: NodeJS.ProcessEnv = process.env): DisposableProfile {
   const owned = env[PROFILE_DIR_ENV];
   const dir = owned || mkdtempSync(join(tmpdir(), 'mixdog-browser-core-profile-'));

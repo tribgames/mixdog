@@ -1,9 +1,3 @@
-// The latest time the user operated this app: the keyboard, mouse buttons,
-// wheel or mouse movement over the app's own window (webContents
-// 'input-event'), reported to the core (`client/activity`, sent on input, no
-// timer) so Mixy's heartbeat waits while the user is at the app. Nothing outside the
-// window counts, and no guess is made: a time is the clock at an input event.
-
 /** Input event types that are a user operation (keyboard, mouse, wheel). */
 const OPERATION_TYPES: ReadonlySet<string> = new Set([
   'keyDown',

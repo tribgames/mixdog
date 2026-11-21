@@ -1,10 +1,3 @@
-// The visualize panel's Elements list: the active HTML tab read as an outline,
-// its interactive elements and its layout findings (the page script's
-// `inspect`, the same reading the agent gets). Hovering a row outlines the
-// element in the page; clicking one asks the pane's Comment layer to start a
-// pin on it (only a trusted click does). Pages answer over postMessage, so
-// the list works on the desktop and on a paired remote client alike; a page
-// that is not running (a remote page before Run) simply has no reading.
 import { AlertCircle, AlertTriangle, Info, RefreshCw, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -32,10 +25,9 @@ type PaneReading =
   | { state: 'ready'; inspection: PageInspection };
 
 /** Reads the tab's HTML panes through their page scripts and keeps the latest
- *  reading per pane. A page's `ready` triggers a read (a reload or a remote
- *  Run) triggers a read only while `enabled` (the Elements view is open), so a
- *  closed view costs the page nothing; `refresh` always reads, `highlight`
- *  outlines an element. Closing the view drops the readings. */
+ *  reading per pane. A page's `ready` (a reload or a remote Run) triggers a
+ *  read only while `enabled` (the Elements view is open); `refresh` always
+ *  reads, `highlight` outlines an element. Closing the view drops the readings. */
 export function useVisualizeInspection({
   body,
   tab,

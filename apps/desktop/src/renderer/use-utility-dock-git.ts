@@ -19,50 +19,26 @@ export function useUtilityDockGit({
 }) {
   const gitRequestEpoch = useRef(0);
   const [dockGitState, setDockGitState] = useState<DockGitState>(() => readCachedDockGitState(dockProjectPath));
-  const refreshDockGitStatus = useCallback(
-    async (showLoading = false) => {
-      const currentProject = dockProjectPath;
-      const epoch = ++gitRequestEpoch.current;
-      if (!currentProject) {
-        setDockGitState(readCachedDockGitState(''));
-        return;
-      }
-      if (showLoading) {
-        setDockGitState((current) => ({
-          ...(current.projectPath === currentProject ? current : readCachedDockGitState(currentProject)),
-          projectPath: currentProject,
-          loading: true,
-          // Keep established rows during live refreshes. Entry readiness is
-          // tracked separately so retained cache readiness cannot reveal them.
-        }));
-      }
-      const next = await requestDockGitState(currentProject);
-      if (epoch !== gitRequestEpoch.current) return;
-      setDockGitState(next);
-    },
-    [dockProjectPath]
-  );
+  const refreshDockGitStatus = useCallback(async () => {
+    const currentProject = dockProjectPath;
+    const epoch = ++gitRequestEpoch.current;
+    if (!currentProject) {
+      setDockGitState(readCachedDockGitState(''));
+      return;
+    }
+    const next = await requestDockGitState(currentProject);
+    if (epoch !== gitRequestEpoch.current) return;
+    setDockGitState(next);
+  }, [dockProjectPath]);
   // Git I/O follows intent and evidence: a recursive project watcher (with
   // the checkout's git dirs) and explicit Git actions drive every refresh;
   // nothing re-reads on a clock or on window focus.
   const gitSurfaceSelected = tab === 'source-control' || tab === 'pull-requests';
   useEffect(() => {
     if (!open || !contentReady || !dockProjectPath || !gitSurfaceSelected) return undefined;
-    let first = true;
-    const scheduler = createGitRefreshScheduler(async () => {
-      // A cached snapshot paints at once and revalidates in place; only a
-      // cold project shows the loading state.
-      const showLoading = first && !readCachedDockGitState(dockProjectPath).ready;
-      first = false;
-      await refreshDockGitStatus(showLoading);
-    });
+    const scheduler = createGitRefreshScheduler(refreshDockGitStatus);
     return watchGitRefreshEvidence(dockProjectPath, scheduler);
   }, [contentReady, dockProjectPath, gitSurfaceSelected, open, refreshDockGitStatus]);
-  // Boot preload: the intent
-  // rule above still owns live polling, but ONE idle-time gitStatus per
-  // project warms the shared snapshot for Search / Pull Requests. Source
-  // Control still validates on entry. No interval runs while a Git surface
-  // is not selected.
   const warmedGitProject = useRef('');
   useEffect(() => {
     if (!dockProjectPath || gitSurfaceSelected) return undefined;
@@ -97,14 +73,12 @@ export function useUtilityDockGit({
     dockGitState.projectPath === dockProjectPath ? dockGitState : readCachedDockGitState(dockProjectPath);
   const dockGitStatus = effectiveDockGitState.status;
   const dockGitStatusReady = !dockProjectPath || effectiveDockGitState.ready;
-  const dockGitLoading = effectiveDockGitState.loading;
   const dockGitError = effectiveDockGitState.error;
   return {
     refreshDockGitStatus,
     gitSurfaceSelected,
     dockGitStatus,
     dockGitStatusReady,
-    dockGitLoading,
     dockGitError,
   };
 }

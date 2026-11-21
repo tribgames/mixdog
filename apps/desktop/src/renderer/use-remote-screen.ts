@@ -1,16 +1,7 @@
-// The whole-PC screen's WebRTC viewer: one `{kind:'screen', screenId}` source
-// over the same viewer the browser pane uses. A screen has no JPEG relay view
-// underneath, so the viewer offers to receive as soon as it exists, offers
-// again whenever it falls back to the relay state, and any failure is shown
-// (with a retry) instead of being covered by another picture.
-//
-// A session lives as long as the relay connection that asked for it: the PC
-// ends it when that connection leaves (a network change), and a new one is
-// another client. So the view waits silently (`reconnecting`, no text) while
-// the relay is being redialled, and starts a new viewer (a new session) by itself once a
-// new connection is up, or when the PC reports the session ended because the
-// phone's connection left it. A stop anyone decided (the PC's user, a removed
-// display, an unpair) is never restarted by itself.
+// The PC ends a screen session when the relay connection that asked for it
+// leaves; a new connection is another client. A new viewer starts by itself on
+// a new connection or when the PC reports the session ended with the phone's
+// connection. A stop anyone decided is never restarted by itself.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { DesktopApi } from '../shared/contract';

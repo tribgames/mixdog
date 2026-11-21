@@ -1,10 +1,3 @@
-/**
- * Refs that went stale between the snapshot and the command. A read-only
- * operation or an input preflight may retry once against a fresh snapshot
- * when the same element can be found again — never across a navigation, and
- * never for a mutation, whose replay could act twice. The reply says which
- * refs were swapped so the swap is visible, not silent.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserCommandResult } from './host-types';

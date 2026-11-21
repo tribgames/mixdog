@@ -29,10 +29,6 @@ export async function measureBrowserPresentation(
     return window.presentationLoads;
   })()`);
   await guest.executeJavaScript('clearInterval(window.presentationAnimation)');
-  // Unmounting the pane reports the page as no longer displayed, and an
-  // undisplayed page stops painting (page-power), so its frame would never
-  // show the typed input. Keep it displayed for the read, as a pane would,
-  // once the unmount's own report has landed.
   await new Promise((resolve) => setTimeout(resolve, 100));
   host.setGuestActive('visible-session', guest.id, true);
   const frame = await readyBrowserFrame(host, 'visible-session');

@@ -41,6 +41,29 @@ export function resolveInheritBlockedReason({
   return '';
 }
 
+function useInheritancePreflight(sessionId: string, provider: string, model: string) {
+  const [fit, setFit] = useState<InheritanceFit | null>(null);
+  const [checking, setChecking] = useState(true);
+  useEffect(() => {
+    if (!sessionId || !provider || !model) {
+      setFit(null);
+      setChecking(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setChecking(true);
+    void inheritancePreflight(sessionId, { provider, model }).then((value) => {
+      if (cancelled) return;
+      setFit(value);
+      setChecking(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, provider, model]);
+  return { fit, checking };
+}
+
 /**
  * /inherit — one decision surface: what carries over, where it lands, and
  * whether it can happen at all. The heir is a NEW session on the currently
@@ -81,29 +104,7 @@ export function InheritBody({
   const route = (picked?.sessionId === sessionId ? picked.route : null) ?? sessionModelSelection(shell as Snapshot);
   const provider = String(route?.provider || '').trim();
   const model = String(route?.model || '').trim();
-  // The reading that decides this surface belongs to the HEIR, not to the
-  // session on screen: the same conversation is priced differently on the
-  // route it is carried to. It comes from the runtime that performs the carry,
-  // which is also the one that would refuse it.
-  const [fit, setFit] = useState<InheritanceFit | null>(null);
-  const [checking, setChecking] = useState(true);
-  useEffect(() => {
-    if (!sessionId || !provider || !model) {
-      setFit(null);
-      setChecking(false);
-      return undefined;
-    }
-    let cancelled = false;
-    setChecking(true);
-    void inheritancePreflight(sessionId, { provider, model }).then((value) => {
-      if (cancelled) return;
-      setFit(value);
-      setChecking(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId, provider, model]);
+  const { fit, checking } = useInheritancePreflight(sessionId, provider, model);
 
   // ONE reason at a time, in the order the user would hit them.
   const blocked = resolveInheritBlockedReason({
@@ -115,10 +116,6 @@ export function InheritBody({
     fit,
   });
 
-  // The dialog frame IS this surface's card: the header already names it, the
-  // readings fill the body, and the decision owns its own band under one
-  // hairline. The old boxed group repeated the dialog title and pushed its
-  // action button past the card's bottom edge.
   const waiting = checking || Boolean(loading);
   // A conversation the chosen model cannot hold has no "as it is" option.
   const originalDisabled = Boolean(fit?.known && !fit.fits);

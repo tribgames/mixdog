@@ -1,11 +1,4 @@
 #!/usr/bin/env node
-// Builds the publishable npm packages of `mixdogd` from already-built release
-// binaries (`cargo build --release --target <triple> -p mixdog-cli`):
-//   <out>/mixdogd                       the launcher package (@mixdog/mixdogd)
-//   <out>/mixdogd-<os>-<arch>           one platform package each, with `os`/`cpu`
-//                                       set so npm installs only the matching one
-// The version is the core's own (workspace version): the launcher pins every
-// platform package to exactly it.
 import { chmod, copyFile, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';

@@ -1,7 +1,3 @@
-// The preload of main's confirm surface (main/developer-risk-confirm.ts). The page is static and runs no script, and
-// nothing is exposed to it: only this preload answers, and only for a trusted activation of the page's own buttons
-// (a click, or Enter/Space on the focused one) or a trusted Escape. Focus starts on Cancel and Tab stays on the two
-// buttons.
 import { ipcRenderer } from 'electron';
 import {
   HOST_CONFIRM_SURFACE_IDS as IDS,

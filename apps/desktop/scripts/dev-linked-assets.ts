@@ -1,12 +1,7 @@
-// The dev server and a node_modules that is a link (a worktree that shares another checkout's install).
-//
-// Vite resolves a package to its real location, so a stylesheet of such a package names its fonts as
-// `/@fs/<real path>`. Two things then keep the file from being served, and the renderer gets something that is not a
-// font ("OTS parsing error: invalid sfntVersion"):
-//   - the real location is outside `server.fs.allow`: a 403 page. `linkedModuleRoots` names it for the allow list.
-//   - the real location is on another Windows drive than the dev server's working directory: Vite's `/@fs/` handler
-//     drops the drive letter and looks under the root of its own drive, finds nothing, and the request falls through
-//     to the page fallback (index.html). `otherDriveAssets` serves that file from the drive the request names.
+// A linked node_modules makes Vite name fonts as `/@fs/<real path>`, which is not served when:
+//   - the real location is outside `server.fs.allow` (403): `linkedModuleRoots` names it for the allow list.
+//   - the real location is on another Windows drive: Vite's `/@fs/` handler drops the drive letter and the request
+//     falls through to index.html: `otherDriveAssets` serves that file from the drive the request names.
 import { createReadStream, realpathSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, parse, resolve } from 'node:path';

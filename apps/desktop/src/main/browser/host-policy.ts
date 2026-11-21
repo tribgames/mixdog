@@ -1,8 +1,3 @@
-/**
- * Pure decisions the browser host makes from its environment and inputs:
- * URL policy, pane viewport emulation, task-cleanup validation, pending
- * session work and how a human input competes with agent commands.
- */
 import type { WebContents } from 'electron';
 
 import type { EmulationSpec } from '../../../../../packages/protocol/src/index.ts';

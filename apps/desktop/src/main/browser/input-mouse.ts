@@ -1,8 +1,3 @@
-/**
- * Pointer input at CSS coordinates: a click is move, press, release so the
- * page sees the hover state a real pointer produces first; hover and wheel
- * are single events.
- */
 import type { WebContents } from 'electron';
 
 import {

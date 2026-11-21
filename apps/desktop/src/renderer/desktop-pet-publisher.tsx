@@ -1,8 +1,3 @@
-// The app window's side of the desktop pet (main/desktop-pet-window.ts): the
-// setting, and the state of Mixy's home chat published to the pet window
-// (the pet is a side chat with Mixy). Its bubble reads the same sources as
-// the tab spinner and the status line: the lane snapshot (busy, spinner,
-// command status, pending approval) and the session attention index.
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import {
   agentHomeSessionId,
@@ -290,13 +285,6 @@ function presentedComposer(): Element | null {
 const FLOATING_SELECTOR =
   '[role="menu"], [role="listbox"], [role="dialog"], [role="alertdialog"], [role="tooltip"], .mx-menu, .mx-dialog-layer';
 
-/** The side panels (visualize/file/browser panes, the pane dock): docked, not
- *  floating, yet the bot's window is above the whole app, so they are cut out
- *  of it like a menu: the bot stays on the conversation's side of them.
- *  An expanded browser/terminal is not inside its dock: its surface is a
- *  fixed container over the whole main panel (shown ones only: a parked one
- *  sits off screen), and the dock's header widens across the same panel
- *  (surface-slots.ts), both far beyond the dock's own box. */
 const SIDE_PANEL_SELECTOR =
   '.workbench-side-panel, .pane-side-dock, .pane-side-dock-header[data-surface-expanded="true"], .session-browser-surface-container[data-parked="false"], .session-terminal-surface-container[data-parked="false"]';
 
@@ -317,11 +305,7 @@ const roundedRect = (box: DOMRect): DesktopPetRect => ({
   height: Math.round(box.height),
 });
 
-/** A modal dialog with the app's backdrop is open: one that holds the
- *  fullscreen-scrim claim (titlebar-dim: the scrim cannot cover native
- *  chrome, which the pet window is too) or registers with the page-isolating
- *  modality owner (settings/dialog-modality). Menus, popovers, tooltips and
- *  pane-scoped dialogs take neither. */
+/** A modal with the app's backdrop is open: it holds the titlebar-dim claim or registers with dialog-modality. Menus, popovers, tooltips and pane-scoped dialogs take neither. */
 export function modalBackdropOpen(): boolean {
   return titleBarDimHeld() || hasOpenModal();
 }
@@ -408,10 +392,6 @@ function islandPill(card: Element): Pick<Required<DesktopPetComposer>, 'island' 
   };
 }
 
-/** The focused pane's transcript column beside `card` (CSS px): the
- *  scroller's left and right, and the line its last row ends on (the
- *  scroller's bottom less its tail gap). Main sets the overlap flag from it
- *  (DesktopPetComposer.transcript). */
 function transcriptColumn(card: Element): DesktopPetComposer['transcript'] {
   const scroller = card.closest('.conversation, .pane-cell')?.querySelector('.transcript');
   if (!scroller) return undefined;
@@ -449,11 +429,6 @@ function watchComposerCard(
   /** The island pill observed with the card: its width follows its status
    *  text, and a wide one puts the pinned bot on top of it. */
   let island: Element | null = null;
-  // The card can move or change height with no size change in anything
-  // observed (the one-line bar ⇄ two-row card flip, the style setting, a
-  // sibling in the dock swapping places) and without a transition event. Any
-  // such hint re-measures now and for a few frames after, until the box
-  // holds still.
   let frame = 0;
   let lastKey = '';
   let still = 0;
@@ -510,10 +485,6 @@ function watchComposerCard(
       dock.observe(region, { attributes: true, childList: true, subtree: true });
       observeDock();
     }
-    // The card, the dock around it (an approval card, the footer) and the
-    // pane — and every ancestor up to the page: a box that only slides
-    // (the side dock or the sidebar opening or closing beside a centred
-    // column) changes no size of its own, but the columns around it do.
     resize.observe(card);
     for (let ancestor = card.parentElement; ancestor; ancestor = ancestor.parentElement) resize.observe(ancestor);
   };
@@ -614,13 +585,7 @@ function watchSidePanels(onChange: () => void) {
 /** Publishes the focused pane's composer card rect (CSS px) as it moves or
  *  resizes, and null when no card shows: main pins the pet onto it. */
 function PetComposerAnchor({ focusKey }: { focusKey: string }) {
-  // Main's answer: whether the pinned bot stands over the transcript's
-  // column (the live status row then drops its token readout,
-  // 14-live-activity.css), and the width it takes at the card's right end
-  // (the card's island goes compact rather than run under it). Main sends it
-  // only when it changes, so it is held across focus changes: the same bot
-  // beside another pane's card sends nothing new, and that pane's island
-  // takes the held width at once.
+  // Main sends the app layout only when it changes, so the island reserve is held across focus changes.
   const reserve = useRef(0);
   const shareCurrent = useRef(() => {});
   useEffect(() => {
@@ -654,10 +619,6 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
     // the next frame, once, however many DOM batches or root attribute flips
     // (a reload, a reconnect, a session loading) arrive before it.
     let themeStale = false;
-    // The app's own menus/popovers/dialogs: the pet shows behind them.
-    // Checked once a frame after DOM changes (portals mount into <body>).
-    // Side panels (the registered ones, followed before publishing) change
-    // width (a resize drag) and `hidden` in place.
     const layersWatch = watchLayers(
       onChange((layers) => api.publishDesktopPetLayers?.(layers)),
       () => {
@@ -679,10 +640,6 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
     // A backdrop modal opening or closing (some flip in place, no mutation
     // of <body>'s children).
     const stopModalBackdrop = subscribeModalBackdrop(scheduleLayers);
-    // A card replaced or removed (session switch, settings page): find it again.
-    // The boot cover lifting (data-ready) measures the card it uncovers.
-    // A popover that stays mounted and opens in place (data-open, e.g. the
-    // context gauge's card) is a layer change too.
     const sidePanels = watchSidePanels(scheduleLayers);
     // A layer or panel registered, removed or moved (a role or class flip too).
     const stopLayerMembership = layerElements.subscribe(scheduleLayers);

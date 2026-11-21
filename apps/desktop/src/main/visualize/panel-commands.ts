@@ -1,8 +1,3 @@
-/**
- * The user's commands from the panel: tab clicks and closes, reopening a
- * visual from a chat card or the history list, version steps, compare,
- * restore, export, the network switch and inline render reports.
- */
 import type { DesktopVisualizeTabCommand, VisualizeCommandResult } from '../../shared/visualize';
 import type { VisualizeServiceContext } from './context';
 import { versionThumbnail } from './version-thumbnails';
@@ -91,10 +86,6 @@ export function createPanelCommands(
     ctx.thumbnails.whenMissing(command.sessionId, tab);
   };
   return {
-    /** The user's tab clicks and closes in the panel, and version steps,
-     *  compare and restore. The user's own commands apply at once even while
-     *  an agent turn holds the panel (turn-hold.ts); a frame's automatic
-     *  reports (`render`, `blocked`) do not lift it. */
     async command(command: DesktopVisualizeTabCommand): Promise<VisualizeCommandResult | undefined> {
       // A card's picture is a read: it changes nothing and never lifts a hold.
       if (command.action === 'thumbnail') {

@@ -22,6 +22,32 @@ export function rosterOffersOtherAccount(value: unknown): boolean {
   });
 }
 
+/** Whether `provider`'s account roster offers another account ('' reads none). */
+function useOtherAccountOffer(provider: string) {
+  const [otherAccount, setOtherAccount] = useState({ provider: '', offered: false });
+  useEffect(() => {
+    // Every banner reads the roster afresh: an earlier answer never outlives
+    // the stop it was read for, and a failed read offers no accounts.
+    setOtherAccount({ provider: '', offered: false });
+    if (!provider) return undefined;
+    let current = true;
+    void Promise.resolve()
+      .then(() => invokeOrHeld(window.mixdogDesktop, { capability: 'getProviderAccounts', args: [provider] }))
+      .then(
+        (response) => {
+          if (current) setOtherAccount({ provider, offered: rosterOffersOtherAccount(response?.value) });
+        },
+        () => {
+          if (current) setOtherAccount({ provider: '', offered: false });
+        }
+      );
+    return () => {
+      current = false;
+    };
+  }, [provider]);
+  return otherAccount;
+}
+
 /**
  * The quota banner above the composer: the latest turn stopped on an
  * exhausted provider quota and nothing has begun since. Its resume button
@@ -86,43 +112,24 @@ export function useConversationQuotaCard({
   // Whether the exhausted provider's roster offers switching accounts.
   const exhaustedProvider =
     quotaVisible && !switchedAway && stopped?.kind === 'quota_exhausted' ? (stopped?.quota.provider ?? '') : '';
-  const [otherAccount, setOtherAccount] = useState({ provider: '', offered: false });
-  useEffect(() => {
-    // Every banner reads the roster afresh: an earlier answer never outlives
-    // the stop it was read for, and a failed read offers no accounts.
-    setOtherAccount({ provider: '', offered: false });
-    if (!exhaustedProvider) return undefined;
-    let current = true;
-    void Promise.resolve()
-      .then(() => invokeOrHeld(window.mixdogDesktop, { capability: 'getProviderAccounts', args: [exhaustedProvider] }))
-      .then(
-        (response) => {
-          if (current)
-            setOtherAccount({ provider: exhaustedProvider, offered: rosterOffersOtherAccount(response?.value) });
-        },
-        () => {
-          if (current) setOtherAccount({ provider: '', offered: false });
-        }
-      );
-    return () => {
-      current = false;
-    };
-  }, [exhaustedProvider]);
+  const otherAccount = useOtherAccountOffer(exhaustedProvider);
 
   let quotaCard: ComposerQuotaCardModel | null = null;
   if (stopped && quotaVisible) {
     const resetAt = stopped.quota.resetAt;
     // One toggle: reserve the resume at the reset, or drop the reservation
     // (the runtime may already have made one on its own). The banner stays.
-    const toggleResume = () => {
+    const whileToggling = (action: () => unknown) => {
       if (toggling) return;
       setToggling(true);
-      void invokeResult(() =>
+      void invokeResult(action).finally(() => setToggling(false));
+    };
+    const toggleResume = () =>
+      whileToggling(() =>
         waiting
           ? window.mixdogDesktop.cancelQuotaResume(sessionId)
           : window.mixdogDesktop.scheduleQuotaResume(sessionId)
-      ).finally(() => setToggling(false));
-    };
+      );
     // Only an exhausted quota resets; a plan or billing stop has nothing to resume at.
     const resettable = stopped.kind === 'quota_exhausted';
     quotaCard = {
@@ -132,10 +139,8 @@ export function useConversationQuotaCard({
       reserved: waiting,
       busy: toggling,
       onResume: switchedAway
-        ? () => {
-            if (toggling) return;
-            setToggling(true);
-            void invokeResult(async () => {
+        ? () =>
+            whileToggling(async () => {
               const result = await window.mixdogDesktop.invokeCapability({
                 capability: 'retryFailedTurn',
                 sessionId,
@@ -145,8 +150,7 @@ export function useConversationQuotaCard({
                 throw new Error(t('Unable to resume this turn. Check its status or send a new message.'));
               }
               return result;
-            }).finally(() => setToggling(false));
-          }
+            })
         : undefined,
       onToggleResume: waiting || (resettable && resetAt !== null) ? toggleResume : undefined,
     };

@@ -119,12 +119,7 @@ export function installTouchGestures(
   const onTouchMove = (event: TouchEvent): void => {
     if (press?.opened && press.endedAt === 0 && event.cancelable) event.preventDefault();
   };
-  // The guard is a NON-passive document touchmove listener, so it exists only
-  // while a menu opened by the press is up. Registered for good, it made the
-  // whole page a blocking touch region: every scroll's first move waited for
-  // the main thread before the compositor could start it. The finger rests
-  // (within the touch slop) until the menu opens, so its first move past the
-  // slop is hit-tested against the region that now carries this listener.
+  // A non-passive touchmove listener makes the page a blocking touch region, so it is armed only while a press's menu is up.
   let scrollGuardArmed = false;
   const armScrollGuard = (): void => {
     if (scrollGuardArmed) return;
@@ -206,13 +201,6 @@ export function installTouchGestures(
   };
 }
 
-// ── Edge swipes ─────────────────────────────────────────────────────────────
-// A horizontal swipe from anywhere opens the drawer it moves toward: rightward
-// the left one, leftward the right one. One openness value per drawer
-// (0 closed … 1 open) follows the finger; the release snaps it to open or
-// closed by fling velocity, else by distance. Everything that scrolls,
-// selects or pages on its own keeps its horizontal drags.
-
 /** Travel before a drag commits to horizontal (or is given up as vertical). */
 const LOCK_PX = 10;
 /** Release speed, in px/ms, that decides the snap on its own. */
@@ -285,16 +273,8 @@ function ownsHorizontalDrag(win: Window, start: Element): boolean {
   return false;
 }
 
-/** True when the sheet's stylesheet names its rest transforms
- *  (07-mobile-chrome.css). Such a sheet is painted at an end with live
- *  `var()` references to them, so the inline paint always equals the current
- *  class target and dropping it starts no transition. */
 const declaresRest = (win: Window, element: Element): boolean =>
   win.getComputedStyle(element).getPropertyValue('--mx-drawer-open-transform').trim() !== '';
-/** Marks a sheet carrying the gesture's inline paint (dragged or settling), so
- *  its stylesheet can show content that is display:none while closed: the
- *  rows then travel with the sheet under the finger instead of appearing on
- *  release (07-mobile-chrome.css). */
 const LIVE_PAINT_ATTRIBUTE = 'data-drawer-live';
 interface Drag {
   id: number;
@@ -317,6 +297,46 @@ interface Drag {
 type BoundDrag = Drag & { drawer: DrawerControl; element: HTMLElement };
 const isBound = (drag: Drag): drag is BoundDrag => drag.drawer !== null && drag.element !== null;
 
+interface PaintedDrawer {
+  element: HTMLElement;
+  scrim: HTMLElement | null | undefined;
+}
+
+const sign = (drawer: DrawerControl): number => (drawer.side === 'left' ? 1 : -1);
+
+function paintDrawer(current: BoundDrag, position: number, animate: boolean): PaintedDrawer {
+  const scrimElement = current.drawer.backdrop?.();
+  const shift = (1 - position) * 100 * -sign(current.drawer);
+  const hidden = position <= 0;
+  current.element.setAttribute(LIVE_PAINT_ATTRIBUTE, '');
+  const sheet = current.element.style;
+  sheet.transition = animate ? '' : 'none';
+  const slid = `translateX(${shift}%)`;
+  let rest: 'open' | 'closed' | null = null;
+  if (position >= 1) rest = 'open';
+  else if (position <= 0) rest = 'closed';
+  sheet.transform = current.declaresRest && rest ? `var(--mx-drawer-${rest}-transform, ${slid})` : slid;
+  sheet.visibility = animate && hidden ? 'hidden' : 'visible';
+  const scrim = scrimElement?.style;
+  if (scrim) {
+    scrim.transition = animate ? '' : 'none';
+    scrim.opacity = String(position);
+    scrim.visibility = animate && hidden ? 'hidden' : 'visible';
+  }
+  return { element: current.element, scrim: scrimElement };
+}
+
+function clearPaint(element: HTMLElement, scrim: HTMLElement | null | undefined): void {
+  element.removeAttribute(LIVE_PAINT_ATTRIBUTE);
+  for (const style of [element.style, scrim?.style]) {
+    if (!style) continue;
+    style.removeProperty('transition');
+    style.removeProperty('transform');
+    style.removeProperty('visibility');
+    style.removeProperty('opacity');
+  }
+}
+
 export interface EdgeSwipeOptions {
   now?: () => number;
   /** Dead band, in px, between each screen edge and its swipe band. A Safari
@@ -336,38 +356,10 @@ export function installEdgeSwipe(
   let drag: Drag | null = null;
   let settleTimer = 0;
   /** The sheet and scrim carrying inline paint: dragged or still settling. */
-  let painted: { element: HTMLElement; scrim: HTMLElement | null | undefined } | null = null;
+  let painted: PaintedDrawer | null = null;
 
-  const sign = (drawer: DrawerControl): number => (drawer.side === 'left' ? 1 : -1);
   const paint = (current: BoundDrag, position: number, animate: boolean): void => {
-    painted = { element: current.element, scrim: current.drawer.backdrop?.() };
-    const shift = (1 - position) * 100 * -sign(current.drawer);
-    const hidden = position <= 0;
-    current.element.setAttribute(LIVE_PAINT_ATTRIBUTE, '');
-    const sheet = current.element.style;
-    sheet.transition = animate ? '' : 'none';
-    const slid = `translateX(${shift}%)`;
-    let rest: 'open' | 'closed' | null = null;
-    if (position >= 1) rest = 'open';
-    else if (position <= 0) rest = 'closed';
-    sheet.transform = current.declaresRest && rest ? `var(--mx-drawer-${rest}-transform, ${slid})` : slid;
-    sheet.visibility = animate && hidden ? 'hidden' : 'visible';
-    const scrim = current.drawer.backdrop?.()?.style;
-    if (scrim) {
-      scrim.transition = animate ? '' : 'none';
-      scrim.opacity = String(position);
-      scrim.visibility = animate && hidden ? 'hidden' : 'visible';
-    }
-  };
-  const clearPaint = (element: HTMLElement, scrim: HTMLElement | null | undefined): void => {
-    element.removeAttribute(LIVE_PAINT_ATTRIBUTE);
-    for (const style of [element.style, scrim?.style]) {
-      if (!style) continue;
-      style.removeProperty('transition');
-      style.removeProperty('transform');
-      style.removeProperty('visibility');
-      style.removeProperty('opacity');
-    }
+    painted = paintDrawer(current, position, animate);
   };
   const clearLivePaint = (): void => {
     if (painted) clearPaint(painted.element, painted.scrim);
@@ -424,10 +416,7 @@ export function installEdgeSwipe(
     return true;
   };
 
-  // Touch events, not pointer events: when the browser claims a touch for a
-  // pan it cancels the pointer but keeps delivering touch events, so the
-  // drawer keeps following the finger over any content without an overlay on
-  // the edge. They are passive and never swallow a tap.
+  // Touch events, not pointer events: a browser that claims a touch for a pan cancels the pointer but keeps delivering touch events.
   const tracked = (event: TouchEvent): Touch | undefined => {
     if (!drag) return undefined;
     const id = drag.id;

@@ -15,10 +15,7 @@ function attentionLabel(status: 'needs-you' | 'asking' | 'failed', name: string,
   return t('{{name}} has a failure', { name });
 }
 
-/** The glyph of a session that needs the user, failed, or waits on its
- *  background work, shared by tabs,
- *  sidebar rows and collapsed project groups; running keeps each surface's
- *  spinner and unread its dot. The shape, not only the tint, names the state. */
+/** The glyph of a session that needs the user, failed, or waits on background work. */
 export function SessionAttentionGlyph({
   status,
   name,

@@ -5,7 +5,8 @@ import { showDesktopToast } from './desktop-toasts';
 import { fileDownloadFailureMessage, saveBlobOnDevice } from './file-download-transfer';
 import { downloadAndOpenServerFile, revealFileFromWindow } from './server-transfers';
 import { base64Bytes, type MediaBytes, mediaFile } from './studio-pane-support';
-import { callCapability, errorText, type MediaAsset, type MediaAssetRead, type StudioApi } from './studio-support';
+import { callCapability, type MediaAsset, type MediaAssetRead, type StudioApi } from './studio-support';
+import { errorMessage } from './editor-pane-session-errors';
 
 type AssetUrl = (id: string, variant: 'original') => string;
 type MediaOpenApi = StudioApi | undefined;
@@ -110,7 +111,7 @@ export function createStudioMediaActions({
     try {
       await openMediaAssetFromWindow(api, asset.id);
     } catch (reason) {
-      setError(errorText(reason));
+      setError(errorMessage(reason));
     }
   };
 
@@ -118,7 +119,7 @@ export function createStudioMediaActions({
     try {
       await openMediaFolderFromWindow(api, asset.id);
     } catch (reason) {
-      setError(errorText(reason));
+      setError(errorMessage(reason));
     }
   };
 

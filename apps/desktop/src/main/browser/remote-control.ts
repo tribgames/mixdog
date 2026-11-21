@@ -1,8 +1,3 @@
-/**
- * The remote view of a session's visible page: while a paired client streams
- * the session, the current guest's Page screencast is forwarded as JPEG
- * frames, and the client's human input comes back document-bound.
- */
 import type {
   DesktopBrowserTabControlResult,
   DesktopRemoteBrowserControl,
@@ -119,13 +114,6 @@ export function createBrowserRemoteControl(
       streams.set(sessionId, stream);
       host.viewerChanged?.(sessionId, true);
     }
-    // A take-over fits the page once. Set before the stream's first capture,
-    // the fit is emulated before the screencast starts, so the first frame and
-    // geometry already show it. It then stays locked while any take-over
-    // subscribes (the service passes `fit` exactly then): the keyboard,
-    // panels and later fits never change it; only an explicit resize does.
-    // When the last take-over leaves, the page gets its own geometry back
-    // while watchers keep streaming; an explicit resize is kept.
     if (options.fit) {
       if (stream.layout === 'undecided') {
         stream.layout = 'takeover';
@@ -161,11 +149,6 @@ export function createBrowserRemoteControl(
       .catch(() => undefined);
   }
 
-  /** An explicit resize of a streamed page (`resize-request`): fit it to the
-   *  client's box, or return it to its own geometry — by viewport emulation
-   *  only, as a take-over fits, so the page never reloads. The page re-lays
-   *  out and the stream locks a new geometry generation from its next frame.
-   *  A resize for a lapsed stream is dropped. */
   async function resize(sessionId: string, request: RemoteWebrtcResize): Promise<void> {
     const stream = streams.get(sessionId);
     if (!stream) return;

@@ -1,6 +1,3 @@
-// The phone's browser and Web Push calls through their adapters: each Node call becomes the one core request the core's relay table
-// serves (browser/command for page input and the parity actions, browser/stream, browser/webrtcSignal, browser/screenDisplays,
-// remoteAccess/*Push*), and the core's pushes reach the page's listeners as Node's did.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { adapter as browser } from './remote-protocol-browser.ts';

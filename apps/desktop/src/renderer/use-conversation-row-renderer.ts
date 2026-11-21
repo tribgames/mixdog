@@ -131,10 +131,6 @@ function handoffBlock(rows: readonly TranscriptRowModel[], index: number): React
   return handoffs.length ? createElement(AgentHandoffBlock, { handoffs }) : null;
 }
 
-/** What a tool round leaves in a chat when no question needs the user: its
- *  connect card, its hand-off lines (a turn with no reply), a browser peek,
- *  saved sign-in lines or terminal-run cards. `undefined`: the round shows through the ordinary row
- *  (a question). */
 function toolRoundAside(
   items: readonly TranscriptItem[],
   rows: readonly TranscriptRowModel[],
@@ -472,11 +468,6 @@ function agentChatRow(
     return thinkingBand(rows, index, { inRoom, roomTyping, questionCard, label, homeAgent, block, asideRow });
   }
   const item = row._tag === 'AssistantPart' ? row.item : undefined;
-  // The typing bubble below stands for it until the message is complete,
-  // then it appears whole.
-  // A part that carries the turn's hand-off lines shows the typing bubble
-  // itself, the lines under it (the band shows none, agentTypingShown): the
-  // reply then lands in this same row, the lines unmoved.
   if (row._tag === 'AssistantPart' && agentReplyUnfinished(row.live, row.item)) {
     if (!block) return null;
     return createElement(AgentTypingRow, {
@@ -497,10 +488,6 @@ function agentChatRow(
   // A quiet pass paints nothing: no empty bubble row (its gap shook the
   // thread as members passed), so the list gives it no room (TranscriptList.tsx).
   if (roomPassIsQuiet(item) || taskReportHidden(rows, index, waiting) || routineReplyIsQuiet(item)) return null;
-  // Tool rounds stay out (the typing bubble covers them); only a question
-  // that needs the user shows, and a turn that drove the browser leaves one
-  // "브라우저 · 보기" line (browser-peek-line.tsx). A round of a turn with no
-  // reply keeps its own hand-off lines, above whatever else it shows.
   const handoffLines = row._tag === 'ToolActivity' && block ? asideRow(block) : null;
   const withLines = (node: ReactNode): ReactNode =>
     handoffLines ? createElement(Fragment, null, handoffLines, node) : node;

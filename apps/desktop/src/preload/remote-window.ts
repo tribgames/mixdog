@@ -2,10 +2,6 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 import { REMOTE_HOST_ARGUMENT, REMOTE_WINDOW_IPC, type RemoteWindowSwitcherBridge } from '../shared/remote-window';
 
-// The "Connect to another PC" window loads the host's relay web app, which runs
-// on the remote shim. This preload deliberately exposes NO desktop bridge: only
-// which host the window shows, so the page can name it in its chrome and
-// identify its pairing claim as a desktop client.
 function readHost(): { hostId: string; hostName: string } | null {
   const argument = process.argv.find((value) => value.startsWith(REMOTE_HOST_ARGUMENT));
   if (!argument) return null;

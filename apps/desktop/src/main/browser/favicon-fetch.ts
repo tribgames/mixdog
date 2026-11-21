@@ -1,10 +1,3 @@
-/** The network half of reading a site icon: only the icon address the page
- *  itself declared, loaded the way the page would load it (its session's
- *  cookies and cache, the page as referrer), on any http(s) origin. Every
- *  redirect hop is checked before it is followed, the body is streamed under
- *  a byte cap and the whole read runs under one timeout. Electron-free so the
- *  limits can be tested directly. */
-
 const FAVICON_MAX_BYTES = 128 * 1024;
 const FAVICON_TIMEOUT_MS = 5000;
 const FAVICON_MAX_REDIRECTS = 3;

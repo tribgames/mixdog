@@ -13,10 +13,6 @@ import { useSshConnectAttempt } from './use-ssh-connect-attempt';
 
 export { sshProgressSteps } from './ssh-connect-views';
 
-/** "Connect SSH server" (B1–B3, C1–C6): one address field, then the connection
- *  in the same dialog. A host key to confirm, a missing login key, a server
- *  that is not ready, or a daemon in the way each replace the content in place;
- *  nothing retries by itself. A saved `host` skips the address and connects. */
 export function SshConnectDialog({
   api,
   host = null,

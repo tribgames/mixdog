@@ -12,12 +12,6 @@ import { registerIdleReclaim } from './idle-reclaim';
 import { catalogStorageScope } from './catalog-storage-scope';
 import { estimateRetainedChars } from './renderer-value-weight';
 
-/** Shared renderer cache for the session review diff. The backend rebuilds ONE
- *  full patch per `getSessionReviewDiff` round-trip, so the Session Diff list
- *  and every session file slice must share it, not each ask. One settled
- *  result per session with single-flight refresh: the list and the file slices
- *  share a single round-trip and a revisited session paints its cached rows
- *  instantly while revalidating. */
 const SESSION_DIFF_CACHE_LIMIT = 32;
 export const SESSION_DIFF_CACHE_MAX_CHARS = 8 * 1024 * 1024;
 type CachedDiff = {
@@ -97,10 +91,6 @@ export function answerSessionDiffSignal(sessionId: string, signal: string): void
 
 export { sameSessionDiffContent as sameSessionDiff };
 
-/** Cache a session's result; a different one starts a new revision. A
- *  `reread` (a change signal or user refresh) always does: an omitted file's
- *  patch can change while its counts and metadata stay equal, so the lazily
- *  read file patches must not outlive any forced read. */
 function storeSessionDiff(id: string, result: SessionDiffResult, reread = false): void {
   const held = sessionDiffCache.get(id);
   const changed = reread || !sameSessionDiffContent(held?.result ?? null, result);

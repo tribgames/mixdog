@@ -1,7 +1,3 @@
-// The phone's one switch from Node call names to the protocol. The DesktopApi table (remote-shim-api.ts) still names calls the way
-// the Node core did (`call('gitStatus', [cwd])`); here each name is answered by the adapter that owns it
-// (`remote-protocol-<group>.ts`, found by remote-shim-adapters.ts, no registration edit) or it fails with the method's name.
-// A Node name no adapter claimed is never sent: the core would answer "unknown method" to a frame it cannot read.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { armCallWatch } from './remote-shim-call-watch';
 import { firstFrame, scopeClient } from '../../../mobile/src/phone-send-scope';
@@ -97,12 +93,8 @@ const coalescedReadKey = (method: string, params: unknown[]): string => {
   } else if (!COALESCED_READS.has(method)) return '';
   return `${method}\0${JSON.stringify(params)}`;
 };
-/** The page's arguments as Node's PC received them: every leg of Node's relay wrote the call's frame with `JSON.stringify` on the page
- *  (remote-shim-calls.ts:159, shared/remote-e2ee.ts:604/:621/:791, shared/remote-transport.ts:718) and the PC read it back with
- *  `JSON.parse` (remote-relay-connection.ts:82, shared/remote-e2ee.ts:692/:839, shared/remote-transport.ts:838) before any method saw it;
- *  the PC's second round trip (remote-relay-client-calls.ts `clearFrame`, remote-methods.ts:1262) changes nothing a parse produced. So an
- *  array's `undefined` is `null`, an object's `undefined` property is absent, a `Date` is its ISO text, and so on, exactly as JSON writes
- *  them. Arguments JSON cannot write (a cycle, a BigInt) fail the call, as Node's send did. */
+/** The arguments as Node's PC received them: the relay wrote each call with `JSON.stringify` and the PC read it with `JSON.parse`, so
+ *  values take their JSON form; arguments JSON cannot write (a cycle, a BigInt) fail the call. */
 const relayed = (params: unknown[]): unknown[] => JSON.parse(JSON.stringify(params)) as unknown[];
 /** Boot reads of state the view sync owns: they still wait for it, so their answer can never be older than the baseline the sync installs. */
 const SYNC_ORDERED_BOOT_READS = new Set(['getSnapshot', 'listProjects']);

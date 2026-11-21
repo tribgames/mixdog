@@ -106,24 +106,8 @@ export function loadedSidebarUsageModule(): SidebarUsageModule | null {
   return resolvedSidebarUsageModule;
 }
 
-/** Keep pin restoration and its measured first frame in one owner. */
-export function useUsageRailPin(
-  snapshot: UsageDashboardSnapshot,
-  refs: {
-    rail: RefObject<HTMLElement | null>;
-    nav: RefObject<HTMLElement | null>;
-    settings: RefObject<HTMLElement | null>;
-  },
-  enabled: boolean,
-  /** Height of rail cells below the destinations besides Settings (the update slot). */
-  extraHeight = 0,
-  api?: UsageApi
-) {
-  // The config value (code default: pinned) is the single source; the retired
-  // localStorage mirror is dropped once.
-  // The last-known choice paints the first frame at its final geometry (a
-  // different bar count or an unpinned rail would otherwise resize the stack
-  // when the settings read lands); the settings read stays authoritative.
+/** The rail's pin, bar, account and slot choices: the last-known values paint first, the settings read stays authoritative, and a change is saved at once. */
+function useRailPrefs(enabled: boolean) {
   const [initialPrefs] = useState(readRailPrefs);
   const [usagePinned, setUsagePinned] = useState(() => {
     try {
@@ -219,15 +203,45 @@ export function useUsageRailPin(
       saveSetting(key, value);
     }
   };
-  // Computed from the cached snapshot in the first render: the stack's space is
-  // reserved from the start, and live data only updates the figures.
-  // Entries, windows and tooltips are rebuilt only when their inputs change,
-  // not on every render (each scroll step re-renders).
+  return {
+    usagePinned,
+    toggleUsagePin,
+    railBars,
+    setRailBars,
+    accountsExpanded,
+    setAccountsExpanded,
+    railSlots,
+    setRailSlots,
+    settingsReady,
+  };
+}
+
+/** Keep pin restoration and its measured first frame in one owner. */
+export function useUsageRailPin(
+  snapshot: UsageDashboardSnapshot,
+  refs: {
+    rail: RefObject<HTMLElement | null>;
+    nav: RefObject<HTMLElement | null>;
+    settings: RefObject<HTMLElement | null>;
+  },
+  enabled: boolean,
+  /** Height of rail cells below the destinations besides Settings (the update slot). */
+  extraHeight = 0,
+  api?: UsageApi
+) {
+  const {
+    usagePinned,
+    toggleUsagePin,
+    railBars,
+    setRailBars,
+    accountsExpanded,
+    setAccountsExpanded,
+    railSlots,
+    setRailSlots,
+    settingsReady,
+  } = useRailPrefs(enabled);
   const dashboardEntries = useMemo(() => usagePinEntries(snapshot.dashboard, railBars), [snapshot.dashboard, railBars]);
   const real = usagePinned ? dashboardEntries : NO_ENTRIES;
-  // Which providers get a row is local knowledge, never the slow quota fetch:
-  // the roster the rail last drew, else the connected accounts of the provider
-  // setup (a quick local read). Rows without quota yet keep their final size.
   const [remembered, setRemembered] = useState(readRailRoster);
   const [setupRoster, setSetupRoster] = useState<UsagePinRosterEntry[] | null>(null);
   useEffect(() => {

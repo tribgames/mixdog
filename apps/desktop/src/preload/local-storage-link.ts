@@ -1,9 +1,6 @@
-// The page's link to the Local Storage backend. Chromium replaces the profile's Local Storage database while a window
-// runs once its commits keep failing. The page keeps its in-memory copy, but its connection to the backend is gone for
-// the life of the renderer process: nothing it writes is saved any more, and every value it writes stays allocated,
-// because the write is never acknowledged. Only a new renderer process connects again. So the link is watched here, and
-// a page that loses it hands main everything it holds; main replaces the process (main/local-storage-rescue.ts) and the
-// new page takes the values back before anything reads its storage.
+// Chromium replaces the profile's Local Storage database once its commits keep failing; the page's connection to the
+// backend is then gone for the life of the renderer process (writes are never acknowledged or saved). Only a new
+// renderer process connects again, so a page that loses the link hands main everything it holds (main/local-storage-rescue.ts).
 import type { IpcRenderer } from 'electron';
 
 import { DESKTOP_IPC } from '../shared/contract-ipc';

@@ -141,10 +141,6 @@ function fixture({ fileInput = true, chooser = null } = {}) {
         log.received.push(landing());
       },
     },
-    // The chooser wait polls against Date.now(); with a no-op pause it spun the
-    // real clock for the whole FILE_CHOOSER_WAIT_MS. The clock is mocked and
-    // every pause advances it, so the wait runs its full poll count and expires
-    // exactly as before, without taking the time.
     pause: async (ms) => {
       mock.timers.tick(ms);
     },

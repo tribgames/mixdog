@@ -1,10 +1,3 @@
-// PH-2 "Chat" group of the phone over `mixdogd`: the DesktopApi calls the phone made as Node-name relay calls
-// (remote-shim-api.ts) become protocol requests, answered with what Node's host returned to the phone.
-//
-// The desktop's own conversions are not copied: the request mapping (`routeService`, service-route.ts), the capability
-// lane (`createCapabilityLane`, capability-route.ts: rename, archive/favorite/project, delete, shell jobs, quota switch,
-// approvals, route/fast snapshots, capability reads) and the folded-state readers come in through `ChatShared`, which
-// `sharedFor` builds from those modules. `createChatApi` takes it as a parameter so tests can supply their own.
 import type {
   DesktopAbortOptions,
   DesktopCapabilityReadRequest,
@@ -40,6 +33,7 @@ import { remoteToolOutput, remoteTranscriptSnapshot } from '../main/remote-trans
 import { approvalAllowIsPointerOnly } from '../shared/approval-enter-rule';
 import { markPartialCatalog } from '../shared/session-catalog';
 import { normalizedProviderModels } from '../shared/desktop-transcript-limits';
+import { record } from './record-utils';
 
 /** The part of `ProtocolClient` (packages/protocol-client) this adapter uses. */
 export interface ChatClient {
@@ -110,9 +104,6 @@ export interface ChatShared {
   };
 }
 
-const record = (value: unknown): Record<string, unknown> =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-
 export function createChatApi(client: ChatClient, shared: ChatShared) {
   const { lane } = shared;
   const call = shared.sendTransfer ?? ((method: string, params: unknown) => client.call(method, params));
@@ -167,10 +158,7 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
     if (answered) await settled;
     return answered;
   };
-  /** The approval the session shows now, as Node's push notifier held it from the host's session states (push-notifier.ts
-   *  onSessionState: `toolApproval`, a question being none, its id `String(id ?? 'pending')`), read from this client's fold of the
-   *  thread. The thread is followed first when it is not: the core hands a pending request only to a connection that follows its
-   *  thread (outgoing.rs `deliver`), and the answer goes to that request. */
+  /** The core hands a pending request only to a connection that follows its thread (outgoing.rs `deliver`), so the thread is followed first. */
   const shownApproval = async (
     sessionId: string
   ): Promise<{ id: string; approval: Record<string, unknown> } | null> => {
@@ -352,12 +340,6 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
 }
 
 export type ChatApi = ReturnType<typeof createChatApi>;
-
-// The phone's thread list (decisions.md, "Phone thread list after a core restart").
-// Node's view sync subscribed to the catalog, then listed it, and a roster pushed during that read outranked the listing
-// (view-synchronizer.ts readCatalog); the phone replaced its list with that baseline on every attach, a restarted desktop's included.
-// On reconnect the same client claims its last folded app position and missed edges replay. Only a snapshot (first attach or
-// replay unavailable) needs the list read again, with edges that arrive during the walk laid over it.
 
 type ThreadRow = Record<string, unknown>;
 
@@ -681,8 +663,6 @@ const SHELL_PUBLISHING_CALLS = ['startProject', 'startProjectTask', 'startTask']
   (typeof CHAT_CALLS)[number]
 >;
 
-/** `sharedFor` and the api are made PER CALL from `host.client()`: that client carries this call's transmission claim
- *  (phone-send-scope.ts), so a request written through anything built from it is claimed; one captured at start would not be. */
 /** The calls are the host's (remote-chat-host.ts `createChatHostApi`) over the base api: the start calls, the snapshot's remote
  *  fields, paging, the stale-view refusal and the refusal texts Node's host answered the phone with. */
 export function createChatAdapter(options: {
@@ -725,9 +705,6 @@ export function createChatAdapter(options: {
       return answer;
     };
   }
-  // `getSnapshot` is Node's host shell snapshot (session-host.ts:436 `publication.shellSnapshot`): null until a start call published
-  // one (session-host-lifecycle.ts:170-190 `publishShell`), then the latest start's blank snapshot, its remote fields as the remote
-  // channel stands now (session-host-publication.ts:281-301). The shell is this page's: a start made in the desktop window is not seen.
   const shells = new WeakMap<object, SessionSnapshot>();
   for (const name of SHELL_PUBLISHING_CALLS) {
     calls[name] = async (params, host) => {

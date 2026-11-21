@@ -1,8 +1,3 @@
-// Validator parity: every row of the Rust boundary validators' fixtures, and every input the TUI and the phone send
-// (clients-accepted.json), is run through the TypeScript validator that guarded the same input in the desktop main
-// process. Both must give the same verdict. Where the Rust validator is deliberately more open than the desktop call
-// could be (a protocol client leaves an argument as `{}` or `null`, which a positional call could not), the row is
-// listed in DIVERGENCES with its kind, and the test fails when a listed row stops diverging.
 import assert from 'node:assert/strict';
 import fs, { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -527,18 +522,12 @@ const CONFIG_SCHEMA = new URL(
 );
 const SCM_INPUT = new URL('../../../../native/core/crates/mixdog-scm/src/input.rs', import.meta.url);
 
-/**
- * Each validator the handlers of the renderer's direct API called, and the Rust check that answers for it: the file under
- * native/core/crates and a text the check carries (the test finds the text in the file, so a moved or deleted check fails).
- * A setting the desktop wrote through its own channel is written with `config/value/write`, whose schema table refuses
- * the value; a value that is a typed protocol param is answered by its decode.
- */
 const COVERAGE = {
-  // The core has no param for the sign-in options (the route's `null` slot, input_tests.rs): the shared scm-input.ts check runs in the
-  // host and the phone's adapter before the call, so a malformed options value never reaches the core and there is no Rust check to name.
+  // The core has no param for the sign-in options: the shared scm-input.ts check runs in the host and the phone's adapter
+  // before the call, so a malformed options value never reaches the core; the route that takes only the flow id is pinned.
   optionalGithubLoginOptions: [
-    new URL('../../../../native/core/crates/mixdog-scm/src/input_tests.rs', import.meta.url),
-    '"githubCliLoginOpenBrowser" => positional("github/login/openBrowser"',
+    SCM_INPUT,
+    '"github/login/openBrowser" => call("githubCliLoginOpenBrowser", required_string(arg("flowId"), "flowId", 200)',
   ],
   projectDisplayName: [WORKSPACE_NAMES, 'alias must be a string.'],
   normalizeDesktopFeedback: [
@@ -666,35 +655,30 @@ function validatorsOfHandlers() {
   return found;
 }
 
+function validatorsCalledInSources(directory, used = new Set()) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const path = `${directory}${entry.name}`;
+    if (entry.isDirectory()) validatorsCalledInSources(`${path}/`, used);
+    else if (/[.]tsx?$/.test(entry.name) && !/[.](test|d)[.]/.test(entry.name)) {
+      const file = ts.createSourceFile(path, fs.readFileSync(path, 'utf8'), ts.ScriptTarget.ES2022, true);
+      const visit = (node) => {
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && VALIDATOR_NAME.test(node.expression.text))
+          used.add(node.expression.text);
+        ts.forEachChild(node, visit);
+      };
+      visit(file);
+    }
+  }
+  return used;
+}
+
 test('coverage: every validator a direct key calls is answered by a rule of the core that still exists', () => {
   const handlers = validatorsOfHandlers();
   const unmapped = new Set();
-  // A covered validator is stale when no handler calls it. A key the host serves itself (the attachment staging) is not a
-  // direct key, but its handler still calls the validator the core's own validator answers for.
-  const used = new Set([...handlers.values()].flatMap((names) => [...names]));
-  // The renderer's remote adapters (the phone's calls) and the host's own closures call validators too, outside the handlers of main's
-  // ipc files: a call anywhere in the desktop's sources is the desktop still calling it.
-  const sources = fileURLToPath(new URL('../', import.meta.url));
-  const scan = (directory) => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      const path = `${directory}${entry.name}`;
-      if (entry.isDirectory()) scan(`${path}/`);
-      else if (/[.]tsx?$/.test(entry.name) && !/[.](test|d)[.]/.test(entry.name)) {
-        const file = ts.createSourceFile(path, fs.readFileSync(path, 'utf8'), ts.ScriptTarget.ES2022, true);
-        const visit = (node) => {
-          if (
-            ts.isCallExpression(node) &&
-            ts.isIdentifier(node.expression) &&
-            VALIDATOR_NAME.test(node.expression.text)
-          )
-            used.add(node.expression.text);
-          ts.forEachChild(node, visit);
-        };
-        visit(file);
-      }
-    }
-  };
-  scan(sources);
+  const used = validatorsCalledInSources(
+    fileURLToPath(new URL('../', import.meta.url)),
+    new Set([...handlers.values()].flatMap((names) => [...names]))
+  );
   let withValidators = 0;
   for (const key of Object.values(DIRECT_KEYS).flat()) {
     const validators = handlers.get(key);

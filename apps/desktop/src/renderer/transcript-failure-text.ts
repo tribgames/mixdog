@@ -1,10 +1,7 @@
 import { t } from './i18n';
 
-// The session runtime writes a failed turn's reason as one fixed English
-// sentence (presentErrorText / transportErrorText), optionally carrying a
-// diagnostic code in parentheses. Those sentences are the translation keys;
-// the code survives untranslated so the user can still report it.
-// Static t() literals so the catalog extractor keeps every key.
+// Fixed sentences from the session runtime (presentErrorText / transportErrorText), optionally with a
+// diagnostic code in parentheses that stays untranslated. Static t() literals keep the catalog extractor's keys.
 const FIXED_REASONS: ReadonlyMap<string, () => string> = new Map([
   ['Connection to the provider was lost', () => t('Connection to the provider was lost')],
   ['Could not reach the provider', () => t('Could not reach the provider')],
@@ -51,10 +48,8 @@ function localizedTimeoutReason(text: string): string | null {
   return null;
 }
 
-// The latest message that cannot fit the window (compact/runner.mjs): sizes
-// inline, one cause of two, a fixed remedy. The error notice shows the first
-// sentence as its summary and the rest as the next step, the transcript all of
-// them, so each sentence is re-spoken on its own.
+// Sentences of the latest-message-too-large failure (compact/runner.mjs); the error notice and the
+// transcript show different subsets, so each is localized on its own.
 const LATEST_TURN_SENTENCES: ReadonlyArray<[RegExp, (match: RegExpExecArray) => string]> = [
   [
     /^The latest message cannot fit this model: it needs about ([\d,]+) tokens, but the ([\d,]+)-token window leaves ([\d,]+) for it\.$/,

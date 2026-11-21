@@ -9,11 +9,11 @@ import {
   paneDockActiveRoot,
   paneFilesShowing,
   samePaneSideDocks,
-  usePaneSideDocks,
   withPaneDockFileOpened,
   withPaneDockFolderClosed,
   withPaneDockFolderOpened,
 } from './pane-side-dock.tsx';
+import { usePaneSideDocks } from './pane-side-dock-state.ts';
 import { PaneDockFilesSurface } from './pane-dock-files.tsx';
 import { sessionSideDockEntryForSession } from './session-side-surface-policy.ts';
 

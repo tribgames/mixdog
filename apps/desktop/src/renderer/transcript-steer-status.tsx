@@ -1,8 +1,3 @@
-// The line under a message sent while a turn runs. Until the model reads it:
-// "Send now" (or "Runs after this task" for a slash command the turn holds),
-// with ✕ to take it back (on hover or keyboard focus with a mouse, always on
-// touch); a failed send offers "Send again".
-// Once read, a muted ✓ stands in its place.
 import { Check, X } from 'lucide-react';
 import { useContext, type ReactNode } from 'react';
 import type { TranscriptItem } from './desktop-types';

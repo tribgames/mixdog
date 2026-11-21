@@ -15,10 +15,10 @@ import type { HostBrowserScreenshotResult } from '../../../../../../packages/pro
 import type { createBrowserScreenshotService } from '../../browser/screenshot';
 import { type EncodedBrowserScreenshot, screenshotWireImage } from '../../browser/screenshot-image';
 import { normalizeScreenshotOptions } from '../../browser/screenshot-policy';
-import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
+import type { HostConnection } from '../connection';
 import { uploadBlob } from './blob-upload';
 import type { EngineContext } from './context';
-import { requireCurrentSnapshot } from './ref-call';
+import { invalid, requireCurrentSnapshot } from './ref-call';
 import { registerEngineMethod } from './registry';
 
 export const HOST_BROWSER_SCREENSHOT = 'host/browser/screenshot';
@@ -40,10 +40,6 @@ const PAGE_GEOMETRY = `(() => ({
   viewport: { width: Math.round(window.innerWidth), height: Math.round(window.innerHeight) },
   scroll: { x: Math.round(window.scrollX), y: Math.round(window.scrollY) },
 }))()`;
-
-function invalid(message: string): HostRpcError {
-  return new HostRpcError(HOST_INVALID_PARAMS, message);
-}
 
 type Clip = { kind: 'ref'; snapshotId: string; ref: string } | { kind: 'rect'; rect: Rectangle };
 

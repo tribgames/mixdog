@@ -1,8 +1,3 @@
-/**
- * Per-command dispatch: validate the command, place it on its page (visible
- * or background), settle the page around the handler, and redact the reply.
- * The host owns wiring; this owns what one command does once it runs.
- */
 import type { createBrowserActionApproval } from './action-approval';
 import { pageHasPaymentEvidence } from './payment-evidence';
 import { type createBrowserAutoSignIn, SAVED_SIGN_IN_DONE, SAVED_SIGN_IN_NEEDS_USER } from './auto-sign-in';
@@ -293,10 +288,6 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
     }
   }
 
-  /** The identity a "Continue with Google/GitHub" last used on this site; ''
-   *  without one. The reply goes out without the line when it cannot be read:
-   *  the one expected failure is the page closing while its record is read;
-   *  any other (an unreadable store, ...) is reported, never silently dropped. */
   async function linkedReplyLine(guest: WebContents, sessionId: string, turnId: number): Promise<string> {
     if (!host.linkedSignIn) return '';
     try {

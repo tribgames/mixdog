@@ -1,9 +1,3 @@
-// What the socket-owning layer can see that a whole-message API hides: bytes arriving on the connection from the core, before the
-// message they belong to is complete. A `ws` WebSocket delivers a message only when all of it has arrived, so a response of several
-// megabytes on a slow link would show the health machine (packages/protocol-client/src/health.ts) nothing for as long as it takes.
-// This reports the socket's own data events, at most once per `minGapMs`, as the transport's progress fact; the policy is the
-// client's. The bytes are those of the connection this socket carries to the core (a loopback socket, or the local end of an SSH
-// forward to a server's core), so they are the core's, not a relay's keepalive.
 export const SOCKET_PROGRESS_MIN_GAP_MS = 200;
 
 interface RawSocket {

@@ -44,11 +44,6 @@ function publish(entry: RecoveryEntry, patch: Partial<RecoverySnapshot>) {
   for (const listener of entry.listeners) listener();
 }
 
-/**
- * The conversation's stored image choices and restore check, read from the core when shown and after every fix, so what was
- * chosen (and can be put back) survives closing and reopening the conversation. With `poll`, the restore check is asked again
- * each second while it runs, since the check has no event of its own yet (hand-off section 7); only the panel polls.
- */
 function useImageRecovery(sessionId: string, poll = false) {
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -84,6 +79,7 @@ function useImageRecovery(sessionId: string, poll = false) {
     if (sessionId) void call({ type: 'state' });
   }, [call, sessionId]);
   const checking = poll && state?.gate.state === 'checking';
+  // The restore check has no event of its own yet (hand-off section 7), so it is asked again each second.
   // biome-ignore lint/correctness/useExhaustiveDependencies: each new state answer re-arms the one-second poll while the check runs
   useEffect(() => {
     if (!checking) return;
@@ -95,12 +91,6 @@ function useImageRecovery(sessionId: string, poll = false) {
 
 type Recovery = ReturnType<typeof useImageRecovery>;
 
-/**
- * The local fixes for `blockers`: leave them out (after naming each one), replace one with a picture the person picks, and
- * start again from the last message without the earlier conversation. Each is one `imageRecovery` call that edits how the
- * conversation is sent and nothing else; the message to send again is the person's own. Undoing a choice is offered in one
- * place, [`StoredChoices`].
- */
 function RecoveryActions({
   blockers,
   numberOf,
@@ -212,10 +202,6 @@ function RecoveryActions({
   );
 }
 
-/**
- * The one offer to undo the conversation's stored choices (images left out or replaced, a new start), whatever made them: a
- * refused turn's fixes or a restore-time repair. Shown in every state of the restore check while any choice is stored.
- */
 function StoredChoices({ state, recovery }: { state: ImageRecoveryState; recovery: Recovery }) {
   const { busy, problem, call } = recovery;
   if (state.edits.length === 0 && !state.newContextAt) return null;
@@ -250,11 +236,7 @@ export function ImageRefusalActions({ refusal, sessionId }: { refusal: ImageRefu
   );
 }
 
-/**
- * The image panel of an opened conversation: the restore check's progress while it runs, each image it could not take with the
- * fixes that work for it, and (in every state) the undo of the conversation's stored choices, so a repair made at restore time
- * or beside a refused turn can be taken back after reopening.
- */
+/** The image panel of an opened conversation: restore-check progress, the images it could not take with their fixes, and the undo of stored choices. */
 export function ImageCheckStatus({ sessionId }: { sessionId: string }) {
   const recovery = useImageRecovery(sessionId, true);
   const { state } = recovery;

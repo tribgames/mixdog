@@ -1,9 +1,3 @@
-// Quiet-time cue for a running turn: how long it has gone without progress
-// the stall watchdog counts, and what it is waiting on. Display only — the
-// watchdog's abort policy lives in stall-policy.mjs and is never read or
-// changed here. Shared by the TUI spinner, the desktop live status line and
-// the desktop agent rows, so every surface says the same thing.
-
 /** A running turn with no counted progress for this long reads "quiet".
  *  Lenient on purpose: effort-mode models can think for minutes without a
  *  single semantic delta (stall-policy.mjs, the semantic-idle notes), so the

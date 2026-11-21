@@ -1,17 +1,3 @@
-// Zoom host for the editor previews: a positioned frame holding the one
-// scroller (so the ZoomPill floats over it and never scrolls away) plus the
-// pill.
-//
-// Two modes. "fit" (default) shows content at fitWidthScale of the viewport
-// and refits whenever the viewport resizes; "fixed" is a scale the user
-// picked (25%–400%) and keeps both that scale and the content point at the
-// viewport centre across a resize. Wheel zoom anchors at the cursor, buttons
-// and keys at the centre. The pill is always shown unless the shared zoom-bar
-// preference hides it (wheel and keys zoom either way).
-// A mouse can drag-pan overflow, and (clickToggle) a click toggles fit ↔ 100%.
-//
-// The choice is remembered per `memoryKey` (a file in one surface) for as
-// long as that file stays in use; another file starts at fit.
 import {
   useCallback,
   useLayoutEffect,

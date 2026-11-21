@@ -35,11 +35,6 @@ export function useAppFrameNavigationState(startupNavigationSelection: Navigatio
   // The window's Back/Forward history: session activation and editor opens
   // record into the same stack.
   const [navigationHistory] = useState(() => ({ current: createNavigationHistory() }));
-  // Stable identity: SessionSidebar is memoised and must not re-render from a
-  // fresh selection object literal on every App commit. A switch hands it the
-  // requested target first and the committed selection of the same session
-  // later: the sidebar reads only the navigation identity, so an equal one
-  // keeps the object it already has.
   const sidebarSelectionRef = useRef<NavigationSelection | null>(null);
   const sidebarSelection: NavigationSelection = useMemo(() => {
     const next: NavigationSelection = requestedSessionId ? { kind: 'session', id: requestedSessionId } : selection;

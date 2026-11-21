@@ -34,14 +34,14 @@ export function useRemoteBrowserTabs({
   const [tabs, setTabs] = useState<DesktopRemoteBrowserTab[]>([]);
   // Only a main-workspace tab may roam over its siblings; a conversation's
   // dock page stays its own.
-  const tabsSupported =
-    sessionId.startsWith(MAIN_BROWSER_PAGE_PREFIX) && Boolean(api?.remoteBrowserTabs && api.onRemoteBrowserTabs);
-  // A conversation's browser keeps its tabs inside its own side-panel browser:
-  // the host streams the strip and takes the same tab controls as the PC pane.
+  const mainWorkspacePage = sessionId.startsWith(MAIN_BROWSER_PAGE_PREFIX);
+  const tabsSupported = mainWorkspacePage && Boolean(api?.remoteBrowserTabs && api.onRemoteBrowserTabs);
   const sessionTabsSupported =
-    !sessionId.startsWith(MAIN_BROWSER_PAGE_PREFIX) &&
-    api?.remoteBrowserSessionTabs === true &&
-    Boolean(api.remoteBrowserControl);
+    !mainWorkspacePage && api?.remoteBrowserSessionTabs === true && Boolean(api.remoteBrowserControl);
+  const reportFailure = useCallback(
+    (error: unknown) => setActionFailure(error instanceof Error ? error.message : String(error)),
+    [setActionFailure]
+  );
   const sessionTabControl = useCallback(
     /** The host's reply (a close reports the tabs left), or null when it failed. */
     async (control: DesktopRemoteBrowserControl): Promise<{ remainingTabs?: number } | null> => {
@@ -49,11 +49,11 @@ export function useRemoteBrowserTabs({
         const reply = await api?.remoteBrowserControl?.(sessionId, control);
         return reply ?? {};
       } catch (error) {
-        setActionFailure(error instanceof Error ? error.message : String(error));
+        reportFailure(error);
         return null;
       }
     },
-    [api, sessionId, setActionFailure]
+    [api, sessionId, reportFailure]
   );
   useEffect(() => {
     if (!active || !tabsSupported || !api?.remoteBrowserTabs || !api.onRemoteBrowserTabs) {
@@ -94,7 +94,6 @@ export function useRemoteBrowserTabs({
   );
   const createSessionTab = () => sessionTabControl({ type: 'new-tab' });
   const closeSessionTab = (id: string) => sessionTabControl({ type: 'close-tab', tabId: id });
-  const reportFailure = (error: unknown) => setActionFailure(error instanceof Error ? error.message : String(error));
   const openTab = async (raw: string) => {
     const url = normalizeAddressInput(raw);
     if (!url || !api?.remoteBrowserOpenTab) return;

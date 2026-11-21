@@ -1,13 +1,3 @@
-/**
- * The on-PC pill shown while a paired phone views or controls the whole
- * screen. Electron-free: windows, displays and the Computer Use pill's
- * presence are injected, so the stacking and stop rules run under test.
- *
- * One pill serves every active phone; its tooltip lists them, and Stop ends
- * every remote session (never Computer Use work, which has its own pill).
- * It sits on the display of the earliest still-active session, falling back
- * to the primary display when that display is unknown or gone.
- */
 import {
   nextRemoteSlot,
   boundsKey,

@@ -1,9 +1,3 @@
-/**
- * One capture for `host/computer/pixels`: the ordered backends for the target (the display through the compositor or the
- * GNOME shell extension; a window of the app through its own page, then the compositor), each attempt recorded, the pixels
- * cropped to the asked region and fitted to the budget. The platform capturers come in as `PixelSources`; the Electron
- * binding of them is `electronPixelSources`, loaded only when the host serves a request.
- */
 import { fitImage, type PixelImage, type Size } from './encode';
 
 export interface Rect {
@@ -142,39 +136,48 @@ interface Entry {
   run: () => Promise<{ image: PixelImage; source: PixelSourceInfo }>;
 }
 
-function entriesFor(sources: PixelSources, request: PixelRequest): Entry[] {
-  const { target, backend, region } = request;
-  if (target.kind === 'display') {
-    if (backend === 'app_owned') {
-      throw new PixelsError('invalid_params', 'the app_owned backend captures a window, not a display');
-    }
-    const display = pickDisplay(sources.displays(), target);
-    if (region && !insideDisplay(region, display.geometry)) {
-      throw new PixelsError('invalid_params', 'the region is not inside the display');
-    }
-    return [
-      {
-        backend: 'screen',
-        run: async () => {
-          const image = await sources.displayPixels(display, display.pixelSize);
-          const source: PixelSourceInfo = {
-            ...(region ?? display.geometry),
-            scaleFactor: display.scaleFactor,
-            displayId: display.id,
-            windowId: null,
-          };
-          return {
-            image: region ? cropToRegion(image, display, region) : image,
-            source,
-          };
-        },
-      },
-    ];
+function displayEntries(
+  sources: PixelSources,
+  target: Extract<PixelTarget, { kind: 'display' }>,
+  backend: PixelBackend,
+  region: Rect | undefined
+): Entry[] {
+  if (backend === 'app_owned') {
+    throw new PixelsError('invalid_params', 'the app_owned backend captures a window, not a display');
   }
+  const display = pickDisplay(sources.displays(), target);
+  if (region && !insideDisplay(region, display.geometry)) {
+    throw new PixelsError('invalid_params', 'the region is not inside the display');
+  }
+  return [
+    {
+      backend: 'screen',
+      run: async () => {
+        const image = await sources.displayPixels(display, display.pixelSize);
+        const source: PixelSourceInfo = {
+          ...(region ?? display.geometry),
+          scaleFactor: display.scaleFactor,
+          displayId: display.id,
+          windowId: null,
+        };
+        return {
+          image: region ? cropToRegion(image, display, region) : image,
+          source,
+        };
+      },
+    },
+  ];
+}
+
+function windowEntries(
+  sources: PixelSources,
+  windowId: string,
+  backend: PixelBackend,
+  region: Rect | undefined
+): Entry[] {
   if (backend === 'screen')
     throw new PixelsError('invalid_params', 'the screen backend captures a display, not a window');
   if (region) throw new PixelsError('invalid_params', 'a region is the part of a display; a window is captured whole');
-  const { windowId } = target;
   const owned = (): PixelWindow => {
     const window = sources.ownedWindow(windowId);
     if (!window) throw new Error(`${GONE}: the app has no such window`);
@@ -203,8 +206,14 @@ function entriesFor(sources: PixelSources, request: PixelRequest): Entry[] {
       };
     },
   };
-  // The window's own page first, the compositor when that fails; a request for the compositor goes nowhere else.
   return backend === 'app_owned' ? [ownPage, compositor] : [compositor];
+}
+
+function entriesFor(sources: PixelSources, request: PixelRequest): Entry[] {
+  const { target, backend, region } = request;
+  return target.kind === 'display'
+    ? displayEntries(sources, target, backend, region)
+    : windowEntries(sources, target.windowId, backend, region);
 }
 
 function failure(sources: PixelSources, request: PixelRequest, attempts: PixelAttempt[]): PixelsError {

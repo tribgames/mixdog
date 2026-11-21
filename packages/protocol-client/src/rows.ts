@@ -1,11 +1,3 @@
-// The transcript rows of a thread: `ThreadItem` → the exact row objects of today's Node product, field for field, so the renderer, the
-// TUI and the phone read them unchanged. Ported from src/runtime/.../transcript-restore/restore.mjs (tool cards, `__aggregate__`
-// cards, attachments), src/tui/session/transcript-intake.mjs and agent-room.mjs `roomRowItem`; the helpers they call live in ./rows.
-//
-// The fold keeps an item's individual rows before it merges consecutive cards:
-//  - `itemRows` projects an item, using `rowOf` for ordinary rows;
-//  - `mergeToolRows` collapses a run of finished tool rows into one `__aggregate__` row (restore.mjs `mergeRestoredToolItems`).
-// `meta.ext` supplies remaining row attributes after the typed fields, except for payloads that need normalization.
 import type { Json } from './api.ts';
 import { asObj, isObj } from './obj.ts';
 import type { Obj } from './obj.ts';
@@ -22,11 +14,17 @@ const stoppedRows = new WeakSet<Obj>();
 
 const text = (v: unknown): string => (typeof v === 'string' ? v : '');
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const present = <K extends string>(key: K, v: unknown): { [P in K]?: Json } => (typeof v === 'string' && v ? ({ [key]: v } as { [P in K]?: Json }) : {});
+const present = <K extends string>(key: K, v: unknown): { [P in K]?: Json } =>
+  typeof v === 'string' && v ? ({ [key]: v } as { [P in K]?: Json }) : {};
 
 /** `transcriptRouteMetadataFields`: the route a user or assistant row was produced on. */
 function routeFields(m: Obj): Obj {
-  return { ...present('modelId', m.modelId), ...present('model', m.model), ...present('provider', m.provider), ...present('agent', m.agent) };
+  return {
+    ...present('modelId', m.modelId),
+    ...present('model', m.model),
+    ...present('provider', m.provider),
+    ...present('agent', m.agent),
+  };
 }
 const atField = (m: Obj): Obj => (finite(m.at) ? { at: m.at } : {});
 
@@ -35,7 +33,11 @@ const positions = new WeakMap<object, { before: string | undefined; after: strin
 export function historyPositionOf(row: unknown, direction: 'before' | 'after' = 'before'): string | undefined {
   return row && typeof row === 'object' ? positions.get(row)?.[direction] : undefined;
 }
-export function setHistoryPositions<T extends object>(row: T, before: string | undefined, after: string | undefined): T {
+export function setHistoryPositions<T extends object>(
+  row: T,
+  before: string | undefined,
+  after: string | undefined
+): T {
   if (before !== undefined || after !== undefined) positions.set(row, { before, after });
   return row;
 }
@@ -62,7 +64,9 @@ const DIVIDERS_AFTER = 'dividersAfter';
 /** A history page's item as its rows: its own row, then the rows of the compaction dividers that follow it. */
 export function rowsOf(item: Obj): Obj[] {
   const after = asObj(asObj(item.meta).ext)[DIVIDERS_AFTER];
-  const dividers = Array.isArray(after) ? after.map((divider) => rowOf(asObj(divider))).filter((row): row is Obj => row !== null) : [];
+  const dividers = Array.isArray(after)
+    ? after.map((divider) => rowOf(asObj(divider))).filter((row): row is Obj => row !== null)
+    : [];
   return [...itemRows(item), ...dividers];
 }
 
@@ -73,7 +77,8 @@ interface BatchEntry {
   execution: Obj;
 }
 
-const escapeField = (value: string): string => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+const escapeField = (value: string): string =>
+  value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 /** The completions of a turn input row, located in its text. A row the core wrote for a batch carries them as data
  * (`details.completions`, UTF-16 offsets into the text): nothing is cut by its content. A row stored before that data existed has
@@ -109,19 +114,31 @@ export function batchEntries(content: string, details: Obj): BatchEntry[] {
   return starts.map((start, at) => ({
     start,
     end: at === starts.length - 1 ? content.length : (starts[at + 1] as number) - 1,
-    execution: envelopeExecution(content.slice(start, at === starts.length - 1 ? content.length : (starts[at + 1] as number) - 1)) ?? {},
+    execution:
+      envelopeExecution(
+        content.slice(start, at === starts.length - 1 ? content.length : (starts[at + 1] as number) - 1)
+      ) ?? {},
   }));
 }
 
 /** `parseTaskNotification`'s outer fields (task id, status, surface) of one envelope; null when it has none of a task's. */
 function envelopeExecution(envelope: string): Obj | null {
   const head = envelope.split('\n<result>\n')[0] ?? '';
-  const field = (name: string) => new RegExp(`^<${name}>([^<]*)</${name}>$`, 'm').exec(head)?.[1]?.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&') ?? '';
+  const field = (name: string) =>
+    new RegExp(`^<${name}>([^<]*)</${name}>$`, 'm')
+      .exec(head)?.[1]
+      ?.replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&amp;', '&') ?? '';
   const id = field('task-id');
   const status = field('status');
   const summary = field('summary');
   if (!id || !summary || !/^(completed|failed|cancelled)$/.test(status)) return null;
-  const surface = summary.startsWith('Agent "') ? 'agent' : summary.startsWith('Shell task ') ? 'shell' : /^(\S+) task /.exec(summary)?.[1] || 'tool';
+  const surface = summary.startsWith('Agent "')
+    ? 'agent'
+    : summary.startsWith('Shell task ')
+      ? 'shell'
+      : /^(\S+) task /.exec(summary)?.[1] || 'tool';
   return { id, status, surface };
 }
 
@@ -136,7 +153,10 @@ function importedToolLine(tools: ImportedTool[], codePoints: boolean): string {
     const chars = codePoints ? Array.from(name) : name;
     const clipped = chars.slice(0, 39);
     // A UTF-16 cut between surrogates is serialized by the Rust importer as U+FFFD.
-    const display = chars.length > 40 ? `${typeof clipped === 'string' ? clipped.replace(/[\uD800-\uDBFF]$/, '�') : clipped.join('')}…` : name;
+    const display =
+      chars.length > 40
+        ? `${typeof clipped === 'string' ? clipped.replace(/[\uD800-\uDBFF]$/, '�') : clipped.join('')}…`
+        : name;
     const next = `${shown ? `${body}, ` : ''}${display} ×${count}`;
     if (shown && `[ran tools: ${next}${suffix(tools.length - shown - 1)}]`.length > 400) break;
     body = next;
@@ -145,8 +165,40 @@ function importedToolLine(tools: ImportedTool[], codePoints: boolean): string {
   return `[ran tools: ${body}${suffix(tools.length - shown)}]`;
 }
 
+function importedRun(
+  run: Obj,
+  content: string,
+  cursor: number
+): { start: number; end: number; calls: ImportedTool[] } | undefined {
+  const { start, end, tools } = run;
+  if (
+    !finite(start) ||
+    !finite(end) ||
+    !Number.isInteger(start) ||
+    !Number.isInteger(end) ||
+    start < cursor ||
+    end <= start ||
+    end > content.length
+  )
+    return undefined;
+  if (
+    !Array.isArray(tools) ||
+    !tools.length ||
+    !tools.every((tool) => {
+      const { name, count } = asObj(tool);
+      return typeof name === 'string' && finite(count) && Number.isInteger(count) && count > 0;
+    })
+  )
+    return undefined;
+  const calls = tools as ImportedTool[];
+  const line = content.slice(start, end);
+  if (line !== importedToolLine(calls, true) && line !== importedToolLine(calls, false)) return undefined;
+  return { start, end, calls };
+}
+
 function importedAssistantRows(item: Obj, m: Obj): Obj[] | undefined {
-  if (typeof item.text !== 'string' || !Array.isArray(item.importedToolRuns) || !item.importedToolRuns.length) return undefined;
+  if (typeof item.text !== 'string' || !Array.isArray(item.importedToolRuns) || !item.importedToolRuns.length)
+    return undefined;
   const content = item.text;
   const assistant = rowOf(item)!;
   const rows: Obj[] = [];
@@ -158,21 +210,20 @@ function importedAssistantRows(item: Obj, m: Obj): Obj[] | undefined {
   };
   let cursor = 0;
   for (const entry of item.importedToolRuns) {
-    const run = asObj(entry);
-    const { start, end, tools } = run;
-    if (!finite(start) || !finite(end) || !Number.isInteger(start) || !Number.isInteger(end) || start < cursor || end <= start || end > content.length) continue;
-    if (!Array.isArray(tools) || !tools.length || !tools.every((tool) => {
-      const { name, count } = asObj(tool);
-      return typeof name === 'string' && finite(count) && Number.isInteger(count) && count > 0;
-    })) continue;
-    const calls = tools as ImportedTool[];
-    const line = content.slice(start, end);
-    if (line !== importedToolLine(calls, true) && line !== importedToolLine(calls, false)) continue;
+    const run = importedRun(asObj(entry), content, cursor);
+    if (!run) continue;
+    const { start, end, calls } = run;
     pushText(content.slice(cursor, start));
     for (const { name, count } of calls) {
       if (node.isTranscriptHiddenControlToolName(name)) continue;
       rows.push({
-        kind: 'tool', id: nextId(), name, count, completedCount: count, imported: true, expanded: false,
+        kind: 'tool',
+        id: nextId(),
+        name,
+        count,
+        completedCount: count,
+        imported: true,
+        expanded: false,
         ...(finite(m.at) ? { at: m.at, startedAt: m.at, completedAt: m.at } : {}),
         ...(assistant.archived === true ? { archived: true } : {}),
       });
@@ -208,7 +259,7 @@ export function itemRows(item: Obj): Obj[] {
             id: at === 0 ? (item.id as Json) : `${String(item.id)}:${at}`,
             content: [{ type: 'text', text: content.slice(entry.start, entry.end) }],
             meta: { ...m, ext: { ...ext, execution: entry.execution } },
-          }),
+          })
         )
         .filter((row): row is Obj => row !== null);
     }
@@ -223,25 +274,70 @@ function rowBody(item: Obj, m: Obj): Obj | null {
     case 'userMessage':
       return userMessageRow(item, m);
     case 'agentMessage':
-      return { kind: 'assistant', id, text: text(item.text), ...present('messageId', m.messageId), ...atField(m), ...routeFields(m) };
+      return {
+        kind: 'assistant',
+        id,
+        text: text(item.text),
+        ...present('messageId', m.messageId),
+        ...atField(m),
+        ...routeFields(m),
+      };
     case 'reasoning':
       return null;
     case 'turnEnd':
       return turnEndRow(item, m);
     case 'mcpToolCall':
-      return toolRow(item, m, `mcp__${text(item.server)}__${text(item.tool)}`, item.arguments as Json, outputText(item.result ?? item.error), failed || item.error !== undefined);
+      return toolRow(
+        item,
+        m,
+        `mcp__${text(item.server)}__${text(item.tool)}`,
+        item.arguments as Json,
+        outputText(item.result ?? item.error),
+        failed || item.error !== undefined
+      );
     case 'webSearch':
       return toolRow(item, m, 'web_search', { query: item.query as Json }, undefined, failed);
     case 'toolCall':
       // A stored card states its result once, on its run; a live one may carry `output`.
-      return toolRow(item, m, text(item.name), item.input as Json, outputText(item.output ?? asObj(item.run).result), failed);
+      return toolRow(
+        item,
+        m,
+        text(item.name),
+        item.input as Json,
+        outputText(item.output ?? asObj(item.run).result),
+        failed
+      );
     case 'subAgentActivity':
-      return toolRow(item, m, 'agent', { agent: item.agent as Json, ...(item.threadId === undefined ? {} : { threadId: item.threadId as Json }) }, undefined, failed);
+      return toolRow(
+        item,
+        m,
+        'agent',
+        { agent: item.agent as Json, ...(item.threadId === undefined ? {} : { threadId: item.threadId as Json }) },
+        undefined,
+        failed
+      );
     case 'agentJob':
-      return toolRow(item, m, 'agent', { ...(item.tag === undefined ? {} : { tag: item.tag as Json }), ...(item.taskId === undefined ? {} : { task_id: item.taskId as Json }) }, undefined, failed);
+      return toolRow(
+        item,
+        m,
+        'agent',
+        {
+          ...(item.tag === undefined ? {} : { tag: item.tag as Json }),
+          ...(item.taskId === undefined ? {} : { task_id: item.taskId as Json }),
+        },
+        undefined,
+        failed
+      );
     case 'contextCompaction':
       // The product's compaction divider (compaction-archive-capture.mjs): status `compacted`, label `Conversation compacted`.
-      return { kind: 'statusdone', id, status: 'compacted', label: text(m.label) || 'Conversation compacted', ...present('detail', m.detail), ...atField(m) };
+      return {
+        kind: 'statusdone',
+        id,
+        status: 'compacted',
+        label: text(m.label) || 'Conversation compacted',
+        ...present('detail', m.detail),
+        ...atField(m),
+      };
     case 'statusRow':
       return {
         kind: item.kind as Json,
@@ -292,11 +388,20 @@ function toolMetaField(value: unknown): Obj {
   if (!code) return {};
   const missing = Array.isArray(meta.missing) ? meta.missing.filter((name) => typeof name === 'string' && name) : [];
   const ownerSessionId = text(meta.ownerSessionId);
-  return { toolMeta: { code, missing, ...(/^[A-Za-z0-9_.:-]{1,128}$/.test(ownerSessionId) ? { ownerSessionId } : {}) } };
+  return {
+    toolMeta: { code, missing, ...(/^[A-Za-z0-9_.:-]{1,128}$/.test(ownerSessionId) ? { ownerSessionId } : {}) },
+  };
 }
 
 /** One tool call's row: restore.mjs `restoredToolCallItems` for the call, `attachRestoredToolResult` once it has finished. */
-function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output: string | undefined, failed: boolean): Obj | null {
+function toolRow(
+  item: Obj,
+  m: Obj,
+  name: string,
+  args: Json | undefined,
+  output: string | undefined,
+  failed: boolean
+): Obj | null {
   if (node.isTranscriptHiddenControlToolName(name) || node.isTaskWaitToolCall(name, args)) return null;
   const ext = asObj(m.ext);
   const finished = typeof m.status === 'string' && FINISHED.has(m.status);
@@ -315,7 +420,13 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
     expanded: false,
     count,
     completedCount: finished ? count : 0,
-    ...(finite(m.at) ? { at: m.at, startedAt: live && finite(run.startedAt) ? run.startedAt : m.at, ...(finished ? { completedAt } : {}) } : {}),
+    ...(finite(m.at)
+      ? {
+          at: m.at,
+          startedAt: live && finite(run.startedAt) ? run.startedAt : m.at,
+          ...(finished ? { completedAt } : {}),
+        }
+      : {}),
     ...present('callId', run.callId ?? ext.callId),
     ...present('messageId', m.messageId),
   };
@@ -333,7 +444,10 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
   const cancelled = node.toolResultTerminalStatus(result) === 'cancelled';
   const { isCallError, isExitError } = cancelled
     ? { isCallError: false, isExitError: false }
-    : node.toolCallOutcome({ isError: failed || stopped || ext.isError === true || run.isError === true, toolName: name }, result);
+    : node.toolCallOutcome(
+        { isError: failed || stopped || ext.isError === true || run.isError === true, toolName: name },
+        result
+      );
   row.isError = isCallError;
   row.errorCount = isCallError ? 1 : 0;
   row.callErrorCount = isCallError ? 1 : 0;
@@ -345,7 +459,8 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
 
 /** A tool row that can join an aggregate: a finished per-call card (restore.mjs `mergeRestoredToolItems` merges restored cards,
  * which have all finished; a call still running stays its own card until its result arrives). */
-const mergeable = (row: Obj): boolean => row.kind === 'tool' && row.aggregate !== true && row.imported !== true && 'result' in row;
+const mergeable = (row: Obj): boolean =>
+  row.kind === 'tool' && row.aggregate !== true && row.imported !== true && 'result' in row;
 /** A live tool row joins its bucket's aggregate whether or not its result has arrived (`syncAggregateHeader` counts the call at once). */
 const liveMergeable = (row: Obj): boolean => row.kind === 'tool' && row.aggregate !== true && row.imported !== true;
 
@@ -363,9 +478,6 @@ export function mergeToolRows(rows: readonly Obj[]): Obj[] {
 /** `mergeToolRows` in steps: yields every `ROWS_PER_STEP` rows so a long transcript merges in budgeted turns. */
 export const ROWS_PER_STEP = 16;
 
-// The rows are never mutated and every card is a function of the rows it is made from, so a merge hands back the card it made
-// before for the same rows: an unchanged run is the same object from one merge to the next, which a reader comparing by identity
-// (the desktop's reconcileTranscriptItems) takes as unchanged without walking it, and nothing is rebuilt per event.
 /** The card of a run, by its first row: the run's rows and liveness it was made from. */
 const runCards = new WeakMap<Obj, { live: boolean; rows: readonly Obj[]; card: Obj }>();
 /** A live standalone card, by its row. */
@@ -434,7 +546,11 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
       // A live standalone card (`standaloneCardSpec`) is sealed (`finalizeToolHeaders`) and shown (`materialize`) when its turn ends.
       let card = live ? standaloneCards.get(item) : item;
       if (!card) {
-        card = setHistoryPositions({ ...item, headerFinalized: true, deferredDisplayReady: true }, historyPositionOf(item), historyPositionOf(item, 'after'));
+        card = setHistoryPositions(
+          { ...item, headerFinalized: true, deferredDisplayReady: true },
+          historyPositionOf(item),
+          historyPositionOf(item, 'after')
+        );
         standaloneCards.set(item, card);
       }
       merged.push(card);
@@ -454,81 +570,89 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
   return merged;
 }
 
-/** The card of one run, every pass over its members stepped: the per-member work (outcome, summary, category entries) and then the
- * finalization (result patch and its members and detail line, last diff, loading targets, call ids, done categories, raw result).
- * `live`: the card of a live turn (turn-aggregate-cards.mjs): its calls are keyed by their provider call id, it carries no `at` or
- * `callIds`, and it is `deferredDisplayReady`; while a call has no result yet it holds only the header `syncAggregateHeader` keeps. */
-function* aggregateRowSteps(members: readonly { item: Obj; category: string }[], live: boolean): Generator<void, Obj, void> {
-  const header: AggregateHeader = { categories: new Map(), categoryOrder: [] };
-  const calls: AggregateCall[] = [];
-  for (const { item, category } of members) {
-    if (calls.length % ROWS_PER_STEP === ROWS_PER_STEP - 1) yield;
-    node.mergeAggregateCategoryEntries(header, node.aggregateToolCategoryEntries(item.name as string, item.args, category));
-    // A live card keys its calls by the provider's call id (`aggregateCallEntry`), a restored one by the restored item's id.
-    const callId = live ? item.callId : item.id;
-    if (!('result' in item)) {
-      // `aggregateCallEntry`: a call whose result has not arrived.
-      calls.push({
-        callId,
-        name: item.name as string,
-        args: item.args,
-        category,
-        isError: false,
-        isCallError: false,
-        isExitError: false,
-        exitCode: null,
-        resultText: null,
-        rawResultText: null,
-        resolved: false,
-        startedAt: item.startedAt,
-        completedAt: null,
-        summary: null,
-      } as unknown as AggregateCall);
-      continue;
-    }
-    const resultText = String(item.result ?? '');
-    const rawResultText = String(item.rawResult ?? item.result ?? '');
-    if (live) {
-      // The live card's result (`applyAggregateCallFields` of `toolResultDisplay`): the text a card shows (a command's body without its
-      // exit header, a failure as its presented error) beside the raw body.
-      const outcome = node.toolResultDisplay({ isError: item.isError === true }, rawResultText, item.name as string);
-      calls.push({
-        callId,
-        name: item.name as string,
-        args: item.args,
-        category,
-        isError: outcome.isError,
-        isCallError: outcome.isCallError,
-        isExitError: outcome.isExitError,
-        exitCode: outcome.exitCode,
-        resultText: outcome.text,
-        rawResultText,
-        ...node.stringUiDiffPatch(item.uiDiff),
-        resolved: true,
-        startedAt: item.startedAt,
-        completedAt: item.completedAt,
-        summary: !outcome.isError ? node.summarizeToolResult(item.name as string, item.args, rawResultText, outcome.isError) : null,
-      });
-      continue;
-    }
-    const { exitCode, isExitError, isCallError } = node.toolCallOutcome({ isError: item.isError === true, toolName: item.name as string }, resultText);
-    calls.push({
+function aggregateCall(item: Obj, category: string, live: boolean): AggregateCall {
+  const callId = live ? item.callId : item.id;
+  if (!('result' in item)) {
+    return {
       callId,
       name: item.name as string,
       args: item.args,
       category,
-      isError: isCallError,
-      isCallError,
-      isExitError,
-      exitCode,
-      resultText,
+      isError: false,
+      isCallError: false,
+      isExitError: false,
+      exitCode: null,
+      resultText: null,
+      rawResultText: null,
+      resolved: false,
+      startedAt: item.startedAt,
+      completedAt: null,
+      summary: null,
+    } as unknown as AggregateCall;
+  }
+  const resultText = String(item.result ?? '');
+  const rawResultText = String(item.rawResult ?? item.result ?? '');
+  if (live) {
+    const outcome = node.toolResultDisplay({ isError: item.isError === true }, rawResultText, item.name as string);
+    return {
+      callId,
+      name: item.name as string,
+      args: item.args,
+      category,
+      isError: outcome.isError,
+      isCallError: outcome.isCallError,
+      isExitError: outcome.isExitError,
+      exitCode: outcome.exitCode,
+      resultText: outcome.text,
       rawResultText,
       ...node.stringUiDiffPatch(item.uiDiff),
       resolved: true,
       startedAt: item.startedAt,
       completedAt: item.completedAt,
-      summary: !isCallError && resultText.trim() ? node.summarizeToolResult(item.name as string, item.args, resultText, false) : null,
-    });
+      summary: !outcome.isError
+        ? node.summarizeToolResult(item.name as string, item.args, rawResultText, outcome.isError)
+        : null,
+    };
+  }
+  const { exitCode, isExitError, isCallError } = node.toolCallOutcome(
+    { isError: item.isError === true, toolName: item.name as string },
+    resultText
+  );
+  return {
+    callId,
+    name: item.name as string,
+    args: item.args,
+    category,
+    isError: isCallError,
+    isCallError,
+    isExitError,
+    exitCode,
+    resultText,
+    rawResultText,
+    ...node.stringUiDiffPatch(item.uiDiff),
+    resolved: true,
+    startedAt: item.startedAt,
+    completedAt: item.completedAt,
+    summary:
+      !isCallError && resultText.trim()
+        ? node.summarizeToolResult(item.name as string, item.args, resultText, false)
+        : null,
+  };
+}
+
+function* aggregateRowSteps(
+  members: readonly { item: Obj; category: string }[],
+  live: boolean
+): Generator<void, Obj, void> {
+  const header: AggregateHeader = { categories: new Map(), categoryOrder: [] };
+  const calls: AggregateCall[] = [];
+  for (const { item, category } of members) {
+    if (calls.length % ROWS_PER_STEP === ROWS_PER_STEP - 1) yield;
+    node.mergeAggregateCategoryEntries(
+      header,
+      node.aggregateToolCategoryEntries(item.name as string, item.args, category)
+    );
+    calls.push(aggregateCall(item, category, live));
   }
   const loadingTargets = yield* node.aggregateLoadingTargetsSteps(calls);
   const first = members[0]!.item;
@@ -632,7 +756,14 @@ function attachmentRecords(value: unknown): Obj[] {
       name: String(raw.name || 'attachment').slice(0, 200),
       mimeType: String(raw.mimeType || 'application/octet-stream').slice(0, 100),
       size: finite(Number(raw.size)) && Number(raw.size) >= 0 ? Number(raw.size) : 0,
-      ...(ATTACHMENT_ID.test(text(original.attachmentRef)) ? { original: { attachmentRef: original.attachmentRef as Json, mimeType: text(original.mimeType).slice(0, 100) } } : {}),
+      ...(ATTACHMENT_ID.test(text(original.attachmentRef))
+        ? {
+            original: {
+              attachmentRef: original.attachmentRef as Json,
+              mimeType: text(original.mimeType).slice(0, 100),
+            },
+          }
+        : {}),
     });
   }
   return out;
@@ -650,7 +781,13 @@ function reactionsField(value: unknown): Obj {
     const raw = asObj(entry);
     const agentId = text(raw.agentId);
     const emoji = text(raw.emoji);
-    if (!/^[A-Za-z0-9._-]{1,80}$/.test(agentId) || !emoji || emoji.length > 16 || out.some((r) => r.agentId === agentId)) continue;
+    if (
+      !/^[A-Za-z0-9._-]{1,80}$/.test(agentId) ||
+      !emoji ||
+      emoji.length > 16 ||
+      out.some((r) => r.agentId === agentId)
+    )
+      continue;
     out.push({ agentId, emoji, ...(finite(raw.at) ? { at: raw.at } : {}) });
   }
   return out.length ? { reactions: out } : {};
@@ -660,13 +797,25 @@ function routineTriggerField(value: unknown): Obj {
   const trigger = asObj(value);
   const name = text(trigger.name).trim().slice(0, 200);
   if (!name || (trigger.kind !== 'schedule' && trigger.kind !== 'webhook')) return {};
-  return { routineTrigger: { kind: trigger.kind, name, ...present('event', text(trigger.event).trim().slice(0, 200)) } };
+  return {
+    routineTrigger: { kind: trigger.kind, name, ...present('event', text(trigger.event).trim().slice(0, 200)) },
+  };
 }
 
 /** The typed source of a user-role item that the product shows as something other than the user's prompt. */
 const NOTICE_SOURCES = new Set(['schedule-result', 'held-request', 'task-notification']);
 /** The ext keys the source branches consume to build the row themselves (the stored payloads, not row attributes). */
-const SOURCE_PAYLOAD_KEYS = ['routine', 'heldRequest', 'execution', 'attachments', 'messageId', 'posted', 'name', 'args', 'isError'];
+const SOURCE_PAYLOAD_KEYS = [
+  'routine',
+  'heldRequest',
+  'execution',
+  'attachments',
+  'messageId',
+  'posted',
+  'name',
+  'args',
+  'isError',
+];
 
 /** `meta.ext` as row attributes: for a notice or card source the stored payloads it was built from are not row attributes. */
 function extOf(item: Obj, m: Obj): Obj {
@@ -686,9 +835,9 @@ function extOf(item: Obj, m: Obj): Obj {
 
 /** Posted into the thread outside any turn (restore.mjs `isPostedMessage`): stamped so, or a message id minted by the routine
  * delivery (`routine_<runId>`). */
-const postedField = (posted: unknown, messageId: unknown): Obj => (posted === true || text(messageId).startsWith('routine_') ? { posted: true } : {});
+const postedField = (posted: unknown, messageId: unknown): Obj =>
+  posted === true || text(messageId).startsWith('routine_') ? { posted: true } : {};
 
-/** `normalizeHandoffFiles` (handoff-artifacts.mjs). */
 function handoffFiles(value: unknown): Obj[] {
   return (Array.isArray(value) ? value.map(asObj) : [])
     .filter((f) => typeof f.path === 'string' && f.path !== '')
@@ -698,43 +847,56 @@ function handoffFiles(value: unknown): Obj[] {
       path: text(f.path).slice(0, 1024),
       kind: ['image', 'file', 'text'].includes(text(f.kind)) ? text(f.kind) : 'file',
       mimeType: String(f.mimeType || 'application/octet-stream').slice(0, 100),
+      // biome-ignore lint/complexity/useMathMinMax: a NaN size must become 0, which Math.max would keep as NaN.
       size: Number(f.size) >= 0 ? Number(f.size) : 0,
       ...(/^[a-f0-9]{64}$/.test(text(f.id)) ? { id: f.id as Json } : {}),
     }));
 }
 
+function taskRoutineNotice(routine: Obj, attachmentSources: unknown[]): Obj {
+  const session = routine.target === 'session';
+  const status = text(routine.status);
+  const what =
+    ({ started: 'started', blocked: 'waiting for confirmation' } as Record<string, string>)[status] || status;
+  const files = handoffFiles(routine.files);
+  const summary = routine.summary;
+  return {
+    text: `🛠 ${session ? 'Session' : 'Agent task'} ${what} · ${text(routine.name)}${summary ? ` — ${text(summary)}` : ''}`,
+    tone: status === 'failed' ? 'warn' : 'info',
+    routine: {
+      kind: 'task',
+      ...(routine.name === undefined ? {} : { name: routine.name }),
+      ...(routine.status === undefined ? {} : { status: routine.status }),
+      ...(summary === undefined ? {} : { summary }),
+      ...(routine.sessionId === undefined ? {} : { sessionId: routine.sessionId }),
+      ...(session ? { target: 'session' } : {}),
+      ...present('agentId', routine.agentId),
+      ...present('sendId', routine.sendId),
+      ...(Array.isArray(routine.sendIds) && routine.sendIds.length > 1 ? { sendIds: routine.sendIds } : {}),
+      ...(files.length ? { files } : {}),
+      ...present('line', routine.line),
+    },
+    ...attachmentsField(attachmentSources.flatMap((source) => (Array.isArray(source) ? source : []))),
+  };
+}
+
 /** `routineResultNotice` (routine-result.mjs): the line, tone and `routine` payload of a stored routine result. */
 function routineNotice(ext: Obj, attachments: unknown): Obj {
   const routine = asObj(ext.routine);
-  if (Number(routine.omitted) > 0) return { text: `⏱ Routine results omitted: ${routine.omitted}`, tone: 'info', routine: { omitted: routine.omitted! } };
-  if (Number(routine.relayFailed) > 0) {
-    return { text: `⚠ Task results not relayed: ${routine.relayFailed} — they are shown above`, tone: 'warn', routine: { relayFailed: routine.relayFailed! } };
-  }
-  if (routine.kind === 'task') {
-    const session = routine.target === 'session';
-    const status = text(routine.status);
-    const what = ({ started: 'started', blocked: 'waiting for confirmation' } as Record<string, string>)[status] || status;
-    const files = handoffFiles(routine.files);
-    const summary = routine.summary;
+  if (Number(routine.omitted) > 0)
     return {
-      text: `🛠 ${session ? 'Session' : 'Agent task'} ${what} · ${text(routine.name)}${summary ? ` — ${text(summary)}` : ''}`,
-      tone: status === 'failed' ? 'warn' : 'info',
-      routine: {
-        kind: 'task',
-        ...(routine.name === undefined ? {} : { name: routine.name }),
-        ...(routine.status === undefined ? {} : { status: routine.status }),
-        ...(summary === undefined ? {} : { summary }),
-        ...(routine.sessionId === undefined ? {} : { sessionId: routine.sessionId }),
-        ...(session ? { target: 'session' } : {}),
-        ...present('agentId', routine.agentId),
-        ...present('sendId', routine.sendId),
-        ...(Array.isArray(routine.sendIds) && routine.sendIds.length > 1 ? { sendIds: routine.sendIds } : {}),
-        ...(files.length ? { files } : {}),
-        ...present('line', routine.line),
-      },
-      ...attachmentsField([...(Array.isArray(attachments) ? attachments : []), ...(Array.isArray(ext.attachments) ? ext.attachments : [])]),
+      text: `⏱ Routine results omitted: ${routine.omitted}`,
+      tone: 'info',
+      routine: { omitted: routine.omitted! },
+    };
+  if (Number(routine.relayFailed) > 0) {
+    return {
+      text: `⚠ Task results not relayed: ${routine.relayFailed} — they are shown above`,
+      tone: 'warn',
+      routine: { relayFailed: routine.relayFailed! },
     };
   }
+  if (routine.kind === 'task') return taskRoutineNotice(routine, [attachments, ext.attachments]);
   const webhook = routine.kind === 'webhook';
   const failed = routine.status === 'failed';
   const summary = String(routine.summary || '');
@@ -757,8 +919,41 @@ function routineNotice(ext: Obj, attachments: unknown): Obj {
 /** `heldRequestNotice` (held-message.mjs). */
 function heldNotice(held: Obj): Obj {
   const what = `${text(held.tool) || 'tool'}${held.target ? ` → ${text(held.target)}` : ''}`;
-  const label = ({ pending: 'Approval needed', approved: 'Approved', denied: 'Denied', expired: 'Expired (denied)' } as Record<string, string>)[text(held.status)];
-  return { text: `⏸ ${label || 'Approval needed'} · ${what}`, tone: held.status === 'pending' ? 'warn' : 'info', heldRequest: held };
+  const label = (
+    { pending: 'Approval needed', approved: 'Approved', denied: 'Denied', expired: 'Expired (denied)' } as Record<
+      string,
+      string
+    >
+  )[text(held.status)];
+  return {
+    text: `⏸ ${label || 'Approval needed'} · ${what}`,
+    tone: held.status === 'pending' ? 'warn' : 'info',
+    heldRequest: held,
+  };
+}
+
+function taskNotificationCard(id: Json, exec: Obj, result: string, messageId: unknown, m: Obj): Obj {
+  const surface = (text(exec.surface) || 'task').toLowerCase();
+  const status = text(exec.status).toLowerCase();
+  return {
+    kind: 'tool',
+    id,
+    ...present('messageId', messageId),
+    name: ['agent', 'shell', 'web_search'].includes(surface) ? surface : 'task',
+    args: {
+      type: 'result',
+      ...(status ? { status } : {}),
+      ...(exec.id === undefined ? {} : { task_id: exec.id }),
+      surface,
+    },
+    result,
+    rawResult: result,
+    isError: /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status) || /^error:/i.test(result),
+    expanded: false,
+    count: 1,
+    completedCount: 1,
+    ...(finite(m.at) ? { at: m.at, startedAt: m.at, completedAt: m.at } : {}),
+  };
 }
 
 /** A user-role item by its typed message source (`meta.source`; the core drops `skill` and `hook` rows and sends internal wrappers
@@ -771,7 +966,11 @@ function userMessageRow(item: Obj, m: Obj): Obj | null {
   const details = asObj(item.details);
   const held = isObj(ext.heldRequest) ? ext.heldRequest : details.heldRequest;
   const messageId = m.messageId ?? ext.messageId;
-  const stamp: Obj = { ...present('messageId', messageId), ...(finite(m.at) && m.at ? { at: m.at } : {}), ...postedField(m.posted ?? ext.posted, messageId) };
+  const stamp: Obj = {
+    ...present('messageId', messageId),
+    ...(finite(m.at) && m.at ? { at: m.at } : {}),
+    ...postedField(m.posted ?? ext.posted, messageId),
+  };
   switch (m.source ?? details.source) {
     case 'schedule-result':
       return { kind: 'notice', id, ...routineNotice(ext, body.attachments), ...stamp };
@@ -780,51 +979,34 @@ function userMessageRow(item: Obj, m: Obj): Obj | null {
       return isObj(held) && held.id ? { kind: 'notice', id, ...heldNotice(held), ...stamp } : null;
     case 'steering':
       return { ...body, steered: true };
-    case 'task-notification': {
-      // `completionCardFromExecution` (agent-envelope.mjs), from the typed execution record.
-      const exec = asObj(ext.execution);
-      const surface = (text(exec.surface) || 'task').toLowerCase();
-      const status = text(exec.status).toLowerCase();
-      const result = text(body.text);
-      return {
-        kind: 'tool',
-        id,
-        ...present('messageId', messageId),
-        name: ['agent', 'shell', 'web_search'].includes(surface) ? surface : 'task',
-        args: { type: 'result', ...(status ? { status } : {}), ...(exec.id === undefined ? {} : { task_id: exec.id }), surface },
-        result,
-        rawResult: result,
-        isError: /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status) || /^error:/i.test(result),
-        expanded: false,
-        count: 1,
-        completedCount: 1,
-        ...(finite(m.at) ? { at: m.at, startedAt: m.at, completedAt: m.at } : {}),
-      };
-    }
+    case 'task-notification':
+      return taskNotificationCard(id, asObj(ext.execution), text(body.text), messageId, m);
     default: // `import` renders verbatim, as a plain prompt
       return body;
   }
+}
+
+function attachmentPart(p: Obj): Obj {
+  const blob = asObj(p.blob);
+  const mimeType = text(blob.mediaType) || 'application/octet-stream';
+  const original = asObj(p.original);
+  return {
+    id: bare(blob.digest),
+    kind: (p.kind ?? null) as Json,
+    name: text(p.filename) || (mimeType.startsWith('image/') ? 'image' : 'file'),
+    mimeType,
+    size: blob.bytes as Json,
+    ...(original.digest === undefined
+      ? {}
+      : { original: { attachmentRef: bare(original.digest), mimeType: text(original.mediaType) } }),
+  };
 }
 
 /** A user message: its text parts form the prompt `text` (a pasted text is part of the prompt); an attachment part is a record of
  * `attachments` keyed by the blob's content hash. */
 function userRow(item: Obj, m: Obj): Obj {
   const parts = Array.isArray(item.content) ? item.content.map(asObj) : [];
-  const attachments = parts
-    .filter((p) => p.type === 'attachment')
-    .map((p) => {
-      const blob = asObj(p.blob);
-      const mimeType = text(blob.mediaType) || 'application/octet-stream';
-      const original = asObj(p.original);
-      return {
-        id: bare(blob.digest),
-        kind: (p.kind ?? null) as Json, // the stored value; the normalizer defaults an absent one to `file`
-        name: text(p.filename) || (mimeType.startsWith('image/') ? 'image' : 'file'),
-        mimeType,
-        size: blob.bytes as Json,
-        ...(original.digest === undefined ? {} : { original: { attachmentRef: bare(original.digest), mimeType: text(original.mediaType) } }),
-      };
-    });
+  const attachments = parts.filter((p) => p.type === 'attachment').map(attachmentPart);
   const details = asObj(item.details);
   const imageRefs = details.imageRefs;
   // restore.mjs `restoredTranscriptMetadata`: the stored attachments (`meta.transcript.attachments`, the core's
@@ -835,7 +1017,10 @@ function userRow(item: Obj, m: Obj): Obj {
     // Node's row id is the submission id (`pushUserOrSyntheticItem(text, id)`), which a client matches its pending bubble by
     // (conversation-prompt-items.ts `pendingPromptTranscriptItems`); the core carries it as `clientSubmissionId`.
     id: (text(item.clientSubmissionId) || item.id) as Json,
-    text: parts.filter((p) => p.type === 'text' || p.type === 'pastedText').map((p) => text(p.text)).join(''),
+    text: parts
+      .filter((p) => p.type === 'text' || p.type === 'pastedText')
+      .map((p) => text(p.text))
+      .join(''),
     ...present('messageId', m.messageId),
     ...atField(m),
     ...routeFields(m),
@@ -849,7 +1034,9 @@ function userRow(item: Obj, m: Obj): Obj {
     ...attachmentsField([...attachments, ...stored]),
     // restore.mjs: each `[Image: …]` line's stored original, which the transcript chip draws its picture from.
     ...(Array.isArray(imageRefs) && imageRefs.length ? { imageRefs: imageRefs as Json } : {}),
-    ...(Array.isArray(item.appliedSkills) && item.appliedSkills.length ? { appliedSkills: item.appliedSkills.filter((s) => typeof s === 'string' && s) } : {}),
+    ...(Array.isArray(item.appliedSkills) && item.appliedSkills.length
+      ? { appliedSkills: item.appliedSkills.filter((s) => typeof s === 'string' && s) }
+      : {}),
   };
 }
 
@@ -857,7 +1044,9 @@ function userRow(item: Obj, m: Obj): Obj {
 
 /** `roomRowTargets` (agent-room.mjs): a row's addressees as `{ id, name }`, from lists or the single strings older rows carry. */
 function roomTargets(row: Obj): { id: string; name: string }[] {
-  const ids = (Array.isArray(row.to) ? row.to : [row.to]).filter((id): id is string => typeof id === 'string' && id !== '');
+  const ids = (Array.isArray(row.to) ? row.to : [row.to]).filter(
+    (id): id is string => typeof id === 'string' && id !== ''
+  );
   const names = Array.isArray(row.toName) ? row.toName : [row.toName];
   return ids.map((id, i) => ({ id, name: (typeof names[i] === 'string' && names[i]) || id }));
 }
@@ -874,18 +1063,17 @@ function roomRowText(room: Obj, body: string): string {
   return 'Interrupted.';
 }
 
-/** `roomRowItem` (agent-room.mjs): the user's bubble, or a notice row whose `room` payload the app renders as speech, pass or limit
- * line. The core's `roomRow` item carries the payload (`kind`, `name`, `to`, `usage`, ...) as `room`, a user row's files, image chips
- * and reactions as `attachments` / `images` / `reactions`, and the message id and time in `meta`; the payload's own `at` is the
- * line's time, which the row puts after the id as Node's does. */
 function roomRowItem(item: Obj, m: Obj): Obj {
   const { at: _at, ...stored } = asObj(item.room);
   const images = item.images;
   const targets = roomTargets(stored);
-  const room: Obj = targets.length ? { ...stored, to: targets.map((t) => t.id), toName: targets.map((t) => t.name) } : stored;
+  const room: Obj = targets.length
+    ? { ...stored, to: targets.map((t) => t.id), toName: targets.map((t) => t.name) }
+    : stored;
   const messageId = text(m.messageId);
   const user = room.kind === 'user';
-  const sender: Obj = user && room.fromSession ? (room.fromAgent ? { fromAgent: room.fromAgent } : { sender: 'lead' }) : {};
+  const sender: Obj =
+    user && room.fromSession ? (room.fromAgent ? { fromAgent: room.fromAgent } : { sender: 'lead' }) : {};
   return {
     kind: user ? 'user' : 'notice',
     id: user && messageId ? messageId : (item.id as Json),
@@ -900,4 +1088,3 @@ function roomRowItem(item: Obj, m: Obj): Obj {
     ...sender,
   };
 }
-

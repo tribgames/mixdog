@@ -74,6 +74,34 @@ function useComposerAddMenuDismiss({
   }, [open, surfaceActive]);
 }
 
+function useComposerAddMenuSkills(open: boolean, session: string, project: string) {
+  const [skills, setSkills] = useState<ComposerSkill[]>(() => cachedSkillCatalog(session, project)?.selectable || []);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const cached = cachedSkillCatalog(session, project);
+    setSkills(cached?.selectable || []);
+    setLoading(!cached);
+    setError('');
+    void refreshSkillCatalog(session, project)
+      .then((next) => {
+        if (!cancelled) setSkills(next.selectable);
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, session, project]);
+  return { skills, loading, error };
+}
+
 function renderComposerSkillEntry(skill: ComposerSkill, dismiss: () => void, onSkill: (name: string) => void) {
   return (
     <button
@@ -268,10 +296,7 @@ export const ComposerAddMenu = React.memo(function ComposerAddMenu({
   }, [open]);
   const session = sessionId || '';
   const project = session ? '' : projectPath || '';
-  // Paint the cached catalog at once and refresh behind it (see composer-skill-mentions).
-  const [skills, setSkills] = useState<ComposerSkill[]>(() => cachedSkillCatalog(session, project)?.selectable || []);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const { skills, loading, error } = useComposerAddMenuSkills(open, session, project);
   const panel = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const id = useId();
@@ -279,27 +304,6 @@ export const ComposerAddMenu = React.memo(function ComposerAddMenu({
     setOpen(false);
     trigger.current?.focus();
   };
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    const cached = cachedSkillCatalog(session, project);
-    setSkills(cached?.selectable || []);
-    setLoading(!cached);
-    setError('');
-    void refreshSkillCatalog(session, project)
-      .then((next) => {
-        if (!cancelled) setSkills(next.selectable);
-      })
-      .catch((reason: unknown) => {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, session, project]);
   useMobileBack(open, () => setOpen(false));
   useComposerAddMenuDismiss({ open, panel, trigger, close, setOpen });
   useEffect(() => {

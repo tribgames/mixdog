@@ -98,7 +98,7 @@ function fakeWindow() {
   return { window, mainFrame, pane, nested, injected, captures, events, renderer: renderer.window.document, hit };
 }
 
-test('the desktop runs the feedback script in the panel’s own HTML frames and crops window areas', async () => {
+async function withDesktopService(run) {
   const { cwd, cleanup } = workspace();
   const fake = fakeWindow();
   const service = createDesktopVisualize({
@@ -109,6 +109,15 @@ test('the desktop runs the feedback script in the panel’s own HTML frames and 
     browserAvailable: () => true,
   });
   try {
+    await run({ cwd, fake, service });
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+}
+
+test('the desktop runs the feedback script in the panel’s own HTML frames', () =>
+  withDesktopService(async ({ cwd, fake, service }) => {
     await service.execute({
       sessionId: 's1',
       cwd,
@@ -130,7 +139,10 @@ test('the desktop runs the feedback script in the panel’s own HTML frames and 
     // Unknown tabs inject nothing.
     await service.attachFeedback('s1', 'v9');
     assert.equal(fake.injected.length, 1);
+  }));
 
+test('the desktop crops window areas, one at a time', () =>
+  withDesktopService(async ({ fake, service }) => {
     assert.equal(
       await service.captureRect({ x: 10, y: 20, width: 30, height: 40 }),
       Buffer.from('PNG').toString('base64')
@@ -149,11 +161,7 @@ test('the desktop runs the feedback script in the panel’s own HTML frames and 
     await running;
     fake.window.webContents.capturePage = async () => ({ isEmpty: () => false, toPNG: () => Buffer.from('PNG') });
     assert.equal(await service.captureRect({ x: 0, y: 0, width: 1, height: 1 }), Buffer.from('PNG').toString('base64'));
-  } finally {
-    service.dispose();
-    cleanup();
-  }
-});
+  }));
 
 test('gesture tokens: one per real gesture, per pane, short-lived, after any pending lookup', async () => {
   let clock = 1_000;

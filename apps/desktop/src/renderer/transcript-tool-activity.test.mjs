@@ -523,7 +523,7 @@ test('desktop activity lists every call as one row under the summary, without ca
   }
 });
 
-test('desktop activity counts batch targets on the row and lists them in the detail', () => {
+test('desktop activity counts batch read targets on the row and lists them in the detail', () => {
   const read = desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'read-batch',
@@ -536,7 +536,9 @@ test('desktop activity counts batch targets on the row and lists them in the det
   assert.equal(read.subject, '2 files');
   assert.deepEqual(read.targets, ['src/a.ts', 'src/b.ts:10-14']);
   assert.equal(read.hasDetails, true);
+});
 
+test('desktop activity names a single read window on the row without listing targets', () => {
   const window = desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'read-window',
@@ -547,7 +549,9 @@ test('desktop activity counts batch targets on the row and lists them in the det
   });
   assert.equal(window.subject, 'src/a.ts:3+');
   assert.deepEqual(window.targets, []);
+});
 
+test('desktop activity counts batch grep patterns on the row and lists them in the detail', () => {
   const grep = desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'grep-batch',
@@ -558,7 +562,9 @@ test('desktop activity counts batch targets on the row and lists them in the det
   });
   assert.equal(grep.subject, '2 patterns · src');
   assert.deepEqual(grep.targets, ['"foo"', '"bar"']);
+});
 
+test('desktop activity shows a single grep pattern on the row without listing targets', () => {
   const single = desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'grep-single',
@@ -569,7 +575,9 @@ test('desktop activity counts batch targets on the row and lists them in the det
   });
   assert.equal(single.subject, '"foo" · src');
   assert.deepEqual(single.targets, []);
+});
 
+test('desktop activity counts batch git commands on the row and lists them in the detail', () => {
   const git = desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'git-batch',
@@ -582,7 +590,9 @@ test('desktop activity counts batch targets on the row and lists them in the det
   assert.equal(git.subject, '2 commands');
   assert.deepEqual(git.targets, ['git status', 'git diff']);
   assert.equal(git.command, '');
+});
 
+test('desktop activity counts code_graph files on the row and lists them in the detail', () => {
   const graph = desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'graph',
@@ -892,7 +902,7 @@ test('desktop activity tags structured bodies with a highlighting language', () 
   assert.equal(log.outputLanguage, '');
 });
 
-test('desktop activity cuts read and grep results into per-file sections', () => {
+test('desktop activity cuts a read result into a numbered section', () => {
   const read = desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'read-gutter',
@@ -918,7 +928,9 @@ test('desktop activity cuts read and grep results into per-file sections', () =>
     },
   ]);
   assert.equal(read.sectionCopyText, 'const a = 1;\n');
+});
 
+test('desktop activity cuts a batch read result into one section per file', () => {
   const batch = desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'read-batch-sections',
@@ -934,7 +946,9 @@ test('desktop activity cuts read and grep results into per-file sections', () =>
       { path: 'b.css', meta: '4–5', language: 'css', rows: 2 },
     ]
   );
+});
 
+test('desktop activity cuts a grep result into per-file sections', () => {
   const grep = desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'grep-sections',
@@ -951,8 +965,9 @@ test('desktop activity cuts read and grep results into per-file sections', () =>
       { path: 'src/b.ts', meta: '2 matches', rows: [3, 9, null, null] },
     ]
   );
+});
 
-  // A result with no numbered rows (an error, a bare status) is not sectioned.
+test('desktop activity does not section a result with no numbered rows', () => {
   const failed = desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'read-missing',
@@ -1006,7 +1021,7 @@ test('desktop activity lists found files as rows and renders git diff as a patch
   assert.equal(git.outputText, '');
 });
 
-test('desktop activity treats only parseable output as JSON and surfaces the agent prompt', () => {
+test('desktop activity treats only parseable output as JSON', () => {
   const log = desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'bracket-log',
@@ -1016,7 +1031,9 @@ test('desktop activity treats only parseable output as JSON and surfaces the age
     completedAt: 1,
   });
   assert.equal(log.outputLanguage, '');
+});
 
+test('desktop activity surfaces the agent prompt', () => {
   const spawn = desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'agent-prompt',
@@ -1026,8 +1043,9 @@ test('desktop activity treats only parseable output as JSON and surfaces the age
   });
   assert.equal(spawn.promptText, 'Review the diff.');
   assert.equal(spawn.hasDetails, true);
+});
 
-  // A write that already carries a diff shows the diff alone.
+test('desktop activity shows a write that already carries a diff as the diff alone', () => {
   const write = desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'write-diff',
@@ -1039,7 +1057,9 @@ test('desktop activity treats only parseable output as JSON and surfaces the age
   });
   assert.deepEqual(write.sections, []);
   assert.equal(write.diffPatch.includes('src/a.ts'), true);
+});
 
+test('desktop activity shows an edit in a batch its own file patch and counts', () => {
   // An edit landing in a batch can carry the whole batch's patch: its body
   // shows its own file, matched by relative or absolute path.
   const batchPatch = [
@@ -1074,6 +1094,11 @@ test('desktop activity treats only parseable output as JSON and surfaces the age
   assert.equal(note.includes('outside-note.txt'), false);
   // No section for the target: the patch stays whole.
   assert.equal(edit('other.txt').diffPatch, batchPatch);
+  // A change counts the lines its own diff adds and removes.
+  assert.deepEqual(edit('note.txt').diffCounts, { additions: 1, deletions: 0 });
+});
+
+test('desktop activity picks a patch by exact path identity', () => {
   // Exact path identity: `x.ts` never keeps `nested/x.ts`, in either direction.
   const nested = ['x.ts', 'nested/x.ts']
     .map((name) => `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n@@ -1 +1 @@\n-1\n+2`)
@@ -1098,7 +1123,9 @@ test('desktop activity treats only parseable output as JSON and surfaces the age
   assert.equal(pick('a/../x.ts').includes('nested/x.ts'), false);
   assert.equal(pick('a/../x.ts').includes('a/x.ts'), true);
   assert.equal(pick('nested/./sub/../x.ts').includes('a/x.ts'), false);
-  // Windows-style paths ignore filename case.
+});
+
+test('desktop activity matches Windows-style patch paths ignoring case and POSIX paths exactly', () => {
   const win = (name, filePath, cwd) =>
     desktopToolActivityItemPresentation({
       kind: 'tool',
@@ -1118,8 +1145,6 @@ test('desktop activity treats only parseable output as JSON and surfaces the age
   const posix = (filePath) => win('/Repo/x.ts', filePath);
   assert.equal(posix('/Repo/x.ts').includes('other.ts'), false);
   assert.equal(posix('/repo/x.ts').includes('other.ts'), true);
-  // A change counts the lines its own diff adds and removes.
-  assert.deepEqual(edit('note.txt').diffCounts, { additions: 1, deletions: 0 });
 });
 
 test('a clean empty command run shows its command alone; a failed one keeps what it printed', () => {
@@ -1143,19 +1168,17 @@ test('a clean empty command run shows its command alone; a failed one keeps what
   assert.notEqual(failed.outputNote, '');
 });
 
-test('desktop labels name the operation actually called and its real outcome', async () => {
-  const { desktopToolActivitySummary, desktopToolActivityRowVerb } = await import('./transcript-tool-core.ts');
-  const item = (name, args, result = 'ok', extra = {}) => ({
-    kind: 'tool',
-    id: name,
-    name,
-    args,
-    result,
-    completedAt: 1,
-    ...extra,
-  });
+const item = (name, args, result = 'ok', extra = {}) => ({
+  kind: 'tool',
+  id: name,
+  name,
+  args,
+  result,
+  completedAt: 1,
+  ...extra,
+});
 
-  // Media: a failed job read shows the job error, and actions have their own unit.
+test('desktop labels read a failed media job error and name media actions apart', () => {
   const failedJob = desktopToolActivityItemPresentation(
     item('media', { action: 'status', job: 'j' }, '{"ok":false,"job":"j","status":"failed","error":"quota"}')
   );
@@ -1166,14 +1189,16 @@ test('desktop labels name the operation actually called and its real outcome', a
     desktopToolActivityItemPresentation(item('media', { action: 'cancel', job: 'j' })).title,
     'Media cancellation'
   );
+});
 
-  // Batch read entries keep their own window and do not gain the call's.
+test('desktop labels keep a batch read entry its own window', () => {
   const batch = desktopToolActivityItemPresentation(
     item('read', { file_path: [{ file_path: 'a.ts', offset: 10, limit: 2 }], limit: 5 }, 'x')
   );
   assert.equal(batch.subject, 'a.ts:10-11');
+});
 
-  // code_graph keeps the callers/callees direction and the file in an overview.
+test('desktop labels keep the code_graph direction and the overview file', () => {
   const callers = desktopToolActivityItemPresentation(item('code_graph', { mode: 'callers', symbols: ['run'] }));
   assert.equal(callers.subject, 'callers · run');
   const overview = desktopToolActivityItemPresentation(item('code_graph', { mode: 'overview', files: 'src/a.ts' }));
@@ -1183,8 +1208,10 @@ test('desktop labels name the operation actually called and its real outcome', a
     desktopToolActivityItemPresentation(item('code_graph', { mode: 'symbol_search', symbols: 'run' })).category,
     'Search'
   );
+});
 
-  // Group summaries use the canonical work-unit counts and categories.
+test('desktop group summaries use the canonical work-unit counts and categories', async () => {
+  const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
   assert.equal(desktopToolActivitySummary([item('read', { file_path: ['a.ts', 'b.ts', 'c.ts'] })]), 'Read 3 files');
   assert.equal(desktopToolActivitySummary([item('task', { action: 'cancel', task_id: 't' })]), 'Cancel task');
   assert.equal(desktopToolActivitySummary([item('code_graph', { mode: 'overview', files: 'a.ts' })]), 'Code structure');
@@ -1192,8 +1219,10 @@ test('desktop labels name the operation actually called and its real outcome', a
     desktopToolActivitySummary([item('agent', { type: 'result', agent: 'worker', status: 'completed' })]),
     'Agent response'
   );
+});
 
-  // GitHub calls of any action count as one unit, named apart from local Git.
+test('desktop group summaries count GitHub calls of any action as one unit each', async () => {
+  const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
   assert.equal(
     desktopToolActivitySummary([
       item('github', { action: 'pr.list', state: 'open' }),
@@ -1203,8 +1232,10 @@ test('desktop labels name the operation actually called and its real outcome', a
     ]),
     'GitHub ×4'
   );
+});
 
-  // Visualize, Browser and Computer calls of any action count as one unit each.
+test('desktop group summaries count Visualize and Browser calls of any action as one unit each', async () => {
+  const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
   assert.equal(
     desktopToolActivitySummary([
       item('visualize', { action: 'close' }),
@@ -1224,16 +1255,19 @@ test('desktop labels name the operation actually called and its real outcome', a
     desktopToolActivitySummary([item('browser', { action: 'navigate', url: 'https://a.b' })]),
     'Browser action'
   );
+});
 
-  // Terminal is its own category with action verbs, never "External tools".
+test('desktop labels give Terminal its own category and action verbs', async () => {
+  const { desktopToolActivityRowVerb } = await import('./transcript-tool-core.ts');
   const list = item('terminal', { action: 'list' });
   assert.equal(desktopToolActivityItemPresentation(list).category, 'Terminal');
   assert.equal(desktopToolActivityItemPresentation(list).title, 'Terminal tabs');
   assert.equal(desktopToolActivityRowVerb('terminal', { action: 'list' }), 'List tabs');
   assert.equal(desktopToolActivityRowVerb('terminal', { action: 'read', tab: 1 }), 'Read output');
+});
 
-  // Visualize rows name the tab's title (the call's `input` arrives
-  // unwrapped), never a raw "Label" field.
+test('desktop labels name a Visualize row by the tab title, never a raw label field', () => {
+  // The call's `input` arrives unwrapped.
   const visualize = (input) => desktopToolActivityItemPresentation(item('visualize', { action: 'open', input }));
   const diagram = visualize({
     content: { kind: 'mermaid', source: 'graph TD', title: '주문 처리 흐름' },
@@ -1246,8 +1280,9 @@ test('desktop labels name the operation actually called and its real outcome', a
   assert.equal(visualize({ targets: ['site/index.html'], label: 'Home' }).subject, 'Showed tab · Home');
   assert.deepEqual(visualize({ targets: ['site/index.html'], label: 'Home' }).fields, []);
   assert.equal(visualize({ targets: ['site/index.html'] }).subject, 'Showed tab · site/index.html');
+});
 
-  // Public-schema subjects instead of first-field fallbacks.
+test('desktop labels use public-schema subjects instead of first-field fallbacks', () => {
   assert.equal(
     desktopToolActivityItemPresentation(item('github', { action: 'issue.create', repo: 'owner/repo', title: 'Bug' }))
       .subject,

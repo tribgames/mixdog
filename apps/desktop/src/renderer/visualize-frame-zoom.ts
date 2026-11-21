@@ -1,17 +1,4 @@
-// Frame-to-parent zoom input bridge for REMOTE Visualize pages.
-//
-// A page in a remote client runs in an opaque-origin frame (see
-// page-fetch-bridge.ts), which takes Ctrl+wheel and Ctrl/Cmd + = / − / 0 for
-// itself - the parent document never sees them, and nothing like the desktop's
-// main-process forwarding exists in a browser. A script injected into the
-// page therefore relays exactly those gestures, and a phone's two-finger
-// pinch, to the parent, which zooms the panel through the same target
-// registry as every other zoom input.
-//
-// Scope: only the live (script-running) remote page frame gets the script and
-// only this module's listener accepts its messages - from that frame's own
-// window, with the three zoom inputs and finite numbers, nothing else. A page
-// that handles the gesture itself (preventDefault) is left alone.
+// A remote page runs in an opaque-origin frame (page-fetch-bridge.ts) that takes Ctrl+wheel and Ctrl/Cmd + = / − / 0 for itself; the parent never sees them, so an injected script relays them.
 import { withHeadScript } from '../shared/sandbox-storage-shim';
 import { pinchGeometry } from './touch-zoom';
 import { framePointInWindow } from './visualize-zoom';
@@ -41,10 +28,6 @@ export function frameZoomBridgeScript(): string {
     event.preventDefault();
     send({ zoom: zoom });
   });
-  // A two-finger pinch zooms the panel (the app's viewport never pinch-zooms);
-  // one finger keeps scrolling the page.
-  // The fingers go out as they are (frame px); the parent measures the spread
-  // in its own px, since the panel draws this frame scaled by its zoom.
   function fingers(phase, touches) {
     var a = touches[0], b = touches[1];
     send({ zoom: 'in', pinch: phase, x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2, x1: a.clientX, y1: a.clientY, x2: b.clientX, y2: b.clientY });

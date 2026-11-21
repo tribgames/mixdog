@@ -5,15 +5,6 @@ import { build } from 'esbuild';
 import { PNG } from 'pngjs';
 import puppeteer from 'puppeteer-core';
 
-// Opening an inline dock moves the sheet's 1px frame from the main panel's
-// border to the pane cells' own frames (pane-layout.css, --frame). That
-// handoff must not move or recolour anything: no pane edge or divider, no tab
-// strip, chat, Problems panel, footer or composer, and the frame lands on the
-// pixels the panel's border painted. Only the docked pane's column gives the
-// dock its room, by exactly the dock, its gap and the frame's 1px side. Each
-// case flips the dock live on one DOM, the way PaneSideDock commits it, and
-// compares every box to the pixel. Real Chrome lays out the app's stylesheet.
-
 const GAP = 2; // --mx-sheet-gap
 const RADIUS = 10; // --mx-sheet-radius
 const DOCK_WIDTH = 200;
@@ -236,12 +227,6 @@ async function layout(page, html, { theme = 'dark', folded = false } = {}) {
   );
 }
 
-/**
- * Commits `#id`'s dock the way PaneSideDock does: data-open / data-overlay /
- * data-expanded on the host, data-dock-placement on the cell, the expanded
- * spacer holding the rest size the host measured, and the column's
- * data-inline-dock (useInlineDockFlag) in the same commit.
- */
 async function setDock(page, id, next) {
   await page.evaluate(
     (paneId, state, sizes, panel) => {
@@ -333,12 +318,6 @@ function expectedParts(closedParts, placement, dock) {
   return expected;
 }
 
-/**
- * Open with an inline dock on `id`: every box but the docked column's is
- * unchanged to the pixel, the dock sits exactly where the sheet's ring and gap
- * put it, and every cell's frame covers exactly the ring the panel's border
- * painted, closing at one gap from the dock.
- */
 function assertInline(closed, open, id, placement, label) {
   assert.deepEqual(open.handles, closed.handles, `${label}: every divider stays put`);
   assert.deepEqual(open.panel.rect, closed.panel.rect, `${label}: the panel keeps its box`);
@@ -522,11 +501,6 @@ test('inline → expanded → inline keeps the column, with the spacer and with 
   }
 });
 
-/**
- * A screenshot once every running transition has ended: a freshly inserted
- * divider fades its hairline in (pane-layout.css), and a shot taken mid-fade
- * compares a different colour.
- */
 async function settledShot(page, clip) {
   await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
   return page.screenshot({ clip });
@@ -598,10 +572,6 @@ test('the frame handoff paints the same ring, dividers and corners in dark, ligh
   assert.deepEqual(recoloured, [], 'the handoff recolours no pixel by more than 2 levels');
 });
 
-/**
- * The device pixels a divider's line paints across it, at mid-length: every
- * pixel of a 9px band around the divider that differs from the plate beside it.
- */
 async function paintedLine(page, direction, state) {
   const handle = await page.evaluate((dir) => {
     const box = document.querySelector(`.pane-split-${dir} > .pane-resize-handle`).getBoundingClientRect();
@@ -649,11 +619,6 @@ test('a divider paints its 1px line on its own pixel and the 3px accent one pixe
   }
 });
 
-// The phone sheet is a fixed box under the body (the body's transform makes it
-// the containing block), sliding in on a transform. Mid-slide its off-screen
-// part is the body's overflow; a focus landing in the sheet (the terminal's
-// input) scrolled the body sideways, and the whole app slid left and crept
-// back with the sheet. The body clips instead of scrolling, so nothing can.
 test('a phone sheet mid-slide never scrolls the app: focus inside it keeps every box in place', async (t) => {
   const page = await launch(t);
   await page.setViewport({ width: 412, height: 915 });

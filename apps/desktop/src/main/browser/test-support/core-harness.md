@@ -26,14 +26,14 @@ MIXDOGD_TEST_BIN=<mixdogd built with --features test-hooks> \
 
 A suite is `export default async (harness: CoreHarness) => void`.
 
-| Member | Meaning |
-| --- | --- |
-| `client` | the desktop `ProtocolConnection` (`call`, `client()`, events) |
-| `host` | the `createDesktopHost` result that claimed the core |
-| `browserHost`, `guest` | the real `BrowserHost` and the page of the harness session |
-| `uiCommand(action, input)` | `browser/command`, forwarded by the core as `host/browser/command` (session `core-harness-session`) |
-| `runTool(threadId, tool, args)` | `test/browserEngine/run`; rejects with `engine hook absent` while the core has no such method |
-| `stop()` | disposes host, window and connection (the runner stops the core) |
+| Member                          | Meaning                                                                                             |
+| ------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `client`                        | the desktop `ProtocolConnection` (`call`, `client()`, events)                                       |
+| `host`                          | the `createDesktopHost` result that claimed the core                                                |
+| `browserHost`, `guest`          | the real `BrowserHost` and the page of the harness session                                          |
+| `uiCommand(action, input)`      | `browser/command`, forwarded by the core as `host/browser/command` (session `core-harness-session`) |
+| `runTool(threadId, tool, args)` | `test/browserEngine/run`; rejects with `engine hook absent` while the core has no such method       |
+| `stop()`                        | disposes host, window and connection (the runner stops the core)                                    |
 
 `--engine core|host` is passed to the hook as `engine` and is `harness.engine`: `host` is the forward path the host role
 serves today, `core` the core's own browser engine. `smoke` navigates and snapshots through `uiCommand` and needs neither.

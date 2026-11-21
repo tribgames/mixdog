@@ -1,7 +1,3 @@
-/**
- * card-input.mjs — normalize the raw tool item fields into the counts,
- * progress flags, elapsed label and row budgets every card model shares.
- */
 import { formatElapsed } from '../time-format.mjs';
 import { clipPlain, MIN_RESULT_LINE_CHARS, RESULT_LINE_HARD_MAX } from './inline-text.mjs';
 import { clampFailureCount } from './terminal-status.mjs';

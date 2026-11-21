@@ -58,11 +58,6 @@ import { sideFileKey } from '../side-file-tabs';
 import { closingDrawerFirst } from './drawer-navigation';
 import { StudioPanel } from '../StudioPanel';
 
-// The Visualize panel is never part of the first screen, and its source view
-// statically pulls the whole highlight.js core and language set: kept out of
-// the startup graph, a phone cold open neither downloads nor evaluates it.
-// Rendered synchronously once loaded (the phone's lane): a React.lazy suspends
-// its first render even with the chunk in, behind a throttled reveal.
 function VisualizePane(props: React.ComponentProps<typeof VisualizePaneComponent>) {
   const module = useDeferredModule(visualizePaneModule);
   return module ? <module.VisualizePane {...props} /> : null;
@@ -131,7 +126,6 @@ export interface UseAppWorkbenchViewsOptions {
   mountedSidebarPanels: ReadonlySet<string>;
 
   snapshotStore: DesktopSnapshotStore;
-  observedAgentSessionIds: readonly string[];
   quickAccessProjectPath: string;
   workbenchWorkspace: { workspace: { folders: Array<{ path: string }> } };
   selectToolProject: (path: string) => void;
@@ -221,6 +215,35 @@ function openSessionDiffFile(
     });
 }
 
+// A bot tab turning active warms its profile panel's data (and chunk), so
+// opening the panel paints the stored profile in its first frame.
+function usePrefetchActiveBotProfile(focusedLeaf: PaneLeaf | undefined) {
+  const selection = focusedLeaf ? paneActiveSelection(focusedLeaf) : null;
+  const botSessionId = selection?.kind === 'session' && agentIdOfHomeSession(selection.id) ? selection.id : '';
+  useEffect(() => {
+    if (!botSessionId) return;
+    void routinesPaneModule
+      .load()
+      .then((module) => module.prefetchAgentProfile(window.mixdogDesktop, botSessionId))
+      .catch(() => {});
+  }, [botSessionId]);
+}
+
+// Sub-agents a pane's side panel shows: their lanes are registered like a
+// pane's own session, so the panel streams live.
+function agentPanelSessionIds(
+  leaves: readonly PaneLeaf[],
+  surfaces: UseAppWorkbenchViewsOptions['sessionPaneSurfaces']
+): string[] {
+  return leaves.flatMap((leaf) => {
+    const selection = paneActiveSelection(leaf);
+    if (selection?.kind !== 'session') return [];
+    if (surfaces.sessionPanelViews.get(selection.id) !== 'agent-session') return [];
+    const target = surfaces.agentSessionPanels.get(selection.id);
+    return target ? [target.sessionId] : [];
+  });
+}
+
 export function useAppWorkbenchViews({
   sessions,
   sessionCatalogReady,
@@ -250,7 +273,6 @@ export function useAppWorkbenchViews({
   renderSidebarPanel,
   mountedSidebarPanels,
   snapshotStore,
-  observedAgentSessionIds,
   quickAccessProjectPath,
   workbenchWorkspace,
   selectToolProject,
@@ -454,7 +476,6 @@ export function useAppWorkbenchViews({
         titleDragProps={titleDragProps}
         sessions={sessions}
         sessionsReady={sessionCatalogReady}
-        activeSessionIds={observedAgentSessionIds}
         selectedSessionId={sidebarSelection.kind === 'session' ? sidebarSelection.id : ''}
         unreadSessionIds={unreadSessionIds}
         onPrefetchSession={prefetchSession}
@@ -517,28 +538,8 @@ export function useAppWorkbenchViews({
     ? paneProjectPathFor(focusedPaneForDockPrewarm)
     : quickAccessProjectPath;
   const dockBodyWarm = useAppDockWarmup(desktopBootReady, focusedPaneDockProjectPath);
-  // A bot tab turning active warms its profile panel's data (and chunk), so
-  // opening the panel paints the stored profile in its first frame.
-  const focusedSelection = focusedPaneForDockPrewarm ? paneActiveSelection(focusedPaneForDockPrewarm) : null;
-  const activeBotSessionId =
-    focusedSelection?.kind === 'session' && agentIdOfHomeSession(focusedSelection.id) ? focusedSelection.id : '';
-  useEffect(() => {
-    if (!activeBotSessionId) return;
-    void routinesPaneModule
-      .load()
-      .then((module) => module.prefetchAgentProfile(window.mixdogDesktop, activeBotSessionId))
-      .catch(() => {});
-  }, [activeBotSessionId]);
-
-  // Sub-agents a pane's side panel shows: their lanes are registered like a
-  // pane's own session, so the panel streams live.
-  const dockSessionIds = paneWorkspace.leaves.flatMap((leaf) => {
-    const selection = paneActiveSelection(leaf);
-    if (selection?.kind !== 'session') return [];
-    if (sessionPaneSurfaces.sessionPanelViews.get(selection.id) !== 'agent-session') return [];
-    const target = sessionPaneSurfaces.agentSessionPanels.get(selection.id);
-    return target ? [target.sessionId] : [];
-  });
+  usePrefetchActiveBotProfile(focusedPaneForDockPrewarm);
+  const dockSessionIds = agentPanelSessionIds(paneWorkspace.leaves, sessionPaneSurfaces);
 
   const renderPaneSideDock = (leaf: PaneLeaf, focused: boolean) =>
     renderPaneSideDockView(leaf, focused, {
@@ -597,18 +598,8 @@ export function useAppWorkbenchViews({
       unreadSessionIds,
       sidebarSelection,
       revealedProject,
-      observedAgentSessionIds,
     ],
-    [
-      sessions,
-      sessionCatalogReady,
-      projects,
-      workingSessionIds,
-      unreadSessionIds,
-      sidebarSelection,
-      revealedProject,
-      observedAgentSessionIds,
-    ]
+    [sessions, sessionCatalogReady, projects, workingSessionIds, unreadSessionIds, sidebarSelection, revealedProject]
   );
 
   return {

@@ -1,10 +1,3 @@
-/**
- * What a console line actually says. Chromium hands over structured argument
- * objects: reading only their `value` drops every object and array, which is
- * exactly what a failing page logs, and a message without its script and line
- * cannot be traced back to the code that produced it.
- */
-
 export interface BrowserConsoleArgument {
   type?: string;
   subtype?: string;

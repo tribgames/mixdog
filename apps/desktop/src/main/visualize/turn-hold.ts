@@ -1,14 +1,3 @@
-/**
- * Visualize during an agent turn: the panel is left alone while the turn
- * runs. Opens still update the tab state (so check, inspect and capture find
- * their tabs and read them off screen) but activate and reveal nothing; a file
- * change of an open tab only marks it; every publish goes out `held` (chat
- * cards and marks read it, the panel does not). When the turn ends (done,
- * stopped, failed or cancelled alike, so partial work is still shown) the
- * marked tabs reload once, each tab the turn opened gets its chat card's
- * picture of its final version, and one ordinary publish brings the panel up
- * on the last tab the turn opened.
- */
 import { stat } from 'node:fs/promises';
 
 import { MAX_VISUALIZE_GONE_OPENS } from '../../shared/visualize';
@@ -87,14 +76,6 @@ async function targetsGone(tab: TabState, statFile: (path: string) => Promise<un
   return missing.some(Boolean);
 }
 
-/** The turn ends: each open of this turn (`hold.opens`, by tool call id,
- *  consumed here) whose tab is closed by now, or whose files are gone (marked
- *  missing, or absent from disk), is recorded on the session naming that
- *  call; the state carries the record to every window and device, so exactly
- *  those cards draw no tile. Inline tabs have no file: their cards are never
- *  dropped. The disk checks run together under one short budget: whatever is
- *  not answered within it counts as present (its card stays), so a stalled
- *  file system never holds the turn end. */
 async function recordGoneOpens(
   state: SessionState,
   hold: TurnHold,
@@ -217,10 +198,6 @@ export function createTurnHolds(
         const { statFile, goneCheckBudgetMs } = ctx.deps ?? {};
         await recordGoneOpens(final, hold, { statFile, budgetMs: goneCheckBudgetMs });
       }
-      // Every verify-only tab of the session goes, those opened while this
-      // flush ran included, unless a newer turn is still running: then only
-      // this turn's own (its end closes the rest). Nothing awaits between
-      // here and the release.
       ctx.tabs.closeVerify(sessionId, hold.again ? verifyAtStart : undefined);
       if (holds.get(sessionId) === hold) holds.delete(sessionId);
     }
@@ -263,11 +240,8 @@ export function createTurnHolds(
 
   return {
     setTurnActive,
-    /** One push of the session roster: a session's turn runs while its Lead
-     *  works; a session that left the roster has no turn. The roster omits
-     *  `leadWorking` while the Lead is idle, and its `working` also counts the
-     *  Lead's child agents: reading `working` held the turn (and every chat
-     *  card of it) for as long as a background agent ran. */
+    /** One push of the session roster: a turn runs while the session's `leadWorking` is true
+     *  (the roster's `working` also counts the Lead's child agents). */
     observeTurns(sessions: ReadonlyArray<{ id: string; leadWorking?: boolean }>): Promise<void> {
       const present = new Set<string>();
       const changes: Promise<void>[] = [];

@@ -73,8 +73,8 @@ const openCall = (id, input, result, at) => ({
   completedAt: at + 1,
 });
 
-test('one card per tab: a group keeps its latest open, and a later group folds the earlier card', () => {
-  const first = visualizeCardCalls([
+const firstGroupCalls = () =>
+  visualizeCardCalls([
     openCall(
       'a',
       { targets: ['site/a.html'], label: 'Alpha' },
@@ -89,12 +89,9 @@ test('one card per tab: a group keeps its latest open, and a later group folds t
     ),
     openCall('c', { targets: ['site/a.html'], label: 'Alpha' }, 'Opened site/a.html (html) as tab v1, but …', 12),
   ]);
-  assert.deepEqual(
-    first.map((call) => [call.id, call.tabId]),
-    [['c', 'v1']],
-    'web URLs get no card; the same tab keeps its latest open'
-  );
-  const later = visualizeCardCalls([
+
+const laterGroupCalls = () =>
+  visualizeCardCalls([
     openCall(
       'd',
       { content: { kind: 'mermaid', source: 'graph TD;A-->B', title: 'Flow' } },
@@ -103,6 +100,17 @@ test('one card per tab: a group keeps its latest open, and a later group folds t
     ),
     openCall('e', { targets: ['site/a.html'] }, 'Showing site/a.html (html) in the side panel as tab v1.', 31),
   ]);
+
+test('a group keeps one card per tab, its latest open, and web URLs get none', () => {
+  assert.deepEqual(
+    firstGroupCalls().map((call) => [call.id, call.tabId]),
+    [['c', 'v1']]
+  );
+});
+
+test('a later group folds the earlier card of the same tab, and a re-render of the earlier group does not take it back', () => {
+  const first = firstGroupCalls();
+  const later = laterGroupCalls();
   let notified = 0;
   const stop = subscribeVisualizeCards(() => {
     notified += 1;
@@ -117,7 +125,10 @@ test('one card per tab: a group keeps its latest open, and a later group folds t
   assert.equal(visualizeCardNewest('cards', later[1]), true);
   assert.equal(visualizeCardNewest('cards', later[0]), true);
   assert.equal(visualizeCardNewest('other', first[0]), true, 'per session');
+});
 
+test('a card stands for the live tab that shows its files, stepped back or not, and reports its version', () => {
+  const later = laterGroupCalls();
   const tab = {
     id: 'v1',
     label: 'Alpha',
@@ -264,22 +275,27 @@ test('a preview tile is named by its file, or by its folder when the file is an 
   assert.equal(previewFileLabel('site/index.test.html'), 'index.test.html');
 });
 
-test("a card of a closed tab follows the tab that shows its files again, and opens it on that tab's terms", () => {
-  const [card] = visualizeCardCalls([
+const closedTabCard = () =>
+  visualizeCardCalls([
     openCall(
       'k',
       { targets: ['site/a.html'] },
       'Showing site/a.html (html) in the side panel as tab v2 (version 3).',
       5
     ),
-  ]);
-  const page = (id, versions) => ({
-    id,
-    label: 'a.html',
-    revision: 1,
-    panes: [{ kind: 'html', label: 'a.html', target: 'site/a.html', url: '' }],
-    versions: Array.from({ length: versions }, (_, index) => ({ n: index + 1, at: 10 + index })),
-  });
+  ])[0];
+
+const aHtmlPage = (id, versions) => ({
+  id,
+  label: 'a.html',
+  revision: 1,
+  panes: [{ kind: 'html', label: 'a.html', target: 'site/a.html', url: '' }],
+  versions: Array.from({ length: versions }, (_, index) => ({ n: index + 1, at: 10 + index })),
+});
+
+test('a card of a closed tab follows the tab that shows its files again', () => {
+  const card = closedTabCard();
+  const page = aHtmlPage;
   const other = { ...page('v4', 1), panes: [{ kind: 'html', label: 'b.html', target: 'site/b.html', url: '' }] };
   // Its own tab closed; opened again from the card as v5.
   const reopened = page('v5', 1);
@@ -289,6 +305,10 @@ test("a card of a closed tab follows the tab that shows its files again, and ope
   // Its own tab, while live, is the one it stands for.
   const own = page('v2', 4);
   assert.equal(visualizeCardTab({ ...state, tabs: [reopened, own] }, card), own);
+});
+
+test('an inline card follows the tab showing its content', () => {
+  const state = { sessionId: 'kc', tabs: [], active: 'v7' };
   const inline = visualizeCardCalls([
     openCall(
       'i',
@@ -312,7 +332,12 @@ test("a card of a closed tab follows the tab that shows its files again, and ope
     ],
   };
   assert.equal(visualizeCardTab({ ...state, tabs: [logo] }, inline), logo);
+});
 
+test('an earlier card opens its own version on its own tab, never on a tab opened again', () => {
+  const card = closedTabCard();
+  const page = aHtmlPage;
+  const own = page('v2', 4);
   // An earlier card names its own version on its own tab (the host says when it is gone)...
   assert.equal(visualizeCardVersionTarget(card, own, 3, false), 3);
   assert.equal(visualizeCardVersionTarget(card, own, 4, false), null, 'its version is the live one');

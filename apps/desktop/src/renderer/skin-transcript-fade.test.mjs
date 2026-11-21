@@ -1,11 +1,3 @@
-// The transcript's fade into the composer, in a real Chrome against the app's
-// own stylesheets, judged on rendered pixels. Without a skin the strip
-// (.transcript-shell::after) fades the rows into the sheet colour over the
-// last --transcript-fade. Under a skin that colour is transparent, so the strip
-// takes the veil the conversation area shows (--mx-scroll-fade-surface, the
-// token the top strip already uses): a plate crossing the dock edge blends
-// toward the veil instead of ending on a hard edge, and the plates keep their
-// backdrop blur (no mask on the shell, which would make it a backdrop root).
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import puppeteer from 'puppeteer-core';

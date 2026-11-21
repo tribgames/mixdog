@@ -25,12 +25,23 @@ const hooks = registerHooks({
 });
 after(() => hooks.deregister());
 
-test('main tab: breadcrumbs + Save (dirty only) + ⋯ on top; toggle/status/problems moved to the shared footer', async () => {
+const readSource = async (name) => {
   const { readFile } = await import('node:fs/promises');
-  const read = (name) => readFile(new URL(name, import.meta.url), 'utf8');
-  const editor = await read('./EditorPane.lazy.tsx');
-  assert.doesNotMatch(editor, /<footer|editor-statusbar|editorStatusBar/);
-  assert.doesNotMatch(await read('./desktop/26-editor.css'), /\.editor-statusbar/);
+  return readFile(new URL(name, import.meta.url), 'utf8');
+};
+
+test('the editor pane renders no status bar of its own; the removed controls leave no CSS', async () => {
+  assert.doesNotMatch(await readSource('./EditorPane.lazy.tsx'), /<footer|editor-statusbar|editorStatusBar/);
+  const css = await readSource('./desktop/26-editor.css');
+  assert.doesNotMatch(css, /\.editor-statusbar/);
+  assert.doesNotMatch(
+    css,
+    /\.editor-view-toggle|\.editor-status-position|\.editor-status-language|\.editor-problems-action/
+  );
+  assert.match(css, /\.editor-problems-count b \{[^}]*min-width: 2ch;[^}]*tabular-nums/);
+});
+
+test('main tab: breadcrumbs + Save (dirty only) + ⋯ on top', async () => {
   const { renderToStaticMarkup } = await import('react-dom/server');
   const { EditorBreadcrumbs } = await import('./editor-breadcrumbs.tsx');
   const base = {
@@ -62,18 +73,15 @@ test('main tab: breadcrumbs + Save (dirty only) + ⋯ on top; toggle/status/prob
     assert.equal(dirty.includes(gone), false, gone);
   const clean = renderToStaticMarkup(React.createElement(EditorBreadcrumbs, { ...base, dirty: false }));
   assert.equal(clean.includes('aria-label="Save"'), false, 'Save only while dirty');
-  // The removed controls' CSS is gone too.
-  const css = await read('./desktop/26-editor.css');
-  assert.doesNotMatch(
-    css,
-    /\.editor-view-toggle|\.editor-status-position|\.editor-status-language|\.editor-problems-action/
-  );
-  assert.match(css, /\.editor-problems-count b \{[^}]*min-width: 2ch;[^}]*tabular-nums/);
-  // The main footer is the SHARED component, fed by the same chrome, last row, text editors only.
+});
+
+test('the main footer is the shared status row, fed by the same chrome, last row, text editors only', async () => {
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const editor = await readSource('./EditorPane.lazy.tsx');
   assert.match(editor, /import \{ SideFileStatusRow, sideFileHasFooter \} from '\.\/side-file-status-row'/);
   assert.match(editor, /const mainFooter = !onSideChrome && active && sideFileHasFooter\(fileChrome\)/);
   assert.match(editor, /createPortal\(footer, footerSlot\)/);
-  const workspace = await read('./PaneWorkspace.tsx');
+  const workspace = await readSource('./PaneWorkspace.tsx');
   assert.ok(workspace.indexOf('renderProblems?.(leaf, focused)') < workspace.indexOf('pane-footer-slot'));
   assert.ok(workspace.indexOf('pane-footer-slot') < workspace.indexOf('renderSideDock?.(leaf, focused)'));
   const { SideFileStatusRow, sideFileHasFooter } = await import('./side-file-status-row.tsx');
@@ -100,7 +108,7 @@ test('main tab: breadcrumbs + Save (dirty only) + ⋯ on top; toggle/status/prob
     'previews and binaries have no footer'
   );
   assert.equal(sideFileHasFooter(chrome), true);
-  const cell = await read('./pane-layout.css');
+  const cell = await readSource('./pane-layout.css');
   assert.match(cell, /\.pane-cell > \.pane-footer-slot:empty \{\s*display: none;/);
 });
 

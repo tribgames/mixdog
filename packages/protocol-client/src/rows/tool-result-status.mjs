@@ -1,7 +1,3 @@
-/**
- * Tool-result status, display text, and aggregate-record helpers for the
- * session runtime.
- */
 import { hasBenignExitOutcome, normalizeToolTerminalStatus, toolResultTerminalStatus } from './tool-status.mjs';
 import { isReadOnlyNavigationMiss } from './result-classification.mjs';
 import { STEP, formatAggregateDetailSteps, runSync, toolLoadingTargets } from './tool-surface.mjs';
@@ -9,11 +5,7 @@ import { normalizeToolName } from './tool-primitives.mjs';
 import { gitResultError, gitResultExitCode } from './tool-card-model/git-result.mjs';
 import { stripShellExitHeader, toolErrorDisplay } from './tool-result-text.mjs';
 
-// Detect a shell command that RAN but exited non-zero (a process exit code)
-// as opposed to a real tool-call failure (`[shell-tool-failed]`) or a
-// timeout/abort. New results use bare `[exit code: N]`; legacy transcripts may
-// use `Error: [shell-run-failed] [exit code: N]`. Persistent shell results can
-// prefix `[session: …]`. Returns the numeric exit code, or null otherwise.
+// Result formats: bare `[exit code: N]`; legacy `Error: [shell-run-failed] [exit code: N]`; persistent shells prefix `[session: …]`.
 export function shellCommandExitCode(text) {
   const body = String(text || '');
   const lines = body.split('\n');
@@ -32,11 +24,7 @@ export function shellCommandExitCode(text) {
   return Number.isFinite(code) ? code : null;
 }
 
-// Only provider envelope metadata establishes a failed invocation. Result
-// bodies can contain "Error:"/HTTP/domain/task status text without making the
-// call itself fail. A recognized plain shell exit wins over provider envelope
-// error flags: adapters commonly label non-zero process exits as tool errors
-// even though the shell tool itself ran successfully.
+// Adapters label non-zero process exits as tool errors, so a recognized shell exit outranks the envelope error flag.
 export function toolCallOutcome(message, rawText) {
   if (normalizeToolName(message?.toolName || message?.name) === 'git') {
     const exitCode = gitResultExitCode(rawText);
@@ -62,9 +50,6 @@ export function toolCallOutcome(message, rawText) {
   };
 }
 
-// Build the collapsed failure/exit detail string. Real tool-call/result
-// failures keep the red "Failed" wording; completed non-zero commands render
-// as the distinct warning "Exited" state. A mixed group surfaces both.
 export function failureDetailText({ succeeded = 0, realErrors = 0, exitErrors = 0, exitCode } = {}) {
   const parts = [];
   if (succeeded > 0) parts.push(`${succeeded} Ok`);
@@ -89,26 +74,14 @@ function itemHasKnownTerminalStatus(item, texts = []) {
 
 export function withCancelledResultMarker(text, item) {
   const body = String(text || '');
-  // Do NOT inspect item.rawResult here: aggregate rawResult is child tool
-  // output (`1. grep\n<result>…`) that can incidentally contain a `status:`
-  // line, which would false-positive as an already-terminal status and skip
-  // the cancelled marker. Only result/text/body are session runtime-controlled
-  // collapsed detail (empty / status word / an existing marker), so they are
-  // the trustworthy terminal-status sources.
   const sources = [item?.result, item?.text, body];
   if (itemHasKnownTerminalStatus(item, sources)) return body;
   if (!body.trim()) return `${CANCELLED_RESULT_STATUS_LINE}\n`;
   return `${CANCELLED_RESULT_STATUS_LINE}\n${body}`;
 }
 
-/** The members' raw outputs as one numbered text (`1. grep\n…\n\n2. read\n…`).
- *
- *  Built by `+`, never `join`: V8 keeps a concatenation as a rope that points
- *  at the member strings the aggregate already holds (toolMembers[].rawResult,
- *  the calls' raw text) and copies it flat only when something reads its
- *  characters. A resumed session restores hundreds of aggregates it never
- *  displays; a joined string gave each of them a second, flat copy of every
- *  tool output (~1 MB per idle session in a 30-session measurement). */
+/** Built by `+`, never `join`: a V8 rope points at the member strings already held, while a joined string
+ *  gave every aggregate a flat copy (~1 MB per idle session in a 30-session measurement). */
 export function aggregateRawResult(calls) {
   return runSync(aggregateRawResultSteps(calls));
 }
@@ -130,9 +103,6 @@ export function* aggregateRawResultSteps(calls) {
   return joined;
 }
 
-/** Preserve the atomic calls behind a visual aggregate. Renderers can keep the
- * aggregate as one quiet summary row while revealing the original tool names,
- * arguments, and outputs in provider order. */
 export function aggregateToolMembers(calls) {
   return runSync(aggregateToolMembersSteps(calls));
 }
@@ -169,30 +139,12 @@ export function* aggregateToolMembersSteps(calls) {
 }
 
 export function aggregateBucketForCategory(category, { agentBatch = '' } = {}) {
-  // Merge consecutive tool calls of the SAME category into one aggregate card;
-  // a different category opens a fresh card (no cross-category merge). The
-  // bucket key is the category itself, so a run of Search calls collapses into
-  // one Search card while an adjacent Read/Patch stays separate. Falls back to
-  // 'default' when a call has no resolved category. Hook/approval denials keep
-  // their dedicated ToolHookDenialCard path in App.jsx.
   const key = String(category || '').trim();
-  // Exception: Read and Search share one lookup bucket so a batched turn of
-  // read+grep renders as ONE card ("Reading 3 files · Searching 2 patterns")
-  // instead of two adjacent cards. The per-category entries in
-  // aggregateCard.categories keep their own verbs/counts, so the merged
-  // header still spells out both. State-changing categories (Patch/Shell/…)
-  // stay separate.
   if (key === 'Read' || key === 'Search') return 'category:Read+Search';
-  // Agent actions are grouped only inside the provider callback that emitted
-  // them. This keeps a later provider batch from changing an older outbound
-  // card above an intervening result/transcript boundary.
   if (key === 'Agent') return agentBatch ? `category:Agent:${agentBatch}` : 'category:Agent';
   return key ? `category:${key}` : 'default';
 }
 
-// Fold one call's category entries into an aggregate's header counts
-// (`categories` Map + first-seen `categoryOrder`), shared by the live card
-// and the restored transcript card.
 export function mergeAggregateCategoryEntries(aggregate, categoryEntries) {
   for (const entry of categoryEntries) {
     if (!aggregate.categories.has(entry.key)) aggregate.categoryOrder.push(entry.key);
@@ -211,7 +163,11 @@ function* aggregateSummariesSteps(aggregate) {
   for (const r of aggregate?.calls?.values?.() || []) {
     if (++seen % STEP === 0) yield;
     if (!r.summary) continue;
-    if (withSummary.length > 0 && Number(r.summarySeq ?? 0) < Number(withSummary[withSummary.length - 1].summarySeq ?? 0)) ordered = false;
+    if (
+      withSummary.length > 0 &&
+      Number(r.summarySeq ?? 0) < Number(withSummary[withSummary.length - 1].summarySeq ?? 0)
+    )
+      ordered = false;
     withSummary.push(r);
     summaries.push(r.summary);
   }

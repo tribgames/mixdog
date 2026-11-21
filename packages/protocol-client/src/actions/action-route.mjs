@@ -22,7 +22,10 @@ export function resolveAction(action, args, ctx) {
   if (!namespace) throw new TypeError(`session action ${action} is unavailable`);
   const method = `${namespace}/${action}`;
   const spec = METHOD_ARGS[method];
-  if (!spec) throw Object.assign(new Error(`session action ${action} has no protocol method ${method}`), { code: 'unknownMethod' });
+  if (!spec)
+    throw Object.assign(new Error(`session action ${action} has no protocol method ${method}`), {
+      code: 'unknownMethod',
+    });
   if (args.length > spec.args.length) {
     throw new TypeError(`session action ${action} takes at most ${spec.args.length} arguments`);
   }

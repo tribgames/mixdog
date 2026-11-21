@@ -1,8 +1,3 @@
-// The one-click connect, shared by Extensions → 커넥터 and the chat connect
-// card (the setup tool's `connect_connector`): create (or reuse) the catalog
-// server, run the existing remote MCP OAuth flow in the browser, and report
-// "connected" only once the host's MCP status says so. The state is keyed by
-// server name, so a flow started in chat shows on the pane's row too.
 import { useSyncExternalStore } from 'react';
 import {
   connectorAppPasswordOnly,
@@ -445,6 +440,53 @@ export function gmailAppPasswordErrorText(reason: unknown): string {
   return message;
 }
 
+async function findCatalogServer(
+  entry: ConnectorCatalogEntry,
+  appPassword: { email: string } | null,
+  { add, target }: { add: boolean; target: string }
+): Promise<{ existing: Row | undefined; googleClient: boolean }> {
+  const { servers, googleClient } = await readMcpStatus();
+  const ofConnector = servers.filter((server) => server.connector === entry.id && server.source !== 'plugin');
+  const address = appPassword ? gmailAddress(appPassword.email) : '';
+  let existing: Row | undefined;
+  if (target) existing = ofConnector.find((server) => server.name === target);
+  else if (add && connectorMultiAccount(entry)) {
+    existing = address ? ofConnector.find((server) => appPasswordAccount(server) === address) : undefined;
+  } else existing = ofConnector[0];
+  return { existing, googleClient };
+}
+
+/** Creates the catalog server, or updates `existing` with the key or app password, and returns its name. */
+async function saveCatalogServer(
+  entry: ConnectorCatalogEntry,
+  key: string,
+  appPassword: { email: string; password: string } | null,
+  existing: Row | undefined
+): Promise<string> {
+  if (!existing) {
+    // The host picks a free account name; that account is what signs in.
+    const added = await invoke<Row>('addConnectorAccount', [
+      {
+        connector: entry.id,
+        ...(key ? { key } : {}),
+        ...(appPassword ? { email: appPassword.email, appPassword: appPassword.password } : {}),
+      },
+    ]);
+    return String(added?.account ?? '');
+  }
+  const name = String(existing.name);
+  const input = appPassword ? gmailAppPasswordServerInput(name, appPassword.email, appPassword.password) : null;
+  if (input) {
+    // From the Google sign-in to an app password: the host drops the old
+    // sign-in once the new connection is saved.
+    await invoke('saveMcpServer', [{ ...input, oauthClientId: '', originalName: name }]);
+  } else if (entry.backend.kind === 'apiKey' && key) {
+    await invoke('saveMcpServer', [{ ...connectorServerInput(entry, name, key), originalName: name }]);
+  }
+  if (existing.enabled === false) await invoke('setMcpServerEnabled', [name, true]);
+  return name;
+}
+
 /** Connects catalog entry `entry`: the same server id on every retry; an
  *  apiKey entry takes `key`, and Gmail takes `appPassword` in place of the
  *  Google sign-in (the host checks it with Gmail before anything is saved).
@@ -476,15 +518,7 @@ export async function connectCatalogConnector(
   publish(placeholder, starting);
   let name = '';
   try {
-    const { servers, googleClient } = await readMcpStatus();
-    const ofConnector = servers.filter((server) => server.connector === entry.id && server.source !== 'plugin');
-    const address = appPassword ? gmailAddress(appPassword.email) : '';
-    let existing: Row | undefined;
-    if (target) existing = ofConnector.find((server) => server.name === target);
-    else if (add && connectorMultiAccount(entry)) {
-      existing = address ? ofConnector.find((server) => appPasswordAccount(server) === address) : undefined;
-    } else existing = ofConnector[0];
-    name = existing ? String(existing.name) : '';
+    const { existing, googleClient } = await findCatalogServer(entry, appPassword, { add, target });
     if (!states.get(placeholder)) return;
     // A Gmail already on an app password reconnects as it is; the Google
     // sign-in replaces it only after 연결 해제.
@@ -498,27 +532,7 @@ export async function connectCatalogConnector(
     if (viaOAuth && needsOwnGoogleClient(entry, existing, googleClient)) {
       throw new Error(ownGoogleClientNote());
     }
-    if (!existing) {
-      // The host picks a free account name; that account is what signs in.
-      const added = await invoke<Row>('addConnectorAccount', [
-        {
-          connector: entry.id,
-          ...(key ? { key } : {}),
-          ...(appPassword ? { email: appPassword.email, appPassword: appPassword.password } : {}),
-        },
-      ]);
-      name = String(added?.account ?? '');
-    } else {
-      const input = appPassword ? gmailAppPasswordServerInput(name, appPassword.email, appPassword.password) : null;
-      if (input) {
-        // From the Google sign-in to an app password: the host drops the old
-        // sign-in once the new connection is saved.
-        await invoke('saveMcpServer', [{ ...input, oauthClientId: '', originalName: name }]);
-      } else if (entry.backend.kind === 'apiKey' && key) {
-        await invoke('saveMcpServer', [{ ...connectorServerInput(entry, name, key), originalName: name }]);
-      }
-      if (existing.enabled === false) await invoke('setMcpServerEnabled', [name, true]);
-    }
+    name = await saveCatalogServer(entry, key, appPassword, existing);
   } catch (reason) {
     publish(placeholder, null);
     throw reason;

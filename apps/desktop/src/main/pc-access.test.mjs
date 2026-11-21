@@ -11,10 +11,6 @@ import { generateSecureDesktopControllerKey } from '../shared/secure-desktop-gra
 const newKey = async () => (await generateSecureDesktopControllerKey()).publicKey;
 const [KEY_A, KEY_B, KEY_GONE, KEY_OLD] = await Promise.all([1, 2, 3, 4].map(newKey));
 
-/** The installer as a fake: its install state, the enrolled keys (moved by a
- *  successful operation), and every operation with its options. `answers`
- *  sets one outcome per step (`enroll` UAC, `delegatedEnroll`, `revoke`), as a
- *  string or a function (which may throw or wait). */
 function fakeInstaller({ state = 'not-installed', enrolled = [], answers = {} } = {}) {
   const answer = async (step, fallback, target) => {
     const given = answers[step] ?? fallback;
@@ -738,9 +734,8 @@ test('only a phone paired now is enrolled', async () => {
   assert.deepEqual(installer.calls, []);
 });
 
-test('the service’s owed revocations are taken over before any enrollment, approval or revoke, and block enrollment', async (t) => {
+test('the service’s owed revocations are taken over durably, settled there and drained before the enroll', async (t) => {
   quietErrors(t);
-  // Taken over durably, then settled there; drained before the enroll.
   const installer = fakeInstaller({ state: 'installed' });
   const pending = memoryPending();
   const service = fakeService({ owed: [KEY_OLD] });
@@ -752,15 +747,19 @@ test('the service’s owed revocations are taken over before any enrollment, app
     ['enroll', [KEY_B], { delegated: true }],
   ]);
   assert.deepEqual(pending.keys, []);
+});
 
-  // Its revoke does not run: blocked, kept here, gone from the service.
+test('an owed revoke that does not run blocks the enroll, stays here and is gone from the service', async (t) => {
+  quietErrors(t);
   const refusing = fakeInstaller({ state: 'installed', answers: { revoke: 'service-unreachable' } });
   const kept = memoryPending();
   const owing = fakeService({ owed: [KEY_OLD] });
   assert.equal(await pcAccessOver(refusing, { pending: kept, service: owing }).delivered(KEY_B), 'blocked');
   assert.deepEqual([kept.keys, owing.owedKeys], [[KEY_OLD], []]);
+});
 
-  // Unknown in the service: the row says so before it is taken over, and nothing enrolls.
+test('unknown revocations in the service show on the row before takeover, and nothing enrolls', async (t) => {
+  quietErrors(t);
   const lost = fakeInstaller({ state: 'installed' });
   const unknownService = fakeService({ unknown: 5 });
   const lostPending = memoryPending();
@@ -770,28 +769,36 @@ test('the service’s owed revocations are taken over before any enrollment, app
   assert.notEqual(lostPending.unknown, null);
   assert.equal(unknownService.unknown, 0, 'settled with the marker it read');
   assert.deepEqual(lost.calls, []);
+});
 
-  // The service cannot be asked: nothing enrolls.
+test('nothing enrolls while the service cannot be asked', async (t) => {
+  quietErrors(t);
   const offline = fakeInstaller({ state: 'installed' });
   const down = fakeService();
   down.down = true;
   await assert.rejects(pcAccessOver(offline, { service: down }).delivered(KEY_B), /service down/);
   assert.deepEqual(offline.calls, []);
+});
 
-  // Approve takes them over first: an owed key is revoked, never installed.
+test('Approve takes the owed revocations over first: an owed key is revoked, never installed', async (t) => {
+  quietErrors(t);
   const fresh = fakeInstaller();
   await pcAccessOver(fresh, { service: fakeService({ owed: [KEY_A] }) }).approve();
   assert.deepEqual(fresh.calls, [['install', [KEY_B], { revoke: [KEY_A] }]]);
+});
 
-  // The owed event's revoke: taken over, revoked, settled.
+test('the owed event’s revoke is taken over, revoked and settled', async (t) => {
+  quietErrors(t);
   const revoking = fakeInstaller({ state: 'installed', enrolled: [KEY_OLD] });
   const fromService = fakeService({ owed: [KEY_OLD] });
   const drained = memoryPending();
   assert.equal(await pcAccessOver(revoking, { pending: drained, service: fromService }).revokeOwed(), 'revoked');
   assert.deepEqual(revoking.calls, [['revoke', KEY_OLD, { delegated: true }]]);
   assert.deepEqual([drained.keys, fromService.owedKeys], [[], []]);
+});
 
-  // Readiness never counts an owed key as a missing phone.
+test('readiness never counts an owed key as a missing phone', async (t) => {
+  quietErrors(t);
   const missing = fakeInstaller({
     state: 'installed',
     enrolled: [KEY_B],

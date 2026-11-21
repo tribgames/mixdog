@@ -402,11 +402,9 @@ test('a chosen branch row spins at once and the chip shows the pending mark unti
   assert.ok(document.querySelector('.branch-menu-notice[role="alert"]'));
 });
 
-test('chip states: current branch, worktree intent in a draft, worktree-bound session', async (t) => {
+test('chip state: a draft shows the Project menu from the runtime, and "Worktree" is a lazy intent', async (t) => {
   setUiLanguagePreference('en');
   await initUiLanguage();
-  // Draft: the Project's menu comes from the runtime (no session), "Worktree"
-  // is a lazy intent.
   projectMenuReply = draftMenu();
   const draft = await mount(t, { sessionId: '', draftId: 'd1' });
   assert.deepEqual(
@@ -433,8 +431,11 @@ test('chip states: current branch, worktree intent in a draft, worktree-bound se
   assert.equal(model.getWorktreeIntent('d1'), false);
   await act(async () => draft.trigger.click());
   assert.equal(document.querySelector('.branch-menu'), null);
+});
 
-  // Bound session: the generated branch with the fork icon, marked current.
+test('chip state: a worktree-bound session shows its generated branch with the fork icon, marked current', async (t) => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
   menuReply = menuFor({
     workspace: workspace({ worktreeId: 'w1', branch: 'mixdog/fix-bom', cwd: '/wt' }),
     branches: [branch('main', true), branch('mixdog/fix-bom')],
@@ -1516,6 +1517,11 @@ test('dock checkout and create go through the guarded project checkout with read
     ],
     ['branch-checkout:busy', 'Background tasks are still running. Wait for them or stop them, then try again.'],
   ]);
+});
+
+test('a partial branch transition shows the runtime message without its code', async () => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
   assert.equal(
     model.worktreeFailureText(
       model.worktreeFailure(
@@ -1740,11 +1746,10 @@ test('a refused carry names its own reason and never reads as the worktree-remov
   );
 });
 
-test('a New Task first send carries its worktree choice; a large repository confirms once and resends', async () => {
-  setUiLanguagePreference('en');
-  await initUiLanguage();
-  const coded = (code) => new Error(`Error invoking remote method 'mixdog:submit-new-task': Error: ${code}: refused`);
-  // No choice: one plain send.
+const codedNewTaskError = (code) =>
+  new Error(`Error invoking remote method 'mixdog:submit-new-task': Error: ${code}: refused`);
+
+test('a New Task first send without a worktree choice is one plain send', async () => {
   const plain = [];
   const sendPlain = async (worktree) => {
     plain.push(worktree);
@@ -1752,14 +1757,15 @@ test('a New Task first send carries its worktree choice; a large repository conf
   };
   assert.equal(await model.submitDraftWithWorktree(sendPlain, false), 'sent');
   assert.deepEqual(plain, [undefined]);
+});
 
-  // Large repository: ask once, resend with confirmLarge.
+test('a New Task first send to a large repository confirms once and resends with confirmLarge', async () => {
   const sent = [];
   const prompts = [];
   const result = await model.submitDraftWithWorktree(
     async (worktree) => {
       sent.push(worktree);
-      if (!worktree.confirmLarge) throw coded('WORKTREE_LARGE_REPO_CONFIRM');
+      if (!worktree.confirmLarge) throw codedNewTaskError('WORKTREE_LARGE_REPO_CONFIRM');
       return 'accepted';
     },
     true,
@@ -1771,14 +1777,15 @@ test('a New Task first send carries its worktree choice; a large repository conf
   assert.equal(result, 'accepted');
   assert.deepEqual(sent, [{}, { confirmLarge: true }]);
   assert.equal(prompts.length, 1);
+});
 
-  // Declined: nothing is sent again and the caller keeps the draft.
+test('a declined large-repository confirmation sends nothing again and the caller keeps the draft', async () => {
   const declined = [];
   assert.equal(
     await model.submitDraftWithWorktree(
       async (worktree) => {
         declined.push(worktree);
-        throw coded('WORKTREE_LARGE_REPO_CONFIRM');
+        throw codedNewTaskError('WORKTREE_LARGE_REPO_CONFIRM');
       },
       true,
       () => false
@@ -1786,8 +1793,11 @@ test('a New Task first send carries its worktree choice; a large repository conf
     null
   );
   assert.deepEqual(declined, [{}]);
+});
 
-  // Disk and busy refusals reject with their readable text.
+test('a New Task first send rejects disk and busy refusals with their readable text', async () => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
   for (const [code, text] of [
     ['WORKTREE_DISK_INSUFFICIENT', 'Not enough free disk space to create the worktree.'],
     ['WORKTREE_BUSY_JOBS', 'Background tasks are still running. Wait for them or stop them, then try again.'],
@@ -1795,7 +1805,7 @@ test('a New Task first send carries its worktree choice; a large repository conf
     await assert.rejects(
       model.submitDraftWithWorktree(
         async () => {
-          throw coded(code);
+          throw codedNewTaskError(code);
         },
         true,
         () => true

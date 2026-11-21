@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { callCapability, errorText, type MediaAsset, type MediaAssetRead, type StudioApi } from './studio-support';
+import { callCapability, type MediaAsset, type MediaAssetRead, type StudioApi } from './studio-support';
+import { errorMessage } from './editor-pane-session-errors';
 import type { useStudioMediaUrls } from './studio-media-state';
 
 type StudioMediaUrls = ReturnType<typeof useStudioMediaUrls>;
@@ -36,7 +37,7 @@ export function useStudioSelectedPreview(
         if (token !== previewToken.current) return;
         setPreviewUrl(result?.base64 ? `data:${result.mime || 'image/png'};base64,${result.base64}` : '');
       } catch (reason) {
-        if (token === previewToken.current) setError(errorText(reason));
+        if (token === previewToken.current) setError(errorMessage(reason));
       }
     })();
   }, [api, assetUrl, laneReady, selected, setError]);

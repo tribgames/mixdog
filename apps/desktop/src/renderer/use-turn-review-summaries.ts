@@ -57,19 +57,11 @@ export function summarizeTurnTranscript({
     const count = Math.max(1, Number(item.count || 1));
     const failed = item.isError === true || Number(item.errorCount || 0) >= count;
     if (failed) continue;
-    // Shell/test output can legitimately contain `@@` or a printed unified
-    // diff. It is evidence to show inside that tool row, not evidence that
-    // the tool changed files. Shell mutations arrive through the
-    // authoritative worktree snapshot instead.
     if (!toolPublishesPatch(item)) continue;
     const patch = findPatch(item);
     if (typeof patch !== 'string' || !patch) continue;
     patches.push(patch);
   }
-  // The completed tool item is published in the same frame as the mutation
-  // and therefore beats the polled capability snapshot during rapid,
-  // same-card edits. An explicit empty uiDiff is authoritative too: it means
-  // the latest apply_patch restored the turn baseline.
   if (authoritativeWorktreeSnapshot) {
     return summarizeAuthoritativeTurnReview(authoritativeLeadFiles, authoritativeLeadPatch || '');
   }
@@ -113,10 +105,6 @@ export function useTurnReviewSummaries({
   const authoritativeLeadPatch = reviewState.leadPatch;
   const authoritativeLeadFiles = reviewState.files;
   const authoritativeSnapshotKind = reviewState.snapshotKind;
-  // A recorded ("scoped") review is the same Git diff as a live worktree
-  // baseline, only limited to the session's own paths, so its file list is
-  // trusted the same way. Otherwise a revert served from the record left the
-  // transcript's stale diff on screen and looked like nothing had happened.
   const authoritativeWorktreeSnapshot =
     authoritativeSnapshotKind === 'worktree' || authoritativeSnapshotKind === 'scoped';
   const transcriptSummary = useMemo(
@@ -174,11 +162,6 @@ export function useTurnReviewSummaries({
     () => summarizeTurnReviewOperations(items, reviewScope.startIndex),
     [items, reviewScope.startIndex]
   );
-  // The file set and expanded rows remain the authoritative turn-start → current
-  // diff. The collapsed headline mirrors the activity cards' edit workload so
-  // replaced/deleted intermediate lines do not disappear into a net +N count.
-  // A truncated transcript holds only part of the turn's edits, so its
-  // workload count is partial; the review's own totals stand in.
   const turnHeadlineStats = operationSummary.hasLineStats && !reviewScope.truncated ? operationSummary : summary;
   return {
     authoritativeWorktreeSnapshot,

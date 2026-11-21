@@ -21,7 +21,11 @@ function rig() {
     },
   };
   const state = { active: true, threads: ['t1'] as string[], browserId: 'b1' as string | undefined };
-  const source: ScreenSource = { active: () => state.active, threads: () => state.threads, browserId: () => state.browserId };
+  const source: ScreenSource = {
+    active: () => state.active,
+    threads: () => state.threads,
+    browserId: () => state.browserId,
+  };
   const status = (next: ConnectionStatus) => {
     client.status = next;
     for (const listener of [...listeners]) listener({ type: 'status', status: next });
@@ -34,7 +38,9 @@ test('the set is sent when it changes and not repeated when it does not', () => 
   const reporter = createScreenReporter(client, source);
   assert.equal(sent.length, 0, 'nothing is stated before the connection has synced its view');
   reporter.synced();
-  assert.deepEqual(sent, [{ method: SCREEN_SESSIONS_CHANGED, params: { sessionIds: ['t1'], browserId: 'b1', foreground: true } }]);
+  assert.deepEqual(sent, [
+    { method: SCREEN_SESSIONS_CHANGED, params: { sessionIds: ['t1'], browserId: 'b1', foreground: true } },
+  ]);
   reporter.refresh();
   assert.equal(sent.length, 1, 'an unchanged set is not sent again');
   state.threads = ['t1', 't2', 't2'];
@@ -79,10 +85,20 @@ test('the visualize panels on screen are reported whatever the page visibility, 
   const panels = { shown: ['t1', 't1', 't3'] };
   const reporter = createScreenReporter(client, { ...source, visualizePanels: () => panels.shown });
   reporter.synced();
-  assert.deepEqual(sent[0]?.params, { sessionIds: ['t1'], browserId: 'b1', visualizeSessionIds: ['t1', 't3'], foreground: true });
+  assert.deepEqual(sent[0]?.params, {
+    sessionIds: ['t1'],
+    browserId: 'b1',
+    visualizeSessionIds: ['t1', 't3'],
+    foreground: true,
+  });
   state.active = false;
   reporter.refresh();
-  assert.deepEqual(sent[1]?.params, { sessionIds: [], browserId: 'b1', visualizeSessionIds: ['t1', 't3'], foreground: false });
+  assert.deepEqual(sent[1]?.params, {
+    sessionIds: [],
+    browserId: 'b1',
+    visualizeSessionIds: ['t1', 't3'],
+    foreground: false,
+  });
   panels.shown = [];
   reporter.refresh();
   assert.deepEqual(sent[2]?.params, { sessionIds: [], browserId: 'b1', visualizeSessionIds: [], foreground: false });

@@ -1,12 +1,4 @@
-/**
- * Let the desktop settle after a mutation and report what moved. A launch
- * polls until its successor window exists or the budget ends; every other
- * action pays one settle and then reads the window list once. The settle
- * budget is never shortened by watching for the transition to START: a
- * window closing or opening is the beginning of the move, and the successor
- * surface still needs this window to build its tree. Measured: exiting on
- * that signal returned empty parent trees.
- */
+// Measured: ending the settle when the transition starts returned empty parent trees.
 import { screenshotInteger } from '../observation/analysis';
 import { DEFAULT_CAPTURE_AFTER_DELAY_MS, MAX_CAPTURE_AFTER_DELAY_MS, elapsedMs, sleep } from '../shared/common';
 import type { ComputerCommand } from '../shared/types';

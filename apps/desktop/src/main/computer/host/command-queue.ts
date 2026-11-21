@@ -1,8 +1,3 @@
-/**
- * Park requests outside the desktop lane and the active-operation drain. A
- * session's commands run in order on one chain; a queued mutation resumes with
- * fresh evidence, never with its old input.
- */
 import { assertSafeComputerSessionId } from '../input/guards';
 import type { ComputerUseCoordinator } from '../session/coordinator';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';

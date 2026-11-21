@@ -46,11 +46,6 @@ test('a server window reads provider quota from this PC, everything else from th
   assert.equal(await own.invoke({ capability: 'getUsageDashboard' }), null);
 });
 
-// Connection kinds: the desktop has `local` (no pcHost: its own sign-ins) and
-// `ssh` (daemon in model-proxy client mode: no credentials of its own, every
-// model call on this PC's sign-in, filtered by the host's provider list).
-// Phones, browsers and another PC's window are not Electron connections here;
-// they reach a host's own daemon through remote-methods and its own accounts.
 test('a server window shows only the providers its proxy lets the server use', async () => {
   const pc = pcService({
     isProviderAllowed: (provider) => provider !== 'xai',

@@ -1,7 +1,3 @@
-// Public webhook forwarding (replaces per-user ngrok tunnels): the channel
-// worker keeps one outbound `/hookleg` WebSocket and the relay replays
-// inbound `/hook/<deviceId>/...` HTTP requests over it as JSON frames.
-// Payloads pass through un-inspected; HMAC verification stays on the agent.
 import { randomUUID } from 'node:crypto';
 
 import { isRoutingId } from './ids.mjs';
@@ -65,11 +61,6 @@ function admitHookRequest(liveHooks, hookLimiter, maxPending, request, response)
     response.writeHead(503, { 'Content-Type': 'application/json' }).end('{"error":"agent offline"}');
     return null;
   }
-  // An agent that is not keeping up must not turn into relay memory: refuse
-  // before the body is read rather than queue another megabyte behind it.
-  // Bodies still streaming in count too — measuring only `pending` lets any
-  // number of slow uploads arrive together and pass the cap before the first
-  // one lands.
   if (
     entry.pending.size + (entry.inflight || 0) >= maxPending ||
     entry.socket.bufferedAmount > HOOK_SOCKET_BUFFER_LIMIT_BYTES

@@ -144,6 +144,78 @@ function dockMenuItemRole(item: DockAction): 'menuitem' | 'menuitemradio' | 'men
   return item.checkbox ? 'menuitemcheckbox' : 'menuitemradio';
 }
 
+function menuNavigationTarget(key: string, enabled: HTMLButtonElement[], index: number): HTMLButtonElement | undefined {
+  if (key === 'ArrowDown') return enabled[(index + 1) % enabled.length];
+  if (key === 'ArrowUp') return enabled[(index <= 0 ? enabled.length : index) - 1];
+  if (key === 'Home') return enabled[0];
+  if (key === 'End') return enabled[enabled.length - 1];
+  return undefined;
+}
+
+function DockMenuItemButton({ item, onPick }: { item: DockAction; onPick(): void }) {
+  const Glyph = item.icon;
+  let glyph: ReactNode = null;
+  if (item.checked) glyph = <Check size={14} aria-hidden={true} />;
+  else if (Glyph) glyph = <Glyph size={15} aria-hidden={true} />;
+  return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the role is menuitemcheckbox/menuitemradio whenever `checked` is set.
+    <button
+      type="button"
+      role={dockMenuItemRole(item)}
+      aria-checked={item.checked}
+      className={
+        [item.separatorBefore ? 'has-separator' : '', item.danger ? 'danger' : ''].filter(Boolean).join(' ') ||
+        undefined
+      }
+      data-attention={item.attention || item.badge ? 'true' : undefined}
+      disabled={item.disabled}
+      onClick={() => {
+        onPick();
+        item.onSelect();
+      }}
+    >
+      <span className="dock-header-menu-glyph">{glyph}</span>
+      <span>{item.label}</span>
+      {(item.detail || item.badge) && (
+        <small className="dock-header-menu-detail">{item.detail || String(item.badge)}</small>
+      )}
+    </button>
+  );
+}
+
+function DockInlineAction({ action }: { action: DockAction }) {
+  if (action.submenu) {
+    return (
+      <DockOverflowMenu
+        items={action.submenu}
+        opener={{
+          icon: action.icon,
+          label: action.label,
+          attention: action.attention,
+          tooltip: action.detail,
+        }}
+      />
+    );
+  }
+  const Glyph = action.icon;
+  const badgeText = action.badge && action.badge > 99 ? '99+' : action.badge;
+  return (
+    <button
+      type="button"
+      className="browser-pane-nav-button"
+      aria-label={action.label}
+      aria-pressed={action.checked}
+      data-attention={action.attention ? 'true' : undefined}
+      data-tooltip={action.label}
+      disabled={action.disabled}
+      onClick={action.onSelect}
+    >
+      {Glyph ? <Glyph size={15} aria-hidden={true} /> : <span>{action.label}</span>}
+      {action.badge ? <span className="dock-action-badge">{badgeText}</span> : null}
+    </button>
+  );
+}
+
 export function DockOverflowMenu({
   items,
   opener,
@@ -212,16 +284,13 @@ export function DockOverflowMenu({
       const enabled = enabledItems();
       if (!enabled.length) return;
       const index = enabled.indexOf(document.activeElement as HTMLButtonElement);
-      let next: HTMLButtonElement | undefined;
-      if (event.key === 'ArrowDown') next = enabled[(index + 1) % enabled.length];
-      else if (event.key === 'ArrowUp') next = enabled[(index <= 0 ? enabled.length : index) - 1];
-      else if (event.key === 'Home') next = enabled[0];
-      else if (event.key === 'End') next = enabled[enabled.length - 1];
-      else if (event.key === 'Enter' || event.key === ' ') {
+      if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
         enabled[index]?.click();
         return;
-      } else return;
+      }
+      const next = menuNavigationTarget(event.key, enabled, index);
+      if (!next) return;
       event.preventDefault();
       next.focus();
     };
@@ -276,38 +345,9 @@ export function DockOverflowMenu({
       {open &&
         createPortal(
           <div ref={menu} className="dock-header-menu" role="menu" aria-label={triggerLabel} style={placement}>
-            {items.map((item) => {
-              const Glyph = item.icon;
-              let glyph: ReactNode = null;
-              if (item.checked) glyph = <Check size={14} aria-hidden={true} />;
-              else if (Glyph) glyph = <Glyph size={15} aria-hidden={true} />;
-              return (
-                // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the role is menuitemcheckbox/menuitemradio whenever `checked` is set.
-                <button
-                  key={item.id}
-                  type="button"
-                  role={dockMenuItemRole(item)}
-                  aria-checked={item.checked}
-                  className={
-                    [item.separatorBefore ? 'has-separator' : '', item.danger ? 'danger' : '']
-                      .filter(Boolean)
-                      .join(' ') || undefined
-                  }
-                  data-attention={item.attention || item.badge ? 'true' : undefined}
-                  disabled={item.disabled}
-                  onClick={() => {
-                    close();
-                    item.onSelect();
-                  }}
-                >
-                  <span className="dock-header-menu-glyph">{glyph}</span>
-                  <span>{item.label}</span>
-                  {(item.detail || item.badge) && (
-                    <small className="dock-header-menu-detail">{item.detail || String(item.badge)}</small>
-                  )}
-                </button>
-              );
-            })}
+            {items.map((item) => (
+              <DockMenuItemButton key={item.id} item={item} onPick={close} />
+            ))}
           </div>,
           document.body
         )}
@@ -369,40 +409,9 @@ export function DockHeaderRow({
       <div className="dock-header-left">{left}</div>
       <div className="dock-header-controls">
         {controlsLead}
-        {inline.map((action) => {
-          const Glyph = action.icon;
-          const badgeText = action.badge && action.badge > 99 ? '99+' : action.badge;
-          if (action.submenu) {
-            return (
-              <DockOverflowMenu
-                key={action.id}
-                items={action.submenu}
-                opener={{
-                  icon: action.icon,
-                  label: action.label,
-                  attention: action.attention,
-                  tooltip: action.detail,
-                }}
-              />
-            );
-          }
-          return (
-            <button
-              key={action.id}
-              type="button"
-              className="browser-pane-nav-button"
-              aria-label={action.label}
-              aria-pressed={action.checked}
-              data-attention={action.attention ? 'true' : undefined}
-              data-tooltip={action.label}
-              disabled={action.disabled}
-              onClick={action.onSelect}
-            >
-              {Glyph ? <Glyph size={15} aria-hidden={true} /> : <span>{action.label}</span>}
-              {action.badge ? <span className="dock-action-badge">{badgeText}</span> : null}
-            </button>
-          );
-        })}
+        {inline.map((action) => (
+          <DockInlineAction key={action.id} action={action} />
+        ))}
         {menu.length > 0 && <DockOverflowMenu items={menu} />}
         {toggleExpanded && (
           <button

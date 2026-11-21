@@ -4,11 +4,6 @@ import { useStableEvent } from '../use-stable-event';
 
 type SideFileGuard = ReturnType<typeof createSideFileGuard>;
 
-/**
- * Every main-tab open passes the side-file guard (bound later each render):
- * a file shown in a side dock is handed over, with its unsaved-changes
- * confirmation. Until the guard is bound the raw opener runs.
- */
 export function useSideFileGuardOpeners(openFileTabRaw: OpenFileTab) {
   const sideFileGuardRef = useRef<SideFileGuard | null>(null);
   const openFileTab = useStableEvent<Parameters<OpenFileTab>, void>((...args) =>

@@ -1,9 +1,3 @@
-/**
- * A session's named background pages: the agent's offscreen pages, popups its
- * pages open, and restored ones. Admission and idle reclaim run through the
- * background reclaimer; every page is registered with its session until its
- * window closes.
- */
 import type { BaseWindow, WebContents } from 'electron';
 
 import { createBackgroundReclaimer } from './background-reclaim';
@@ -157,9 +151,6 @@ export function createBrowserBackgroundPages(
     }
     const popupName = nextPopupTabName(sessions, nextPopupIdsBySession, ownerSessionId);
     trackBackgroundPage(ownerSessionId, popupName, popup, 'popup', opener);
-    // The opener's next reply has to mention it: a click that opened a tab
-    // changes nothing in this document and would otherwise be reported as a
-    // click the page ignored.
     pushBounded(state.for(opener).openedPopups, popupName);
     // The facts of the opener list the popup: an engine lane publishes them when this fires.
     state.changed(opener, 'popup');

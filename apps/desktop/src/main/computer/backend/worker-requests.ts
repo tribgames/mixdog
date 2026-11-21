@@ -1,10 +1,3 @@
-/**
- * Which worker serves each session, and the requests in flight on them: their
- * dispatch, replies, timeouts, and the retirement of a worker together with
- * everything it still owed. Background input whose release a retirement or
- * reply left unproven is latched here until the user acknowledges it, or the
- * worker that sent it reports the release acknowledged after all.
- */
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 
 import { SCREEN_COMMAND_TIMEOUT_MS } from '../../remote-screen/screen-timeouts';
@@ -39,10 +32,6 @@ export function createWorkerRequests(
   const pending = new Map<number, PendingWorkerRequest>();
   const powerShellBySession = new Map<string, ChildProcessWithoutNullStreams>();
   const workerLastUsedAt = new Map<string, number>();
-  // A killed message sender has no receipt proving that its finally block ran.
-  // Keep this uncertainty latched even after the child and observation are gone.
-  // Only the worker that sent an unacknowledged release still knows it, so only
-  // that worker's later acknowledgement of it (`confirmable`) clears the latch.
   const unconfirmedBackgroundSessions = new Map<
     string,
     { child: ChildProcessWithoutNullStreams; confirmable: boolean }

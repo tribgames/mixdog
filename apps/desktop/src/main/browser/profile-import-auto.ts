@@ -1,17 +1,3 @@
-/**
- * Automatic cookie import from Chrome, while Chrome is closed.
- *
- * Chrome holds its Cookies database for as long as it runs, and a closed Chrome's
- * cookie store does not change, so a run happens only at two moments: shortly
- * after the app starts (or the setting is turned on) if Chrome is not running,
- * and when Chrome exits. "Chrome exited" is an event, not a poll: Chrome keeps
- * `lockfile` in its user-data folder open (delete-on-close) for as long as the
- * browser process lives, so its removal is the exit. Nothing is scheduled
- * periodically. The runs use the saved Chrome key and never raise a UAC prompt.
- * It is on by default but stays idle (no watch, no check) until a manual cookie
- * import of the bound profile has saved that key; a key that later stops
- * working makes the runs stop and ask for one manual import.
- */
 import { existsSync, type FSWatcher, watch as watchFolder } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
@@ -41,7 +27,8 @@ export interface CookieAutoImportState {
   importedStores?: Record<string, string>;
 }
 
-/** Chrome is running while its lock file exists. */
+/** Chrome keeps `lockfile` in its user-data folder open (delete-on-close) while
+ *  the browser process lives, so the file exists exactly while Chrome runs. */
 export function chromeLockHeld(lockFile: string): boolean {
   return existsSync(lockFile);
 }

@@ -1,11 +1,7 @@
-// The Mixdog mascot: a blocky pixel creature on a 16x12 grid, painted from the
-// string layers in agent-avatar-sprites.mjs (design/mockups/mixy-art). Every
-// look is the same body block; the species (ears, marks, tail, legs), an
-// accessory, the expression and the colour vary. An agent's `agent.json`
-// stores its pick as `avatar: { kind: 'mascot', species, accessory,
-// expression, color }` (an older `variant` reads as its mapped look), or its
-// own images per motion state as `avatar: { kind: 'custom', states: { idle,
-// typing?, message? } }`. An agent without one gets a stable look from its id.
+// An agent's `agent.json` stores its pick as `avatar: { kind: 'mascot', species,
+// accessory, expression, color }` (an older `variant` reads as its mapped look),
+// or its own images per motion state as `avatar: { kind: 'custom', states: { idle,
+// typing?, message? } }`.
 import { MIXY_AGENT_ID } from '../agent/orchestrator/session/agent-home.mjs';
 import { MASCOT_SPRITES } from './agent-avatar-sprites.mjs';
 

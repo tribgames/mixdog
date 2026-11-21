@@ -1,11 +1,3 @@
-// The split-pane workspace surface. App mounts this once in place of the old
-// single main pane: the FOCUSED leaf renders App's existing fully interactive
-// surface (conversation / new-task / file editor) through renderActive, and
-// every other session leaf streams live through PaneSessionView. Clicking a
-// non-focused pane focuses it and asks App to navigate its interactive
-// surface there, so today's single-focused-engine renderer keeps working
-// while the lanes already deliver concurrent live output.
-
 import type React from 'react';
 import { memo, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -75,19 +67,8 @@ function selectionLabel(selection: WorkspaceSelection | null): string {
   }
 }
 
-/** Recently shown sessions kept mounted besides the shown ones (one budget
- *  across every pane, desktop and phone alike), so switching back to one
- *  flips visibility instead of tearing its transcript down and rebuilding it
- *  behind the entry cover. Each costs one Conversation's DOM and row caches;
- *  the lanes stay unregistered with the host while retained, and the oldest
- *  leaves first, so memory stays bounded. */
 const RETAINED_CONVERSATIONS = 2;
 
-/** A retained conversation is frozen: the app re-creates its props on every
- *  workspace render, and re-rendering an unpainted transcript is pure cost.
- *  Its own lane subscriptions still update it. The Conversation always mounts
- *  in the selection's own commit: its transcript cover (not a pane-sized
- *  placeholder) carries the load, so the composer stays mounted. */
 const RetainedConversation = memo(
   function RetainedConversation({ children }: { retained: boolean; children: React.ReactNode }) {
     return <>{children}</>;
@@ -182,9 +163,45 @@ function renderPaneSurface(
   );
 }
 
+type ConversationLeaves = ReturnType<typeof usePaneConversationOwners>['conversationLeaves'];
+
+/** Registers how Settings → compose reaches the pane conversation that should take the text. */
+function useComposerPresenter(
+  conversationLeaves: ConversationLeaves,
+  focusedLeafId: string,
+  workspace: ReturnType<typeof usePaneWorkspace>,
+  onFocusSelection: (selection: WorkspaceSelection) => void
+) {
+  const presentComposer = useRef<() => void>(() => {});
+  presentComposer.current = () => {
+    const candidates = conversationLeaves.filter((entry) => !entry.retained && !entry.handoff);
+    const target =
+      candidates.find((entry) => entry.leaf.id === focusedLeafId) ??
+      candidates.find((entry) => !entry.parked) ??
+      candidates[0];
+    if (!target) return; // No conversation yet: the text waits for the first one.
+    if (target.parked) workspace.activateTab(target.leaf.id, target.selectionKey);
+    else if (target.leaf.id !== focusedLeafId) workspace.focusLeaf(target.leaf.id);
+    else return;
+    onFocusSelection(target.active);
+  };
+  useLayoutEffect(() => registerComposerPresenter(() => presentComposer.current()), []);
+}
+
+/** The conversation a pane's surfaces download as, remembered per pane. */
+function usePaneDownloadSession(): (leaf: PaneLeaf) => string {
+  const downloadOwners = useRef(new Map<string, string>());
+  const downloadSessionOf = (leaf: PaneLeaf): string => {
+    const active = paneActiveSelection(leaf);
+    if (active?.kind === 'session') downloadOwners.current.set(leaf.id, active.id);
+    const owner = downloadOwners.current.get(leaf.id);
+    if (owner) return owner;
+    return leaf.tabs.find((tab) => tab.kind === 'session')?.id ?? '';
+  };
+  return downloadSessionOf;
+}
 export function PaneWorkspace({
   workspace,
-  observedSessionIds = [],
   dockSessionIds = [],
   renderActive,
   renderStrip,
@@ -197,8 +214,6 @@ export function PaneWorkspace({
   onOpenDroppedPaths,
 }: {
   workspace: ReturnType<typeof usePaneWorkspace>;
-  /** Additional live lanes required by non-editor surfaces such as Agents. */
-  observedSessionIds?: readonly string[];
   /** Sessions a pane's side panel shows (an Agents sub-agent beside its
    *  chat): live on every surface, the phone included, like a pane's own. */
   dockSessionIds?: readonly string[];
@@ -236,29 +251,16 @@ export function PaneWorkspace({
   /** Opens native/internal file drops in the pane they were dropped onto. */
   onOpenDroppedPaths?: (leafId: string, paths: string[]) => void | Promise<void>;
 }): React.JSX.Element {
-  // Subscribe before the browser can paint the restored pane tree. main.tsx
-  // starts this even earlier on a normal boot; this layout effect preserves
-  // the same contract for tests, remote shells, and hot remounts.
   useLayoutEffect(() => defaultSessionLaneStore.start(), []);
-  // A phone shows ONE tab at a time and pays for every mirrored session over
-  // the relay, so restored background tabs stay unregistered until opened.
-  // Wide surfaces keep every pane tab observable.
-  // A phone renders exactly ONE leaf — the focused one — and pays the relay
-  // for every session it registers, so only that leaf's active session is
-  // mirrored. Every other leaf stays unregistered until it is focused.
   const mobileSurface = useMobileRemoteSurface();
   const paneSessionIds = mobileSurface
     ? paneScreenSessionIds(workspace.leaves, workspace.focusedLeafId, true)
     : paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId);
   const singlePaneMode = useSinglePaneMode(workspace.layout);
-  // The Agents surface observes working background sessions even when none of
-  // them owns an editor tab, so include those ids with every pane session.
-  // Not on a phone: its Agents rows read the agent pool and roster, while
-  // every observed lane mirrored a whole working transcript over the relay.
   const petSessionIds = useDesktopPetSessionIds();
   const visibleSessionIds = mobileSurface
     ? [...new Set([...paneSessionIds, ...dockSessionIds])]
-    : [...new Set([...paneSessionIds, ...dockSessionIds, ...observedSessionIds, ...petSessionIds])];
+    : [...new Set([...paneSessionIds, ...dockSessionIds, ...petSessionIds])];
   useVisibleSessions(visibleSessionIds);
   // On screen: every pane of a split, only the focused one of a carousel.
   useScreenSessions(paneScreenSessionIds(workspace.leaves, workspace.focusedLeafId, singlePaneMode));
@@ -267,10 +269,6 @@ export function PaneWorkspace({
   const dropPreview = usePaneDropPreview(workspace, onFocusSelection);
   let overlay: ReturnType<typeof createPortal> | null = null;
   if (dropPreview) {
-    // ONE drop overlay per editor group: the highlight glides between zones
-    // INSIDE a pane but never slides across panes — the key remounts the
-    // element when the pane (or surface kind) changes, so only intra-pane
-    // moves animate.
     const insert = dropPreview.zone === 'insert';
     overlay = createPortal(
       <div
@@ -289,30 +287,7 @@ export function PaneWorkspace({
     paneSurfaceHandoffs,
     RETAINED_CONVERSATIONS
   );
-  // Text sent to the composer (Settings → compose) lands in the focused
-  // pane's conversation, brought to the front when a file or utility tab
-  // parks it; a pane without one hands it to a pane that shows one. Retained
-  // (switched-away) sessions are never the target.
-  const presentComposer = useRef<() => void>(() => {});
-  presentComposer.current = () => {
-    const candidates = conversationLeaves.filter((entry) => !entry.retained && !entry.handoff);
-    const target =
-      candidates.find((entry) => entry.leaf.id === focusedLeafId) ??
-      candidates.find((entry) => !entry.parked) ??
-      candidates[0];
-    if (!target) return; // No conversation yet: the text waits for the first one.
-    if (target.parked) workspace.activateTab(target.leaf.id, target.selectionKey);
-    else if (target.leaf.id !== focusedLeafId) workspace.focusLeaf(target.leaf.id);
-    else return;
-    onFocusSelection(target.active);
-  };
-  useLayoutEffect(() => registerComposerPresenter(() => presentComposer.current()), []);
-  // Conversation owns scroll, virtualizer, parsed Markdown and composer state.
-  // Keep one stable owner per visible pane instead of keying it by the active
-  // session. When an active tab/group moves to another leaf, match its prior
-  // selection first so the same owner follows the move; ordinary tab switches
-  // then fall back to the existing leaf owner and never remount Conversation.
-  // The last few sessions shown also stay mounted (retained, unpainted).
+  useComposerPresenter(conversationLeaves, focusedLeafId, workspace, onFocusSelection);
   let conversationPortals: React.ReactNode[] = [];
   if (renderConversation) {
     conversationPortals = conversationLeaves.map(({ leaf, active, handoff, parked, retained, warm, owner }) => {
@@ -385,12 +360,6 @@ export function PaneWorkspace({
     const active = handoff ? paneActiveSelection(handoff.leaf) : null;
     return isConversationSelection(active) ? undefined : handoff;
   };
-  // ONE surface layer per pane. Keying layers by the active selection
-  // re-created the layer on every tab switch and remounted every open editor
-  // in the pane: Monaco lost focus and undo history, reloads replayed
-  // "restored" backups and the save handles were dropped. During a handoff
-  // the SAME layer paints the outgoing selection for exactly one more frame
-  // (inert, above the incoming conversation) instead of a fresh copy.
   const outgoingSurfaceFor = (leaf: PaneLeaf) => {
     const handoff = visualSurfaceHandoffFor(leaf.id);
     return handoff && handoff.key !== currentPaneSurfaces.get(leaf.id)!.key ? handoff : null;
@@ -414,19 +383,7 @@ export function PaneWorkspace({
       </div>
     );
   };
-  // Every cell layout stacks the same four parts: strip, surfaces, the file
-  // editor's Problems panel and the pane's side dock.
-  // The conversation a pane's editor, Explorer and Review surfaces download
-  // as: the session the pane showed last, kept per pane while a file or
-  // utility tab covers it.
-  const downloadOwners = useRef(new Map<string, string>());
-  const downloadSessionOf = (leaf: PaneLeaf): string => {
-    const active = paneActiveSelection(leaf);
-    if (active?.kind === 'session') downloadOwners.current.set(leaf.id, active.id);
-    const owner = downloadOwners.current.get(leaf.id);
-    if (owner) return owner;
-    return leaf.tabs.find((tab) => tab.kind === 'session')?.id ?? '';
-  };
+  const downloadSessionOf = usePaneDownloadSession();
   const paneCellBody = (leaf: PaneLeaf, focused: boolean) => (
     <DownloadSessionContext.Provider value={downloadSessionOf(leaf)}>
       {renderStrip?.(leaf)}

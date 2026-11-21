@@ -1,21 +1,6 @@
 #!/usr/bin/env node
-// Stages the `mixdogd` binaries a desktop build ships (electron-builder.yml
-// extraResources):
-//   .runtime/core/mixdogd[.exe]        the core this app starts, for its own platform
-//   .runtime/core/assets/templates/    the packaged Office templates the engine reads beside the executable
-//   .runtime/core/mixdog-askpass[.exe] the ssh askpass helper, beside mixdogd (not in the server bundles: it runs
-//                                      on the machine the app runs on)
-//   .runtime/server-cores/<os>-<arch>/bundle.tgz + servers.json
-//                                      what the SSH install uploads (LR §8.1): mixdogd and its
-//                                      JS runtime (scripts/stage-js-bundle.mjs)
-// The server bundles are built once per release run (`--servers-only`, the server-cores job of
-// server-cores-build.yml) and every package job takes them with `--server-cores=<dir>`: the same four
-// bundles are not rebuilt in each of the packaging jobs. A prebuilt set is accepted only when it matches
-// what this job staged itself (version, every bundle's bytes and every platform's mixdogd).
-// It stages already-built binaries (`cargo build --release --target <triple>
-// -p mixdog-cli`, one per target, in CI); it never builds and never runs a
-// binary except `--version` of the host one, to prove the manifest's version is
-// the version the core reports — the version `compat::order` compares.
+// Stages already-built binaries; the host binary is run only for `--version`, which must equal the manifest
+// version `compat::order` compares.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { access, copyFile, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';

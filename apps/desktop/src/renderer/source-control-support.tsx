@@ -2,6 +2,7 @@ import type React from 'react';
 import { useLayoutEffect, useMemo, useState } from 'react';
 import type { DesktopGitFile } from '../shared/contract';
 import { anchoredPanelGeometry, intersectRects, rectFrom, viewportRect } from './anchored-panel';
+import { errorMessage } from './editor-pane-session-errors';
 import { t } from './i18n';
 import { scmStatusKind, type ScmStatusKind } from './ScmStatusIcon';
 
@@ -28,14 +29,10 @@ export const DEFAULT_BRANCH_NAMES = ['main', 'master', 'trunk'];
 
 const GIT_RESET_DIRTY_CODE = 'git-reset-dirty-worktree';
 
-export function reasonText(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
-}
-
 export function isDirtyResetRefusal(reason: unknown): boolean {
   if (typeof reason === 'object' && reason !== null && (reason as { code?: unknown }).code === GIT_RESET_DIRTY_CODE)
     return true;
-  return /--mixed reset rewrites the index/.test(reasonText(reason));
+  return /--mixed reset rewrites the index/.test(errorMessage(reason));
 }
 
 export function leavesStateBehind(key: string): boolean {
@@ -198,11 +195,6 @@ export function useRowWindow(
   extents: readonly RowExtent[] = NO_EXTENTS
 ): ScmRowWindow {
   const [metrics, setMetrics] = useState({ top: 0, height: 0, width: 0 });
-  /** The viewport NODE is tracked as state, not read once from the ref: the
-   *  dock swaps its whole body (InitialSurface → list, tab switches, remounts)
-   *  without `active` or `count` changing, and a listener bound to the old
-   *  node left the window frozen on stale metrics (rows blank while scrolling).
-   *  Comparing after every commit re-binds on the new node. */
   const [node, setNode] = useState<HTMLElement | null>(null);
   useLayoutEffect(() => {
     const next = active ? viewport.current : null;
@@ -253,12 +245,6 @@ export function useRowWindow(
       total,
     });
     if (height <= 0) {
-      // Viewport not measured yet (first commit, a box-less scroller): mount
-      // only what the tallest plausible viewport could show at the offset.
-      // Mounting EVERY row here and windowing on the next commit made a dock
-      // with a few hundred changes pay a full list build — rows, path
-      // measurement, layout — for one frame that the real window immediately
-      // threw away (a visible hitch on opening Source Control).
       const viewportGuess = typeof window === 'undefined' ? 800 : window.innerHeight;
       const start = Math.max(0, rowsStartingBefore(top, true) - 1 - SCM_ROW_OVERSCAN);
       const end = Math.min(count, Math.max(start, rowsStartingBefore(top + viewportGuess, false) + SCM_ROW_OVERSCAN));

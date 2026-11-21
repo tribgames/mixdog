@@ -1,7 +1,3 @@
-// The chat side of connectors: the connect card a `setup connect_connector`
-// call leaves in the conversation ("Slack 연결 · 연결"), running the same
-// one-click flow as Extensions → 커넥터, and the Agents pane's "커넥터" pill
-// with the marks of the connected services.
 import { Link } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { connectorAppPasswordOnly, connectorById } from '../shared/core-src/runtime/shared/connector-catalog.mjs';

@@ -1,10 +1,3 @@
-/**
- * Whether a URL may be opened at all. A name that passes the policy is
- * resolved and checked again against the address it actually points at, so a
- * host that answers with a private address cannot slip through the name
- * check. Concurrent resolutions are coalesced, but completed answers are never
- * cached: a later request must detect DNS rebinding to a private address.
- */
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
@@ -29,6 +22,23 @@ export function createBrowserUrlAdmission(host: BrowserUrlAdmissionHost) {
   const lookupAddresses =
     host.lookupAddresses || ((hostname: string) => lookup(hostname, { all: true, verbatim: true }));
   const pendingResolutions = new Map<string, Promise<void>>();
+  async function assertHostAddressesAllowed(hostname: string): Promise<void> {
+    let addresses: Array<{ address: string }>;
+    try {
+      addresses = await lookupAddresses(hostname);
+    } catch {
+      throw new Error(`navigation to ${hostname} could not be resolved for private-network validation`);
+    }
+    if (!addresses.length) {
+      throw new Error(`navigation to ${hostname} returned no addresses for private-network validation`);
+    }
+    if (addresses.length > 64) {
+      throw new Error(`navigation to ${hostname} returned too many resolved addresses`);
+    }
+    for (const { address } of addresses) {
+      assertResolvedAddressAllowed(address, hostname, browserUrlPolicy);
+    }
+  }
   async function assertResolvedUrlAllowed(url: string, pageGenerated = false): Promise<void> {
     const parsed = new URL(
       pageGenerated ? normalizePageUrl(url, browserUrlPolicy) : normalizeAgentUrl(url, browserUrlPolicy)
@@ -44,23 +54,7 @@ export function createBrowserUrlAdmission(host: BrowserUrlAdmissionHost) {
     if (pendingResolutions.size >= maxPendingResolutions) {
       throw new Error('too many concurrent browser DNS validations');
     }
-    const promise = (async () => {
-      let addresses: Array<{ address: string }>;
-      try {
-        addresses = await lookupAddresses(hostname);
-      } catch {
-        throw new Error(`navigation to ${hostname} could not be resolved for private-network validation`);
-      }
-      if (!addresses.length) {
-        throw new Error(`navigation to ${hostname} returned no addresses for private-network validation`);
-      }
-      if (addresses.length > 64) {
-        throw new Error(`navigation to ${hostname} returned too many resolved addresses`);
-      }
-      for (const { address } of addresses) {
-        assertResolvedAddressAllowed(address, hostname, browserUrlPolicy);
-      }
-    })();
+    const promise = assertHostAddressesAllowed(hostname);
     pendingResolutions.set(hostname, promise);
     try {
       await promise;

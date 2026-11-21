@@ -68,7 +68,6 @@ test('the GitHub dock offers repository creation before local Git status is read
         status,
         statusReady: Boolean(status),
         statusError: '',
-        loading: false,
         active: true,
         readinessKey: 'github',
         surface: 'prs',

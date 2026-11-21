@@ -7,10 +7,6 @@ const GENERATED_TITLE_NOISE = Object.freeze([
   // Same control-row set as session-text: never title from cancel/restart markers.
   /^\[(?:truncated|request interrupted by (?:user(?: for tool use)?|process restart))\]$/i,
   /^a previous model worked on this task and produced the compacted handoff summary below\b/i,
-  // Compact/auto-clear re-seed variants (mirror of the core
-  // SYNTHETIC_SESSION_TEXT_PATTERNS): the file re-attach block leads the
-  // post-compaction transcript, so titling from it painted
-  // "Re-attached after compaction…" rows in the sidebar (user report).
   /^re-attached after compaction\b/i,
   /^reference files:\s/i,
   /^the async (?:agent|shell) task\b/i,
@@ -27,12 +23,6 @@ const MEDIA_DISPLAY_BLOCK =
 const LEGACY_MEDIA_PREFIX =
   /^\s*.+?\.(png|jpe?g|gif|webp|bmp|avif|mp4|mov|m4v|webm|mkv|avi)\s+\d{1,6}\s*[x×]\s*\d{1,6}(?:\s*,?\s*displayed\s+at\s+\d{1,6}\s*[x×]\s*\d{1,6})?\s*(?:…|\.\.\.)?\s*/i;
 const COMPACTED_EVENT_LINE = /^\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\]\s+([a-z]+):\s*(.*)$/i;
-// Reply/session-transition envelopes can lead the visible prompt after a
-// restart. They are navigation metadata, not the task itself, and otherwise
-// consume the entire 32-char generated title ("확인 [2026-…] …"). When the
-// quoted excerpt has an ellipsis and real text follows it, discard the whole
-// excerpt; a truncated metadata title with no trailing text only loses the
-// timestamp prefix and is repaired later from the full durable preview.
 const SESSION_REFERENCE_PREFIX = /^\s*(?:확인\s*)?\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/i;
 const SESSION_REFERENCE_QUOTE =
   /^\s*(?:확인\s*)?\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*[\s\S]{0,160}?(?:…|\.\.\.)\s*(?=\S)/i;

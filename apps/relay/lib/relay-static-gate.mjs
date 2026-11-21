@@ -1,8 +1,3 @@
-// Pairing-gated static shell: device routes, public installability assets,
-// share-target fallback, and the health probe. Branding files listed here are
-// served without the pairing gate because browsers fetch them without
-// credentials; a 401 would silently downgrade "install app" to an icon-less
-// shortcut. These assets carry no user data.
 import {
   deviceCookieHeaders,
   mergeCookieHeaders,
@@ -18,6 +13,8 @@ import { PREVIEW_FRAME_PATH, sendPreviewFrame } from './relay-preview-frame.mjs'
 import { decodedRequestPath, endText, rejectUnauthorizedText } from './relay-http.mjs';
 import { isNativeAppRequest, sendUpdatePcPage } from './update-pc-page.mjs';
 
+// Browsers fetch these without credentials; a 401 would downgrade "install app"
+// to an icon-less shortcut.
 export const PUBLIC_APP_ASSETS = new Set([
   '/manifest.webmanifest',
   '/mixdog.svg',
@@ -44,10 +41,6 @@ export function parseDeviceRoute(pathname) {
   };
 }
 
-// The installed app's share sheet posts to its service worker, which answers
-// on the device. A share that still reaches the relay means no worker was
-// active yet: reopening the app beats failing the share outright, even though
-// the payload itself is lost with the request this relay never stores.
 const SHARE_TARGET_PATH = /^\/(?:d\/[^/]+\/)?share-target$/;
 
 export function shareTargetShell(requestUrl) {
@@ -57,23 +50,11 @@ export function shareTargetShell(requestUrl) {
   return SHARE_TARGET_PATH.test(pathname) ? pathname.replace(/share-target$/, '') : '';
 }
 
-// Gate: an approved browser presents its per-browser token (Authorization,
-// or this cookie for plain asset requests). A container with no credential
-// yet may still reach the shell through its device route — that shell can
-// only show the install guide and ask the desktop for approval, and the
-// bundle behind it holds no user data. Bots probing GET / see 401.
-// Installability metadata is exempt: browsers fetch the manifest and its
-// icons WITHOUT credentials, and a 401 there silently downgrades "install
-// app" to an icon-less shortcut. These assets carry no user data.
 function resolveStaticAccess(store, request, url, pathname) {
   const route = parseDeviceRoute(pathname);
   const queryToken = url.searchParams.get('token') || '';
   const token = queryToken || requestCookieToken(request);
   const tokenDevice = token ? store.deviceIdForClientToken(token) : null;
-  // Only a credential this relay actually knows is persisted as the pairing
-  // cookie. A public asset carrying `?token=<attacker value>` would otherwise
-  // plant an HttpOnly cookie the visitor cannot see or clear, and every later
-  // request would ride the attacker's session.
   const persistQueryToken = Boolean(queryToken) && Boolean(tokenDevice);
   const cookieDevice = parseCookieDevice(request.headers.cookie);
   const routeDevice = route?.deviceId || cookieDevice;
@@ -136,6 +117,31 @@ function serveUpdatePcPage(renderer, store, { route, releaseDevice }, request, r
   return true;
 }
 
+function isShellDocument(rendererDir, rest, resolved) {
+  return (
+    rest === '/' ||
+    rest === '/index.html' ||
+    (resolved.status === 200 && resolved.target === resolveStaticTarget(rendererDir, '/index.html').target)
+  );
+}
+
+function sendUnavailableShell(request, response) {
+  response
+    .writeHead(200, {
+      'Cache-Control': 'no-store',
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+      'X-Content-Type-Options': 'nosniff',
+    })
+    .end(
+      request.method === 'HEAD'
+        ? undefined
+        : '<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Web client unavailable</title>' +
+            '<h1>Web client unavailable</h1><p>The web client for this PC version is unavailable.</p>' +
+            '<button type="button" onclick="location.reload()">Reload page</button>'
+    );
+}
+
 export function serveStatic(renderer, store, unauthorizedLimiter, request, response) {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     answerNonReadMethod(request, response);
@@ -171,32 +177,12 @@ export function serveStatic(renderer, store, unauthorizedLimiter, request, respo
     serveDeviceRoute(rendererDir, access.route, request, response);
     return;
   }
-  const unmatched = selected === null;
-  const classify = unmatched || (access.route && isNativeAppRequest(request));
+  const classify = selected === null || (access.route && isNativeAppRequest(request));
   const resolved = classify && rendererDir ? resolveStaticTarget(rendererDir, rest) : { status: 404 };
-  const document =
-    classify &&
-    (rest === '/' ||
-      rest === '/index.html' ||
-      (resolved.status === 200 && resolved.target === resolveStaticTarget(rendererDir, '/index.html').target));
+  const document = classify && isShellDocument(rendererDir, rest, resolved);
   if (document && access.route && serveUpdatePcPage(renderer, store, access, request, response)) return;
   if (selected === null && document) {
-    // An OK, no-store document evicts the stale shell in already shipped workers.
-    response
-      .writeHead(200, {
-        'Cache-Control': 'no-store',
-        'Content-Type': 'text/html; charset=utf-8',
-        'Content-Security-Policy':
-          "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
-        'X-Content-Type-Options': 'nosniff',
-      })
-      .end(
-        request.method === 'HEAD'
-          ? undefined
-          : '<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Web client unavailable</title>' +
-              '<h1>Web client unavailable</h1><p>The web client for this PC version is unavailable.</p>' +
-              '<button type="button" onclick="location.reload()">Reload page</button>'
-      );
+    sendUnavailableShell(request, response);
     return;
   }
   if (!rendererDir || (selected === null && !PUBLIC_APP_ASSETS.has(pathname) && !WORKER_SCRIPTS.has(pathname))) {

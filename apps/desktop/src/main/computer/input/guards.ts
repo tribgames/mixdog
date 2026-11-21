@@ -1,8 +1,3 @@
-/**
- * What Computer Use refuses before dispatch: destructive key chords, shell
- * payloads in typed text, and launch targets that are really a shell. These are
- * decided by the command alone, so they hold wherever the host runs.
- */
 import type { ComputerCommand } from '../shared/types';
 import { KEY_SEQUENCE_ACTIONS, normalizeComputerKeySequence } from './keyboard';
 import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from '../../../shared/core-src/runtime/computer-bridge/limits.mjs';

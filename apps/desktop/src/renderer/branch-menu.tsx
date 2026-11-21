@@ -1,8 +1,3 @@
-// The branch menu shared by the New Task branch chip (a popup) and the
-// composer island's branch segment (an island tab): search · branches ·
-// "New branch" · "New worktree" · "Clean up", in one theme. Its data lives in
-// branch-menu-data; the popup's placement, actions and dialogs live here; each
-// host owns only its trigger.
 import { Check, ChevronDown, ChevronRight, FolderGit2, GitBranch, Plus, Search, X } from 'lucide-react';
 import {
   type CSSProperties,
@@ -137,6 +132,48 @@ export function useBranchMenuOverlay(disabled: boolean, modal: boolean) {
   };
 }
 
+function useWorktreeCleanupPreview(menu: DesktopBranchMenu | null, menuOpen: boolean, sessionId: string) {
+  // Whether "Clean up" has anything to act on (a cheap read, no git checks):
+  // unknown (loading, failed) keeps the button usable. Read when the menu
+  // opens, again when a menu read changes what it depends on, and after a prune.
+  const repoCommonDir = menu?.workspace.repoCommonDir;
+  const [cleanup, setCleanup] = useState<{ repoCommonDir: string; empty: boolean } | null>(null);
+  const cleanupRead = useRef(0);
+  const readCleanup = useCallback(async () => {
+    const id = ++cleanupRead.current;
+    // A new request makes the answer unknown (usable) until it arrives.
+    setCleanup(null);
+    if (!repoCommonDir) return;
+    const empty = await sharedCleanupPreview(repoCommonDir, () =>
+      invokeWorktree('previewWorktreeCleanup', [{ repoCommonDir }], sessionId)
+    )
+      .then(nothingToCleanUp)
+      .catch(() => false);
+    if (id === cleanupRead.current) setCleanup({ repoCommonDir, empty });
+  }, [repoCommonDir, sessionId]);
+  // What the preview depends on: the repository's branches and who holds them.
+  // Each menu read (one per turn start and end while the menu is open) is a
+  // fresh object, so the preview follows its content, not its identity.
+  const branches = menu?.branches;
+  const occupancy = menu?.occupancy;
+  const retained = menu?.retainedWorktree;
+  const menuRead = useMemo(
+    () => JSON.stringify([branches ?? null, occupancy ?? null, retained ?? null]),
+    [branches, occupancy, retained]
+  );
+  // Only an open menu shows the button the answer decides: a closed one (a composer per running session, each re-reading
+  // its menu on every turn) asked the runtime for a repository scan it never displayed.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: menuRead is the deliberate re-read trigger
+  useEffect(() => {
+    if (menuOpen) void readCleanup();
+  }, [readCleanup, menuRead, menuOpen]);
+  return {
+    repoCommonDir,
+    nothingToClean: cleanup?.repoCommonDir === repoCommonDir && cleanup?.empty === true,
+    readCleanup,
+  };
+}
+
 /** The menu's actions: "Worktree", a branch row and "New branch", each one
  *  runtime transition whose failure becomes the menu notice. A session's
  *  "Worktree" creates and enters the worktree now; uncommitted project-folder
@@ -177,10 +214,6 @@ export function useBranchMenuActions({
   trigger: RefObject<HTMLElement | null>;
 }) {
   const [busy, setBusy] = useState(false);
-  // What the user chose, from the click until the new state is read back: the
-  // menu marks that row at once (a refusal can take seconds to arrive) and the
-  // island segment shows a pending mark. `move` is a worktree move, which
-  // runs for seconds (a carry for much longer) before the workspace switches.
   const [pending, setPending] = useState<BranchMenuPending | null>(null);
   const [carry, setCarry] = useState<{
     count: number;
@@ -188,10 +221,6 @@ export function useBranchMenuActions({
     resolve(choice: CarryChoice | null): void;
   } | null>(null);
 
-  /** One transition: asks once more with `confirmLarge` after the user OKs
-   *  the large-repository prompt, and with `carryChanges` after the user
-   *  picks what happens to uncommitted files; every other failure becomes
-   *  the menu notice. */
   const perform = async (
     call: (extra: { confirmLarge?: true; carryChanges?: CarryChoice }) => Promise<unknown>,
     { checkout = false, mark }: { checkout?: boolean; mark: BranchMenuPending }
@@ -316,40 +345,7 @@ export function useBranchMenuActions({
     if (name) void selectBranch(name, true);
   };
 
-  // Whether "Clean up" has anything to act on (a cheap read, no git checks):
-  // unknown (loading, failed) keeps the button usable. Read when the menu
-  // opens, again when a menu read changes what it depends on, and after a prune.
-  const repoCommonDir = menu?.workspace.repoCommonDir;
-  const [cleanup, setCleanup] = useState<{ repoCommonDir: string; empty: boolean } | null>(null);
-  const cleanupRead = useRef(0);
-  const readCleanup = useCallback(async () => {
-    const id = ++cleanupRead.current;
-    // A new request makes the answer unknown (usable) until it arrives.
-    setCleanup(null);
-    if (!repoCommonDir) return;
-    const empty = await sharedCleanupPreview(repoCommonDir, () =>
-      invokeWorktree('previewWorktreeCleanup', [{ repoCommonDir }], sessionId)
-    )
-      .then(nothingToCleanUp)
-      .catch(() => false);
-    if (id === cleanupRead.current) setCleanup({ repoCommonDir, empty });
-  }, [repoCommonDir, sessionId]);
-  // What the preview depends on: the repository's branches and who holds them.
-  // Each menu read (one per turn start and end while the menu is open) is a
-  // fresh object, so the preview follows its content, not its identity.
-  const branches = menu?.branches;
-  const occupancy = menu?.occupancy;
-  const retained = menu?.retainedWorktree;
-  const menuRead = useMemo(
-    () => JSON.stringify([branches ?? null, occupancy ?? null, retained ?? null]),
-    [branches, occupancy, retained]
-  );
-  // Only an open menu shows the button the answer decides: a closed one (a composer per running session, each re-reading
-  // its menu on every turn) asked the runtime for a repository scan it never displayed.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: menuRead is the deliberate re-read trigger
-  useEffect(() => {
-    if (menuOpen) void readCleanup();
-  }, [readCleanup, menuRead, menuOpen]);
+  const { repoCommonDir, nothingToClean, readCleanup } = useWorktreeCleanupPreview(menu, menuOpen, sessionId);
 
   /** "Clean up": the manual prune (clean, merged worktrees no session keeps;
    *  registrations whose folder is gone), its summary as the notice, then a
@@ -373,7 +369,7 @@ export function useBranchMenuActions({
     management: {
       projectPath,
       refresh: load,
-      ...(repoCommonDir ? { prune, nothingToClean: cleanup?.repoCommonDir === repoCommonDir && cleanup.empty } : {}),
+      ...(repoCommonDir ? { prune, nothingToClean } : {}),
     },
     busy,
     pending,
@@ -845,6 +841,39 @@ function CreateBranchButton({
   );
 }
 
+function BranchTransitionButtons({
+  className,
+  contents,
+  onCreate,
+}: {
+  className: string;
+  contents: Pick<
+    BranchMenuContentsProps,
+    'busy' | 'locked' | 'intent' | 'pending' | 'worktreeUnavailable' | 'onPickWorktree'
+  >;
+  onCreate(): void;
+}) {
+  const disabled = contents.busy || Boolean(contents.locked);
+  return (
+    <>
+      <CreateBranchButton
+        className={className}
+        pending={contents.pending?.kind === 'create'}
+        disabled={disabled}
+        onCreate={onCreate}
+      />
+      <NewWorktreeButton
+        className={className}
+        intent={contents.intent}
+        pending={contents.pending?.kind === 'worktree'}
+        disabled={disabled}
+        unavailable={contents.worktreeUnavailable}
+        onPick={contents.onPickWorktree}
+      />
+    </>
+  );
+}
+
 /** The New Task chip's popup: search · branches, then "New branch" ·
  *  "New worktree" · "Clean up". */
 function BranchMenuPanel({
@@ -880,20 +909,7 @@ function BranchMenuPanel({
       <BranchMenuContents {...contents} autoFocusSearch={!touchPrimaryPointer()} onCreateFromSearch={onCreateBranch} />
       <hr className="branch-menu-rule" />
       <div className="branch-menu-actions">
-        <CreateBranchButton
-          className="branch-menu-item"
-          pending={contents.pending?.kind === 'create'}
-          disabled={contents.busy || Boolean(contents.locked)}
-          onCreate={onCreateBranch}
-        />
-        <NewWorktreeButton
-          className="branch-menu-item"
-          intent={contents.intent}
-          pending={contents.pending?.kind === 'worktree'}
-          disabled={contents.busy || Boolean(contents.locked)}
-          unavailable={contents.worktreeUnavailable}
-          onPick={contents.onPickWorktree}
-        />
+        <BranchTransitionButtons className="branch-menu-item" contents={contents} onCreate={onCreateBranch} />
         {contents.management?.prune && (
           <PruneWorktreesButton
             className="branch-menu-item"
@@ -984,33 +1000,13 @@ export function BranchIslandPanel({
         }
       >
         {worktreeActions ?? (
-          <>
-            <CreateBranchButton
-              className="composer-island-button"
-              pending={contents.pending?.kind === 'create'}
-              disabled={contents.busy || Boolean(contents.locked)}
-              onCreate={onCreateBranch}
-            />
-            <NewWorktreeButton
-              className="composer-island-button"
-              intent={contents.intent}
-              pending={contents.pending?.kind === 'worktree'}
-              disabled={contents.busy || Boolean(contents.locked)}
-              unavailable={contents.worktreeUnavailable}
-              onPick={contents.onPickWorktree}
-            />
-          </>
+          <BranchTransitionButtons className="composer-island-button" contents={contents} onCreate={onCreateBranch} />
         )}
       </IslandPanelFoot>
     </section>
   );
 }
 
-/** Keeps the branch list steady while a fresh read replaces the cached one:
- *  its height never shrinks while the query is unchanged, and the row under
- *  the pointer or focus (rows are keyed by branch name, so it is the same
- *  element) stays where it was by correcting the list's scroll. Returns the
- *  tracker the list calls when focus, pointer or scroll moves the anchor. */
 function useStableMenuList(
   list: RefObject<HTMLDivElement | null>,
   rows: BranchRow[],

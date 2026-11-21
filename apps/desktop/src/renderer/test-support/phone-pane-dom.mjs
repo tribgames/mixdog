@@ -1,6 +1,3 @@
-// Shared harness for tests that mount the real PaneConversation: a jsdom
-// laid out the way a 412x915 phone lays the pane out (viewport 800px tall,
-// every virtual row 500px) with animation frames driven by the test.
 import React from 'react';
 import { installTestDom } from './test-dom.mjs';
 
@@ -48,23 +45,14 @@ class PaneResizeObserver {
   disconnect() {}
 }
 
-export async function installPhonePaneDom(t, { mobile = true } = {}) {
-  const { dom, root } = installTestDom(t, {
-    html: mobile
-      ? '<!doctype html><html data-mixdog-mobile-tabs><body><main id="root"></main></body></html>'
-      : '<!doctype html><html><body><main id="root"></main></body></html>',
-    expose: ['navigator', 'Element', 'HTMLElement', 'MutationObserver'],
-    globals: { ResizeObserver: PaneResizeObserver },
-    rootId: 'root',
-  });
-  if (mobile) Object.defineProperty(dom.window.navigator, 'userAgent', { configurable: true, get: () => PHONE_UA });
-  const noop = () => {};
-  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+const noop = () => {};
+
+function controlFrames(window) {
   const frames = new Map();
   const origins = new Map();
   const sampling = new Map();
   let nextFrame = 1;
-  dom.window.requestAnimationFrame = (callback) => {
+  window.requestAnimationFrame = (callback) => {
     const id = nextFrame++;
     frames.set(id, callback);
     const stack = new Error().stack;
@@ -72,15 +60,19 @@ export async function installPhonePaneDom(t, { mobile = true } = {}) {
     sampling.set(id, stack.includes('use-transcript-reveal.ts'));
     return id;
   };
-  dom.window.cancelAnimationFrame = (id) => {
+  window.cancelAnimationFrame = (id) => {
     frames.delete(id);
   };
   // Code that calls the bare globals shares the same controlled frames.
-  globalThis.requestAnimationFrame = dom.window.requestAnimationFrame;
-  globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame;
-  const proto = dom.window.HTMLElement.prototype;
+  globalThis.requestAnimationFrame = window.requestAnimationFrame;
+  globalThis.cancelAnimationFrame = window.cancelAnimationFrame;
+  return { frames, origins, sampling };
+}
+
+function stubPaneLayout(window) {
+  const proto = window.HTMLElement.prototype;
   const space = (element) => element.querySelector?.('.transcript-virtual-space');
-  dom.window.ResizeObserver = globalThis.ResizeObserver;
+  window.ResizeObserver = globalThis.ResizeObserver;
   for (const [name, wide] of [
     ['offsetHeight', 800],
     ['offsetWidth', 412],
@@ -108,37 +100,53 @@ export async function installPhonePaneDom(t, { mobile = true } = {}) {
     const height = rectHeight(this);
     return { x: 0, y: 0, top: 0, left: 0, right: 412, bottom: height, width: 412, height, toJSON() {} };
   };
+}
+
+const paneProps = (sessionId) => ({
+  focused: true,
+  hidden: false,
+  sessionId,
+  invokeResult: async (action) => action(),
+  errors: [],
+  submit: async () => undefined,
+  applySnapshot: noop,
+  transitioning: false,
+  composerFocusRequest: 0,
+  onNewTask: noop,
+  onClearProject: noop,
+  onResumeSession: noop,
+  onOpenSessions: noop,
+  onOpenProjects: noop,
+  onOpenSettings: noop,
+  projects: [],
+  showProjectSelector: false,
+  activeProjectPath: '',
+  activeProjectLabel: '',
+  onSelectProject: noop,
+  onOpenCommandSurface: noop,
+  reconcileOnMount: false,
+});
+
+export async function installPhonePaneDom(t, { mobile = true } = {}) {
+  const { dom, root } = installTestDom(t, {
+    html: mobile
+      ? '<!doctype html><html data-mixdog-mobile-tabs><body><main id="root"></main></body></html>'
+      : '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'MutationObserver'],
+    globals: { ResizeObserver: PaneResizeObserver },
+    rootId: 'root',
+  });
+  if (mobile) Object.defineProperty(dom.window.navigator, 'userAgent', { configurable: true, get: () => PHONE_UA });
+  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  const { frames, origins, sampling } = controlFrames(dom.window);
+  stubPaneLayout(dom.window);
   const { PaneConversation } = await import('../app-snapshot-views.tsx');
   const { defaultSessionLaneStore } = await import('../session-lane-store.ts');
   defaultSessionLaneStore.clear();
   t.after(() => defaultSessionLaneStore.clear());
-  const props = (sessionId) => ({
-    focused: true,
-    hidden: false,
-    sessionId,
-    invokeResult: async (action) => action(),
-    errors: [],
-    submit: async () => undefined,
-    applySnapshot: noop,
-    transitioning: false,
-    composerFocusRequest: 0,
-    onNewTask: noop,
-    onClearProject: noop,
-    onResumeSession: noop,
-    onOpenSessions: noop,
-    onOpenProjects: noop,
-    onOpenSettings: noop,
-    projects: [],
-    showProjectSelector: false,
-    activeProjectPath: '',
-    activeProjectLabel: '',
-    onSelectProject: noop,
-    onOpenCommandSurface: noop,
-    reconcileOnMount: false,
-  });
   const element = (sessionId, strict = false) => {
-    const pane = React.createElement(PaneConversation, props(sessionId));
+    const pane = React.createElement(PaneConversation, paneProps(sessionId));
     return strict ? React.createElement(React.StrictMode, null, pane) : pane;
   };
-  return { dom, root, props, element, PaneConversation, defaultSessionLaneStore, frames, origins, sampling };
+  return { dom, root, props: paneProps, element, PaneConversation, defaultSessionLaneStore, frames, origins, sampling };
 }

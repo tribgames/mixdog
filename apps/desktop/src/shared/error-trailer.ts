@@ -1,9 +1,4 @@
-// One JSON trailer on an Error's message, for what a message-only hop would
-// drop: Electron's IPC and `contextBridge` hand the page only `message` and
-// `stack`, never `code` or `details`. The worktree failures carry their
-// details this way (worktree-validation.ts writes it, worktree-branch-model.ts
-// reads it), and room and schedule refusals carry their `{ code, params }`.
-// This module is the framing only; each caller validates its own payload.
+// Electron's IPC and `contextBridge` hand the page only `message` and `stack`, never `code` or `details`.
 
 /** The marker keeps its original worktree wording: that wire format is fixed. */
 export const ERROR_TRAILER_MARKER = '\n[worktree-details] ';

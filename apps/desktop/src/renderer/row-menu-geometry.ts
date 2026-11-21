@@ -30,12 +30,6 @@ const ROW_MENU_MIN_WIDTH = 160;
 /* Same ceiling as .mx-menu so every popup menu shares one width grammar. */
 const ROW_MENU_MAX_WIDTH = 368;
 
-// The panel sizes itself to its labels, so ⋯ popups differ in width and the
-// caller never knows the width. The ⋯ glyph sits at the trailing edge of its
-// row, so the menu opens like every trailing trigger (anchored-panel.ts:
-// below, right edge pinned to the trigger's right edge, flipping above only
-// when below cannot hold it and above is roomier); the owner pulls a menu
-// that still runs past the window back in with clampOverlayIntoView.
 export function positionRowMenu(
   anchor: ReturnType<typeof captureRowMenuAnchor> | null,
   rowCount: number,

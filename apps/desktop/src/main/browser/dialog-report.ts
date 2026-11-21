@@ -1,9 +1,3 @@
-/**
- * Answering a blocking dialog, and saying what state the page is in. A
- * dialog opened through the page bridge is fulfilled through the bridge; a
- * native one through the CDP handler. Both clear the pending record so the
- * next observation is not reported as blocked.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';

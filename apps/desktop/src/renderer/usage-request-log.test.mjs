@@ -156,12 +156,17 @@ const openFilter = (index) =>
     trigger.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0 }));
   });
 
-test('the request log tab lists requests with every column, filters them and loads more on scroll', async (context) => {
+async function openRequestLog(context) {
   const { render, scrollToEnd } = harness(context);
   window.localStorage.clear();
   const { api, asked } = requestApi(context, 60);
   await render({ surface: 'stats', open: true, onClose() {}, api });
   await act(async () => tab('Request log').click());
+  return { asked, scrollToEnd };
+}
+
+test('the request log tab lists requests with every column', async (context) => {
+  const { asked } = await openRequestLog(context);
   assert.equal(tab('Request log').getAttribute('aria-selected'), 'true');
   assert.deepEqual(asked[0], { view: 'hour', limit: 50 });
   assert.deepEqual(
@@ -199,13 +204,19 @@ test('the request log tab lists requests with every column, filters them and loa
   assert.equal(hop.length, 3, 'the same model on another provider is still a pair');
   assert.notEqual(hop[0], hop[2], 'the asked-for provider differs from the answering one');
   assert.match(hop[0], /anthropic/i);
+});
 
+test('the request log loads the next page on scroll', async (context) => {
+  const { asked, scrollToEnd } = await openRequestLog(context);
   await scrollToEnd();
   assert.equal(asked.length, 2);
   assert.ok(asked[1].cursor, 'the next page continues after the last row');
   assert.equal(bodyRows().length, 60);
   assert.equal(document.querySelector('.request-log-more'), null, 'nothing more to load');
+});
 
+test('the request log filters by status and by model', async (context) => {
+  const { asked } = await openRequestLog(context);
   await openFilter(0);
   await act(async () => option(t('Failed')).click());
   assert.equal(asked.at(-1).status, 'failed');

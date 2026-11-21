@@ -1,19 +1,5 @@
-// Relay-owned Web Push (RFC 8030 delivery, RFC 8292 VAPID).
-//
-// A browser subscription is bound to ONE applicationServerKey. When every
-// desktop held its own key, a browser paired with several PCs could only be
-// subscribed for one of them. The relay therefore owns the single sender
-// identity every PC delivers through: the browser subscribes once with the
-// relay's public key, and each paired PC holds its OWN association with that
-// subscription, made by the browser with that PC's pairing credential.
-//
-// The relay never sees notification content. The desktop encrypts every
-// payload for the subscription (RFC 8291 aes128gcm) with the browser's
-// p256dh/auth, which reach the desktop sealed to its E2EE identity
-// (`sealed` below) — the relay only stores and forwards that box. The relay
-// signs the VAPID JWT and posts the ciphertext to the push service.
-//
-// The private key never leaves this process or its data dir.
+// Relay-owned Web Push (RFC 8030 delivery, RFC 8292 VAPID). A browser subscription is bound to one applicationServerKey, so the relay owns the single sender identity every PC delivers through; each paired PC holds its own association with the subscription.
+// The desktop encrypts every payload (RFC 8291 aes128gcm) with p256dh/auth that reach it sealed to its E2EE identity; the relay stores and forwards that box and never sees content. The private key never leaves this process or its data dir.
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomUUID, sign as cryptoSign } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -65,11 +51,7 @@ function rawPublicKey(keyObject) {
   );
 }
 
-/**
- * The relay's VAPID identity, minted once and persisted in the data dir.
- * Rotating it would strand every subscription, so a file that exists but
- * cannot be read DISABLES web push (null) instead of being replaced.
- */
+/** The relay's VAPID identity, minted once and persisted in the data dir. A file that exists but cannot be read disables web push (null): rotating the key would strand every subscription. */
 export function loadOrCreateVapidKeys(dataDir, { log = console.error } = {}) {
   const path = join(dataDir, VAPID_FILE);
   let text = null;
@@ -127,16 +109,11 @@ export function vapidAuthorization({ endpoint, keys, subject = VAPID_SUBJECT, no
   return `vapid t=${header}.${claims}.${signature}, k=${keys.publicKey}`;
 }
 
-/**
- * The push services browsers subscribe through. The relay POSTs to whatever
- * endpoint a browser registers, so the endpoint's host is matched against the
- * known services rather than screened for "private" names: a public DNS name
- * may resolve anywhere, and a name check cannot see that.
- *   Chrome, Edge, Opera, Brave, Samsung Internet  fcm.googleapis.com
- *   Firefox                                       updates.push.services.mozilla.com
- *   Safari (macOS 13+, iOS 16.4+)                 web.push.apple.com
- *   Edge on WNS (legacy)                          *.notify.windows.com
- */
+// The push services browsers subscribe through; an endpoint host is matched against them because a public DNS name may resolve anywhere.
+//   Chrome, Edge, Opera, Brave, Samsung Internet  fcm.googleapis.com
+//   Firefox                                       updates.push.services.mozilla.com
+//   Safari (macOS 13+, iOS 16.4+)                 web.push.apple.com
+//   Edge on WNS (legacy)                          *.notify.windows.com
 const PUSH_SERVICE_HOSTS = ['fcm.googleapis.com'];
 const PUSH_SERVICE_SUFFIXES = ['.push.services.mozilla.com', '.push.apple.com', '.notify.windows.com'];
 
@@ -237,12 +214,7 @@ const sameSealed = (left, right) =>
   left.nonce === right.nonce &&
   left.ciphertext === right.ciphertext;
 
-/**
- * The associations `endpoint -> {(deviceId, clientId) -> sealed}`. Each one
- * was made by the browser with THAT PC's credential, and each is removed on
- * its own: unregistering or revoking one PC never touches another's. Persisted
- * because a browser registers once while its PCs come and go.
- */
+/** The associations `endpoint -> {(deviceId, clientId) -> sealed}`, each made by the browser with that PC's credential and removed on its own; persisted because a browser registers once while its PCs come and go. */
 export function createWebPushRegistry({ dataDir, log = console.error }) {
   const path = join(dataDir, SUBSCRIPTIONS_FILE);
   // `capable`: the PCs that said they deliver through the relay

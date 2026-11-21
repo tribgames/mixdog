@@ -102,6 +102,63 @@ function SessionUsageFooter({ usage, compactions }: { usage: unknown; compaction
   );
 }
 
+type EstimatedCategory = { key: string; label: string; tokens: number };
+
+function estimatedCategories(semantic: Row, schema: Row, request: Row): EstimatedCategory[] {
+  return [
+    {
+      key: 'system',
+      label: t('System prompt'),
+      tokens: tokenBuckets(semantic, ['system', 'workflow', 'workspace', 'environment', 'other']),
+    },
+    {
+      key: 'tools',
+      label: t('System tools'),
+      tokens:
+        tokenBuckets(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'session']) +
+        nonNegativeNumber(request.requestOverheadTokens),
+    },
+    { key: 'mcp', label: t('MCP tools'), tokens: tokenBuckets(schema, ['mcp']) },
+    { key: 'agents', label: t('Custom agents'), tokens: tokenBuckets(schema, ['agents']) },
+    {
+      key: 'memory',
+      label: t('Memory files'),
+      tokens: tokenBuckets(semantic, ['memory']) + tokenBuckets(schema, ['memory']),
+    },
+    { key: 'skills', label: t('Skills'), tokens: tokenBuckets(schema, ['skills']) },
+    { key: 'messages', label: t('Messages'), tokens: tokenBuckets(semantic, ['chat', 'assistant', 'toolResults']) },
+    { key: 'reasoning', label: t('Reasoning tokens'), tokens: tokenBuckets(semantic, ['reasoning']) },
+  ];
+}
+
+function EstimatedMix({ categories, windowTokens }: { categories: EstimatedCategory[]; windowTokens: number }) {
+  return (
+    <section className="context-mix" aria-labelledby="context-mix-title">
+      <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>
+      <div className="context-stack-bar" role="img" aria-label={t('Context composition')}>
+        {categories
+          .filter((category) => category.tokens > 0)
+          .map((category) => (
+            <b
+              key={category.key}
+              data-context-key={category.key}
+              style={{ width: `${Math.max(0.75, contextPercent(category.tokens, windowTokens) || 0)}%` }}
+            />
+          ))}
+      </div>
+      <div className="context-mix-grid">
+        {categories.map((category) => (
+          <div className="context-mix-row" key={category.key} data-context-key={category.key}>
+            <i aria-hidden="true" />
+            <span>{category.label}</span>
+            <strong>{compactTokens(category.tokens)}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function ContextBody({
   status,
   snapshot,
@@ -133,30 +190,7 @@ export function ContextBody({
   const used = usage.used;
   const windowTokens = usage.limit;
   const usedPercent = contextPercent(used, windowTokens) || 0;
-  const categories = [
-    {
-      key: 'system',
-      label: t('System prompt'),
-      tokens: tokenBuckets(semantic, ['system', 'workflow', 'workspace', 'environment', 'other']),
-    },
-    {
-      key: 'tools',
-      label: t('System tools'),
-      tokens:
-        tokenBuckets(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'session']) +
-        nonNegativeNumber(request.requestOverheadTokens),
-    },
-    { key: 'mcp', label: t('MCP tools'), tokens: tokenBuckets(schema, ['mcp']) },
-    { key: 'agents', label: t('Custom agents'), tokens: tokenBuckets(schema, ['agents']) },
-    {
-      key: 'memory',
-      label: t('Memory files'),
-      tokens: tokenBuckets(semantic, ['memory']) + tokenBuckets(schema, ['memory']),
-    },
-    { key: 'skills', label: t('Skills'), tokens: tokenBuckets(schema, ['skills']) },
-    { key: 'messages', label: t('Messages'), tokens: tokenBuckets(semantic, ['chat', 'assistant', 'toolResults']) },
-    { key: 'reasoning', label: t('Reasoning tokens'), tokens: tokenBuckets(semantic, ['reasoning']) },
-  ];
+  const categories = estimatedCategories(semantic, schema, request);
   const measuredCategories = (inspection?.categories ?? categories).filter((category) => category.tokens > 0);
   const measuredCategoryTotal = measuredCategories.reduce((sum, category) => sum + category.tokens, 0);
   const measuredBarDescription =
@@ -184,31 +218,7 @@ export function ContextBody({
       </section>
     );
   } else {
-    breakdown = (
-      <section className="context-mix" aria-labelledby="context-mix-title">
-        <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>
-        <div className="context-stack-bar" role="img" aria-label={t('Context composition')}>
-          {categories
-            .filter((category) => category.tokens > 0)
-            .map((category) => (
-              <b
-                key={category.key}
-                data-context-key={category.key}
-                style={{ width: `${Math.max(0.75, contextPercent(category.tokens, categoryWindowTokens) || 0)}%` }}
-              />
-            ))}
-        </div>
-        <div className="context-mix-grid">
-          {categories.map((category) => (
-            <div className="context-mix-row" key={category.key} data-context-key={category.key}>
-              <i aria-hidden="true" />
-              <span>{category.label}</span>
-              <strong>{compactTokens(category.tokens)}</strong>
-            </div>
-          ))}
-        </div>
-      </section>
-    );
+    breakdown = <EstimatedMix categories={categories} windowTokens={categoryWindowTokens} />;
   }
 
   return (

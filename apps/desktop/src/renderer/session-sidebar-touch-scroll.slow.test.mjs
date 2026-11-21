@@ -5,14 +5,6 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-launch.mjs';
 
-// Phone, Sessions list: the reader flings down the list while a live catalog
-// update re-sorts it by activity (the row at the top of their screen just
-// finished a turn). The update used to land under the moving list: rows
-// changed places on screen, and the scroll anchor followed the re-sorted row
-// to its new place at the top of Recent, throwing the list back (phone: 세션
-// 사이드패널 리스트 스크롤할 때도 모바일에서 엄청 튐). The update now holds until
-// the scroll is over and then lands with the reader's rows in place.
-
 const HARNESS = `
   import { useLayoutEffect, useState } from 'react';
   import { createRoot } from 'react-dom/client';

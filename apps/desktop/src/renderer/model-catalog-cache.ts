@@ -152,16 +152,6 @@ function normalizeModelCatalog(models: unknown): DesktopModelOption[] {
   return [...unique.values()];
 }
 
-// ---------------------------------------------------------------------------
-// One catalog fetch for every caller
-// ---------------------------------------------------------------------------
-// The route picker, the sidebar panels and settings each read the catalog on
-// their own, and at boot a phone paid the whole ~140 KB list once per caller
-// within a few seconds. Every caller goes through here instead: identical
-// requests join the one in flight, a completed full catalog answers quick and
-// full reads for a short window, and an explicit refresh always goes out and
-// then becomes the answer everyone shares.
-
 export const PROVIDER_MODELS_FRESH_MS = 30_000;
 
 /** Bounds on how long a PARTIAL answer (rows marked `catalogPartial`) is held
@@ -330,17 +320,6 @@ export function readModelManagementCatalog(api: ModelManagementApi, force: boole
   return issued;
 }
 
-// ---------------------------------------------------------------------------
-// Shared live request
-// ---------------------------------------------------------------------------
-// Every mounted route control reads the SAME catalog fetch: panes, sessions
-// and remounts must not each hit the daemon for a list that changes daily.
-// The share therefore lives a full day — which is exactly why a FAILED
-// request may never join it. A stored rejection replays the same error to
-// every later caller, so one transient daemon hiccup would pin "Model
-// catalog unavailable" onto a surface that never reloads (the mobile PWA)
-// long after the daemon recovered.
-
 type SharedModelCatalogRequest = {
   api: DesktopApi;
   scope: string;
@@ -401,12 +380,6 @@ function notifyModelCatalogListeners(): void {
   }
 }
 
-/** A partial full answer (some provider was missing) is not kept for a day:
- *  at its retry time the shared request is dropped and mounted pickers are
- *  woken to read again, which picks up the providers the daemon refilled. */
-// Only the current shared request can expire, so one timer serves: a newer
-// partial answer (or an invalidation) replaces it instead of leaving the old
-// one, and the request it holds, alive until it fires.
 let partialExpiryTimer: ReturnType<typeof setTimeout> | null = null;
 
 function clearPartialExpiry(): void {

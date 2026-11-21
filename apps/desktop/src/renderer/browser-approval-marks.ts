@@ -1,8 +1,3 @@
-// The sessions with a Browser Use approval waiting (the chat it docks in and
-// the session that asked), fed to the session attention index so an unopened
-// session reads "needs you" in the sidebar and tabs: this window's own cards,
-// and on a paired device the PC's list. A new set identity only when
-// membership changes.
 let ids: ReadonlySet<string> = new Set();
 let local: string[] = [];
 let host: string[] = [];

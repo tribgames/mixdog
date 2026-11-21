@@ -1,11 +1,3 @@
-/**
- * How a caller's `query` picks elements and lines. One matcher serves the
- * host (accessibility snapshots, `read`) and the page-side DOM fallback, so
- * the two never disagree about what a filter means: whitespace splits the
- * query into keywords that match with OR (an element matching every keyword
- * ranks above a partial match), and `/pattern/` or `/pattern/i` is a regular
- * expression. A one-word query behaves exactly as a substring filter did.
- */
 export type BrowserSemanticMatchField = 'name' | 'value' | 'role' | 'href';
 
 interface BrowserSemanticMatch {

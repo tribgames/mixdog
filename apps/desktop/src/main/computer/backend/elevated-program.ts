@@ -74,10 +74,6 @@ function Read-OwnedInputSource([byte[]]$hostBytes) {
 }
 `;
 
-/**
- * The elevated parent owns its one input child. Losing the unelevated launcher,
- * cancellation, and the deadline all stop that child before issuing a receipt.
- */
 export const ELEVATED_BOOTSTRAP = String.raw`
 $ErrorActionPreference = 'Stop'
 $token = [string]$env:MIXDOG_ELEVATED_TOKEN

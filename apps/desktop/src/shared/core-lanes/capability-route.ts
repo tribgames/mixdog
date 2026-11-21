@@ -1,9 +1,3 @@
-// The renderer's session capabilities over the one protocol connection (protocol.md §12.3-12.4): `invokeCapability`
-// and `readCapabilities` become `<namespace>/<action>` with the positional arguments as the method's named params, and
-// the session the call is addressed to as `threadId`. A call without a session is the control session's: the control
-// thread is named as `threadId` for every op that takes one.
-// The routing table is the TUI's (`packages/protocol-client/src/actions`); only actions the TUI does not route are added.
-// The control session is a real thread of the core, started on first need.
 import {
   approvalSurface,
   desktopSessionState,
@@ -232,13 +226,11 @@ const scheduleRenameUncertain = (cause: string): Error =>
     }
   );
 
-/** Whether `capability(...args)` addresses the call's own session, from declared metadata only: the generated method table's
- *  `thread` flag (`METHOD_ARGS`) for an ordinary mapping, and for an override its declared source
- *  (`OVERRIDE_THREAD_SOURCE`, `DESKTOP_OVERRIDE_THREAD_SOURCE`). Node sends every call that names no session to the control
- *  session (`session-host-lifecycle.ts` `invokeCapability`/`readCapabilities`), so such a call without a session is addressed to
- *  the control thread; the core would otherwise answer from the user cwd or its own process folder. An op that has no thread, and an
- *  op whose thread is an argument (`deleteSession(sessionId)`, `inheritFrom(sourceId)`), is left as it is, whatever id the argument
- *  holds; `retryFailedTurn` takes the session only when its argument is left out. An action with no op throws. */
+/** Whether `capability(...args)` addresses the call's own session, from declared metadata: `METHOD_ARGS` `thread` for an
+ *  ordinary mapping, the override's declared source otherwise. Node sends a call naming no session to the control session,
+ *  so such a call is addressed to the control thread. An op with no thread, or whose thread is an argument
+ *  (`deleteSession(sessionId)`, `inheritFrom(sourceId)`), is left as it is; `retryFailedTurn` takes the session only when
+ *  its argument is left out. An action with no op throws. */
 const usesCallSession = (capability: string, args: readonly unknown[]): boolean => {
   const { method } = routeCapability(capability, args);
   let source: string | undefined;
@@ -259,34 +251,19 @@ const startedThreadId = (started: unknown): string => {
   return id;
 };
 
-/** Every call is a request of the connection's core. The control thread is started (`thread/start` of `kind: "control"`, the
- *  way Node creates its control session in `ensureControlSession`) on first need and kept. A reply carries the state of the thread the call was addressed to,
- *  read from the core when the reply arrives (`thread/read` without items, folded by the client library's own
- *  `sessionReducer`/`desktopSessionState`, with the `hostShellJobs` section the core pushes): nothing is held between calls.
- *  The pending approvals are the ones the core asked this connection
- *  for (the server requests the library holds), joined by the library's own projection, so `toolApproval` is the library's own projection. */
-export function createCapabilityLane({ protocol }: { protocol: CapabilityProtocol }): CapabilityLane {
-  const request = (method: string, params: unknown): Promise<unknown> =>
-    protocol.call(method, params).catch((error: unknown) => {
-      throw coreErrorForWindow(error);
-    });
-  // The approvals the core is waiting on are the live client's own `pendingServerRequests` (added when the core asks, removed when
-  // it resolves the ask, all dropped with the socket; a capability's request, `host/*`, is never held), read when needed: nothing
-  // is cached here, so a request of a closed or replaced connection is never offered and an answer never crosses connections.
-  const pendingApprovals = (): readonly unknown[] => protocol.pendingServerRequests();
-  // The core keeps a control thread loaded only while a connection is subscribed to it, and deletes the blank record an hour after
-  // the last one left. The client that started it owns that subscription (`threadSubscription(id).held`): it subscribes it again
-  // after every redial, and a request naming it waits for that. So the cached id is good for as long as the current client holds it;
-  // a replaced client, or one that lost the thread (the core no longer has it), does not, and the next call starts a new one.
+type CoreRequest = (method: string, params: unknown) => Promise<unknown>;
+
+type HeldClient = {
+  threadSubscription?(threadId: string): { readonly held: boolean };
+  whenHeldSettled?(threadId: string): Promise<void>;
+};
+
+/** The control thread's id, settled before any capability names it: the client's resume of it after a redial has ended and the
+ *  current client holds it. One it does not hold is not named; a new one is started and that one is named. */
+const createControlThread = (request: CoreRequest, protocol: CapabilityProtocol) => {
   let control: Promise<string> | null = null;
-  type HeldClient = {
-    threadSubscription?(threadId: string): { readonly held: boolean };
-    whenHeldSettled?(threadId: string): Promise<void>;
-  };
   const heldClient = (): HeldClient | null | undefined => protocol.client?.() as HeldClient | null | undefined;
-  /** The control thread's id, settled before any capability names it: the client's resume of it after a redial has ended and the
-   *  current client holds it. One it does not hold is not named; a new one is started and that one is named. */
-  const controlThread = async (): Promise<string> => {
+  return async (): Promise<string> => {
     for (;;) {
       if (!control) {
         const mine = request('thread/start', { kind: 'control' }).then(startedThreadId);
@@ -306,91 +283,107 @@ export function createCapabilityLane({ protocol }: { protocol: CapabilityProtoco
       if (control === mine) control = null;
     }
   };
+};
+
+const callCapability = async (
+  request: CoreRequest,
+  protocol: CapabilityProtocol,
+  capability: string,
+  args: readonly unknown[],
+  sessionId?: string
+): Promise<unknown> => {
+  // `noteUserInput(at)` is the `client/activity {at}` notification (rate-limited by the connection), not a request, and answers
+  // `{ ok: true }`.
+  if (capability === 'noteUserInput') {
+    protocol.noteUserInput(args[0] as number);
+    return { ok: true };
+  }
+  // A call without a session reaches here only with its control thread (`send`); one whose op has no thread names none.
+  const thread = sessionId;
+  // `retryFailedTurn(sessionId, turnKey)` names its thread as its first argument; left out, it is the one addressed.
+  const named = capability === 'retryFailedTurn' && !args[0] ? [thread, ...args.slice(1)] : args;
+  const { method, params } = routeCapability(capability, named, thread);
+  // `inheritFrom` answers the heir, its source, the messages carried and its route.
+  if (capability === 'inheritFrom') {
+    // The core answers a source thread it does not have with `threadNotFound`; the caller gets its own text.
+    const forked = (await request(method, params).catch((error: unknown) => {
+      throw isThreadNotFound(error) ? new Error(`inheritFrom: session ${String(args[0]).trim()} was not found`) : error;
+    })) as { thread: { id: string }; messages: number; provider: unknown; model: unknown };
+    return {
+      sessionId: forked.thread.id,
+      sourceSessionId: args[0],
+      messages: forked.messages,
+      provider: forked.provider,
+      model: forked.model,
+    };
+  }
+  // The core answers these route ops with the route object / normalized mode; the capability answers
+  // the effort in force, nothing, and `true`.
+  if (capability === 'setEffort') {
+    const route = ((await request(method, params)) ?? {}) as {
+      effectiveEffort?: unknown;
+      effort?: unknown;
+      preset?: { effort?: unknown } | null;
+    };
+    return route.effectiveEffort || route.effort || route.preset?.effort || 'auto';
+  }
+  if (capability === 'setToolMode') {
+    await request(method, params);
+    return undefined;
+  }
+  if (capability === 'setModel') {
+    await request(method, params);
+    return true;
+  }
+  // `rewindToItem` (`intake/rewind.mjs`) answers `null`, never an error, for an item that is not a rewindable prompt and for a
+  // session that is busy; the core refuses those as `itemNotFound` / `preconditionFailed`.
+  if (capability === 'rewindToItem') {
+    return request(method, params).catch((error: unknown) => {
+      if (hasRpcReason(error, 'itemNotFound', 'preconditionFailed')) return null;
+      throw error;
+    });
+  }
+  // `prioritizeQueued` answers an entry that is not queued with a count of none; the core refuses it
+  // as `queuedEntryNotFound`, which would leave the entry marked sending in the renderer; a queued one is promoted and answers a count
+  // of one, whether or not a turn runs (the core's `turn/steer` acknowledgement is not the capability's reply).
+  if (capability === 'prioritizeQueued') {
+    return request(method, params).then(
+      () => ({ count: 1, ids: [args[0]], priority: 'now' }),
+      (error: unknown) => {
+        if (hasRpcReason(error, 'queuedEntryNotFound')) return { count: 0, ids: [], priority: 'now' };
+        throw error;
+      }
+    );
+  }
+  // A rename whose op was sent and whose outcome the reconciliation could not learn (the connection cut after sending and
+  // `op/status` failing, or the op record gone): the user is told, as Node told them when its scheduler did not answer,
+  // that the rename may or may not have applied.
+  if (capability === 'saveSchedule' && renamesSchedule(args[0])) {
+    return request(method, params).catch((error: unknown) => {
+      throw isOutcomeUnknown(error) ? scheduleRenameUncertain((error as Error).message) : error;
+    });
+  }
+  if (!ADDRESSED_SESSION_CAPABILITIES.has(capability)) return request(method, params);
+  return request(method, params).catch((error: unknown) => {
+    throw isThreadNotFound(error) ? new Error('session is not the active session') : error;
+  });
+};
+
+/** Every call is a core request. A reply carries the state of the addressed thread, read from the core when it arrives
+ *  (`thread/read` folded by `sessionReducer`/`desktopSessionState`); nothing is held between calls. */
+export function createCapabilityLane({ protocol }: { protocol: CapabilityProtocol }): CapabilityLane {
+  const request = (method: string, params: unknown): Promise<unknown> =>
+    protocol.call(method, params).catch((error: unknown) => {
+      throw coreErrorForWindow(error);
+    });
+  const pendingApprovals = (): readonly unknown[] => protocol.pendingServerRequests();
+  const controlThread = createControlThread(request, protocol);
   /** A call of the control session (`invokeControlResult`, session-host-transport.ts): it names a control thread the client holds,
    *  whatever happened to the socket since the thread was started; one that fails is that call's failure and nothing more. */
   const send = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
     if (sessionId || capability === 'noteUserInput' || !usesCallSession(capability, args))
-      return sendOnce(capability, args, sessionId);
-    return sendOnce(capability, args, await controlThread());
-  };
-  const sendOnce = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
-    // `noteUserInput(at)` is the `client/activity {at}` notification (rate-limited by the connection), not a request, and answers
-    // `{ ok: true }`.
-    if (capability === 'noteUserInput') {
-      protocol.noteUserInput(args[0] as number);
-      return { ok: true };
-    }
-    // A call without a session reaches here only with its control thread (`send`); one whose op has no thread names none.
-    const thread = sessionId;
-    // `retryFailedTurn(sessionId, turnKey)` names its thread as its first argument; left out, it is the one addressed.
-    const named = capability === 'retryFailedTurn' && !args[0] ? [thread, ...args.slice(1)] : args;
-    const { method, params } = routeCapability(capability, named, thread);
-    // `inheritFrom` answers the heir, its source, the messages carried and its route.
-    if (capability === 'inheritFrom') {
-      // The core answers a source thread it does not have with `threadNotFound`; the caller gets its own text.
-      const forked = (await request(method, params).catch((error: unknown) => {
-        throw isThreadNotFound(error)
-          ? new Error(`inheritFrom: session ${String(args[0]).trim()} was not found`)
-          : error;
-      })) as { thread: { id: string }; messages: number; provider: unknown; model: unknown };
-      return {
-        sessionId: forked.thread.id,
-        sourceSessionId: args[0],
-        messages: forked.messages,
-        provider: forked.provider,
-        model: forked.model,
-      };
-    }
-    // The core answers these route ops with the route object / normalized mode; the capability answers
-    // the effort in force, nothing, and `true`.
-    if (capability === 'setEffort') {
-      const route = ((await request(method, params)) ?? {}) as {
-        effectiveEffort?: unknown;
-        effort?: unknown;
-        preset?: { effort?: unknown } | null;
-      };
-      return route.effectiveEffort || route.effort || route.preset?.effort || 'auto';
-    }
-    if (capability === 'setToolMode') {
-      await request(method, params);
-      return undefined;
-    }
-    if (capability === 'setModel') {
-      await request(method, params);
-      return true;
-    }
-    // `rewindToItem` (`intake/rewind.mjs`) answers `null`, never an error, for an item that is not a rewindable prompt and for a
-    // session that is busy; the core refuses those as `itemNotFound` / `preconditionFailed`.
-    if (capability === 'rewindToItem') {
-      return request(method, params).catch((error: unknown) => {
-        if (hasRpcReason(error, 'itemNotFound', 'preconditionFailed')) return null;
-        throw error;
-      });
-    }
-    // `prioritizeQueued` answers an entry that is not queued with a count of none; the core refuses it
-    // as `queuedEntryNotFound`, which would leave the entry marked sending in the renderer; a queued one is promoted and answers a count
-    // of one, whether or not a turn runs (the core's `turn/steer` acknowledgement is not the capability's reply).
-    if (capability === 'prioritizeQueued') {
-      return request(method, params).then(
-        () => ({ count: 1, ids: [args[0]], priority: 'now' }),
-        (error: unknown) => {
-          if (hasRpcReason(error, 'queuedEntryNotFound')) return { count: 0, ids: [], priority: 'now' };
-          throw error;
-        }
-      );
-    }
-    // A rename whose op was sent and whose outcome the reconciliation could not learn (the connection cut after sending and
-    // `op/status` failing, or the op record gone): the user is told, as Node told them when its scheduler did not answer,
-    // that the rename may or may not have applied.
-    if (capability === 'saveSchedule' && renamesSchedule(args[0])) {
-      return request(method, params).catch((error: unknown) => {
-        throw isOutcomeUnknown(error) ? scheduleRenameUncertain((error as Error).message) : error;
-      });
-    }
-    if (!ADDRESSED_SESSION_CAPABILITIES.has(capability)) return request(method, params);
-    return request(method, params).catch((error: unknown) => {
-      throw isThreadNotFound(error) ? new Error('session is not the active session') : error;
-    });
+      return callCapability(request, protocol, capability, args, sessionId);
+    return callCapability(request, protocol, capability, args, await controlThread());
   };
   const stateOf = async (threadId: string): Promise<SessionSnapshot> => {
     const read = await request('thread/read', { threadId, window: { none: true } });
@@ -503,10 +496,8 @@ export function createCapabilityLane({ protocol }: { protocol: CapabilityProtoco
       if (typeof saved !== 'boolean') throw new Error('The quota auto-resume write did not return the stored value.');
       return saved;
     },
-    // The host throws `TypeError('Session title is invalid.')` for a title that is empty once normalized, before the
-    // runtime is reached; the core cannot tell that case from a refusal ("Session is not available.", the runtime's `false`,
-    // which it sends as a code-less `domainError`), so the host check stays here. `setName` and `publishCatalogs` are the
-    // core's own (the title is stored and the section pushed by `thread/name/set`).
+    // The host rejects an empty normalized title with `TypeError('Session title is invalid.')`; the core cannot tell that
+    // from a refusal (a code-less `domainError`), so the check stays here.
     async renameSession(sessionId, title) {
       const id = sessionIdOf(sessionId);
       const normalized = normalizeSessionTitle(title, '');

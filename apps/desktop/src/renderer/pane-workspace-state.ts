@@ -1,8 +1,3 @@
-// Owner state for the split-pane workspace. App mounts usePaneWorkspace and
-// hands the tree to PaneSplitLayout; this hook owns focus, the split/close/
-// open commands, and persistence. It deliberately knows nothing about what a
-// leaf renders — the integration layer maps NavigationSelection to views —
-// so it stays testable and independent of the in-flight renderer work.
 import { useCallback, useMemo } from 'react';
 
 import type { WorkspaceSelection } from './nav-types';
@@ -91,10 +86,6 @@ function openInFocusedState(
       }
     }
   }
-  // On the phone agent mode opens no tabs (agent-chat-mode.ts): a pane shows
-  // one agent chat at a time, so picking another agent or room takes the
-  // place of the chat the pane already holds, and shows it. The desktop opens
-  // each chat as its own tab.
   const slot =
     !replaceKey &&
     isMobileRemoteSurface() &&
@@ -207,10 +198,6 @@ function splitLeafAtState(
   const key = navigationKey(selection);
   if (!target) return prev;
   const targetActive = paneActiveSelection(target);
-  // A drop beside a DIFFERENT pane that already shows the view is a
-  // no-op; splitting a multi-tab group with its own tab is the standard
-  // gesture. (A single-tab self split shows no overlay
-  // and stays a guarded no-op here.)
   if (sourceLeafId !== leafId && targetActive && navigationKey(targetActive) === key) return prev;
   let layout: PaneNode = prev.layout;
   // The pane holding the view: the drag's source, else (a split opened with
@@ -220,10 +207,6 @@ function splitLeafAtState(
   const source = named?.tabs.some((tab) => navigationKey(tab) === key) ? named : paneLeafContainingKey(layout, key);
   const collapseDirection = source?.tabs.length === 1 ? paneLeafParentDirection(layout, source.id) : null;
   if (source) {
-    // A tab drag always MOVES (one live surface per view): the old
-    // keep-a-copy-behind fallback put the SAME session in two panes,
-    // which share one engine and read as a duplication bug. Splitting a
-    // group with its only tab onto itself is simply a no-op.
     if (source.id === leafId && source.tabs.length === 1) return prev;
     const removed = closeTabInPaneLeaf(layout, source.id, key);
     if (!removed || !findPaneLeaf(removed, leafId)) return prev;
@@ -260,6 +243,69 @@ function moveTabState(
   };
 }
 
+function mergeGroupState(
+  prev: PaneWorkspaceState,
+  sourceLeafId: string,
+  targetLeafId: string,
+  index?: number
+): PaneWorkspaceState {
+  const collapseDirection = paneLeafParentDirection(prev.layout, sourceLeafId);
+  const mergedLayout = mergePaneLeaf(prev.layout, sourceLeafId, targetLeafId, index);
+  if (mergedLayout === prev.layout) return prev;
+  const layout = rebalancePaneAxes(mergedLayout, collapseDirection);
+  return {
+    layout,
+    focusedLeafId: findPaneLeaf(layout, targetLeafId) ? targetLeafId : paneLeaves(layout)[0].id,
+  };
+}
+
+function moveGroupAtState(
+  prev: PaneWorkspaceState,
+  sourceLeafId: string,
+  targetLeafId: string,
+  zone: PaneDropZone
+): PaneWorkspaceState {
+  const direction = paneDropDirection(zone);
+  const collapseDirection = paneLeafParentDirection(prev.layout, sourceLeafId);
+  const movedLayout = movePaneLeaf(prev.layout, sourceLeafId, targetLeafId, direction, paneDropPosition(zone));
+  if (movedLayout === prev.layout) return prev;
+  const layout = rebalancePaneAxes(movedLayout, collapseDirection, direction);
+  return {
+    layout,
+    focusedLeafId: findPaneLeaf(layout, sourceLeafId) ? sourceLeafId : prev.focusedLeafId,
+  };
+}
+
+/** A whole group moved to a pane edge; `move` performs the layout move for the zone's side. */
+function moveGroupToEdgeState(
+  prev: PaneWorkspaceState,
+  sourceLeafId: string,
+  zone: PaneDropZone,
+  move: (direction: PaneDirection, position: ReturnType<typeof paneDropPosition>) => PaneNode
+): PaneWorkspaceState {
+  const direction = paneDropDirection(zone);
+  const collapseDirection = paneLeafParentDirection(prev.layout, sourceLeafId);
+  const movedLayout = move(direction, paneDropPosition(zone));
+  if (movedLayout === prev.layout) return prev;
+  return { layout: rebalancePaneAxes(movedLayout, collapseDirection, direction), focusedLeafId: sourceLeafId };
+}
+
+/** One tab moved to a pane edge; its emptied source group collapses. */
+function moveTabToEdgeState(
+  prev: PaneWorkspaceState,
+  sourceLeafId: string,
+  key: string,
+  zone: PaneDropZone,
+  move: (direction: PaneDirection, position: ReturnType<typeof paneDropPosition>) => PaneNode
+): PaneWorkspaceState {
+  const direction = paneDropDirection(zone);
+  const source = findPaneLeaf(prev.layout, sourceLeafId);
+  const collapseDirection = source?.tabs.length === 1 ? paneLeafParentDirection(prev.layout, sourceLeafId) : null;
+  const movedLayout = move(direction, paneDropPosition(zone));
+  if (movedLayout === prev.layout) return prev;
+  const layout = rebalancePaneAxes(movedLayout, collapseDirection, direction);
+  return { layout, focusedLeafId: paneLeafContainingKey(layout, key)?.id ?? prev.focusedLeafId };
+}
 export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = null) {
   const { setState, state, current, restorePending, restoredFromStorage } = usePaneWorkspaceState(initialSelection);
 
@@ -289,11 +335,6 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     [setState]
   );
 
-  /** Navigation inside the focused pane (sidebar click, session open):
-   *  activate the existing tab or open a new one in the focused group.
-   *  `replaceKey` promotes a draft tab in place. A view that is already open
-   *  in ANOTHER group is REVEALED there instead of duplicated (one live
-   *  surface per session — duplicates share one engine and read as a bug). */
   const openInFocused = useCallback(
     (selection: WorkspaceSelection, replaceKey = '', options: { preview?: boolean } = {}) => {
       setState((prev) => openInFocusedState(prev, selection, replaceKey, options));
@@ -428,10 +469,6 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     [setState]
   );
 
-  /** Drag-to-split: drop a dragged tab on one pane's edge zone. The new pane
-   *  opens on that side and takes focus. With a sourceLeafId the tab MOVES
-   *  — it leaves its source group, which collapses when emptied.
-   *  Dropping a view onto a pane that already shows it is a no-op. */
   const splitLeafAt = useCallback(
     (leafId: string, zone: PaneDropZone, selection: WorkspaceSelection, sourceLeafId = '') => {
       setState((prev) => splitLeafAtState(prev, leafId, zone, selection, sourceLeafId));
@@ -451,114 +488,61 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
 
   const mergeGroup = useCallback(
     (sourceLeafId: string, targetLeafId: string, index?: number) => {
-      setState((prev) => {
-        const collapseDirection = paneLeafParentDirection(prev.layout, sourceLeafId);
-        const mergedLayout = mergePaneLeaf(prev.layout, sourceLeafId, targetLeafId, index);
-        if (mergedLayout === prev.layout) return prev;
-        const layout = rebalancePaneAxes(mergedLayout, collapseDirection);
-        return {
-          layout,
-          focusedLeafId: findPaneLeaf(layout, targetLeafId) ? targetLeafId : paneLeaves(layout)[0].id,
-        };
-      });
+      setState((prev) => mergeGroupState(prev, sourceLeafId, targetLeafId, index));
     },
     [setState]
   );
 
   const moveGroupAt = useCallback(
     (sourceLeafId: string, targetLeafId: string, zone: PaneDropZone) => {
-      setState((prev) => {
-        const direction = paneDropDirection(zone);
-        const collapseDirection = paneLeafParentDirection(prev.layout, sourceLeafId);
-        const movedLayout = movePaneLeaf(prev.layout, sourceLeafId, targetLeafId, direction, paneDropPosition(zone));
-        if (movedLayout === prev.layout) return prev;
-        const layout = rebalancePaneAxes(movedLayout, collapseDirection, direction);
-        return {
-          layout,
-          focusedLeafId: findPaneLeaf(layout, sourceLeafId) ? sourceLeafId : prev.focusedLeafId,
-        };
-      });
+      setState((prev) => moveGroupAtState(prev, sourceLeafId, targetLeafId, zone));
     },
     [setState]
   );
 
   const moveGroupToRootEdge = useCallback(
     (sourceLeafId: string, zone: PaneDropZone) => {
-      setState((prev) => {
-        const direction = paneDropDirection(zone);
-        const collapseDirection = paneLeafParentDirection(prev.layout, sourceLeafId);
-        const movedLayout = movePaneLeafToRootEdge(prev.layout, sourceLeafId, direction, paneDropPosition(zone));
-        if (movedLayout === prev.layout) return prev;
-        const layout = rebalancePaneAxes(movedLayout, collapseDirection, direction);
-        return { layout, focusedLeafId: sourceLeafId };
-      });
+      setState((prev) =>
+        moveGroupToEdgeState(prev, sourceLeafId, zone, (direction, position) =>
+          movePaneLeafToRootEdge(prev.layout, sourceLeafId, direction, position)
+        )
+      );
     },
     [setState]
   );
 
   const moveGroupToNodeEdge = useCallback(
     (sourceLeafId: string, targetPath: string, zone: PaneDropZone) => {
-      setState((prev) => {
-        const direction = paneDropDirection(zone);
-        const collapseDirection = paneLeafParentDirection(prev.layout, sourceLeafId);
-        const movedLayout = movePaneLeafToNodeEdge(
-          prev.layout,
-          sourceLeafId,
-          targetPath,
-          direction,
-          paneDropPosition(zone)
-        );
-        if (movedLayout === prev.layout) return prev;
-        const layout = rebalancePaneAxes(movedLayout, collapseDirection, direction);
-        return { layout, focusedLeafId: sourceLeafId };
-      });
+      setState((prev) =>
+        moveGroupToEdgeState(prev, sourceLeafId, zone, (direction, position) =>
+          movePaneLeafToNodeEdge(prev.layout, sourceLeafId, targetPath, direction, position)
+        )
+      );
     },
     [setState]
   );
 
   const moveTabToRootEdge = useCallback(
     (sourceLeafId: string, key: string, zone: PaneDropZone) => {
-      setState((prev) => {
-        const direction = paneDropDirection(zone);
-        const source = findPaneLeaf(prev.layout, sourceLeafId);
-        const collapseDirection = source?.tabs.length === 1 ? paneLeafParentDirection(prev.layout, sourceLeafId) : null;
-        const movedLayout = movePaneTabToRootEdge(prev.layout, sourceLeafId, key, direction, paneDropPosition(zone));
-        if (movedLayout === prev.layout) return prev;
-        const layout = rebalancePaneAxes(movedLayout, collapseDirection, direction);
-        return {
-          layout,
-          focusedLeafId: paneLeafContainingKey(layout, key)?.id ?? prev.focusedLeafId,
-        };
-      });
+      setState((prev) =>
+        moveTabToEdgeState(prev, sourceLeafId, key, zone, (direction, position) =>
+          movePaneTabToRootEdge(prev.layout, sourceLeafId, key, direction, position)
+        )
+      );
     },
     [setState]
   );
 
   const moveTabToNodeEdge = useCallback(
     (sourceLeafId: string, key: string, targetPath: string, zone: PaneDropZone) => {
-      setState((prev) => {
-        const direction = paneDropDirection(zone);
-        const source = findPaneLeaf(prev.layout, sourceLeafId);
-        const collapseDirection = source?.tabs.length === 1 ? paneLeafParentDirection(prev.layout, sourceLeafId) : null;
-        const movedLayout = movePaneTabToNodeEdge(
-          prev.layout,
-          sourceLeafId,
-          key,
-          targetPath,
-          direction,
-          paneDropPosition(zone)
-        );
-        if (movedLayout === prev.layout) return prev;
-        const layout = rebalancePaneAxes(movedLayout, collapseDirection, direction);
-        return {
-          layout,
-          focusedLeafId: paneLeafContainingKey(layout, key)?.id ?? prev.focusedLeafId,
-        };
-      });
+      setState((prev) =>
+        moveTabToEdgeState(prev, sourceLeafId, key, zone, (direction, position) =>
+          movePaneTabToNodeEdge(prev.layout, sourceLeafId, key, targetPath, direction, position)
+        )
+      );
     },
     [setState]
   );
-
   const leaves = useMemo(() => paneLeaves(state.layout), [state.layout]);
   const focusedLeaf: PaneLeaf | null = useMemo(
     () => findPaneLeaf(state.layout, state.focusedLeafId) ?? leaves[0] ?? null,

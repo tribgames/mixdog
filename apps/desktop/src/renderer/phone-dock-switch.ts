@@ -1,8 +1,3 @@
-// Phone sheet pane switching. The sheet has no title/icon bar: every pane's own
-// PC header is the top row, so Changes / Browser / Terminal / … live in that
-// header's ⋯ menu. Terminal and browser draw their header in their own React
-// roots, so the dock publishes the items through this module-level store and
-// each DockHeaderRow reads it.
 import { Monitor } from 'lucide-react';
 import { startTransition, useMemo, useSyncExternalStore } from 'react';
 

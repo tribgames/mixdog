@@ -3,7 +3,7 @@
 //   node scripts/linux-glibc-floor.mjs <extractedDir> [maxAllowed]
 //        [--arch x64|arm64] [--require rel/path,rel/path,...]
 // Point it at the payload extracted from the built .deb (dpkg-deb -x) or
-// AppImage (--appimage-extract), never at a build directory. It exits non-zero when
+// AppImage (--appimage-extract). It exits non-zero when
 //   - objdump is missing or fails on any ELF of the package architecture,
 //   - an ELF that links glibc (NEEDED libc.so.6 ...) yields no GLIBC_ symbol,
 //   - a --require path is not a scanned ELF of the package architecture,

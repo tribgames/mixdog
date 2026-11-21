@@ -1,9 +1,5 @@
 // Headless launch smoke for the packaged Linux AppImage. Run under xvfb-run:
 //   node scripts/linux-launch-smoke.mjs <AppImage|executable> <outDir>
-// Launches with a fresh profile and a CDP port, waits until the app has started its core (the
-// `daemon-service-ready` line of the desktop's diagnostics log, which apps/desktop/src/main/index.ts writes
-// once the connection to the core is up), screenshots the main window, and asserts no crash. The app prints
-// no boot line on stdout/stderr, so the diagnostics log of the profile is the signal (as in linux-update-smoke.mjs).
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';

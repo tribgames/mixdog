@@ -4,10 +4,6 @@ import { createBrowserReadPool, settleBrowserReads } from './parallel-read';
 import { createBrowserFrameCacheStore } from './frame-cache';
 import { pause } from './settle';
 
-/** Ad slots and embedded widgets attach frames in bursts, so a page can change
- *  its topology faster than one immediate repeat can catch. Observations have
- *  no side effects: wait for the burst to settle and read again, with a small
- *  bounded ceiling so a page that never settles still answers. */
 const TOPOLOGY_SETTLE_DELAYS_MS = [50, 150, 350];
 
 interface FrameTree {
@@ -31,6 +27,55 @@ function untilReady(ready: Promise<unknown> | undefined, signal?: AbortSignal): 
   });
 }
 
+interface FrameTarget {
+  sessionId: string | undefined;
+  frameId: string | undefined;
+  ready: Promise<unknown> | undefined;
+}
+
+function frameTargets(host: BrowserFrameHost, guest: WebContents): FrameTarget[] {
+  const targets: FrameTarget[] = [
+    { sessionId: undefined, frameId: undefined, ready: undefined },
+    ...[...host.sessions(guest)]
+      .filter(([, target]) => target.type === 'iframe')
+      .map(([sessionId, target]) => ({ sessionId, frameId: target.frameId, ready: target.ready })),
+  ];
+  if (targets.length > 32) throw new Error('too many frame targets for a complete observation');
+  return targets;
+}
+
+async function discoverFrames(
+  host: BrowserFrameHost,
+  guest: WebContents,
+  targets: FrameTarget[],
+  read: ReturnType<typeof createBrowserReadPool>,
+  signal?: AbortSignal
+): Promise<Map<string, string | undefined>> {
+  const trees = await settleBrowserReads(
+    targets.map(async (target) => {
+      await untilReady(target.ready, signal);
+      signal?.throwIfAborted();
+      return read(() =>
+        host.cdp.call<{ frameTree: FrameTree }>(guest, 'Page.getFrameTree', {}, signal, {
+          sessionId: target.sessionId,
+        })
+      );
+    })
+  );
+  const frames = new Map<string, string | undefined>();
+  targets.forEach((target, index) => {
+    const visit = (node: FrameTree) => {
+      if (!frames.has(node.frame.id)) frames.set(node.frame.id, target.sessionId);
+      for (const child of node.childFrames || []) visit(child);
+    };
+    visit(trees[index].frameTree);
+    // A child target owns its frame even if its parent also listed it.
+    if (target.frameId) frames.set(target.frameId, target.sessionId);
+  });
+  if (frames.size > 64) throw new Error('too many frames for a complete observation');
+  return frames;
+}
+
 export function createBrowserFrameCollector(host: BrowserFrameHost) {
   const cacheFor = createBrowserFrameCacheStore();
   async function collect<T>(
@@ -43,17 +88,7 @@ export function createBrowserFrameCollector(host: BrowserFrameHost) {
     const debuggerPort = await host.cdp.guestDebugger(guest);
     signal?.throwIfAborted();
     const cache = cacheFor(guest, debuggerPort);
-    const targets = [
-      {
-        sessionId: undefined as string | undefined,
-        frameId: undefined as string | undefined,
-        ready: undefined as Promise<unknown> | undefined,
-      },
-      ...[...host.sessions(guest)]
-        .filter(([, target]) => target.type === 'iframe')
-        .map(([sessionId, target]) => ({ sessionId, frameId: target.frameId, ready: target.ready })),
-    ];
-    if (targets.length > 32) throw new Error('too many frame targets for a complete observation');
+    const targets = frameTargets(host, guest);
     const targetKey = JSON.stringify(targets.map(({ sessionId, frameId }) => [sessionId, frameId]));
     if (cache.targets !== targetKey) {
       cache.invalidate();
@@ -68,29 +103,7 @@ export function createBrowserFrameCollector(host: BrowserFrameHost) {
       const read = createBrowserReadPool();
       let frames = cache.frames;
       if (!frames) {
-        const trees = await settleBrowserReads(
-          targets.map(async (target) => {
-            await untilReady(target.ready, signal);
-            signal?.throwIfAborted();
-            return read(() =>
-              host.cdp.call<{ frameTree: FrameTree }>(guest, 'Page.getFrameTree', {}, signal, {
-                sessionId: target.sessionId,
-              })
-            );
-          })
-        );
-        frames = new Map<string, string | undefined>();
-        const discovered = frames;
-        targets.forEach((target, index) => {
-          const visit = (node: FrameTree) => {
-            if (!discovered.has(node.frame.id)) discovered.set(node.frame.id, target.sessionId);
-            for (const child of node.childFrames || []) visit(child);
-          };
-          visit(trees[index].frameTree);
-          // A child target owns its frame even if its parent also listed it.
-          if (target.frameId) discovered.set(target.frameId, target.sessionId);
-        });
-        if (frames.size > 64) throw new Error('too many frames for a complete observation');
+        frames = await discoverFrames(host, guest, targets, read, signal);
         assertCurrent();
         cache.frames = frames;
       }

@@ -82,10 +82,6 @@ function GoalRingGlyph({ kind }: { kind: GoalStateKind }) {
   }
 }
 
-/** The segment's one mark: a 16px ring whose arc is the finished share of the
- *  steps (from 12 o'clock; abandoned steps are not in the share) around a glyph
- *  for the state, all in the state tint. Static: activity is named by its
- *  label, never by motion. */
 function GoalRing({
   kind,
   progress,
@@ -351,6 +347,52 @@ function useGoalPresenceDiagnostics(sessionId: string, rawGoal: GoalSnapshot | n
   }, [rawGoal, sessionId, visible]);
 }
 
+/** The "More" toggle exists only while the 3-line clamp actually hides text; the drawer is display:none when closed (0 height). */
+function measureOverflow(
+  ref: { readonly current: HTMLElement | null },
+  expanded: boolean,
+  setOverflows: (overflows: boolean) => void
+): (() => void) | undefined {
+  const element = ref.current;
+  if (!element || expanded) return undefined;
+  const measure = () => {
+    if (element.clientHeight > 0) setOverflows(element.scrollHeight > element.clientHeight + 1);
+  };
+  measure();
+  if (typeof ResizeObserver === 'undefined') return undefined;
+  const observer = new ResizeObserver(measure);
+  observer.observe(element);
+  return () => observer.disconnect();
+}
+
+/** Dismiss on any interaction outside the island (or Escape) so the drawer never lingers over the transcript. Inactive
+ *  (off-screen conversation) it listens to nothing: those presses and keys belong to the shown conversation. */
+function useDismissOnOutsideInteraction(
+  rootRef: { readonly current: HTMLElement | null },
+  armed: boolean,
+  dismiss: () => void
+) {
+  const dismissRef = useRef(dismiss);
+  dismissRef.current = dismiss;
+  useEffect(() => {
+    if (!armed) return undefined;
+    const onPointerDown = (event: PointerEvent) => {
+      const root = rootRef.current?.closest('.composer-island') ?? rootRef.current;
+      if (root && event.target instanceof Node && root.contains(event.target)) return;
+      dismissRef.current();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') dismissRef.current();
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [armed, rootRef]);
+}
+
 export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const goal = useGoalAfterSubmission(snapshot.goal || null, String(snapshot.sessionId || ''));
   const todo = todoPresent(snapshot.todo) ? (snapshot.todo as TodoSnapshot) : null;
@@ -389,11 +431,6 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
     setObjectiveExpanded(false);
   }, [sessionId, goal?.id]);
 
-  // The confirmation takes the focused Stop button's place: focus follows it
-  // to Cancel, and returns to Stop when it closes.
-  // Closing the drawer (Escape, outside click, Close) drops an armed
-  // confirmation, so reopening never shows Stop already armed; focus is not
-  // returned into the closed drawer.
   useEffect(() => {
     if (!open) setConfirmStop(false);
   }, [open]);
@@ -410,44 +447,15 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   // The "More" toggle exists only while the 3-line clamp actually hides text.
   // Measured while clamped; the drawer is display:none when closed (0 height).
   // biome-ignore lint/correctness/useExhaustiveDependencies: objective text, open and expanded are the triggers; the measured element is read through the ref
-  useLayoutEffect(() => {
-    const element = longTextRef.current;
-    if (!element || objectiveExpanded) return undefined;
-    const measure = () => {
-      if (element.clientHeight > 0) setObjectiveOverflows(element.scrollHeight > element.clientHeight + 1);
-    };
-    measure();
-    if (typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [goal?.objective, goal?.title, open, objectiveExpanded]);
+  useLayoutEffect(
+    () => measureOverflow(longTextRef, objectiveExpanded, setObjectiveOverflows),
+    [goal?.objective, goal?.title, open, objectiveExpanded]
+  );
 
   useGoalPresenceDiagnostics(sessionId, snapshot.goal || null, Boolean(goal) || Boolean(todo));
 
-  // Dismiss on any interaction outside the island (or Escape) so the drawer
-  // never lingers over the transcript once attention moves elsewhere. Off
-  // screen (retained or parked conversation) it listens to nothing: those
-  // presses and keys belong to the shown conversation.
   const surfaceActive = useSurfaceActive();
-  // biome-ignore lint/correctness/useExhaustiveDependencies: setOpen is re-derived each render from the same open state
-  useEffect(() => {
-    if (!open || editing || !surfaceActive) return undefined;
-    const onPointerDown = (event: PointerEvent) => {
-      const root = rootRef.current?.closest('.composer-island') ?? rootRef.current;
-      if (root && event.target instanceof Node && root.contains(event.target)) return;
-      setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open, editing, surfaceActive]);
+  useDismissOnOutsideInteraction(rootRef, open && !editing && surfaceActive, () => setOpen(false));
 
   const elapsedLabel = goal ? goalElapsedHoursMinutesLabel(goal, clock) : '';
   const control = async (action: string, values: Record<string, unknown> = {}): Promise<boolean> => {

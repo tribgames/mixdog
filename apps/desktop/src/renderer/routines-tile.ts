@@ -1,8 +1,3 @@
-// The Routines tile: the right-dock view an agent's home thread shows beside
-// the chat. It exists only on home threads; whether it is open is ONE
-// persisted preference for every home thread, set by its tab-bar toggle.
-// Until the user sets it, the tile opens by itself only on the home of an
-// agent that owns at least one routine.
 import {
   agentIdOfHomeSession,
   isAgentHomeSessionId,

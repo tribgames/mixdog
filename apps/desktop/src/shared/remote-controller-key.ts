@@ -1,11 +1,3 @@
-// The paired phone's secure-desktop controller key on its way to the PC
-// (docs/remote-screen.md "PC access: install and enroll moments"). Right after
-// a pairing is approved the phone calls this method over the E2EE relay RPC;
-// the PC binds the key to the relay credential that call came from and keeps
-// it with that paired-device record: the Windows "PC access" setup enrolls
-// every paired phone's key, and a phone paired after it is enrolled through
-// the service's delegation (main/pc-access.ts).
-
 /** Phone → PC RPC: `[publicKey]` (base64url raw P-256 point). Answers true. */
 export const REMOTE_CONTROLLER_KEY_METHOD = 'deliverScreenControllerKey';
 

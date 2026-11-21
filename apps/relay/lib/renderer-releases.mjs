@@ -1,20 +1,8 @@
-// Side-by-side renderer releases. Each desktop build ships its own web
-// renderer; the relay keeps several and serves a phone / second PC the one that
-// matches the desktop version of the main PC it is paired with.
-//
-// Layout of RENDERER_RELEASES_DIR (default: `renderer-releases` beside
-// RENDERER_DIR):
+// RENDERER_RELEASES_DIR (default: `renderer-releases` beside RENDERER_DIR) holds:
 //   index.json      the registry below (written atomically by deploy tooling)
 //   <releaseId>/    one complete staged renderer tree per release
-//
-// A reported app version and shell hash must not conflict. An adopted shell
-// that has no version metadata can match by exact hash if no known version
-// contradicts it. Only silent PCs get a default.
-//
-// Retention rule (planRetention): the legacy release is never collected; the
-// newest KEEP_LATEST_RELEASES releases are kept; any release still selected for
-// a device seen within DEVICE_REFERENCE_WINDOW_MS is kept too, newest first,
-// until MAX_RETAINED_RELEASES releases (excluding legacy) are retained.
+// Selection: a reported app version and shell hash must not conflict; an adopted shell without version metadata matches by exact hash if no known version contradicts it; only silent PCs get a default.
+// Retention (planRetention): the legacy release is never collected; the newest KEEP_LATEST_RELEASES are kept; releases still selected for a device seen within DEVICE_REFERENCE_WINDOW_MS are kept too, newest first, up to MAX_RETAINED_RELEASES (excluding legacy).
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 

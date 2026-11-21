@@ -304,6 +304,36 @@ export interface FullToolOutput {
   load: (() => void) | null;
 }
 
+/** A reader's own press goes ahead of the prefetch queue (and its slots);
+ *  pressed while a background read of the row runs, it shows that one. */
+function pressFullRead(key: string, sessionId: string, id: string, replayToken: string | undefined): void {
+  const current = reads.get(key);
+  if (current?.status === 'done') return;
+  if (current?.status === 'loading') {
+    if (current.background) {
+      reads.set(key, { status: 'loading', background: false });
+      publish(key);
+    }
+    return;
+  }
+  startRead(key, sessionId, id, false, replayToken);
+}
+
+function mergeFullOutput(item: TranscriptItem, loaded: LoadedToolOutput, memberRead: boolean): TranscriptItem {
+  const {
+    remoteOutputTruncated: _cut,
+    uiDiffSummary: _digest,
+    remoteOutputFacts: _facts,
+    ...rest
+  } = item as TranscriptItem & { remoteOutputFacts?: unknown };
+  return {
+    ...rest,
+    ...(!memberRead && 'result' in loaded ? { result: loaded.result } : {}),
+    ...(!memberRead && 'rawResult' in loaded ? { rawResult: loaded.rawResult } : {}),
+    ...('uiDiff' in loaded ? { uiDiff: loaded.uiDiff } : {}),
+  } as TranscriptItem;
+}
+
 /** The host cuts a long tool output from a phone's copy of the transcript
  *  (`remoteOutputTruncated`; an older row's output to its first lines) and
  *  sends an edit's diff as a digest (`uiDiffSummary`). `readTranscriptItem`
@@ -327,37 +357,10 @@ export function useFullToolOutput(sessionId: string, item: TranscriptItem, wante
     (state?.status === 'loading' && !state.background) || state?.status === 'failed' ? state.status : 'idle';
   const loaded = (outputCut || diffCut) && state?.status === 'done' ? state.output : undefined;
   const read = typeof window === 'undefined' ? undefined : window.mixdogDesktop?.readTranscriptItem;
-  const merged = useMemo(() => {
-    if (!loaded) return item;
-    const {
-      remoteOutputTruncated: _cut,
-      uiDiffSummary: _digest,
-      remoteOutputFacts: _facts,
-      ...rest
-    } = item as TranscriptItem & { remoteOutputFacts?: unknown };
-    return {
-      ...rest,
-      ...(!memberRead && 'result' in loaded ? { result: loaded.result } : {}),
-      ...(!memberRead && 'rawResult' in loaded ? { rawResult: loaded.rawResult } : {}),
-      ...('uiDiff' in loaded ? { uiDiff: loaded.uiDiff } : {}),
-    } as TranscriptItem;
-  }, [item, loaded, memberRead]);
+  const merged = useMemo(() => (loaded ? mergeFullOutput(item, loaded, memberRead) : item), [item, loaded, memberRead]);
   const load =
     (outputCut || diffCut) && !loaded && read && sessionId && id
-      ? () => {
-          // A reader's own press goes ahead of the prefetch queue (and its slots);
-          // pressed while a background read of the row runs, it shows that one.
-          const current = reads.get(key);
-          if (current?.status === 'done') return;
-          if (current?.status === 'loading') {
-            if (current.background) {
-              reads.set(key, { status: 'loading', background: false });
-              publish(key);
-            }
-            return;
-          }
-          startRead(key, sessionId, id, false, projectedReplayToken(item));
-        }
+      ? () => pressFullRead(key, sessionId, id, projectedReplayToken(item))
       : null;
   const loadRef = useRef(load);
   loadRef.current = load;

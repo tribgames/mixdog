@@ -9,10 +9,7 @@ import electron from 'electron';
 import { build } from 'esbuild';
 
 export function electronProcessEnv(extra = {}) {
-  // A harness bundle runs from a temp directory, where native modules such as
-  // koffi do not resolve; this names the app they resolve from. The bundle's own
-  // location also holds no checkout for native-module.ts to find the main native
-  // module (built by build-test-native.mjs) in, so its target dir is named here.
+  // A bundle in a temp directory cannot resolve native modules such as koffi or find the checkout's native target dir.
   const env = {
     ...process.env,
     CARGO_TARGET_DIR:
@@ -76,11 +73,7 @@ export function waitForChildExit(
   });
 }
 
-/**
- * A package a harness leaves outside its bundle is imported by its bare name from the bundle's own folder, a temp
- * directory: Node then finds whatever stands in a parent folder (a years-old `ws` in the user's home sent an Origin
- * header, which the core refuses with 403). Each such package but `electron` is named by the file this app resolves.
- */
+// Node resolves a bare import from a temp bundle folder to whatever a parent folder holds (an old `ws` in the home directory sent an Origin header the core refuses with 403).
 function ownPackages(external) {
   const appRequire = createRequire(new URL('../package.json', import.meta.url));
   const names = external.filter((name) => name !== 'electron');

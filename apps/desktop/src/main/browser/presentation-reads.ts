@@ -62,10 +62,6 @@ export function createBrowserPresentationReads(host: {
           return previousId === frame.frameId ? { ...frame, image: undefined } : frame;
         },
         (error: unknown) => {
-          // A released or closed display is a real failure, and so is anything
-          // other than losing the race. Only the race becomes a resample: the
-          // caller polls continuously and wants the current page, not a report
-          // about the one that just went away.
           if (disposed || controller.signal.aborted) throw error;
           if (error instanceof Error && /page changed during capture/.test(error.message)) {
             return { resample: true } as const;

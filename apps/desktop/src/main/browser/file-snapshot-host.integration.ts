@@ -1,11 +1,3 @@
-/**
- * Real-Electron check of `host/capture/fileSnapshot`: the offscreen render, not
- * a fake. A real HTML file and image are captured through the host handler and,
- * on an independent service with its own cache, through the window process's
- * direct call (`capture`, what `index.ts` ran before the host method). Both
- * render for real, so the pictures must be byte-identical; failures must carry
- * the same message.
- */
 import assert from 'node:assert/strict';
 import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';

@@ -1,9 +1,3 @@
-/**
- * The replies a command can end in without reaching the backend: a pixel
- * frame honouring image_output, a pixel_unavailable verdict, and the
- * recapture-required reply that refreshes the observation a stale target
- * invalidated.
- */
 import { persistFrameImage } from '../../frame-files';
 import {
   buildRecaptureRequiredPayload,

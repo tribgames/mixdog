@@ -1,8 +1,3 @@
-/**
- * Whether the surface a frame was captured from is still where the frame
- * says: a window that moved or resized, or a display whose layout changed,
- * makes every pixel coordinate in that frame point somewhere else.
- */
 import { screen } from 'electron';
 
 import { nativeDisplayGeometry } from '../shared/native-coordinates';

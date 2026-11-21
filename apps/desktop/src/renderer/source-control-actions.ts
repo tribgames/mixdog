@@ -13,7 +13,8 @@ import type {
 import { confirmAction, promptAction } from './app-confirm';
 import { t } from './i18n';
 import { resetModePrompt } from './source-control-confirmations';
-import { emptySummary, gitRemoteWebUrl, isDirtyResetRefusal, reasonText } from './source-control-support';
+import { emptySummary, gitRemoteWebUrl, isDirtyResetRefusal } from './source-control-support';
+import { errorMessage } from './editor-pane-session-errors';
 import type { GitActionRunner } from './use-source-control-runner';
 import { invokeWorktree, worktreeFailure, worktreeFailureText } from './worktree-branch-model';
 
@@ -102,7 +103,7 @@ export async function copyText(ctx: SourceControlActionContext, text: string, wh
     await clipboard.writeText(text);
     ctx.setError('');
   } catch (reason) {
-    ctx.setError(t('Could not copy the {{value0}}: {{value1}}', { value0: what, value1: reasonText(reason) }));
+    ctx.setError(t('Could not copy the {{value0}}: {{value1}}', { value0: what, value1: errorMessage(reason) }));
   }
 }
 
@@ -200,10 +201,6 @@ export function branchActions(
 ) {
   const { api, projectPath, run } = ctx;
   return {
-    // Checkout and create switch the Project folder through the runtime's
-    // guarded path (repository lock, sessions working there, no carried
-    // changes); a remote branch checks out its local branch, creating it to
-    // track the remote branch when missing.
     checkoutBranch: (branch: DesktopGitBranch) =>
       void run(
         `branch-checkout:${branch.name}`,
@@ -248,10 +245,6 @@ export function branchActions(
         create(name ?? '')
       );
     },
-    // The runtime's guarded merge (mergeProjectBranch): the confirmed target
-    // must still be checked out, sessions working in the folder refuse it and
-    // their turns wait meanwhile; the backend preflights conflicts, merges
-    // with --no-ff and never leaves a half-merged repository.
     mergeIntoCurrent: (branch: DesktopGitBranch) => {
       void confirmAction(
         t('Merge "{{branch}}" into "{{target}}" with a merge commit?', { branch: branch.name, target: currentBranch }),
@@ -331,15 +324,10 @@ function resetConfirmed(ctx: SourceControlActionContext, entry: DesktopGitLogEnt
     try {
       return await reset(false);
     } catch (reason) {
-      // A `--mixed` reset REWRITES THE INDEX, so the main side refuses a dirty
-      // worktree with a message that NAMES the files it would unstage
-      // (git-cli.ts GIT_RESET_DIRTY_CODE) instead of doing it silently. That
-      // refusal IS the warning: a confirmed reset comes back WITH the flag the
-      // main side waits for. Anything else is a real Git failure and keeps
-      // travelling to the error banner.
+      // Main refuses a --mixed reset over a dirty worktree (git-cli.ts GIT_RESET_DIRTY_CODE); a confirmed retry sends confirmedDirty.
       if (!isDirtyResetRefusal(reason)) throw reason;
       if (
-        !(await confirmAction(`${reasonText(reason)}\n\n${entry.shortHash}  ${commitTitle(entry)}`, { danger: true }))
+        !(await confirmAction(`${errorMessage(reason)}\n\n${entry.shortHash}  ${commitTitle(entry)}`, { danger: true }))
       )
         return undefined;
       return await reset(true);

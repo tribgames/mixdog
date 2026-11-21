@@ -228,7 +228,7 @@ test('relay: /support is throttled and never returns a host name', async () => {
   });
 });
 
-test('relay: a registered code redeems into a claim the desktop sees as a code claim', async () => {
+test('relay: a registered code is supported, redeems once and tells the desktop it was used', async () => {
   await withRelay(async (relay, origin, sockets) => {
     const desktop = await connectDesktop(relay, sockets);
     const issued = await requestCode(desktop, 'lease-main-01', 'Home PC');
@@ -249,6 +249,14 @@ test('relay: a registered code redeems into a claim the desktop sees as a code c
     const spent = await post(origin, '/pair-code/resolve', { code: issued.code });
     assert.equal(spent.status, 404);
     assert.equal((await spent.json()).status, 'invalid-code');
+  });
+});
+
+test('relay: a redeemed code ticket makes one claim a code claim; reused or missing tickets are qr, retries are retries', async () => {
+  await withRelay(async (relay, origin, sockets) => {
+    const desktop = await connectDesktop(relay, sockets);
+    const issued = await requestCode(desktop, 'lease-main-01', 'Home PC');
+    const body = await (await post(origin, '/pair-code/resolve', { code: issued.code })).json();
 
     const publicKey = 'A'.repeat(87);
     const claim = (ticket) =>

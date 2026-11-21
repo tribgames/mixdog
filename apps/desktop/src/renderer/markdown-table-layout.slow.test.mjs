@@ -5,7 +5,7 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-launch.mjs';
 
-test('a many-column markdown table fits a narrow pane without scrolling sideways', async (t) => {
+async function openTablePage(t) {
   const styles = await build({
     stdin: {
       resolveDir: fileURLToPath(new URL('.', import.meta.url)),
@@ -24,6 +24,11 @@ test('a many-column markdown table fits a narrow pane without scrolling sideways
   });
   t.after(() => browser.close());
   const page = await browser.newPage();
+  return { page, css: styles.outputFiles[0].text };
+}
+
+test('a many-column markdown table fits a narrow pane without scrolling sideways', async (t) => {
+  const { page, css } = await openTablePage(t);
   const columns = Array.from({ length: 12 }, (_, index) => index);
   const row = (tag, text) => `<tr>${columns.map((n) => `<${tag}>${text}${n}</${tag}>`).join('')}</tr>`;
   for (const width of [375, 600]) {
@@ -34,7 +39,7 @@ test('a many-column markdown table fits a narrow pane without scrolling sideways
           <thead>${row('th', 'Heading')}</thead><tbody>${row('td', 'value')}${row('td', 'https://example.com/a/very/long/token')}</tbody>
         </table></div></div>
       </div></section></main></body></html>`);
-    await page.addStyleTag({ content: styles.outputFiles[0].text });
+    await page.addStyleTag({ content: css });
     const sizes = await page.evaluate(() => {
       const table = document.querySelector('.markdown-table');
       return { scrollWidth: table.scrollWidth, clientWidth: table.clientWidth };
@@ -42,8 +47,10 @@ test('a many-column markdown table fits a narrow pane without scrolling sideways
     assert.ok(sizes.clientWidth > 0);
     assert.ok(sizes.scrollWidth <= sizes.clientWidth, `${width}px: ${JSON.stringify(sizes)}`);
   }
-  // Chinese and Japanese runs have no spaces: their cells must still wrap
-  // inside the frame while a Korean cell keeps its words whole.
+});
+
+test('CJK table cells wrap inside the frame', async (t) => {
+  const { page, css } = await openTablePage(t);
   const cjk = [
     ['한국어', '지표 분석 계속 보기', '짧은 광고를 보면 지표 분석을 계속 볼 수 있어요'],
     ['일본어', '指標分析を続けて見る', '短い広告を見ると指標分析を引き続き利用できます'],
@@ -58,7 +65,7 @@ test('a many-column markdown table fits a narrow pane without scrolling sideways
         <tbody>${cjk.map((cells) => `<tr>${cells.map(cell).join('')}</tr>`).join('')}</tbody>
       </table></div></div>
     </div></section></main></body></html>`);
-  await page.addStyleTag({ content: styles.outputFiles[0].text });
+  await page.addStyleTag({ content: css });
   const cjkSizes = await page.evaluate(() => ({
     frame: document.querySelector('.markdown-table-frame').getBoundingClientRect().width,
     table: document.querySelector('.markdown-table table').getBoundingClientRect().width,

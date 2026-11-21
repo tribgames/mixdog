@@ -11,10 +11,6 @@ export function createSessionJobs(waitMs = 6_000) {
     sessionIds(): string[] {
       return [...new Set([...sessions.keys(), ...unconfirmed.keys()])];
     },
-    /** Forgets unconfirmed sessions and returns how many jobs that covered.
-     *  Does nothing while any elevated job is still pending (its launcher has
-     *  not settled). Safe because the cancel file is already written and the
-     *  elevated child cancels itself through it, or by its own deadline. */
     releaseUnconfirmed(): number {
       if (sessions.size) return 0;
       let released = 0;

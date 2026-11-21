@@ -49,44 +49,39 @@ export function launchCore({
   });
 }
 
-/**
- * `core is not ready`, naming what the launcher saw last. When it started no core of its own, the core is not blocked
- * (a blocked core names its own reason) and a live process holds the data directory without ever having published an
- * endpoint, that owner is named (its pid), so the user knows what to end instead of reading only that no core published
- * its endpoint.
- */
 function notReadyError(last, { launched = true } = {}) {
   const state = last ? `the core is ${last.state}` : 'no core published its endpoint';
   const detail = last?.blocked ? ` (${JSON.stringify(last.blocked)})` : '';
-  const owner = !launched && !last?.blocked && last && Number.isInteger(last.pid) && !last.rpcPort
-    ? `; its owner (pid ${last.pid}) is alive and holds the data directory but has not published an endpoint`
-    : '';
+  const owner =
+    !launched && !last?.blocked && last && Number.isInteger(last.pid) && !last.rpcPort
+      ? `; its owner (pid ${last.pid}) is alive and holds the data directory but has not published an endpoint`
+      : '';
   return Object.assign(new Error(`core is not ready: ${state}${detail}${owner}`), { coreDiscovery: last ?? null });
 }
 
-/**
- * The core this launcher started has ended without serving, when nothing else can still bring one up: it ended
- * abnormally (a clean exit is a contender that lost the claim to another core, which is waited for), and discovery
- * names no core or names the ended one. Null while that is not known.
- */
 function endedBeforeServing(capture, last) {
   const record = capture?.snapshot?.();
   if (!record?.exitedAt) return null;
   if (record.exitCode === 0 && !record.exitSignal) return null;
   if (last && last.state !== 'legacy' && last.pid !== record.pid) return null;
   const summary = capture.summary?.() ?? {};
-  const reason = summary.exitReason || (record.exitSignal ? `killed by ${record.exitSignal}` : `exited with code ${record.exitCode ?? '?'}`);
+  const reason =
+    summary.exitReason ||
+    (record.exitSignal ? `killed by ${record.exitSignal}` : `exited with code ${record.exitCode ?? '?'}`);
   const said = summary.stderrErrorLine || summary.stderrLastLine;
-  return Object.assign(new Error(`core is not ready: the core ended before serving (${reason})${said ? `: ${said}` : ''}`), {
-    coreDiscovery: last ?? null,
-    coreExit: {
-      code: record.exitCode ?? null,
-      signal: record.exitSignal ?? null,
-      // The recorded reason (a field of the record, not a quote of stderr): what the exit is told apart by.
-      reason: summary.exitReason ?? null,
-      stderrPath: summary.stderrPath ?? null,
-    },
-  });
+  return Object.assign(
+    new Error(`core is not ready: the core ended before serving (${reason})${said ? `: ${said}` : ''}`),
+    {
+      coreDiscovery: last ?? null,
+      coreExit: {
+        code: record.exitCode ?? null,
+        signal: record.exitSignal ?? null,
+        // The recorded reason (a field of the record, not a quote of stderr): what the exit is told apart by.
+        reason: summary.exitReason ?? null,
+        stderrPath: summary.stderrPath ?? null,
+      },
+    }
+  );
 }
 
 /** Whether the core `last` names says it is in a state that ends by itself and answers its control listener unstalled. */
@@ -94,6 +89,19 @@ async function atWork(last, ping) {
   if (!last || !SELF_ENDING_STATES.has(last.state) || !last.controlPort || !last.token) return false;
   const { answered, stalledMs } = await ping(last);
   return answered && stalledMs === 0;
+}
+
+function rebuildReporter(onProgress) {
+  const tell = contained(onProgress);
+  let told = null;
+  let toldBoot = null;
+  return (progress, boot = null) => {
+    const of = progress ? boot : null;
+    if (progress?.done === told?.done && progress?.total === told?.total && of === toldBoot) return;
+    told = progress;
+    toldBoot = of;
+    tell(progress, of);
+  };
 }
 
 /** Whether the process `pid` still runs (a process this user may not signal runs too). */
@@ -137,19 +145,7 @@ export async function ensureCore({
   let last = null;
   let quiet = 0;
   let quietSeen = null;
-  // What the core says its index rebuild has come to (`{done, total}` sessions), told when it changes; null when none runs.
-  const tell = contained(onProgress);
-  // `boot` names the core process the counts are of: the counts of one boot only grow, and a new boot starts again.
-  let told = null;
-  let toldBoot = null;
-  const report = (progress, boot = null) => {
-    const of = progress ? boot : null;
-    if (progress?.done === told?.done && progress?.total === told?.total && of === toldBoot) return;
-    told = progress;
-    toldBoot = of;
-    tell(progress, of);
-  };
-  // A report belongs to this call: however it ends (serving, a refusal, a read that fails, the deadline) the last one is withdrawn.
+  const report = rebuildReporter(onProgress);
   try {
     for (;;) {
       if (now() >= deadline) {
@@ -272,8 +268,14 @@ export function watchCore({
         continue;
       }
       const owned = ownedPid();
-      if (!discovery || discovery.state !== 'serving' || !Number.isInteger(discovery.pid) || discovery.pid !== owned
-        || !discovery.controlPort || !discovery.token || !runs(discovery.pid)) {
+      if (
+        discovery?.state !== 'serving' ||
+        !Number.isInteger(discovery.pid) ||
+        discovery.pid !== owned ||
+        !discovery.controlPort ||
+        !discovery.token ||
+        !runs(discovery.pid)
+      ) {
         unansweredSince = null;
         continue;
       }
@@ -308,5 +310,10 @@ export function watchCore({
       await onKilled(discovery);
     }
   })();
-  return { stop: () => { stopped = true; }, done };
+  return {
+    stop: () => {
+      stopped = true;
+    },
+    done,
+  };
 }

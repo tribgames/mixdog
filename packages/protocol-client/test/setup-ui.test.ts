@@ -7,9 +7,13 @@ import { desktopSessionState, sessionReducer } from '../src/session-state.ts';
 import type { SessionFold } from '../src/session-state.ts';
 
 type O = Record<string, any>;
-const requests: O[] = [{ id: 'setup-1', at: 1_700_000_000_000 }, { id: 'setup-2', at: 1_700_000_005_000, tool: 'setup' }];
+const requests: O[] = [
+  { id: 'setup-1', at: 1_700_000_000_000 },
+  { id: 'setup-2', at: 1_700_000_005_000, tool: 'setup' },
+];
 
-const snapshot = (state: O): SessionFold => sessionReducer.initial({ thread: { id: 't' }, items: [], state, hasOlder: false } as unknown as Json);
+const snapshot = (state: O): SessionFold =>
+  sessionReducer.initial({ thread: { id: 't' }, items: [], state, hasOlder: false } as unknown as Json);
 const section = (s: SessionFold, value: unknown): SessionFold =>
   sessionReducer.apply(s, { method: 'thread/setupUiRequest/updated', params: { threadId: 't', value } } as never);
 

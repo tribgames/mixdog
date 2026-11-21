@@ -42,6 +42,16 @@ export function documentPreviewError(reason: unknown): string {
  *  (deleted, or renamed outside this editor): say so instead of the raw
  *  ENOENT text. */
 export function fileAccessError(reason: unknown): string {
-  const message = errorMessage(reason);
-  return /ENOENT|no such file|cannot find/i.test(message) ? t('File was deleted or renamed on disk.') : message;
+  return isFileGone(reason) ? t('File was deleted or renamed on disk.') : errorMessage(reason);
+}
+
+/** The path no longer names a file. Errors cross IPC as message text only. */
+export function isFileGone(reason: unknown): boolean {
+  return /ENOENT|no such file|cannot find/i.test(errorMessage(reason));
+}
+
+/** A save refused because the disk text differs from the text it was based on
+ *  (project-files.ts words every such refusal "changed on disk"). */
+export function isFileChangedOnDisk(reason: unknown): boolean {
+  return /changed on disk/i.test(errorMessage(reason));
 }

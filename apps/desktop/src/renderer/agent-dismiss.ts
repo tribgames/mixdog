@@ -7,8 +7,13 @@ import {
   type DesktopAgentActivityState,
 } from '../shared/agent-activity';
 import type { DesktopAgentPoolRow } from '../shared/contract';
-import { flattenAgentActivityNodes, type AgentActivityNode } from './agent-activity-model';
-import { dismissedShellJobs, dismissShellJobs, useDismissedJobsRevision } from './background-jobs-dismissed-store';
+import { agentPoolStore, flattenAgentActivityNodes, type AgentActivityNode } from './agent-activity-model';
+import {
+  type DismissedListing,
+  dismissedShellJobs,
+  dismissShellJobs,
+  useDismissedJobsRevision,
+} from './background-jobs-dismissed-store';
 import { timeMs } from './transcript-primitives';
 
 /** The outcomes "Clear finished" removes: a completion or rest, a failure and
@@ -25,20 +30,22 @@ function agentDismissOwner(agent: DesktopAgentPoolRow): string {
   return String(agent.ownerSessionId || '').trim() || agentSessionId(agent);
 }
 
-/** One settled outcome of one agent: its session plus the frozen moment it
- *  settled. New work settles at a new moment, so a cleared agent comes back
- *  as soon as it runs again. */
+/** One settled outcome of one agent: its session plus the settle identity the
+ *  core fixed for that outcome (`settledAt`). New work settles under a new
+ *  identity, so a cleared agent comes back as soon as it runs again. */
 function agentDismissKey(agent: DesktopAgentPoolRow): string {
   const sessionId = agentSessionId(agent);
-  return sessionId ? `agent:${sessionId}@${timeMs(agent.idleSince)}` : '';
+  return sessionId ? `agent:${sessionId}@${timeMs(agent.settledAt)}` : '';
 }
 
-/** Whether "Clear finished" may remove this row. The owner's own Lead row is
- *  the group itself and always stays. */
+/** Whether "Clear finished" may remove this row: a settled outcome the core
+ *  fixed an identity for. The owner's own Lead row is the group itself and
+ *  always stays. */
 function clearableAgentRow(agent: DesktopAgentPoolRow): boolean {
   const sessionId = agentSessionId(agent);
   return (
     Boolean(sessionId) &&
+    timeMs(agent.settledAt) > 0 &&
     sessionId !== String(agent.ownerSessionId || '').trim() &&
     String(agent.agent || '').toLowerCase() !== 'lead' &&
     CLEARABLE_AGENT_STATES.has(desktopAgentActivityState(agent))
@@ -73,8 +80,43 @@ export function withoutDismissedAgentRows(
   return rows.filter((agent) => !isDismissedAgentRow(agent));
 }
 
-/** Clears every clearable row of `rows`; returns how many were cleared. */
-export function dismissFinishedAgentRows(rows: readonly DesktopAgentPoolRow[]): number {
+/** The dismiss keys of the settled outcomes `listing` (the runtime's current,
+ *  unfiltered listing) holds for `owner`; `null` without a listing. A row with
+ *  no settle identity yet (its turn still runs) names no outcome. */
+export function listedAgentDismissKeys(
+  owner: string,
+  listing: readonly DesktopAgentPoolRow[] | null | undefined
+): ReadonlySet<string> | null {
+  if (!listing) return null;
+  const keys = new Set<string>();
+  for (const agent of listing) {
+    if (agentDismissOwner(agent) === owner && timeMs(agent.settledAt) > 0) keys.add(agentDismissKey(agent));
+  }
+  return keys;
+}
+
+/** The host pool's current listing, read at call time; never the rows merely shown. */
+export function hostAgentListing(): readonly DesktopAgentPoolRow[] | null {
+  const host = globalThis.window?.mixdogDesktop;
+  return host ? agentPoolStore(host).getListing() : null;
+}
+
+/** What a dismissal in `owner`'s set prunes against now: the host's agent
+ *  listing and the session's own `shells` keys. */
+export function hostDismissListing(owner: string, shells: ReadonlySet<string> | null): DismissedListing {
+  return { agents: listedAgentDismissKeys(owner, hostAgentListing()), shells };
+}
+
+/** Clears every clearable row of `rows`; returns how many were cleared.
+ *  `listing` is the runtime's current listing (the host's by default) that
+ *  decides which earlier keys are still worth keeping (`null`: none, nothing
+ *  is pruned); `shells` lists the shell rows of that one session, used only
+ *  for its own dismissed set. */
+export function dismissFinishedAgentRows(
+  rows: readonly DesktopAgentPoolRow[],
+  listing: readonly DesktopAgentPoolRow[] | null | undefined = hostAgentListing(),
+  shells?: { sessionId: string; keys: ReadonlySet<string> | null }
+): number {
   const byOwner = new Map<string, string[]>();
   for (const agent of rows) {
     if (!clearableAgentRow(agent)) continue;
@@ -83,7 +125,10 @@ export function dismissFinishedAgentRows(rows: readonly DesktopAgentPoolRow[]): 
   }
   let cleared = 0;
   for (const [owner, keys] of byOwner) {
-    dismissShellJobs(owner, keys);
+    dismissShellJobs(owner, keys, {
+      agents: listedAgentDismissKeys(owner, listing),
+      shells: shells?.sessionId === owner ? shells.keys : null,
+    });
     cleared += keys.length;
   }
   return cleared;

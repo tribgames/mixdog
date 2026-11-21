@@ -21,11 +21,6 @@ export async function streamMarkAfterCall(sessionId: string | undefined): Promis
   return window.mixdogDesktop.sessionStreamPosition(sessionId);
 }
 
-// The shown value has one owner: the session's ordered stream (`authoritative`). A pick is a preview over it, never a value of
-// its own: it lasts while its call runs and, once the call has answered, until the stream has shown the state that call's
-// mutation produced (`mark`, the feed position its connection had received when the answer came: the core writes a mutation's
-// feed frames before its response on the same connection). From then on only the stream's value shows, whatever another device
-// changed meanwhile. A failed call ends its preview at once. The reply's own state is never read.
 export function useModelSelection(
   sessionId: string,
   authoritative: DesktopModelSelection,

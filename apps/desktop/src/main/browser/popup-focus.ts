@@ -1,16 +1,3 @@
-/** Whether a window a page opened becomes the session's selected tab. Chrome
- *  brings a window opened in front (a `target=_blank` link, `window.open`)
- *  forward and leaves one opened behind (Ctrl or middle click) where it is.
- *  Here the window must also come from a current gesture of the person:
- *   - the opener's last actor is the person, not an agent command (an agent
- *     click through CDP carries a user activation too), and
- *   - Chromium reports a user gesture for this very window (Page.windowOpen:
- *     the opener frame's transient activation, which opening a window
- *     consumes), or the person answered a dialog of the opener just before
- *     (`alert(); window.open()`: reading the alert can outlast Chromium's
- *     activation window).
- *  A window the page opens later from a timer has neither, so it stays
- *  behind; agent-opened popups stay unselected and are reported instead. */
 export type PageActor = 'person' | 'agent';
 
 /** How soon after the person answered a dialog a window still counts as theirs. */

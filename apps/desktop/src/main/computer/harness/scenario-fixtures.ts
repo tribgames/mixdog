@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { BrowserWindow, screen } from 'electron';
 import { progress, profile } from './scenario-runtime';
+import { windowIdByTitle, windowIdWhere } from './window-listing';
 import {
   fixtureHtml,
   koreanFixtureHtml,
@@ -103,11 +104,6 @@ export async function imeConversionMode(hwnd: bigint, set?: number): Promise<num
   );
 }
 
-/**
- * The fixture desktop every scenario observes: the interactive renderer at a
- * deliberately awkward placement, the Korean and clutter OCR surfaces, and the
- * two blank frames whose pixels must fail closed.
- */
 export async function createScenarioFixtureWindows(windows: BrowserWindow[]): Promise<{
   fixture: BrowserWindow;
   displayPlacement: string;
@@ -213,19 +209,14 @@ export function fixtureWindowIds(listing: string): {
   mixdog?: string;
   chrome?: string;
 } {
-  const lines = listing.split(/\r?\n/);
-  const byTitle = (title: string) =>
-    lines.find((line) => line.includes(`"${title}"`))?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
   return {
-    fixture: byTitle('Mixdog Scenario Renderer'),
-    korean: byTitle('Mixdog Korean OCR Fixture'),
-    clutter: byTitle('Mixdog OCR Clutter Fixture'),
-    black: byTitle('Mixdog Black Frame Fixture'),
-    white: byTitle('Mixdog White Frame Fixture'),
-    dense: byTitle('Mixdog Dense Accessibility Fixture'),
-    mixdog: lines
-      .find((line) => /\|\s+app=Mixdog\b/i.test(line) && line.includes('"Mixdog"'))
-      ?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1],
-    chrome: lines.find((line) => /\|\s+app=(?:chrome|msedge)\b/i.test(line))?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1],
+    fixture: windowIdByTitle(listing, 'Mixdog Scenario Renderer'),
+    korean: windowIdByTitle(listing, 'Mixdog Korean OCR Fixture'),
+    clutter: windowIdByTitle(listing, 'Mixdog OCR Clutter Fixture'),
+    black: windowIdByTitle(listing, 'Mixdog Black Frame Fixture'),
+    white: windowIdByTitle(listing, 'Mixdog White Frame Fixture'),
+    dense: windowIdByTitle(listing, 'Mixdog Dense Accessibility Fixture'),
+    mixdog: windowIdWhere(listing, (line) => /\|\s+app=Mixdog\b/i.test(line) && line.includes('"Mixdog"')) || undefined,
+    chrome: windowIdWhere(listing, (line) => /\|\s+app=(?:chrome|msedge)\b/i.test(line)) || undefined,
   };
 }

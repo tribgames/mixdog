@@ -20,10 +20,6 @@ import { useMediaSessionEpoch } from './remote-file-preview';
 import { reportEditorLoadStage } from './renderer-load-metrics';
 import { t } from './i18n';
 
-/** Opening and reloading the file: the plain text read, the image/media
- *  preview and the document page preview, plus the load-ready notifications.
- *  The state they fill stays with the file session, which also writes it on
- *  save and revert. */
 export function useEditorSessionLoad({
   api,
   projectPath,

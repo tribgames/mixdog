@@ -1,9 +1,3 @@
-/**
- * transcript-text-reveal.test.mjs — the live reply in a transcript row. The
- * coding transcript reveals it paced and fades its new words in, and shows
- * the rest at once (fading) when it ends; agent chat paints what it received
- * whole, at most once per 33 ms, unfaded.
- */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';

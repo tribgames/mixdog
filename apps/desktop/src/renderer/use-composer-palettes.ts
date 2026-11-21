@@ -50,6 +50,41 @@ export function skillMentionMatchAt(draft: string, caretOffset: number): Mention
   return { start, end: beforeCaret.length, query: match[2] };
 }
 
+function useMentionRecentFiles(
+  open: boolean,
+  projectScope: string,
+  userMessages: Array<{ id: string; text: string }> | undefined
+) {
+  const [recent, setRecent] = useState(EMPTY_RECENT);
+  const userMessagesRef = useRef(userMessages);
+  userMessagesRef.current = userMessages;
+  useEffect(() => {
+    if (!open) {
+      setRecent(EMPTY_RECENT);
+      return;
+    }
+    let current = true;
+    const mentioned = verifiedMentionedFiles(mentionedFilePaths(userMessagesRef.current || [], projectScope), (path) =>
+      Promise.resolve().then(
+        () => window.mixdogDesktop.statProjectFile?.(projectScope, path) ?? Promise.reject(new Error('no stat'))
+      )
+    );
+    const changed = Promise.resolve()
+      .then(() => window.mixdogDesktop.gitStatus?.(projectScope, { skipLineStats: true }))
+      .then(
+        (status) => changedFilePaths(status, projectScope),
+        () => []
+      );
+    void Promise.all([mentioned, changed]).then(([mentionedPaths, changedPaths]) => {
+      if (current) setRecent({ scope: projectScope, paths: { mentioned: mentionedPaths, changed: changedPaths } });
+    });
+    return () => {
+      current = false;
+    };
+  }, [open, projectScope]);
+  return recent.scope === projectScope ? recent.paths : EMPTY_RECENT.paths;
+}
+
 export function useComposerPalettes({
   draft,
   projectScope,
@@ -90,7 +125,6 @@ export function useComposerPalettes({
     [projectScope]
   );
   const [mentionLoading, setMentionLoading] = useState(false);
-  const [mentionRecent, setMentionRecent] = useState(EMPTY_RECENT);
   const [mentionDismissed, setMentionDismissed] = useState('');
   const [skillIndex, setSkillIndex] = useState(0);
   const [skillDismissed, setSkillDismissed] = useState('');
@@ -175,39 +209,8 @@ export function useComposerPalettes({
       if (mentionSearchGeneration.current === generation) mentionSearchGeneration.current += 1;
     };
   }, [mentionMatch?.end, mentionMatch?.query, mentionMatch?.start, mentionOpen, projectScope]);
-  // The Recent files are read once per palette opening, not per keystroke: the
-  // newest mentioned files that still exist in the project, and the files git
-  // reports changed. A failed read only means no rows of that kind.
-  const userMessagesRef = useRef(userMessages);
-  userMessagesRef.current = userMessages;
-  useEffect(() => {
-    if (!mentionOpen) {
-      setMentionRecent(EMPTY_RECENT);
-      return;
-    }
-    let current = true;
-    const mentioned = verifiedMentionedFiles(mentionedFilePaths(userMessagesRef.current || [], projectScope), (path) =>
-      Promise.resolve().then(
-        () => window.mixdogDesktop.statProjectFile?.(projectScope, path) ?? Promise.reject(new Error('no stat'))
-      )
-    );
-    const changed = Promise.resolve()
-      .then(() => window.mixdogDesktop.gitStatus?.(projectScope, { skipLineStats: true }))
-      .then(
-        (status) => changedFilePaths(status, projectScope),
-        () => []
-      );
-    void Promise.all([mentioned, changed]).then(([mentionedPaths, changedPaths]) => {
-      if (current)
-        setMentionRecent({ scope: projectScope, paths: { mentioned: mentionedPaths, changed: changedPaths } });
-    });
-    return () => {
-      current = false;
-    };
-  }, [mentionOpen, projectScope]);
+  const mentionRecentPaths = useMentionRecentFiles(mentionOpen, projectScope, userMessages);
   const mentionQuery = mentionMatch?.query || '';
-  // Rows read for another project never show, even while this one's read is pending.
-  const mentionRecentPaths = mentionRecent.scope === projectScope ? mentionRecent.paths : EMPTY_RECENT.paths;
   const mentionRows = useMemo(
     () =>
       mentionItems({

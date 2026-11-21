@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { REMOTE_TRANSPORT_MAX_ACK_DELAY_MS } from '../shared/remote-transport.ts';
 import { createPhoneWorld, protocolDialect } from './test-support/phone-world.mjs';
 
-test('records out are numbered, frames in are delivered in order, and acks are cumulative within the ack delay', async () => {
+async function openConnection() {
   const repo = new URL('../../../../', import.meta.url);
   const options = JSON.parse(readFileSync(new URL('packages/protocol-client/conformance/options.json', repo), 'utf8'));
   const world = await createPhoneWorld({
@@ -35,6 +35,11 @@ test('records out are numbered, frames in are delivered in order, and acks are c
   const socket = await world.accept({ transportWebrtc: 1, binaryFrames: 1 });
   await world.until(() => world.events.some((e) => e.ev === 'ready'));
   await world.advance(0);
+  return { world, writer, socket };
+}
+
+test('records out are numbered consecutively', async () => {
+  const { world, writer } = await openConnection();
   const records = () => world.events.filter((e) => e.ev === 'xrecord').map((e) => e.seq);
 
   writer.send(JSON.stringify({ n: 1 }));
@@ -47,7 +52,10 @@ test('records out are numbered, frames in are delivered in order, and acks are c
   );
   assert.equal(records().length, 2);
   assert.equal(records()[1], records()[0] + 1, 'consecutive sequence numbers');
+});
 
+test('frames in are delivered in order, and acks are cumulative within the ack delay', async () => {
+  const { world, socket } = await openConnection();
   const through = () =>
     world.events
       .filter((e) => e.ev === 'xcontrol' && e.kind === 'ack')

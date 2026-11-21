@@ -1,14 +1,8 @@
-// CPU profile of the desktop main window's renderer, over the DevTools protocol.
-//
-// The app must be running with a debugging port (main/index.ts binds it to
-// 127.0.0.1). Start it with the flag, for example:
+// The app must run with a debugging port:
 //   installed app (Windows):  & "$env:LOCALAPPDATA\Programs\Mixdog\Mixdog.exe" --remote-debugging-port=9333
 //   installed app (macOS):    open -a Mixdog --args --remote-debugging-port=9333
 //   from source:              npm run dev            (apps/desktop; port 9342, or --port=<n>)
-// Quit any running instance first: a second launch hands over to the first and
-// the flag is lost.
-//
-// Then:
+// Quit any running instance first: a second launch hands over to the first and the flag is lost.
 //   node apps/desktop/scripts/renderer-profile.mjs --port=9333 [--seconds=20] [--out=<dir>] [--target=<url part>]
 // Writes renderer-<time>.cpuprofile (open it in Chrome DevTools → Performance)
 // and renderer-<time>.txt with the top 25 functions by self and by total time.

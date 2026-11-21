@@ -21,11 +21,6 @@ export function startupRestoreCatalogPending({
   return !projectCatalogReady && Boolean(storedSessionId || storedProjectPath);
 }
 
-/** The stored last session is not in the catalog yet and the host's catalog
- *  has not answered. The phone keeps no catalog cache between loads (its
- *  conversation content is memory-only), so its catalog is empty until the
- *  relay lists sessions; judging the stored id before that dropped it and
- *  landed on a blank task. */
 export function startupRestoreSessionPending({
   sessionCatalogReady,
   storedSessionId,
@@ -112,10 +107,6 @@ export function useAppStartupRestore({
       settleStartup();
       return;
     }
-    // The phone opens straight into the session it showed last, like the
-    // desktop: the relay client names that session among its visible sessions
-    // when it connects, so its transcript arrives with the first view sync
-    // instead of after a drawer tap and a second round trip.
     if (restoredFromStorage && startupFocusedPaneSelection) {
       restoredStartupNavigation.current = true;
       if (startupNavigationSelection) {
@@ -198,10 +189,6 @@ export function useAppStartupRestore({
       return;
     }
     const cachedProjectPath = lastNewTaskPrefs.current?.projectPath ?? null;
-    // Only an EXPLICIT stored choice is restored — "" keeps No project. With
-    // no choice at all the draft keeps INHERITING, so a phone that boots
-    // before its relay-backed project catalog lands still adopts the last
-    // project when it arrives instead of freezing an empty one.
     const cachedDraftProject =
       cachedProjectPath === null
         ? effectiveDraftProjectPath(storedProject || preferredDraftProjectPath) || null

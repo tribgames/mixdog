@@ -1,7 +1,3 @@
-// The renderer entry (bootstrap.tsx) paints the saved fonts and theme before it
-// asks React for the first render: saved settings are already on the root at
-// the moment render() is called. Everything else the entry installs is stubbed;
-// the font and theme code is the real thing.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { installTestDom } from './test-support/test-dom.mjs';

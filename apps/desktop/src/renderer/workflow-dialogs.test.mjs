@@ -33,7 +33,7 @@ const models = [
   },
 ];
 
-test('fallback rows add empty, block saving, reorder with tuning, and remove', async (t) => {
+async function renderWorkerFallbackEditor(t) {
   const render = harness(t);
   const secondary = { provider: 'anthropic', model: 'second', effort: 'low' };
   const saved = [];
@@ -56,7 +56,11 @@ test('fallback rows add empty, block saving, reorder with tuning, and remove', a
       onSave: (value) => saved.push(value),
     })
   );
-  const dialog = document.querySelector('[role="dialog"]');
+  return { dialog: document.querySelector('[role="dialog"]'), saved };
+}
+
+test('fallback rows reorder with tuning and save the reordered chain', async (t) => {
+  const { dialog, saved } = await renderWorkerFallbackEditor(t);
   assert.equal(dialog.querySelectorAll('.route-chain-row').length, 2);
   assert.equal(dialog.querySelector('.route-chain-number'), null);
   assert.ok(dialog.querySelector('.route-chain-heading [aria-label="Add fallback model"]'));
@@ -79,6 +83,10 @@ test('fallback rows add empty, block saving, reorder with tuning, and remove', a
   assert.equal(saved[0].provider, 'anthropic');
   assert.equal(saved[0].effort, 'low');
   assert.equal(saved[0].fallbacks[0].effort, 'high');
+});
+
+test('an added empty fallback row blocks saving until it is removed', async (t) => {
+  const { dialog } = await renderWorkerFallbackEditor(t);
   await act(async () => dialog.querySelector('[aria-label="Add fallback model"]').click());
   assert.equal(dialog.querySelectorAll('.route-chain-row').length, 3);
   assert.match(
@@ -93,7 +101,7 @@ test('fallback rows add empty, block saving, reorder with tuning, and remove', a
   assert.equal(dialog.querySelector('button[type="submit"]').disabled, false);
 });
 
-test('Lead has the agents fallback section: it renders, saves and clears the chain with valid selections', async (t) => {
+async function renderLeadEditor(t) {
   const render = harness(t);
   const secondary = { provider: 'anthropic', model: 'second' };
   const effortModel = {
@@ -125,7 +133,11 @@ test('Lead has the agents fallback section: it renders, saves and clears the cha
       onSave: (value) => saved.push(value),
     })
   );
-  const dialog = document.querySelector('[role="dialog"]');
+  return { dialog: document.querySelector('[role="dialog"]'), saved, secondary };
+}
+
+test('Lead has the agents fallback section: it renders and saves an edited effort with a valid selection', async (t) => {
+  const { dialog, saved, secondary } = await renderLeadEditor(t);
   assert.ok(dialog.querySelector('.route-chain-heading [aria-label="Add fallback model"]'));
   assert.ok(dialog.querySelector('.route-chain-handle'));
   assert.match(dialog.textContent, /first model is used first/);
@@ -146,13 +158,16 @@ test('Lead has the agents fallback section: it renders, saves and clears the cha
   assert.equal(saved[0].effort, 'high');
   assert.deepEqual(saved[0].fallbacks, [secondary]);
   assert.deepEqual(requiredModelSelection(saved[0]), saved[0]);
-  // Removing the last fallback saves an explicit empty list (it clears the stored chain).
+});
+
+test('removing the last Lead fallback saves an explicit empty list that clears the stored chain', async (t) => {
+  const { dialog, saved } = await renderLeadEditor(t);
   await act(async () => dialog.querySelector('[aria-label="Remove model 2"]').click());
   await act(async () =>
     dialog.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
   );
-  assert.deepEqual(saved[1].fallbacks, []);
-  assert.deepEqual(requiredModelSelection(saved[1]), saved[1]);
+  assert.deepEqual(saved[0].fallbacks, []);
+  assert.deepEqual(requiredModelSelection(saved[0]), saved[0]);
 });
 
 function harness(t) {

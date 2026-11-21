@@ -1,10 +1,3 @@
-/**
- * How an observation is produced: the screenshot paths, the zoom crop, the SOM
- * overlay, and the compact state capture that binds accessibility to pixels.
- * The host owns session state and passes in the few primitives this needs, so
- * the engine can be read without tracing a live bridge. Each phase of the
- * state capture lives in its own capture-*.ts module; this file sequences them.
- */
 import { createPixelCapture } from './capture-pixels';
 import { mergeCaptureOcr } from './capture-ocr';
 import { finishCapture } from './capture-finish';

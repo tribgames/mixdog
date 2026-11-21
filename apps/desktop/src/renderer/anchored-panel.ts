@@ -1,14 +1,3 @@
-/** One placement rule for every trigger-anchored popup (user: 팝업 열리는
- *  위치 통일). Default: BELOW the trigger with the left edges aligned
- *  (bottom-start), 6px from the trigger and 8px inside the bounds (the
- *  trigger's pane, clipped to what is visible). A trigger at the trailing
- *  edge of a row aligns right edges (`align: 'end'`); a trigger at the bottom
- *  of the screen (composer controls) asks for `placement: 'above'`. The panel
- *  flips only when the preferred side cannot hold all of it and the other
- *  side is roomier, shifts horizontally into the bounds, and is capped to the
- *  room on the chosen side. Selects, ⋯ menus, the dock menu, the branch chip,
- *  the breadcrumb picker and the route sheets all place through here. */
-
 interface AnchorRect {
   left: number;
   top: number;
@@ -126,12 +115,7 @@ export function paneBounds(element: Element | null | undefined): AnchorRect {
   return rect.width > 0 && rect.height > 0 ? intersectRects(rect, view) : view;
 }
 
-/** Fixed-position style for a placed panel. Above the trigger it pins its
- *  BOTTOM edge to the trigger (6px over it), so a panel shorter than its
- *  estimate still hangs off the trigger instead of floating above it; an
- *  end-aligned panel pins its RIGHT edge, so a menu sized by its own labels
- *  still lines up with the trigger's right edge. `bottom`/`right` resolve
- *  against the layout viewport, which a phone keyboard does not shrink. */
+// `bottom`/`right` resolve against the layout viewport, which a phone keyboard does not shrink.
 export function anchoredPanelStyle(
   geometry: AnchoredPanelGeometry,
   trigger: Pick<AnchorRect, 'top'>,
@@ -175,15 +159,6 @@ export const intersectRects = (first: AnchorRect, second: AnchorRect): AnchorRec
   };
 };
 
-/** Keep a portaled overlay fully inside the window once it can be measured.
- *  Menus anchored to a trigger near an edge (the tab strip "+", folder and
- *  review context menus) would otherwise render half off-screen (user: 팝업이
- *  화면 밖으로 나가 안 보인다). Guessed "menu is ~200px" constants cannot do
- *  this: only the measured box knows. Doubles as a React ref callback.
- *  An overlay pinned by inline right/bottom keeps that axis untouched; a
- *  right-pinned one grows leftward instead, so its measured width is held to
- *  its inline max-width (the room its owner computed from the recorded pane
- *  bounds) and the window, with a CSS min-width yielding to that room. */
 export function clampOverlayIntoView(element: HTMLElement | null, edge = 8): void {
   if (!element) return;
   if (element.style.right) element.style.minWidth = '';

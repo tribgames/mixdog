@@ -2,12 +2,6 @@ import type { WebContents } from 'electron';
 
 import { type BrowserRemoteControlHost, type RemoteStream, viewportKey } from './remote-stream';
 
-/** Apply the stream's fit to this page and document unless it already holds
- *  it; a page the stream left behind gets its own viewport back. `driven` is
- *  set only once the fit really applied. A fit that fails is given up: the
- *  page keeps its own geometry and the stream reports `fitFailed`, so a
- *  waiting take-over falls back to watching instead of being shown an
- *  unfitted page as fitted. */
 export async function driveGuest(
   drive: BrowserRemoteControlHost['drive'],
   sessionId: string,

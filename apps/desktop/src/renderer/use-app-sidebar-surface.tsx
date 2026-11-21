@@ -56,23 +56,11 @@ function useSidebarPresentation({
     surface === 'sessions' ? [] : (viewGroups.find((group) => group.includes(surface)) ?? [surface]);
   const requestedSidebarGroup = sidebarGroupFor(requestedSidebarSurface);
   const sidebarPanel = requestedSidebarSurface === 'sessions' ? null : requestedSidebarSurface;
-  // The sidebar subtree owns every visited panel's DOM and state, so it stays
-  // mounted (inert + aria-hidden + zero width via .sidebar-collapsed / the
-  // narrow drawer transform) once it has been opened: collapsing must not
-  // destroy a visited destination's scroll, drafts, or dialogs. Warmth is
-  // scoped to THIS tree instance — if the host ever unmounts, every panel
-  // starts cold again.
   const [sidebarTreeBooted, setSidebarTreeBooted] = useState(sidebarOpen);
   useEffect(() => {
     if (sidebarOpen && !sidebarTreeBooted) setSidebarTreeBooted(true);
   }, [sidebarOpen, sidebarTreeBooted]);
   const sidebarTreeMounted = sidebarOpen || sidebarTreeBooted;
-  // Entering a rail panel for the FIRST time cold-mounts its Suspense chunk,
-  // so that one transition still settles hidden before it becomes visible.
-  // Once a destination has genuinely
-  // resolved its module AND committed its content on screen, it is warm: the
-  // request IS the presentation and flips in the click's own commit, because
-  // an artificial settle window there only reads as input lag.
   const warmSidebarSurfaces = useRef<ReadonlySet<SidebarSurface>>(new Set(['sessions']));
   const [laggedSidebarSurface, setLaggedSidebarSurface] = useState<SidebarSurface>('sessions');
   const requestedSidebarPanelReady =
@@ -85,10 +73,6 @@ function useSidebarPresentation({
           failedSidebarPanels.has(panel)) &&
         mountedSidebarPanels.has(panel)
     );
-  // A resolved module whose pane is already mounted hidden is just as ready
-  // as a previously presented destination: both can become visible in this
-  // click's own commit. Projects is prepared this way after boot so its rows
-  // and overflow options never first-mount in front of the user.
   const requestedSidebarSurfaceWarm =
     sidebarTreeMounted &&
     (warmSidebarSurfaces.current.has(requestedSidebarSurface) ||
@@ -110,11 +94,6 @@ function useSidebarPresentation({
     // cancels the pending commit (cleanup below), and reopening restarts the
     // full settle for the still-unresolved destination.
     if (!sidebarOpen || !sidebarTreeMounted) return undefined;
-    // Never swap onto an unresolved chunk: the outgoing surface keeps its
-    // pixels until the incoming panel can actually paint content. Once the
-    // hidden pane is mounted and resolved, commit from the layout effect so
-    // the requested destination appears in the click's next paint without an
-    // extra font/three-frame settle window.
     if (!requestedSidebarPanelReady) return undefined;
     setLaggedSidebarSurface(requestedSidebarSurface);
     return undefined;
@@ -142,12 +121,6 @@ function useSidebarPresentation({
     if (warmSidebarSurfaces.current.has(presentedSidebarSurface)) return;
     warmSidebarSurfaces.current = new Set([...warmSidebarSurfaces.current, presentedSidebarSurface]);
   }, [loadedSidebarPanels, mountedSidebarPanels, presentedSidebarSurface, sidebarOpen, sidebarTreeMounted]);
-  // ACTIVE is the panel lifecycle the panes themselves see. A hidden sidebar
-  // has no active destination: rail panels portal their editors to
-  // document.body, where the sidebar's inert/aria-hidden does not reach, so a
-  // titlebar/backdrop collapse must deactivate the panel even though the
-  // request is unchanged. Panels close only their dialogs on deactivation and
-  // keep list/filter state.
   const presentedSidebarGroup = sidebarGroupFor(presentedSidebarSurface);
   const presentedSidebarPanel =
     presentedSidebarSurface === 'sessions' ? null : (presentedSidebarGroup[0] ?? presentedSidebarSurface);
@@ -203,10 +176,6 @@ function useSidebarProjectActions({
       ).value,
     []
   );
-  // One editor host outside the sidebar panels: opened by "Project settings"
-  // over the current screen, and never closed by panel activation changes.
-  // Both dialogs' chunks stay off the first screen: they mount once loaded
-  // (first open or the idle lane), and an open before that is replayed.
   const projectEditor = useDeferredOpen<ProjectEditorDialogHandle>(projectEditorDialogModule.load);
   const ProjectEditor: typeof ProjectEditorDialog | undefined = useDeferredModule(projectEditorDialogModule, {
     load: false,
@@ -323,12 +292,6 @@ export function useAppSidebarSurface({
   const ExtensionsPane = sidebarPanes.extensions;
   const SkillsPane = sidebarPanes.skills;
   const sidebarPanelTitle = presentedSidebarPanel ? SIDEBAR_PANEL_TITLES[presentedSidebarPanel] : '';
-  // Stable sidebar handlers + memoised panel children: SessionSidebar, its
-  // rows, and every rail panel are memoised, but fresh inline closures and a
-  // fresh children fragment on every App render defeated those boundaries —
-  // a mere tab switch re-rendered the whole sidebar tree (profiled:
-  // SessionRow/panel subtrees dominated fast-switch commits). Re-rendering the sidebar during rapid tab switches
-  // also left the previous view visibly lingering.
   const sidebarNewTask = useStableEvent(() => {
     closeSidebarForNavigation();
     startTask();

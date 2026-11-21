@@ -13,10 +13,6 @@ const comparablePath = (path: string) =>
     .replace(/\/$/, '')
     .toLocaleLowerCase();
 
-/** Explorer rename that keeps open editors attached: every tab on the renamed
- *  file (or inside the renamed folder) follows it to the new path. A path
- *  with unsaved edits is refused first — its buffer and backup belong to the
- *  old path, and a silent move would drop them. */
 export function useProjectEntryRename({
   paneWorkspace,
   dirtyFileKeys,

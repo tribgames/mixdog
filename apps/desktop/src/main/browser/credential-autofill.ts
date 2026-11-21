@@ -234,10 +234,6 @@ export const BROWSER_SECRET_FIELD_FUNCTION = String.raw`async function(request) 
     'passcode', 'pass', 'one', 'time', 'token']);
   const CODE_LABEL = /인증 ?(?:번호|코드)|일회용 ?(?:비밀번호|코드)/;
   const short = (element) => maxLength(element) === 1 || (maxLength(element) >= 4 && maxLength(element) <= 8);
-  // Only explicit signals make a code field: autocomplete one-time-code, a
-  // short numeric field (inputmode numeric or a digits pattern), or a name or
-  // id that says so. Any other autocomplete purpose (email, tel, postal-code,
-  // cc-csc, ...) is not a code.
   const kindOf = (element) => {
     const kind = type(element);
     if (kind === 'password') return tokens(element).includes('new-password') ? 'new-password' : 'password';
@@ -249,11 +245,6 @@ export const BROWSER_SECRET_FIELD_FUNCTION = String.raw`async function(request) 
       || /^\^?\[?(?:\\d|0-9)\]?[*+{]/.test(String(element.getAttribute('pattern') || ''));
     return numeric && short(element) ? 'otp' : '';
   };
-  // The field the agent names (its label, name, id or placeholder): the
-  // focused one among its matches, else the first in document order. It takes
-  // a code only when it reads as one: one box or 4–8 characters long, or
-  // labeled as a code; a generic text or email field it names is never a code
-  // field.
   const hint = String(request?.hint || '').trim().toLowerCase();
   const named = hint
     ? inputs.filter((element) => visible(element) && ['text', 'tel', 'number', 'search', 'password'].includes(type(element))
@@ -300,14 +291,6 @@ export const BROWSER_SECRET_FIELD_FUNCTION = String.raw`async function(request) 
   }
   const kind = kindFor(field);
   const scope = field.form ? inputs.filter((element) => element.form === field.form) : inputs;
-  // A code split into one box per character: its boxes, in order. A box says
-  // so by maxlength 1, or by layout: 4–10 equally narrow inputs of one type
-  // on one row (boxes that cap their length in script have no maxlength). The
-  // siblings need not look like code fields themselves, only like the same row.
-  // Only inputs that could be a code box join: no explicit autocomplete purpose
-  // other than a code, and no name, id or label of an ordinary field (a label
-  // with no letters, a digit label or a code label are boxes). The group is the
-  // one contiguous run of such siblings around the bound field.
   const boxLike = (element, box, rect) => {
     if (!visible(element) || type(element) !== type(box) || maxLength(element) > 1) return false;
     if (tokens(element).some((token) => !['on', 'off', 'one-time-code'].includes(token))) return false;
@@ -413,18 +396,6 @@ interface BrowserCredentialFillHost {
 function createIsolatedWorldOpener(cdp: BrowserCdpPort, redactText: BrowserCredentialFillHost['redactText']) {
   let objectGroups = 0;
 
-  /** A fresh isolated world of the guest's main frame. `check` runs before
-   *  every dispatch into it, the last one included, and refuses once the page
-   *  left `bound.url` (the address the caller checked, before it read the
-   *  vault, say; else its address now): nothing is sent to a page it went to
-   *  meanwhile. With `bound.document` (or `pin`) the world is pinned to the
-   *  main frame's document, as the browser reports it (mainDocumentOf): it
-   *  must be `bound.document` when given, and still be the same once the
-   *  world exists, so the world belongs to that document; a later navigation
-   *  destroys the world, and every call into it fails. `run` calls a function
-   *  there with CDP arguments, answering its value (or, not by value, the
-   *  remote object it returned, held in this world's object group until
-   *  `release`). */
   async function openIsolatedWorld(
     guest: WebContents,
     signal: AbortSignal | undefined,
@@ -526,11 +497,6 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
     protectNodes,
   });
 
-  /** Auto sign-in and the agent's stored-login fill: the login form of the
-   *  page as it is at fill time. `boundUrl`: the page address checked before
-   *  the stored login was read; the fill is refused unless the page is still
-   *  there (openIsolatedWorld). The login card's saved-login handoff binds
-   *  its elements at request time instead (fillSecretField). */
   async function fillCredentialInGuest(
     guest: WebContents,
     credential: Readonly<BrowserCredentialValue>,
@@ -592,10 +558,6 @@ function createSecretFieldFill(
     protectNodes,
   }: Pick<BrowserCredentialFillHost, 'rememberSecret' | 'forgetSecret' | 'protectNodes'>
 ) {
-  /** Request time: which field a secret would go to on the guest's page, and
-   *  the exact elements a fill will write (each one's CDP backend node id and
-   *  type) with the document they belong to, for the fill to be bound to; no
-   *  value moves. */
   async function inspectSecretField(
     guest: WebContents,
     request: { form?: string; hint?: string },
@@ -639,12 +601,6 @@ function createSecretFieldFill(
     }
   }
 
-  /** Fill a secret the user typed into exactly the elements bound at request
-   *  time (`targets` of `document`, from inspectSecretField): an OTP, a new
-   *  password, or a password with its username; registered for redaction.
-   *  Another document throws BrowserPageChangedError before anything is sent;
-   *  a target gone, or changed, answers stale with nothing typed — never
-   *  another field. */
   async function fillSecretField(
     guest: WebContents,
     request: {
@@ -731,10 +687,6 @@ interface MainFrameTree {
   frameTree?: { frame?: { id?: string; loaderId?: string } };
 }
 
-/** The main frame's document as the browser reports it: the frame's id and
- *  the loader id of the document it shows, new for every document it loads
- *  (a reload of the same address included), like ref-upload.ts binds an
- *  upload to its frame's document. '' when either is not reported. */
 function mainDocumentOf(tree: MainFrameTree): string {
   const frame = tree.frameTree?.frame;
   return frame?.id && frame.loaderId ? `${frame.id}:${frame.loaderId}` : '';

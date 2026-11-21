@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { test } from 'node:test';
 import type { ClientErrorDetail, ClientEvent, Json, ProtocolClient, ThreadReducer } from '../src/api.ts';
 import { ClientFailure, connect, ladderDelay, uuidv7 } from '../src/client.ts';
-import { MockConn, MockNetwork } from '../src/mock.ts';
+import { type MockConn, MockNetwork } from '../src/mock.ts';
 
 const dir = new URL('../conformance/', import.meta.url);
 const options = JSON.parse(readFileSync(new URL('options.json', dir), 'utf8'));
@@ -29,9 +29,12 @@ function match(expected: any, actual: any, caps: Map<string, unknown>, path: str
     else caps.set(k, actual);
   } else if (Array.isArray(expected)) {
     assert.ok(Array.isArray(actual) && actual.length === expected.length, `${path}: array ${JSON.stringify(actual)}`);
-    expected.forEach((e, i) => match(e, actual[i], caps, `${path}[${i}]`));
+    for (const [i, e] of expected.entries()) match(e, actual[i], caps, `${path}[${i}]`);
   } else if (expected && typeof expected === 'object') {
-    assert.ok(actual && typeof actual === 'object' && !Array.isArray(actual), `${path}: object ${JSON.stringify(actual)}`);
+    assert.ok(
+      actual && typeof actual === 'object' && !Array.isArray(actual),
+      `${path}: object ${JSON.stringify(actual)}`
+    );
     assert.deepEqual(Object.keys(actual).sort(), Object.keys(expected).sort(), `${path}: keys`);
     for (const k of Object.keys(expected)) match(expected[k], actual[k], caps, `${path}.${k}`);
   } else assert.deepEqual(actual, expected, path);
@@ -71,7 +74,7 @@ async function run(steps: Step[]): Promise<void> {
       clientInfo: options.clientInfo,
       capabilities: options.capabilities,
       threadReducer: recorder,
-      clock: { sleep: (ms) => (sleeps.push(ms), Promise.resolve()) },
+      clock: { sleep: async (ms) => void sleeps.push(ms) },
       random: () => options.jitterUnit,
       newOpId: () => `op-${++opSeq}`,
       ladder: options.ladder,
@@ -88,20 +91,45 @@ async function run(steps: Step[]): Promise<void> {
       case 'handshake': {
         conn = await guard(net.accept(), 'accept');
         const init = await sent();
-        match({ id: `$cap:init${++handshakes}`, method: 'initialize', params: { clientInfo: options.clientInfo, capabilities: options.capabilities } }, init, caps, 'initialize');
+        match(
+          {
+            id: `$cap:init${++handshakes}`,
+            method: 'initialize',
+            params: { clientInfo: options.clientInfo, capabilities: options.capabilities },
+          },
+          init,
+          caps,
+          'initialize'
+        );
         if (s.refuse) {
-          conn.serverSend({ id: init.id, error: { code: -32600, message: 'v', data: { reason: s.refuse, serverVersion: '2.0.0', clientVersion: '1.4.6' } } });
+          conn.serverSend({
+            id: init.id,
+            error: {
+              code: -32600,
+              message: 'v',
+              data: { reason: s.refuse, serverVersion: '2.0.0', clientVersion: '1.4.6' },
+            },
+          });
           conn.serverClose(4002, 'version');
           break;
         }
         const template = options.initializeResult;
-        conn.serverSend({ id: init.id, result: { ...template, serverInstanceId: s.instance, limits: { ...template.limits, ...(s.limits ?? {}) } } });
+        conn.serverSend({
+          id: init.id,
+          result: { ...template, serverInstanceId: s.instance, limits: { ...template.limits, ...(s.limits ?? {}) } },
+        });
         match({ method: 'initialized' }, await sent(), caps, 'initialized');
         break;
       }
       case 'connected': {
         if (s.error) {
-          const e = await guard(connecting!.then(() => undefined, (x) => x), 'connect').then((x) => x as ClientFailure);
+          const e = await guard(
+            connecting!.then(
+              () => undefined,
+              (x) => x
+            ),
+            'connect'
+          ).then((x) => x as ClientFailure);
           assert.equal(e.detail.kind, s.error);
           break;
         }
@@ -109,7 +137,8 @@ async function run(steps: Step[]): Promise<void> {
         assert.equal(client.server.serverInstanceId, s.instance);
         statuses.push('ready');
         client.on((e: ClientEvent) => {
-          if (e.type === 'status') statuses.push(e.status.state === 'reconnecting' ? `reconnecting:${e.status.attempt}` : e.status.state);
+          if (e.type === 'status')
+            statuses.push(e.status.state === 'reconnecting' ? `reconnecting:${e.status.attempt}` : e.status.state);
           if (e.type === 'blobUnavailable') blobFailures.push(e.error);
         });
         break;
@@ -141,15 +170,36 @@ async function run(steps: Step[]): Promise<void> {
         const c = client!;
         let p: Promise<unknown>;
         switch (s.fn ?? 'call') {
-          case 'call': p = c.call(s.method, s.params); break;
-          case 'resumeThread': p = c.resumeThread(s.threadId, s.window); break;
-          case 'unsubscribeThread': p = c.unsubscribeThread(s.threadId).then(() => null); break;
-          case 'subscribeApp': p = c.subscribeApp().then(() => null); break;
-          case 'putBlob': p = c.putBlob(new TextEncoder().encode(s.text), s.mediaType); break;
-          case 'readBlob': p = c.readBlob({ blob: { digest: s.digest, bytes: s.bytes, mediaType: s.mediaType } }).then((b) => new TextDecoder().decode(b)); break;
-          default: throw new Error(`fn ${s.fn}`);
+          case 'call':
+            p = c.call(s.method, s.params);
+            break;
+          case 'resumeThread':
+            p = c.resumeThread(s.threadId, s.window);
+            break;
+          case 'unsubscribeThread':
+            p = c.unsubscribeThread(s.threadId).then(() => null);
+            break;
+          case 'subscribeApp':
+            p = c.subscribeApp().then(() => null);
+            break;
+          case 'putBlob':
+            p = c.putBlob(new TextEncoder().encode(s.text), s.mediaType);
+            break;
+          case 'readBlob':
+            p = c
+              .readBlob({ blob: { digest: s.digest, bytes: s.bytes, mediaType: s.mediaType } })
+              .then((b) => new TextDecoder().decode(b));
+            break;
+          default:
+            throw new Error(`fn ${s.fn}`);
         }
-        calls.set(s.as, p.then((v) => ({ ok: v }), (e) => ({ err: e })));
+        calls.set(
+          s.as,
+          p.then(
+            (v) => ({ ok: v }),
+            (e) => ({ err: e })
+          )
+        );
         break;
       }
       case 'result': {
@@ -159,7 +209,8 @@ async function run(steps: Step[]): Promise<void> {
           assert.equal(r.err.detail.kind, s.error.kind);
           if (s.error.reason) assert.equal(r.err.detail.reason, s.error.reason);
           if (s.error.digest) assert.equal(r.err.detail.digest, s.error.digest);
-          if (s.error.cause) assert.equal((r.err.detail as { cause?: { kind: string } }).cause?.kind, s.error.cause.kind);
+          if (s.error.cause)
+            assert.equal((r.err.detail as { cause?: { kind: string } }).cause?.kind, s.error.cause.kind);
         } else {
           assert.ok(!r.err, `unexpected error ${r.err}`);
           assert.deepEqual(r.ok, s.ok);
@@ -189,7 +240,10 @@ async function run(steps: Step[]): Promise<void> {
         break;
       case 'expectBlobUnavailable':
         await settle();
-        assert.deepEqual(blobFailures.splice(0).map((d) => ({ kind: d.kind, digest: (d as { digest?: string }).digest })), s.errors);
+        assert.deepEqual(
+          blobFailures.splice(0).map((d) => ({ kind: d.kind, digest: (d as { digest?: string }).digest })),
+          s.errors
+        );
         break;
       case 'expectFeed':
         assert.deepEqual(client!.store.thread(s.id)?.feed, { id: s.id, epoch: s.epoch, seq: s.seq });
@@ -207,7 +261,10 @@ async function run(steps: Step[]): Promise<void> {
         break;
       }
       case 'expectServerRequests':
-        assert.deepEqual(client!.pendingServerRequests().map((r) => r.id), s.ids);
+        assert.deepEqual(
+          client!.pendingServerRequests().map((r) => r.id),
+          s.ids
+        );
         break;
       default:
         throw new Error(`unknown step ${s.do}`);
@@ -215,13 +272,18 @@ async function run(steps: Step[]): Promise<void> {
   }
 }
 
-for (const f of readdirSync(dir).filter((n) => /^\d+_.*\.json$/.test(n)).sort()) {
+for (const f of readdirSync(dir)
+  .filter((n) => /^\d+_.*\.json$/.test(n))
+  .sort()) {
   const sc = JSON.parse(readFileSync(new URL(f, dir), 'utf8'));
   test(`${f}: ${sc.name}`, () => run(sc.steps));
 }
 
 test('ladder: full jitter, doubling to the cap', () => {
-  assert.deepEqual([0, 1, 2, 3, 4, 5, 9].map((a) => ladderDelay(a, 0.5)), [125, 250, 500, 1000, 2000, 2500, 2500]);
+  assert.deepEqual(
+    [0, 1, 2, 3, 4, 5, 9].map((a) => ladderDelay(a, 0.5)),
+    [125, 250, 500, 1000, 2000, 2500, 2500]
+  );
   assert.equal(ladderDelay(3, 0), 0);
 });
 

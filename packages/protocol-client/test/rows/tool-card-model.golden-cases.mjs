@@ -1,8 +1,3 @@
-/**
- * Representative deriveToolCardModel inputs. Every case fixes nowMs so the
- * derived model is deterministic; tool-card-model.golden.json holds the
- * expected models and tool-card-model.test.mjs compares against it.
- */
 const NOW_MS = 20000;
 
 // Git expectations are authored from the text contract rather than captured

@@ -91,7 +91,7 @@
 .agent-room-more {
   display: grid;
   place-items: center;
-  background: var(--mx-surface-raised, rgba(255, 255, 255, 0.08));
+  background: var(--mx-hover);
   color: var(--mx-text-muted);
   font-size: 22cqmin;
   font-weight: 700;
@@ -193,7 +193,7 @@
 .agent-room-mention {
   padding: 0 4px;
   border-radius: var(--mx-radius-sm, 4px);
-  background: var(--mx-surface-raised, rgba(255, 255, 255, 0.08));
+  background: var(--mx-hover);
   color: var(--mx-text);
   font-weight: 600;
 }
@@ -307,7 +307,7 @@ html[data-mixdog-mobile-tabs] .agent-room-picks {
   outline: none;
 }
 .agent-room-pick[aria-pressed="true"] {
-  background: var(--mx-selected, var(--mx-hover));
+  background: var(--mx-hover);
 }
 .agent-room-pick:disabled {
   opacity: var(--mx-op-disabled, 0.5);
@@ -337,7 +337,7 @@ html[data-mixdog-mobile-tabs] .agent-room-picks {
   place-items: center;
   border: 1.5px solid var(--mx-text-muted);
   border-radius: 5px;
-  color: var(--mx-surface, #141414);
+  color: var(--mx-bg-deep);
 }
 .agent-room-pick[aria-pressed="true"] > .agent-room-check {
   background: var(--mx-text-soft, #e9e9e9);
@@ -431,7 +431,7 @@ html[data-mixdog-mobile-tabs] .agent-room-picks {
   gap: 2px;
   padding: 2px;
   border-radius: 9px;
-  background: var(--mx-surface-raised, rgba(255, 255, 255, 0.06));
+  background: var(--mx-chip-bg);
 }
 .agent-room-stepper > b {
   min-width: 26px;

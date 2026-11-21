@@ -35,6 +35,56 @@ export function seedCreatedSessionLane(sessionId: string, next: SessionSnapshot 
   defaultSessionLaneStore.seedCreatedSession(sessionId, next);
 }
 
+/** Adds the tab, or updates the one with the same key; `replaceKey` names a tab this one takes the place of. */
+function upsertWorkspaceTab(
+  current: WorkspaceTab[],
+  nextSelection: NavigationSelection,
+  title: string,
+  replaceKey: string
+): WorkspaceTab[] {
+  const key = navigationKey(nextSelection);
+  const existing = current.findIndex((tab) => tab.key === key);
+  if (replaceKey) {
+    const replaced = current.findIndex((tab) => tab.key === replaceKey);
+    if (replaced >= 0) {
+      const next = [...current];
+      next[replaced] = { key, title, selection: nextSelection };
+      if (existing >= 0 && existing !== replaced) next.splice(existing, 1);
+      return next;
+    }
+  }
+  if (existing >= 0) {
+    if (current[existing].title === title && navigationKey(current[existing].selection) === key) return current;
+    const next = [...current];
+    next[existing] = { key, title, selection: nextSelection };
+    return next;
+  }
+  return [...current, { key, title, selection: nextSelection }];
+}
+
+/** A draft tab nobody has touched (the focused group's first): no composer content and no chosen preference. "No project" is what a launch itself sets, so it still counts as untouched. */
+function untouchedDraftTab(
+  leaves: readonly PaneLeaf[],
+  focusedLeafId: string,
+  draftPrefs: ReadonlyMap<string, DraftPanePrefs>
+): Extract<NavigationSelection, { kind: 'new' }> | undefined {
+  const focused = leaves.find((leaf) => leaf.id === focusedLeafId);
+  return [...(focused ? [focused] : []), ...leaves]
+    .flatMap((leaf) => leaf.tabs)
+    .find((tab): tab is Extract<NavigationSelection, { kind: 'new' }> => {
+      if (tab.kind !== 'new') return false;
+      const key = tab.draftId || 'default';
+      if (composerScopeHasContent(`draft:${key}`)) return false;
+      const prefs = draftPrefs.get(key);
+      return (
+        !prefs ||
+        Object.entries(prefs).every(([field, value]) =>
+          field === 'projectPath' ? value == null || value === '' : value == null
+        )
+      );
+    });
+}
+
 export interface UseAppTaskLifecycleOptions {
   // The App owns the committed selection: draft-pane preferences read it
   // earlier in the same render, so it cannot live inside this hook.
@@ -122,26 +172,7 @@ export function useAppTaskLifecycle({
 
   const registerWorkspaceSelection = useCallback(
     (nextSelection: NavigationSelection, title: string, replaceKey = '') => {
-      const key = navigationKey(nextSelection);
-      setTabs((current) => {
-        const existing = current.findIndex((tab) => tab.key === key);
-        if (replaceKey) {
-          const replaced = current.findIndex((tab) => tab.key === replaceKey);
-          if (replaced >= 0) {
-            const next = [...current];
-            next[replaced] = { key, title, selection: nextSelection };
-            if (existing >= 0 && existing !== replaced) next.splice(existing, 1);
-            return next;
-          }
-        }
-        if (existing >= 0) {
-          if (current[existing].title === title && navigationKey(current[existing].selection) === key) return current;
-          const next = [...current];
-          next[existing] = { key, title, selection: nextSelection };
-          return next;
-        }
-        return [...current, { key, title, selection: nextSelection }];
-      });
+      setTabs((current) => upsertWorkspaceTab(current, nextSelection, title, replaceKey));
     },
     []
   );
@@ -253,29 +284,8 @@ export function useAppTaskLifecycle({
 
   const startProjectlessTask = useCallback(() => startTask(undefined, true, true), [startTask]);
 
-  // The launch-time variant: a launch must not add a blank tab each time, so
-  // it focuses a draft tab nobody has touched (preferring the focused
-  // group's) and only opens a new one when there is none. A draft with text,
-  // attachments or any chosen preference is the user's and is left alone;
-  // "No project" is what a launch itself sets, so it still counts as untouched.
   const startLaunchProjectlessTask = useCallback(() => {
-    const leaves = paneLeavesRef.current;
-    const focused = leaves.find((leaf) => leaf.id === focusedLeafIdRef.current);
-    const blank = [...(focused ? [focused] : []), ...leaves]
-      .flatMap((leaf) => leaf.tabs)
-      .find((tab): tab is Extract<NavigationSelection, { kind: 'new' }> => {
-        if (tab.kind !== 'new') return false;
-        const key = tab.draftId || 'default';
-        if (composerScopeHasContent(`draft:${key}`)) return false;
-        const prefs = draftPanePrefs.current.get(key);
-        return (
-          !prefs ||
-          Object.entries(prefs).every(([field, value]) =>
-            field === 'projectPath' ? value == null || value === '' : value == null
-          )
-        );
-      });
-    startTask(blank, true, true);
+    startTask(untouchedDraftTab(paneLeavesRef.current, focusedLeafIdRef.current, draftPanePrefs.current), true, true);
   }, [draftPanePrefs, focusedLeafIdRef, paneLeavesRef, startTask]);
 
   // "Open new session here" (Settings → Worktrees): a New Task draft in the

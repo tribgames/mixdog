@@ -1,10 +1,3 @@
-/**
- * Picture of a local HTML or image file for transcript cards whose live
- * source is gone (a closed visualize tab, a card after a restart). The file is
- * rendered off screen in a throw-away, sandboxed window and returned as a
- * small data URL. One capture runs at a time; a result is reused until the
- * file changes (path + mtime + size).
- */
 import { realpathSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path';
@@ -173,9 +166,6 @@ export function createFileSnapshotService({ confine, render, timeoutMs = SNAPSHO
 /** The app's one service: desktop windows and paired phones share its queue. */
 export const fileSnapshots = createFileSnapshotService({ confine: projectEntryPathIn, render: renderFileSnapshot });
 
-/** The snapshot session, shared by every snapshot, and its origins: one per
- *  snapshot (offscreen-origins), since every `file:` page has the one origin
- *  `file://` and so would share its storage with every other snapshot's. */
 let snapshotRendering: { session: Session; origins: OffscreenOrigins } | null = null;
 
 /** The `file:` URL a snapshot origin's request `pathname` names under `root`

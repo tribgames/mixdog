@@ -96,6 +96,34 @@ const CATEGORY_ICONS = {
   delegation: ScrollText,
 } satisfies Record<SettingsCategory, typeof Settings>;
 
+/** Warms the Connection pairing card and the status caches as soon as the dialog opens (one cached IPC each):
+ *  entering Connection later paints the complete QR card instead of flashing the empty placeholder first. */
+function useSettingsWarmup(api: NonNullable<SettingsViewProps['api']>, open: boolean) {
+  useEffect(() => {
+    if (!open) return;
+    void preloadGitPanelInfo(api);
+    if (!isSshConnectionWindow()) void preloadConnectionInfo(api, undefined, { activate: false });
+    void preloadDesktopStatus(api);
+    void preloadProviderPanel(api).catch(() => undefined);
+  }, [open, api]);
+}
+
+/** Perf diagnostics: request→first-paint for the settings dialog (the opener stamps __mixdogSettingsOpenAt; main
+ *  drops lines unless MIXDOG_DESKTOP_PERF=1). */
+function useSettingsOpenPaintLog(open: boolean) {
+  useEffect(() => {
+    if (!open) return;
+    const stamped = (window as unknown as Record<string, unknown>).__mixdogSettingsOpenAt;
+    if (typeof stamped !== 'number') return;
+    delete (window as unknown as Record<string, unknown>).__mixdogSettingsOpenAt;
+    window.requestAnimationFrame(() =>
+      window.requestAnimationFrame(() => {
+        window.mixdogDesktop?.perfLog?.(`settings-open paint=${(performance.now() - stamped).toFixed(0)}ms`);
+      })
+    );
+  }, [open]);
+}
+
 export const SettingsView = memo(function SettingsView({
   api = window.mixdogDesktop,
   open = true,
@@ -124,9 +152,8 @@ export const SettingsView = memo(function SettingsView({
     const resolved = settingsCategoryForSurface(next, remoteSettings, hostOpenAccess);
     return hidden(resolved) ? 'general' : resolved;
   };
-  const resolveCategory = (next: SettingsCategory): SettingsCategory => surfaceCategory(next);
   const startCategory = (): SettingsCategory => (initialSection ? categoryForSettingsItem(initialSection) : 'general');
-  const [category, setCategory] = useState<SettingsCategory>(resolveCategory(startCategory()));
+  const [category, setCategory] = useState<SettingsCategory>(surfaceCategory(startCategory()));
   const openCategory = useCallback(
     (next: SettingsCategory) => {
       const resolved = settingsCategoryForSurface(next, remoteSettings, hostOpenAccess);
@@ -153,10 +180,10 @@ export const SettingsView = memo(function SettingsView({
 
   // Every (re)open starts fresh: explicit section when given, else General;
   // the kept-mounted dialog must not resume the last-visited page.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: remoteSettings is the trigger (resolveCategory depends on it); resolveCategory is recreated every render.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: remoteSettings is the trigger (surfaceCategory depends on it); surfaceCategory is recreated every render.
   useEffect(() => {
     if (!open) return;
-    setCategory(resolveCategory(startCategory()));
+    setCategory(surfaceCategory(startCategory()));
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }, [open, initialSection, remoteSettings, hostOpenAccess]);
   // Windows caption controls are native chrome, outside the DOM backdrop.
@@ -171,16 +198,7 @@ export const SettingsView = memo(function SettingsView({
     if (!open) return;
     refreshTitleBarDim();
   }, [open]);
-  // Warm the Connection pairing card as soon as the dialog opens (one cached
-  // IPC): entering Connection later paints the complete QR card instead of
-  // flashing the empty placeholder square first.
-  useEffect(() => {
-    if (!open) return;
-    void preloadGitPanelInfo(api);
-    if (!isSshConnectionWindow()) void preloadConnectionInfo(api, undefined, { activate: false });
-    void preloadDesktopStatus(api);
-    void preloadProviderPanel(api).catch(() => undefined);
-  }, [open, api]);
+  useSettingsWarmup(api, open);
   // biome-ignore lint/correctness/useExhaustiveDependencies: category is the trigger: scroll to the top on every page change.
   useLayoutEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
@@ -207,20 +225,7 @@ export const SettingsView = memo(function SettingsView({
     };
   }, [open]);
 
-  // Perf diagnostics: report request→first-paint for the settings dialog
-  // (opener stamps __mixdogSettingsOpenAt; main drops lines unless
-  // MIXDOG_DESKTOP_PERF=1).
-  useEffect(() => {
-    if (!open) return;
-    const stamped = (window as unknown as Record<string, unknown>).__mixdogSettingsOpenAt;
-    if (typeof stamped !== 'number') return;
-    delete (window as unknown as Record<string, unknown>).__mixdogSettingsOpenAt;
-    window.requestAnimationFrame(() =>
-      window.requestAnimationFrame(() => {
-        window.mixdogDesktop?.perfLog?.(`settings-open paint=${(performance.now() - stamped).toFixed(0)}ms`);
-      })
-    );
-  }, [open]);
+  useSettingsOpenPaintLog(open);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: onClose is the trigger for re-binding; requestClose is a per-render closure over it.
   useEffect(() => {

@@ -1,11 +1,3 @@
-// Direct transport, phone side (docs/remote-transport.md, stage 1C): one
-// transport session of the E2EE channel. Application messages go split →
-// `canAdmit` → seal → sender → carrier; carrier messages come back receiver →
-// open → commit or discard → assembler. The relay socket is always a carrier;
-// the PC's offer adds a direct one (this side always answers), promoted only
-// after its certificate, both channels, the message-size gate and one ping/pong
-// round trip check out. Loss recovery, probing and demotion follow RFC 9002 as
-// the shared stream core implements it. The PC→PC window runs this same page.
 import { RELAY_E2EE_RELAY_LANE, type RelayE2EEChannel, type RelayE2EEControlLane } from '../shared/remote-e2ee';
 import {
   REMOTE_TRANSPORT_MAX_DETAIL_CHARS,
@@ -585,16 +577,6 @@ const schedule = (s: PeerState): void => {
 
 // --- Control lane: sealing, ordered release, pings and acks ---
 
-/** Seals one control message FOR `path`'s lane and hands it to that lane
- *  in seal order (signals: the relay lane only). On a direct lane its wire
- *  bytes are reserved inside the aggregate bound BEFORE sealing (concurrent
- *  seals count), so channels, held and sealing control together never pass
- *  REMOTE_TRANSPORT_BUFFER_HIGH_BYTES. Without room nothing more is sealed:
- *  an ack, ping or pong — idempotent, regenerable — is coalesced to the
- *  latest of its kind; a repair cannot wait, so the direct carrier fails
- *  (its records and the repair go to the relay lane). A box sealed for a
- *  direct carrier that failed meanwhile is dropped, never moved to the
- *  relay: its content is regenerated on the surviving carrier. */
 const sendControl = async (
   s: PeerState,
   message: RemoteTransportControl,

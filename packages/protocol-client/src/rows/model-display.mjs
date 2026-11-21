@@ -1,8 +1,3 @@
-/**
- * Pure model display-name helpers shared by the TUI snap path and statusline.
- * No I/O, catalog, or gateway imports — safe for static TUI bundling.
- */
-
 const titleCaseOption = (value) =>
   String(value || '')
     .split(/([\s_-]+)/)
@@ -155,10 +150,6 @@ export function gatewayBrandDisplay(raw) {
   return '';
 }
 
-// A hint is "curated" when it is not merely the id re-spaced/re-cased
-// ("Claude Sonnet 4.5" for claude-sonnet-4-5 is not; "Muse Spark 1.3" for
-// muse-spark-1.3-contributor is). Curated hints — user aliases and catalog
-// names with real extra meaning — win over the id-derived rule.
 function displayKey(text) {
   return String(text || '')
     .toLowerCase()

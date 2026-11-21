@@ -1,7 +1,4 @@
-// The marker of what a -LocalRelayBuild deploy put on the server (scripts/deploy-remote.ps1). It says "the installed relay
-// was built from the sources with this fingerprint", so it holds only until another relay replaces it: a CI deploy that
-// uploads a relay clears it, and a later local deploy of the older sources then rebuilds and ships again.
-//
+// Marker of what a -LocalRelayBuild deploy put on the server (scripts/deploy-remote.ps1): the installed relay was built from sources with this fingerprint, until a CI deploy that uploads a relay clears it.
 //   node local-relay-marker.mjs --action=current --marker=<file> --hash=<relay source fingerprint>   prints true|false
 //   node local-relay-marker.mjs --action=record  --marker=<file> --hash=<fingerprint> [--binarySha256= --sourceCommit= --dirty=]
 //   node local-relay-marker.mjs --action=clear   --marker=<file>

@@ -93,9 +93,6 @@ export function GitDiffPane({
   }, [metricKey]);
   // One renderer only: @git-diff-view rows with Stage/Unstage Hunk (Monaco "Editor" mode was dropped).
   const [busyHunk, setBusyHunk] = useState(-1);
-  // The shell owns its own visible Loading diff… / error states. Reveal it as
-  // soon as it mounts instead of keeping those states hidden behind a
-  // full-pane readiness cover until Git and the lazy renderer both finish.
   // biome-ignore lint/correctness/useExhaustiveDependencies: metricKey is the selection identity; readiness is reported once per selection
   useLayoutEffect(() => {
     onReadyRef.current?.();
@@ -132,10 +129,6 @@ export function GitDiffPane({
       const next = await loadSelectionPatch();
       if (request === epoch.current) {
         const nextPatch = next ?? '';
-        // The rows for a large patch render as a transition: React then
-        // yields between them, so a composer keystroke arriving while the
-        // diff opens or refreshes paints in its own frame instead of behind
-        // the whole diff.
         startTransition(() => setPatch(nextPatch));
         if (nextPatch) void prefetchDiffView().catch(() => undefined);
         reportBootSurfaceStage('diff', metricKey, 'data');

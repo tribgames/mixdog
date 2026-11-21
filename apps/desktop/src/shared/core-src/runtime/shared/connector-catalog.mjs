@@ -1,15 +1,3 @@
-// The built-in connector catalog: services a user connects with one click
-// from Desktop (Extensions → 커넥터) or from a chat card the setup tool's
-// `connect_connector` action surfaces. Each entry declares its backend
-// explicitly:
-//   oauth   — a remote MCP server that signs in with MCP OAuth;
-//   apiKey  — an MCP server that takes one key (an HTTP header or a stdio
-//             environment variable).
-// GitHub is not a connector: it is the signed-in GitHub CLI (github tool).
-// A connected catalog service is an ordinary user MCP server whose config
-// carries `connector: <id>`. An existing custom server is never adopted into
-// the catalog row.
-
 import { connectorTrigger } from './connector-triggers.mjs';
 
 // `oauthClient` names a pre-registered client the runtime supplies
@@ -25,18 +13,8 @@ export const GOOGLE_SCOPES = Object.freeze({
   calendar: Object.freeze(['openid', 'email', `${GOOGLE_SCOPE}/calendar.events`]),
   drive: Object.freeze(['openid', 'email', `${GOOGLE_SCOPE}/drive.file`]),
 });
-// Gmail / Calendar / Drive are Mixdog's built-in Google connectors
-// (runtime/connectors/google-mcp.mjs), answered in-process at a reserved
-// address and signed in with Mixdog's Google client. `askTools` ask before
-// they run unless the agent set them.
 const google = (service, scopes, askTools) =>
   oauth(`https://${service}.mixdog.invalid/mcp`, { oauthClient: 'google', scopes, askTools });
-// Gmail can also connect with a Google app password instead of the sign-in:
-// IMAP and SMTP over TLS (runtime/connectors/gmail-app-password.mjs), answered
-// in-process at its own reserved address. Its server is still the Gmail
-// connector (`connector: 'gmail'`, so Gmail's askTools apply to its tools of
-// the same names); the account rides in a header, the app password lives only
-// in the keychain.
 export const GMAIL_APP_PASSWORD = Object.freeze({
   url: 'https://gmail-imap.mixdog.invalid/mcp',
   accountHeader: 'X-Mixdog-Gmail-Account',
@@ -295,8 +273,6 @@ export function connectorAccountEntry(name, cfg) {
 
 const naturalOrder = (a, b) => a.localeCompare(b, 'en', { numeric: true });
 
-/** What makes an account the same connection as another: its transport
- *  (URL, sign-in key, headers, command and environment), whatever its name. */
 const connectionOf = (cfg, account) => JSON.stringify({ ...connectorAccountServer(cfg, account), name: '' });
 
 /**

@@ -1,8 +1,3 @@
-// The pane shows the page the agent works in. The host reports that page, the
-// turn that drove it and whether the user paused following (`agentPage`); the
-// pause lives in the host so every window showing the session obeys one pick.
-// The pane selects the agent's page while it is not paused. "보기" (`resume`)
-// lifts the pause and shows the agent's page at once.
 import type { DesktopBrowserTab } from '../shared/contract';
 
 type AgentPage = { tabId: string; turn: number; paused: boolean };

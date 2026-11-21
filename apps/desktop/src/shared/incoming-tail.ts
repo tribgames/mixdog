@@ -1,11 +1,3 @@
-// A bot row's unread pill counts the chat messages that arrived since the read
-// cursor, not the raw `messageCount` growth (every tool call and tool result
-// is a counted message). The catalog row carries `incomingTail`: the places,
-// among the counted messages, of the last incoming messages with text
-// (assistant replies and posted results; never the user's own prompts, tool
-// calls or tool results). The read cursor keeps its raw numbering, so desktop,
-// the paired phone and every older cursor read it unchanged.
-
 /** The tail as a clean list of whole places, or undefined for anything else. */
 export function cleanIncomingTail(value: unknown): number[] | undefined {
   if (!Array.isArray(value)) return undefined;

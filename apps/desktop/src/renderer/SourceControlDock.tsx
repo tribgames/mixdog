@@ -89,7 +89,6 @@ export function SourceControlDock({
   projectPath,
   status,
   statusReady,
-  loading: _loading,
   statusError,
   onRefreshStatus,
   headerSlot,
@@ -106,9 +105,8 @@ export function SourceControlDock({
   projectPath: string;
   status: DesktopGitStatus | null;
   statusReady: boolean;
-  loading: boolean;
   statusError: string;
-  onRefreshStatus(showLoading?: boolean): Promise<void> | void;
+  onRefreshStatus(): Promise<void> | void;
   headerSlot?: HTMLElement | null;
   active: boolean;
   readinessKey: string;
@@ -128,24 +126,13 @@ export function SourceControlDock({
   const downloadSessionId = useContext(DownloadSessionContext);
   const prOnly = surface === 'prs';
   const [error, setError] = useState('');
-  // ONE error surface: a failed Git action reports where every other failure
-  // in the app reports — the workspace toast region — instead of a panel-local
-  // banner that pushed the changed-file list down. State-owned, so the next
-  // success (or leaving the project) clears it.
   useErrorToast(error ? sourceControlErrorToastText(error) : '', `scm:${projectPath}`);
   /** ONE right-click / Menu-key menu shared by every row grammar in the dock
    *  (changed file, history commit, branch) and by the file list's View & Sort
    *  button. */
   const [contextMenu, setContextMenu] = useState<ScmContextMenuState | null>(null);
   const [view, setView] = useState<SourceControlView>('changes');
-  // Both the row context menu and the branch picker are document.body PORTALS,
-  // and the Dock keeps this pane MOUNTED (inert + aria-hidden) while another
-  // tab is presented — inert cannot reach a portal that left the pane. The
-  // owning surface's active signal therefore drives their VISIBLE open state,
-  // so deactivation unmounts both in the same commit, before a stale Escape /
-  // pointerdown handler, focus move or guarded menu action can run against a
-  // surface the user has left. Outside a provider (standalone SourceControlDock
-  // mounts, tests) the default is active, so nothing changes.
+  // `inert` on the mounted-but-hidden pane cannot reach these document.body portals, so surface activity drives their open state.
   const surfaceActive = useSurfaceActive();
   const visibleContextMenu = surfaceActive ? contextMenu : null;
   const history = useSourceControlHistory({
@@ -207,13 +194,10 @@ export function SourceControlDock({
     active: !prOnly && view === 'changes',
   });
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
-  const refresh = useCallback(
-    async (showLoading = false) => {
-      if (!projectPath) return;
-      await onRefreshStatus(showLoading);
-    },
-    [onRefreshStatus, projectPath]
-  );
+  const refresh = useCallback(async () => {
+    if (!projectPath) return;
+    await onRefreshStatus();
+  }, [onRefreshStatus, projectPath]);
   /** Everything a landed action has to re-read: the status, the branch list
    *  for branch actions, and the history for the surfaces that rewrite it. */
   const { loadBranches } = branches;

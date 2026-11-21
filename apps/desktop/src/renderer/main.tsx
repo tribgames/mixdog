@@ -1,11 +1,3 @@
-// Renderer entry. Its only job is ORDER: the UI language has to be in place
-// before any app module evaluates, because module-level strings pass through
-// t() at import time. Everything the app actually does lives in ./bootstrap,
-// which is imported once the catalog is ready.
-//
-// The split is what lets the eleven language catalogs stop riding the
-// first-paint bundle: only the resolved language is fetched, and English
-// fetches nothing at all.
 import './process-shim';
 import { nativeAppInfo } from '../shared/native-app';
 import { installShellUpdateState, recoverShellBootstrap } from './shell-update-state';
@@ -23,10 +15,6 @@ const remoteShimReady = remoteBrowser ? import('./remote-shim') : undefined;
 let launchApplication = true;
 if (remoteBrowser) {
   const { isInstalledMobileWebAppSurface, isMobileDeviceSurface } = await import('./mobile-surface');
-  // A phone/tablet browser tab remains the lightweight installation page and
-  // needs the worker to become installable. An app that runs (installed
-  // device app or a second PC's remote window) needs it for push and the
-  // encrypted media lane. A plain desktop browser tab does not.
   if (
     (isMobileDeviceSurface() || isInstalledMobileWebAppSurface()) &&
     window.isSecureContext &&
@@ -51,10 +39,6 @@ if (launchApplication) {
   // Inside the phone apps a stray `<a download>` is dropped by the WebView:
   // route it to the native save bridge instead.
   if (nativeAppInfo()) void import('./native-download-hook').then((hook) => hook.installNativeDownloadHook(document));
-  // Start the settled transcript renderer after its HTML hint has queued the
-  // shell-critical chunks first. The separate streaming parser Worker and
-  // secondary dialogs remain lazy, so an existing Markdown conversation is
-  // complete at reveal without letting those later surfaces take a boot slot.
   if (remoteBrowser) void preloadMarkdownBody().catch(() => undefined);
   const languageReady = import('./i18n').then((module) => module.initUiLanguage());
   // Web-only early CSS fetch: bootstrap still imports this module and remains

@@ -189,10 +189,22 @@ async function statusAction({ args, api, preferences, invoke, projects }: SetupA
   }
 }
 
-async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActionContext): Promise<Values> {
-  const input = record(args.desktop);
-  const applied: string[] = [];
-  let botOverlay: Values | undefined;
+const BOOLEAN_DESKTOP_SETTINGS = [
+  'keepAwake',
+  'runInBackground',
+  'usagePinned',
+  'usageRailShortLong',
+  'usageAccountsExpanded',
+  'usageRailSlotsThree',
+  'usageRailSlotsAll',
+  'computerObserveOnly',
+  'browserAutoSignIn',
+  'browserHidDevices',
+  'saveChatLogins',
+];
+
+/** Rejects the whole request before any setting is written. */
+async function assertDesktopSettingsInput(api: DesktopApi, input: Values): Promise<void> {
   for (const [key, value] of Object.entries(input)) {
     if (key === 'botOverlay') {
       const overlay = assertBotOverlayInput(value);
@@ -218,25 +230,17 @@ async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActio
       hostMethod(api, 'setSessionRetention');
       continue;
     }
-    if (
-      ![
-        'keepAwake',
-        'runInBackground',
-        'usagePinned',
-        'usageRailShortLong',
-        'usageAccountsExpanded',
-        'usageRailSlotsThree',
-        'usageRailSlotsAll',
-        'computerObserveOnly',
-        'browserAutoSignIn',
-        'browserHidDevices',
-        'saveChatLogins',
-      ].includes(key) ||
-      typeof value !== 'boolean'
-    ) {
+    if (!BOOLEAN_DESKTOP_SETTINGS.includes(key) || typeof value !== 'boolean') {
       throw new Error(`Unsupported Desktop setting: ${key}`);
     }
   }
+}
+
+async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActionContext): Promise<Values> {
+  const input = record(args.desktop);
+  await assertDesktopSettingsInput(api, input);
+  const applied: string[] = [];
+  let botOverlay: Values | undefined;
   for (const [key, value] of Object.entries(input)) {
     try {
       if (key === 'botOverlay') {
@@ -338,17 +342,15 @@ async function revokeLinkedDeviceAction({ args, api, mutate, saved }: SetupActio
   return saved({ ...clientsOnly(after), recovery: 'The device must pair again to regain access.' });
 }
 
-/** Uses the same Desktop API as the settings panels. Only the local Desktop
- * claimant runs it; the web shim must never apply host appearance to a phone. */
-export async function executeSetupDesktopAction(
+function createSetupActionContext(
   args: Values,
   api: DesktopApi,
   preferences: SetupPreferences,
   sessionId: string,
-  assertActive: () => Promise<void> = async () => {}
-): Promise<Values> {
+  assertActive: () => Promise<void>
+): SetupActionContext {
   const projects = () => api.listProjects();
-  const context: SetupActionContext = {
+  return {
     args,
     api,
     preferences,
@@ -375,6 +377,18 @@ export async function executeSetupDesktopAction(
       appliesTo,
     }),
   };
+}
+
+/** Uses the same Desktop API as the settings panels. Only the local Desktop
+ * claimant runs it; the web shim must never apply host appearance to a phone. */
+export async function executeSetupDesktopAction(
+  args: Values,
+  api: DesktopApi,
+  preferences: SetupPreferences,
+  sessionId: string,
+  assertActive: () => Promise<void> = async () => {}
+): Promise<Values> {
+  const context = createSetupActionContext(args, api, preferences, sessionId, assertActive);
   const action = String(args.action || '');
   switch (action) {
     case 'status':

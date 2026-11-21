@@ -13,7 +13,7 @@ import {
   remoteBrowserImagePoint,
 } from './remote-browser.ts';
 
-test('remote browser controls admit only bounded navigation and document-bound human input', () => {
+test('remote browser controls forward only the known fields of reload, pointer, wheel and composition-end', () => {
   const documentId = 'p2:17';
   assert.deepEqual(normalizeRemoteBrowserControl({ type: 'reload', extra: 1 }), { type: 'reload' });
   assert.deepEqual(
@@ -54,6 +54,10 @@ test('remote browser controls admit only bounded navigation and document-bound h
     documentId,
     text: '',
   });
+});
+
+test('remote browser text, key and composition controls need a valid document id', () => {
+  const documentId = 'p2:17';
   for (const command of [
     { type: 'text', text: 'hello' },
     { type: 'key', key: 'Backspace' },
@@ -64,6 +68,10 @@ test('remote browser controls admit only bounded navigation and document-bound h
       assert.throws(() => normalizeRemoteBrowserControl({ ...command, documentId: bad }), /document id is invalid/);
     }
   }
+});
+
+test('remote browser text and key controls are length-bounded', () => {
+  const documentId = 'p2:17';
   assert.throws(
     () => normalizeRemoteBrowserControl({ type: 'text', documentId, text: 'x'.repeat(2_001) }),
     /text is invalid/
@@ -72,6 +80,10 @@ test('remote browser controls admit only bounded navigation and document-bound h
     () => normalizeRemoteBrowserControl({ type: 'key', documentId, key: 'k'.repeat(65) }),
     /key is invalid/
   );
+});
+
+test('remote browser pointer controls reject out-of-range fields', () => {
+  const documentId = 'p2:17';
   for (const bad of [
     { x: -1, y: 0 },
     { x: Number.NaN, y: 0 },
@@ -95,10 +107,16 @@ test('remote browser controls admit only bounded navigation and document-bound h
       })
     );
   }
+});
+
+test('remote browser wheel controls reject an out-of-range delta', () => {
   assert.throws(
-    () => normalizeRemoteBrowserControl({ type: 'wheel', documentId, x: 0, y: 0, deltaX: 0, deltaY: 20_001 }),
+    () => normalizeRemoteBrowserControl({ type: 'wheel', documentId: 'p2:17', x: 0, y: 0, deltaX: 0, deltaY: 20_001 }),
     /deltaY is invalid/
   );
+});
+
+test('remote browser controls reject an unknown control type', () => {
   assert.throws(
     () => normalizeRemoteBrowserControl({ type: 'evaluate', script: 'document.cookie' }),
     /unknown remote browser control/

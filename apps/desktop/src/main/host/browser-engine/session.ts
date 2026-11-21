@@ -274,23 +274,17 @@ async function readDownload(entry: TrackedBrowserDownload, signal: AbortSignal):
 }
 
 export function registerSession(connection: HostConnection, ctx: EngineContext, deps: SessionDeps): void {
-  const { partitionSession, intercept, tracesByGuest } = deps;
-  const initScripts = new WeakMap<WebContents, Map<string, InitScript>>();
-  /** Where a running trace with an export is saved when it stops. */
-  const exportDirectories = new WeakMap<WebContents, string>();
-  let initScriptSequence = 0;
+  registerCookies(connection, ctx, deps);
+  registerStorage(connection, ctx, deps);
+  registerInitScripts(connection, ctx);
+  registerIntercept(connection, ctx, deps);
+  registerPerformance(connection, ctx, deps);
+  registerEmulation(connection, ctx, deps);
+  registerDownloads(connection, ctx, deps);
+}
 
-  const initScriptsOf = (guest: WebContents): Map<string, InitScript> => {
-    let scripts = initScripts.get(guest);
-    if (!scripts) {
-      scripts = new Map();
-      initScripts.set(guest, scripts);
-    }
-    return scripts;
-  };
-
-  // Cookies
-
+function registerCookies(connection: HostConnection, ctx: EngineContext, deps: SessionDeps): void {
+  const { partitionSession } = deps;
   registerEngineMethod(connection, ctx, 'host/browser/cookies', async (params, _signal, page) => {
     const op = oneOf(params.op, ['get', 'set', 'delete', 'clear'], 'cookies op');
     const cookie = isObject(params.cookie) ? params.cookie : {};
@@ -370,9 +364,9 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
     });
     return { cookies: removed.map(cookieMetadata) };
   });
+}
 
-  // Web storage
-
+function registerStorage(connection: HostConnection, ctx: EngineContext, deps: SessionDeps): void {
   registerEngineMethod(connection, ctx, 'host/browser/storage', async (params, signal, page) => {
     const op = oneOf(params.op, ['get', 'set', 'remove', 'clear'], 'storage op');
     const area = oneOf(params.area, ['local', 'session'], 'storage area');
@@ -425,8 +419,20 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
       },
     };
   });
+}
 
-  // Init scripts
+function registerInitScripts(connection: HostConnection, ctx: EngineContext): void {
+  const initScripts = new WeakMap<WebContents, Map<string, InitScript>>();
+  let initScriptSequence = 0;
+
+  const initScriptsOf = (guest: WebContents): Map<string, InitScript> => {
+    let scripts = initScripts.get(guest);
+    if (!scripts) {
+      scripts = new Map();
+      initScripts.set(guest, scripts);
+    }
+    return scripts;
+  };
 
   const initScriptList = (guest: WebContents) =>
     [...initScriptsOf(guest)].map(([id, script]) => ({ id, source: script.source }));
@@ -505,9 +511,10 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
     await removeScript(id, script.identifier);
     return { id, scripts: initScriptList(page.guest) };
   });
+}
 
-  // Request interception
-
+function registerIntercept(connection: HostConnection, ctx: EngineContext, deps: SessionDeps): void {
+  const { intercept } = deps;
   registerEngineMethod(connection, ctx, 'host/browser/intercept', async (params, signal, page) => {
     const op = oneOf(params.op, ['add', 'remove', 'list', 'clear'], 'intercept op');
     const { guest } = page;
@@ -528,9 +535,12 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
     await page.guarded(expect, () => intercept.clear(guest, apply));
     return { rules: [] };
   });
+}
 
-  // Performance
-
+function registerPerformance(connection: HostConnection, ctx: EngineContext, deps: SessionDeps): void {
+  const { tracesByGuest } = deps;
+  /** Where a running trace with an export is saved when it stops. */
+  const exportDirectories = new WeakMap<WebContents, string>();
   registerEngineMethod(connection, ctx, 'host/browser/performance', async (params, signal, page) => {
     const op = oneOf(params.op, ['start', 'stop', 'metrics'], 'performance op');
     const { guest } = page;
@@ -614,9 +624,9 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
       exportDirectories.delete(guest);
     }
   });
+}
 
-  // Emulation
-
+function registerEmulation(connection: HostConnection, ctx: EngineContext, deps: SessionDeps): void {
   registerEngineMethod(connection, ctx, 'host/browser/emulation', async (params, signal, page) => {
     if (params.overrides !== null && params.overrides !== undefined && !isObject(params.overrides)) {
       throw invalid('emulation overrides must be an object or null');
@@ -630,9 +640,9 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
     );
     return { applied, ...(labels ? { labels } : {}) };
   });
+}
 
-  // Downloads (per session, not per page)
-
+function registerDownloads(connection: HostConnection, ctx: EngineContext, deps: SessionDeps): void {
   registerEngineSessionMethod(connection, ctx, 'host/browser/downloads', async (params, signal) => {
     const op = oneOf(params.op, ['list', 'take'], 'downloads op');
     const sessionId = typeof params.sessionId === 'string' ? params.sessionId : '';

@@ -1,8 +1,3 @@
-// Recursive renderer for the split-pane workspace (binary tree:
-// flex ratios + pointer-capture resize handles). Pure and prop-driven — the
-// tree lives in pane-layout.ts state owned by the caller, and leaves render
-// through the injected renderLeaf so this component never touches session or
-// engine state itself.
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 

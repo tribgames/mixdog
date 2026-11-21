@@ -1,7 +1,3 @@
-// A hidden window delivers no ResizeObserver callbacks, and that callback was the
-// only way an unmounted row left the virtualizer's element cache: a long session
-// running behind other windows kept every row it ever mounted, detached, with its
-// whole DOM subtree, until the window was shown again.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { installTestDom } from './test-support/test-dom.mjs';

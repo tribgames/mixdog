@@ -1,21 +1,8 @@
-// Desktop-only OS integrations, as a browser can answer them: inert where
-// Electron owns the capability outright, and a browser equivalent where one
-// exists. Every remaining DesktopApi member forwards over the relay socket and
-// therefore stays with the shim's connection.
 import type { DesktopApi, DesktopUpdaterState } from '../shared/contract';
 import { saveUrlOnDevice } from './file-download-transfer';
 import { openImageLightbox } from './image-lightbox-host';
 import { normalizeRemoteExternalUrl } from './remote-pairing-recovery';
-
-/** The last path segment of a URL, the name a saved link gets. */
-function linkFileName(url: string): string {
-  try {
-    const segment = new URL(url).pathname.split('/').filter(Boolean).at(-1) || '';
-    return decodeURIComponent(segment) || 'download';
-  } catch {
-    return 'download';
-  }
-}
+import { linkFileName } from './text-format';
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
 // Recoverable trash is an Electron API a host without remoteParity cannot
@@ -74,11 +61,6 @@ export const REMOTE_BROWSER_FALLBACKS: RemoteBrowserFallbacks = {
   // No perfLog: the Composer's keystroke paint sampler keys on its presence,
   // and a phone should not pay a double-rAF per keystroke to feed a no-op.
   rendererReady: () => {},
-  // No `revealFile` / `openFilePath`: a device has no file manager or default
-  // app of the PC's. Their absence is what hides "Show in Explorer" and sends
-  // "Open with default program" to the download path (openEditorFileExternally).
-  // A browser owns no OS image handler and a popup tab is blocked on phones:
-  // the app's own lightbox shows the picture in place.
   openAttachmentImage: (dataUrl, name) => {
     return openImageLightbox({ src: String(dataUrl), name: name || 'image' });
   },

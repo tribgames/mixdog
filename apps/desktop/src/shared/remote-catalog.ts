@@ -1,7 +1,5 @@
-/** A roster is unknown until an authoritative read or push supplies it.
- * Retain the latest publication for late subscribers, and let a push outrank
- * any startup read that was already in flight. Reset never publishes []:
- * reconnecting is not evidence that every session or agent disappeared. */
+/** Retains the latest publication for late subscribers; a push outranks an
+ * in-flight read. `reset` never publishes []. */
 export function createRemoteCatalog<T>() {
   let rows: T[] | null = null;
   let revision = 0;

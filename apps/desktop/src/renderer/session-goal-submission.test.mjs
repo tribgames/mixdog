@@ -7,11 +7,14 @@ import { GoalSubmissionContext, useGoalAfterSubmission } from './session-goal-su
 
 installTestDom(null, { html: '<!doctype html><body></body>', jsdom: { url: 'https://mixdog.test/' } });
 
-test('goal masks restore rejected submissions and admit real goal updates and session navigation', async () => {
+function mountGoal(t) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const oldGoal = { id: 'old', status: 'complete', title: 'Previous work' };
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
   function Goal({ goal, session }) {
     const visible = useGoalAfterSubmission(goal, session);
     return visible ? React.createElement('p', null, visible.title) : null;
@@ -26,39 +29,57 @@ test('goal masks restore rejected submissions and admit real goal updates and se
         )
       );
     });
-  try {
-    await render('');
-    await render('rejected');
-    await render('');
-    assert.equal(host.textContent, 'Previous work', 'rejection restores the previous goal');
+  return { host, render };
+}
 
-    await render('accepted');
-    await render('accepted', { ...oldGoal, snapshotAt: 100, timeUsedMs: 100 });
-    assert.equal(host.textContent, '', 'clock-only snapshots cannot resurrect old chrome');
-    await render('accepted', { ...oldGoal, status: 'active', title: 'Resumed work' });
-    assert.equal(host.textContent, 'Resumed work', 'the same goal can explicitly resume');
+const oldGoal = { id: 'old', status: 'complete', title: 'Previous work' };
 
-    await render('second');
-    await render('second', { id: 'new', status: 'active', title: 'New work' });
-    assert.equal(host.textContent, 'New work', 'a new goal is never masked by an old submission');
+test('a rejected submission restores the previous goal', async (t) => {
+  const { host, render } = mountGoal(t);
+  await render('');
+  await render('rejected');
+  await render('');
+  assert.equal(host.textContent, 'Previous work', 'rejection restores the previous goal');
+});
 
-    await render('third');
-    await render('', oldGoal, 'two');
-    assert.equal(host.textContent, 'Previous work', "navigation does not inherit another session's mask");
+test('an accepted submission hides clock-only snapshots but admits an explicit resume of the same goal', async (t) => {
+  const { host, render } = mountGoal(t);
+  await render('');
+  await render('accepted');
+  await render('accepted', { ...oldGoal, snapshotAt: 100, timeUsedMs: 100 });
+  assert.equal(host.textContent, '', 'clock-only snapshots cannot resurrect old chrome');
+  await render('accepted', { ...oldGoal, status: 'active', title: 'Resumed work' });
+  assert.equal(host.textContent, 'Resumed work', 'the same goal can explicitly resume');
+});
 
-    await render('', null);
-    await render('empty', null);
-    await render('empty', oldGoal);
-    assert.equal(host.textContent, 'Previous work', 'a goal first published after submit is visible');
+test('a new goal is never masked by an old submission', async (t) => {
+  const { host, render } = mountGoal(t);
+  await render('second');
+  await render('second', { id: 'new', status: 'active', title: 'New work' });
+  assert.equal(host.textContent, 'New work', 'a new goal is never masked by an old submission');
+});
 
-    for (const status of ['active', 'paused', 'blocked', 'usage_limited', 'duration_reached']) {
-      const continuing = { ...oldGoal, status, title: `Continuing ${status}` };
-      await render('', continuing);
-      await render(`continue-${status}`, continuing);
-      assert.equal(host.textContent, continuing.title, `${status} work survives the next prompt`);
-    }
-  } finally {
-    await act(async () => root.unmount());
-    host.remove();
+test("navigation does not inherit another session's mask", async (t) => {
+  const { host, render } = mountGoal(t);
+  await render('third');
+  await render('', oldGoal, 'two');
+  assert.equal(host.textContent, 'Previous work', "navigation does not inherit another session's mask");
+});
+
+test('a goal first published after submit is visible', async (t) => {
+  const { host, render } = mountGoal(t);
+  await render('', null);
+  await render('empty', null);
+  await render('empty', oldGoal);
+  assert.equal(host.textContent, 'Previous work', 'a goal first published after submit is visible');
+});
+
+test('active, paused and blocked work survives the next prompt', async (t) => {
+  const { host, render } = mountGoal(t);
+  for (const status of ['active', 'paused', 'blocked', 'usage_limited', 'duration_reached']) {
+    const continuing = { ...oldGoal, status, title: `Continuing ${status}` };
+    await render('', continuing);
+    await render(`continue-${status}`, continuing);
+    assert.equal(host.textContent, continuing.title, `${status} work survives the next prompt`);
   }
 });

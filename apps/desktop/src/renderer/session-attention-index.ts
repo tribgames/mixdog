@@ -1,7 +1,3 @@
-// Which sessions need the user or carry a failure, for every session surface
-// (tabs, sidebar rows, project groups) at once. Both come from structural
-// state: a pending tool approval (a lane's, the host catalog's) and the agent
-// pool's settled rows.
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { desktopAgentActivityState, isAwaitingTaskDesktopAgentEntry } from '../shared/agent-activity';
 import type { DesktopAgentPoolRow } from '../shared/contract';

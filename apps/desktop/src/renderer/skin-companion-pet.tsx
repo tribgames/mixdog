@@ -1,9 +1,3 @@
-// The desktop pet's body, drawn inside its own always-on-top window
-// (desktop-pet-main.tsx): Mixy's mascot, its speech bubble (Mixy's latest
-// reply, or a symbol of the chat's live state), and the one-line quick message a click unfolds at
-// the pet's feet while the pet hops up onto it. Everything that leaves the
-// window (sending, opening the app, the menu, moving the window) is a prop;
-// nothing here sends or navigates by itself.
 import { ArrowUp, Copy, X } from 'lucide-react';
 import {
   type CSSProperties,
@@ -166,11 +160,6 @@ interface ReplyPaging {
   go: (index: number) => void;
 }
 
-/** The shown reply's pages and reading time. `pages` is null for a short
- *  reply (or one not laid out yet: `measured` false). Each page's time runs
- *  while nothing holds it (pointer, focus, off screen), resumes where it
- *  stopped, and restarts on a turn; when it runs out the next page shows
- *  (`autoAdvance`), and on the last page `lastDone` lets the reply close. */
 function useReplyPaging(
   replyKey: string,
   text: string,
@@ -258,9 +247,6 @@ function BubbleSymbol({ bubble }: { bubble: CompanionBubble }) {
 const isContextMenuKey = (event: { key: string; shiftKey: boolean }) =>
   event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey);
 
-/** How the quick message or the menu was last opened from the pet: focus
- *  returns to the pet with its ring only when that was the keyboard (a
- *  mouse user who typed and pressed Enter or Esc gets no box). */
 let openedByKeyboard = false;
 function notePetOpenedBy(keyboard: boolean): void {
   openedByKeyboard = keyboard;
@@ -602,12 +588,6 @@ function ApprovalBubble({
   );
 }
 
-/** One bubble element for every state: the reply grows out of the same
- *  anchored bubble the typing dots were in. Pointer and focus are held
- *  through `setHovered` / `setFocusWithin`. A click or Enter closes a short
- *  reply. A long one is read page by page: a click or → turns to the next
- *  page (← back), and on the last page a click or Enter closes it. Esc
- *  closes a reply. The quick message opens from the pet, not the bubble. */
 function CompanionBubbleView({
   bubble,
   name,
@@ -652,11 +632,6 @@ function CompanionBubbleView({
   // A short reply: a click (Enter/Space) closes it.
   const short = finished && !paged;
   const ref = useRef<HTMLDivElement | null>(null);
-  // Kept 16px inside both edges of its span (the app window's content or
-  // the work area; the window without one): moved left when wider than the
-  // room right of the head, right when the head is that near the left edge
-  // (its tail stays on the pet), measured from the layout box (not the grow
-  // animation's scale).
   useLayoutEffect(() => {
     const node = ref.current;
     const balloon = node?.parentElement?.parentElement;
@@ -1032,11 +1007,6 @@ export function CompanionPet({
   // neither the pointer nor focus is on it.
   const pagesHeld = collapsed || quiet || paused || hovered || focusWithin;
   const reading = useReplyPaging(replyKey, replyText, pagesHeld, autoAdvance, measurePages, bubbleMax);
-  // A reply hides by itself after a length-based time (a long one once its
-  // last page's time ran out, timed by that page), held while the pointer or
-  // keyboard focus is on it, the quick message is open, or nothing shows
-  // it; never with "close automatically" off. The symbols (working,
-  // approval) never time out.
   const held = collapsed || quickInput || hovered || focusWithin || paused || !reading.lastDone || !autoClose;
   const fading = useReplyFade(replyKey, reading.lastText, held, onDismissRef);
   // A bubble that went away under the pointer or focus never sees its leave.

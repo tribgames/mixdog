@@ -1,9 +1,3 @@
-// Scripted direct renderers of the visualize tool: `chart` (an ECharts option)
-// and `html` content are shown as real pages — scripts on, tooltips and zoom
-// working — instead of the static render. The page is a virtual in-memory
-// document: the desktop serves it from the local page server (never written
-// to the project), a paired remote client builds the same document locally.
-// Mermaid, SVG and Markdown stay static.
 import type { VisualizeInlineContent } from './visualize';
 
 export const INLINE_PAGE_FILE = 'index.html';

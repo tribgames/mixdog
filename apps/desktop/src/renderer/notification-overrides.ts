@@ -1,7 +1,3 @@
-// Per-conversation notification overrides (issue #221): one shared store that
-// reads the PC's override list and this device's scope, refreshes on every
-// settings change, and ticks when a timed mute expires. Menus read the
-// snapshot when they open; rows and the header bell subscribe.
 import { useSyncExternalStore } from 'react';
 import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import {

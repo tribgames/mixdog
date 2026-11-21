@@ -53,6 +53,86 @@ function failureCleared(bridge: CorePortBridge): Promise<void> {
   });
 }
 
+/** The writer and the receipts of one core port: frames, the departure receipt, the settle barrier and the close all travel on this port. */
+function bindPort(port: PortLike, sink: TransportSink): TransportWriter {
+  let closedSeen = false;
+  // This connection's own receipts. A token means something on this port only; the port is closed with the connection, so an old
+  // connection's acknowledgement has no port to arrive on and cannot touch a new one, and a token answered twice or never asked
+  // for is ignored. Nothing here is a ping and nothing has a deadline: a receipt that does not come is no verdict either way.
+  let ended = false;
+  let nextToken = 1;
+  const writes = new Map<number, { ok(): void; fail(error: Error): void }>();
+  const barriers = new Map<number, () => void>();
+  const end = (reason: string): void => {
+    ended = true;
+    for (const write of writes.values()) write.fail(new Error(reason));
+    writes.clear();
+    for (const release of barriers.values()) release();
+    barriers.clear();
+  };
+  port.onmessage = (event) => {
+    const data = event.data as unknown;
+    if (ended) return;
+    if (typeof data === 'string') {
+      sink.frame(data);
+    } else if (data && typeof data === 'object' && (data as { t?: unknown }).t === 'sent') {
+      const { token, ok } = data as { token?: unknown; ok?: unknown };
+      const write = typeof token === 'number' ? writes.get(token) : undefined;
+      if (!write) return;
+      writes.delete(token as number);
+      if (ok === true) write.ok();
+      else write.fail(new Error('The write to the core failed.'));
+    } else if (data && typeof data === 'object' && (data as { t?: unknown }).t === 'settled') {
+      const token = (data as { token?: unknown }).token;
+      const release = typeof token === 'number' ? barriers.get(token) : undefined;
+      if (!release) return;
+      barriers.delete(token as number);
+      release();
+    } else if (data && typeof data === 'object' && (data as { t?: unknown }).t === 'progress') {
+      // The main process saw bytes of a message arrive on the core's socket that is not whole yet.
+      if (!closedSeen) sink.progress?.();
+    } else if (data && typeof data === 'object' && (data as { t?: unknown }).t === 'closed') {
+      if (closedSeen) return;
+      closedSeen = true;
+      end('The core port closed.');
+      const { code, reason } = data as { code?: unknown; reason?: unknown };
+      sink.closed(typeof code === 'number' ? code : 1006, typeof reason === 'string' ? reason : '');
+    }
+  };
+  return {
+    // The departure receipt is the main process's: it resolves when main's socket send callback reported the write complete.
+    send: (text, sent) => {
+      if (!sent) return port.postMessage(text);
+      const token = nextToken++;
+      const receipt = new Promise<void>((ok, fail) => writes.set(token, { ok, fail }));
+      receipt.catch(() => {});
+      sent(receipt);
+      try {
+        port.postMessage({ t: 'send', token, text });
+      } catch (error) {
+        writes.get(token)?.fail(error instanceof Error ? error : new Error(String(error)));
+        writes.delete(token);
+        throw error;
+      }
+    },
+    // Resolves once main answers, which it does after everything it accepted from the core before the question was posted ahead
+    // of the answer on this ordered port. A main that is stalled never answers: the health verdict waits for it.
+    settled: () =>
+      ended
+        ? Promise.resolve()
+        : new Promise<void>((release) => {
+            const token = nextToken++;
+            barriers.set(token, release);
+            port.postMessage({ t: 'settle', token });
+          }),
+    close: (code, reason) => {
+      end('The core port was closed.');
+      port.postMessage({ t: 'close', code, reason });
+      port.close();
+    },
+  };
+}
+
 export function createPortConnector(
   bridge: CorePortBridge,
   host: PortMessageHost = window,
@@ -124,82 +204,7 @@ export function createPortConnector(
       }
       const { generation } = opened;
       const port = await take(slot, generation);
-      let closedSeen = false;
-      // This connection's own receipts. A token means something on this port only; the port is closed with the connection, so an old
-      // connection's acknowledgement has no port to arrive on and cannot touch a new one, and a token answered twice or never asked
-      // for is ignored. Nothing here is a ping and nothing has a deadline: a receipt that does not come is no verdict either way.
-      let ended = false;
-      let nextToken = 1;
-      const writes = new Map<number, { ok(): void; fail(error: Error): void }>();
-      const barriers = new Map<number, () => void>();
-      const end = (reason: string): void => {
-        ended = true;
-        for (const write of writes.values()) write.fail(new Error(reason));
-        writes.clear();
-        for (const release of barriers.values()) release();
-        barriers.clear();
-      };
-      port.onmessage = (event) => {
-        const data = event.data as unknown;
-        if (ended) return;
-        if (typeof data === 'string') {
-          sink.frame(data);
-        } else if (data && typeof data === 'object' && (data as { t?: unknown }).t === 'sent') {
-          const { token, ok } = data as { token?: unknown; ok?: unknown };
-          const write = typeof token === 'number' ? writes.get(token) : undefined;
-          if (!write) return;
-          writes.delete(token as number);
-          if (ok === true) write.ok();
-          else write.fail(new Error('The write to the core failed.'));
-        } else if (data && typeof data === 'object' && (data as { t?: unknown }).t === 'settled') {
-          const token = (data as { token?: unknown }).token;
-          const release = typeof token === 'number' ? barriers.get(token) : undefined;
-          if (!release) return;
-          barriers.delete(token as number);
-          release();
-        } else if (data && typeof data === 'object' && (data as { t?: unknown }).t === 'progress') {
-          // The main process saw bytes of a message arrive on the core's socket that is not whole yet.
-          if (!closedSeen) sink.progress?.();
-        } else if (data && typeof data === 'object' && (data as { t?: unknown }).t === 'closed') {
-          if (closedSeen) return;
-          closedSeen = true;
-          end('The core port closed.');
-          const { code, reason } = data as { code?: unknown; reason?: unknown };
-          sink.closed(typeof code === 'number' ? code : 1006, typeof reason === 'string' ? reason : '');
-        }
-      };
-      return {
-        // The departure receipt is the main process's: it resolves when main's socket send callback reported the write complete.
-        send: (text, sent) => {
-          if (!sent) return port.postMessage(text);
-          const token = nextToken++;
-          const receipt = new Promise<void>((ok, fail) => writes.set(token, { ok, fail }));
-          receipt.catch(() => {});
-          sent(receipt);
-          try {
-            port.postMessage({ t: 'send', token, text });
-          } catch (error) {
-            writes.get(token)?.fail(error instanceof Error ? error : new Error(String(error)));
-            writes.delete(token);
-            throw error;
-          }
-        },
-        // Resolves once main answers, which it does after everything it accepted from the core before the question was posted ahead
-        // of the answer on this ordered port. A main that is stalled never answers: the health verdict waits for it.
-        settled: () =>
-          ended
-            ? Promise.resolve()
-            : new Promise<void>((release) => {
-                const token = nextToken++;
-                barriers.set(token, release);
-                port.postMessage({ t: 'settle', token });
-              }),
-        close: (code, reason) => {
-          end('The core port was closed.');
-          port.postMessage({ t: 'close', code, reason });
-          port.close();
-        },
-      };
+      return bindPort(port, sink);
     },
   };
 }

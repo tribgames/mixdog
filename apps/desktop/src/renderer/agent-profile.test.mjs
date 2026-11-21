@@ -102,9 +102,9 @@ const WATCHER = {
   disabled: false,
 };
 
-test('the profile edit saves the face, persona and model through saveAgentDefinition, with Save only once changed', async (t) => {
+test('the profile shows its hero and a folded Appearance section; Save and Cancel appear only once changed', async (t) => {
   const render = harness(t);
-  const { api, calls } = fakeApi(WATCHER);
+  const { api } = fakeApi(WATCHER);
   await render(
     React.createElement(AgentProfilePane, { sessionId: 'sess_home_github-watcher', active: true, api, models })
   );
@@ -143,7 +143,16 @@ test('the profile edit saves the face, persona and model through saveAgentDefini
   );
   await act(async () => button('Cancel').click());
   assert.equal(document.querySelector('.agent-profile-footer'), null, 'Cancel puts the stored profile back');
+});
 
+test('the profile edit saves the face, persona and model through saveAgentDefinition', async (t) => {
+  const render = harness(t);
+  const { api, calls } = fakeApi(WATCHER);
+  await render(
+    React.createElement(AgentProfilePane, { sessionId: 'sess_home_github-watcher', active: true, api, models })
+  );
+  await settle();
+  await openLook();
   await act(async () => document.querySelector('[data-color="#f2c94c"]').click());
   await act(async () => document.querySelector('[data-species="corgi"]').click());
   assert.equal(document.querySelector('.agent-profile-avatar').dataset.look, 'corgi-collar-calm');

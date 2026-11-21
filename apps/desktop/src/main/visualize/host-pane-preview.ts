@@ -1,7 +1,3 @@
-/**
- * The URL a visualize pane loads: a local page lease for HTML and inline
- * pages, a converted preview for Office files, the media scheme otherwise.
- */
 import { realpath, stat } from 'node:fs/promises';
 import { relative, sep } from 'node:path';
 import type { WebContents } from 'electron';

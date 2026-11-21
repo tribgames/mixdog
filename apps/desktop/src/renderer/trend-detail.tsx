@@ -17,6 +17,28 @@ import { acquireModalLayer } from './modal-layer';
 
 type TrendDetailMode = 'hover' | 'focus' | 'click';
 
+function placeTrendCard(host: HTMLElement, card: HTMLElement, anchor: HTMLElement) {
+  const bounds = host.closest('.mixdog-settings__body')?.getBoundingClientRect() || {
+    top: 0,
+    left: 0,
+    bottom: window.innerHeight,
+    right: window.innerWidth,
+  };
+  const top = Math.max(0, bounds.top) + 8;
+  const bottom = Math.min(window.innerHeight, bounds.bottom) - 8;
+  const left = Math.max(0, bounds.left) + 8;
+  const right = Math.min(window.innerWidth, bounds.right) - 8;
+  card.style.maxHeight = `${Math.max(0, bottom - top)}px`;
+  const size = card.getBoundingClientRect();
+  const owner = host.getBoundingClientRect();
+  const trigger = anchor.getBoundingClientRect();
+  const above = owner.top - size.height - 8;
+  return {
+    left: Math.max(left, Math.min(right - size.width, (trigger.left + trigger.right - size.width) / 2)) - owner.left,
+    top: Math.max(top, above >= top ? above : Math.min(owner.bottom + 8, bottom - size.height)) - owner.top,
+  };
+}
+
 /** `dependencies` are the chart inputs that move the buckets under the card. */
 export function useTrendDetail(dependencies: readonly unknown[]) {
   const popover = useHoverPopover();
@@ -33,32 +55,7 @@ export function useTrendDetail(dependencies: readonly unknown[]) {
     if (!popover.open || !host || !card || !anchor) return;
     const layer = acquireModalLayer([]);
     layer.attachSurface(card);
-    const bounds = host.closest('.mixdog-settings__body')?.getBoundingClientRect() || {
-      top: 0,
-      left: 0,
-      bottom: window.innerHeight,
-      right: window.innerWidth,
-    };
-    const top = Math.max(0, bounds.top) + 8;
-    const bottom = Math.min(window.innerHeight, bounds.bottom) - 8;
-    const left = Math.max(0, bounds.left) + 8;
-    const right = Math.min(window.innerWidth, bounds.right) - 8;
-    card.style.maxHeight = `${Math.max(0, bottom - top)}px`;
-    const size = card.getBoundingClientRect();
-    const owner = host.getBoundingClientRect();
-    const trigger = anchor.getBoundingClientRect();
-    const above = owner.top - size.height - 8;
-    setPosition({
-      left: Math.max(left, Math.min(right - size.width, (trigger.left + trigger.right - size.width) / 2)) - owner.left,
-      top: Math.max(top, above >= top ? above : Math.min(owner.bottom + 8, bottom - size.height)) - owner.top,
-    });
-    // A capture listener on window sees EVERY scroller in the document, and a
-    // transcript pinned to its end scrolls on each streamed token — a session
-    // running BEHIND the popup kept closing this card while the pointer still
-    // sat on the bar.
-    // Only a scroller that CARRIES the chart moves the anchor the card is
-    // placed against, so nothing else may dismiss it; the card scrolls inside
-    // the host and is excluded by the same containment test.
+    setPosition(placeTrendCard(host, card, anchor));
     const dismissOnScroll = (event: Event) => {
       const target = event.target;
       if (target instanceof Node && !target.contains(host)) return;
@@ -97,10 +94,6 @@ export function useTrendDetail(dependencies: readonly unknown[]) {
     /** Spread on the element that holds the buckets and the card. */
     hostProps: {
       ...popover.hostProps,
-      // Only a bucket opens the card. Crossing the chart's frame on the way
-      // in or out used to reopen the last bucket's card, so a stale date
-      // flashed whenever the pointer left the plot; entering the frame now
-      // only keeps an open card.
       onMouseEnter: () => {
         if (popover.open) popover.hostProps.onMouseEnter();
       },

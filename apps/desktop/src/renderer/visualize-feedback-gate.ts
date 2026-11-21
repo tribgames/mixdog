@@ -1,27 +1,3 @@
-// What the visualize panel accepts from a pane's page. The page script shares
-// its world with the page's own scripts, so a message from the pane proves
-// nothing about the user; these gates tie each pin, choice and crop to a real
-// user gesture or a fresh, consistent answer.
-//
-// - Pins: a pick request is minted only by a trusted click on the panel's own
-//   Comment layer (an `isTrusted` event in the panel document, which a
-//   cross-origin page cannot dispatch). The page may answer that one request,
-//   once, shortly after; anything else is dropped. The note is then typed into
-//   the panel's own box, so the pin and its capture always follow the user.
-// - Choices: main watches the window's real input and mints a one-time token
-//   when a mouse release or Enter/Space lands inside a pane
-//   (main/visualize/gestures.ts); a choice is taken only by spending one, so
-//   one gesture in that pane carries at most one choice. Without a token (a
-//   paired remote client, a desktop touch tap, a failed lookup) the choice
-//   becomes a proposal: a confirm bar in the panel's own UI, and only a
-//   trusted click or key press on its button queues it. Proposals replace one
-//   another per pane, are rate-limited, and expire.
-// - Crops: the secret-field masks are re-read from the page right before the
-//   shot; no fresh answer, an overflow, or an element that moved means no crop.
-//   After the shot the page is asked again, and the crop is kept only if the
-//   element, its boxes and every mask are exactly as before.
-// - Captures: one window capture at a time.
-
 import { useSyncExternalStore } from 'react';
 
 import {

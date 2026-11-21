@@ -87,10 +87,6 @@ export function computerUseOverlayPresentation(
       snapshot.attentionRequired?.sessionId || '',
     ]),
   ].filter(Boolean);
-  // Three states only: working, paused (Resume or Stop), or gone. Stop closes
-  // the pill with the press — the task ends and reports the failure itself —
-  // and nothing outlives the work: a cleanup Stop could not confirm is retried
-  // by the next command instead of holding an undismissable pill on screen.
   const stopping = snapshot.userControlActive && snapshot.takeoverReason === 'user_stop';
   // Input is blocked while the user holds control or a cleanup failure is
   // latched; the pill is then the way out, unless a Stop is still in flight
@@ -99,20 +95,10 @@ export function computerUseOverlayPresentation(
   const stopInFlight = stopping && !control.error;
   const paused = snapshot.userControlActive && (!stopping || Boolean(control.error));
   const attention = Boolean(snapshot.attentionRequired) || Boolean(control.error);
-  // A command runs for a few hundred milliseconds, so a held target (the grace
-  // period after the last command) keeps the controls reachable between
-  // commands. Thinking right after a command is still the same task for the
-  // grace period, but a turn that moved on to other work must not leave the
-  // pill up until it ends. A pause lasts while any task it paused is still
-  // waiting on it; one whose tasks all ended is not the user's to resolve.
   const working = (snapshot.presentSessionIds ?? []).length > 0;
   const holding = (snapshot.targetLeases ?? []).length > 0;
   const waiting = paused && (snapshot.pausedSessionIds ?? []).length > 0;
   const titles = overlayTitles(locale);
-  // Yielded sessions resume by themselves, so the pill offers no Resume; it
-  // only says "Waiting" once every session still on screen is one of them.
-  // With automatic resume off they wait for the user's Resume instead, so the
-  // pill stays up for them even when no session is on screen any more.
   const yielded = snapshot.yieldedSessionIds ?? [];
   const awaitingResume = !snapshot.userControlActive && yielded.length > 0 && snapshot.idleResumeSeconds === 0;
   const everyoneYielded =

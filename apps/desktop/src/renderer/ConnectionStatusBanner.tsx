@@ -1,7 +1,3 @@
-// The connection banner of a server window (reconnecting with its attempt and
-// countdown, lost with Reconnect / Close window), the notices main sends once
-// attached again, and — in this PC's window — the startup reopening of server
-// windows. While the link is down the composer takes no input.
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -292,12 +288,7 @@ const RESTORE_PHASE_LABELS: Record<Exclude<DesktopServerRestoreProgress['phase']
   start: () => t('Connect'),
 };
 
-/** This PC's window: server windows reopening at launch, and the ones that
- *  could not be reopened. */
-function ServerRestoreStatus() {
-  const [entries, setEntries] = useState<DesktopServerRestoreProgress[]>([]);
-  // A server window's Reconnect needs the user (sign in, confirm a key): the
-  // connect dialog here runs that attempt and reopens the server in place.
+function useConnectionSignInDialog(): void {
   useEffect(
     () =>
       subscribeConnectionSignIn((server) => {
@@ -306,9 +297,11 @@ function ServerRestoreStatus() {
       }),
     []
   );
+}
+
+function useServerRestoreEntries() {
+  const [entries, setEntries] = useState<DesktopServerRestoreProgress[]>([]);
   useEffect(() => {
-    // Reopening starts with the launch, often before this window listens:
-    // what was reported already comes first, live updates replace it.
     const heard = new Set<string>();
     const unsubscribe = subscribeServerRestore((progress) => {
       heard.add(progress.id);
@@ -325,6 +318,14 @@ function ServerRestoreStatus() {
       .catch(() => undefined);
     return unsubscribe;
   }, []);
+  return [entries, setEntries] as const;
+}
+
+/** This PC's window: server windows reopening at launch, and the ones that
+ *  could not be reopened. */
+function ServerRestoreStatus() {
+  useConnectionSignInDialog();
+  const [entries, setEntries] = useServerRestoreEntries();
   if (!entries.length) return null;
   return createPortal(
     <div className="conn-link-stack" data-modal-background>

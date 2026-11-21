@@ -1,9 +1,4 @@
-import type {
-  DesktopQuotaResume,
-  DesktopSessionSummary,
-  DesktopSessionWorkspace,
-  ToolApprovalResult,
-} from '../shared/contract';
+import type { DesktopQuotaResume, DesktopSessionWorkspace, ToolApprovalResult } from '../shared/contract';
 
 export type RecordValue = Record<string, unknown>;
 export type Project = string;
@@ -258,16 +253,6 @@ export type Snapshot = RecordValue & {
 
 export const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };
 export const EMPTY_TRANSCRIPT_ITEMS: TranscriptItem[] = [];
-
-/** Session owners whose Lead or child-agent turn the daemon reports running in
- * its in-memory state (`leadWorking` / `agentWorking`). Unlike the
- * sidebar selection helper below, this list is process-wide and must never be
- * changed by whichever conversation currently has focus. */
-export function agentActivitySessionIds(sessions: readonly DesktopSessionSummary[]): string[] {
-  return sessions
-    .filter((session) => session.leadWorking === true || session.agentWorking === true)
-    .map((session) => session.id);
-}
 
 /** Legacy shared Unified/Split key; the three surfaces below persist
  *  separately now and only read this one as the first-run fallback. */

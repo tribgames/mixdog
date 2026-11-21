@@ -19,13 +19,6 @@ type HistoryRowProps = {
   onPush: () => void;
 };
 
-// History row without the avatar stack (the dock has no avatar service, and a
-// monogram only ate width): a one-line summary, the byline
-// (`author • relative age`), then the tag and the unpushed push button as
-// compact TRAILING affordances so neither can grow the row. The row hosts its
-// own push BUTTON, so it cannot be a <button> itself (nested interactive
-// content); it keeps the button role, the single tab stop and Enter/Space
-// activation instead.
 function HistoryRow({ entry, remoteName, pushBlocked, pushReason, onOpen, onOpenMenu, onPush }: HistoryRowProps) {
   const refs = entry.refs ?? [];
   const summary = (entry.subject ?? '').trim();

@@ -38,10 +38,6 @@ const { createRoot } = await import('react-dom/client');
 const { ApprovalCard } = await import('./ApprovalCard.tsx');
 const { QuestionCard } = await import('./QuestionCard.tsx');
 
-// The card settles by the clock (Date.now), so the clock is mocked and moved
-// past the 400ms window instead of waiting it out; a focus event then makes
-// the card re-read the window (the real timer for the same moment is still
-// pending and only repeats that read).
 mock.timers.enable({ apis: ['Date'] });
 const settle = () =>
   act(async () => {
@@ -249,7 +245,7 @@ test('항상 허용 resolves with the agent scope and shows no toast', async () 
   }
 });
 
-test('email shows account, to, cc, subject and the body; payment and delete are danger cards without 항상 허용', async () => {
+test('email shows account, to, cc, subject and the body', async () => {
   const mail = card({
     ...comment,
     id: 'm1',
@@ -262,7 +258,7 @@ test('email shows account, to, cc, subject and the body; payment and delete are 
       details: { to: 'kim@example.com', cc: 'park@example.com', subject: 'Release' },
     },
   });
-  let ui = await mount(mail.element);
+  const ui = await mount(mail.element);
   try {
     assert.equal(ui.title(), 'Send this email?');
     assert.match(ui.doc.querySelector('.approval-preview').textContent, /Sent as me@example\.com/);
@@ -274,6 +270,9 @@ test('email shows account, to, cc, subject and the body; payment and delete are 
   } finally {
     await ui.done();
   }
+});
+
+test('a payment card is a need-tone card without 항상 허용, allowed only by a click', async () => {
   const pay = card({
     ...comment,
     id: 'p1',
@@ -287,7 +286,7 @@ test('email shows account, to, cc, subject and the body; payment and delete are 
       details: { merchant: 'Notion Labs', amount: '12900', currency: 'KRW', recurrence: 'monthly' },
     },
   });
-  ui = await mount(pay.element);
+  const ui = await mount(pay.element);
   try {
     const prompt = ui.doc.querySelector('.approval-prompt');
     assert.equal(prompt.dataset.tone, 'need', 'no red: the normal amber need-dot');
@@ -335,6 +334,9 @@ test('email shows account, to, cc, subject and the body; payment and delete are 
   } finally {
     await ui.done();
   }
+});
+
+test('a delete card shows the count and size and denies with one click', async () => {
   const del = card({
     ...comment,
     id: 'd1',
@@ -347,7 +349,7 @@ test('email shows account, to, cc, subject and the body; payment and delete are 
       details: { count: '48', size: '1288490188' },
     },
   });
-  ui = await mount(del.element);
+  const ui = await mount(del.element);
   try {
     assert.equal(ui.doc.querySelector('.approval-amount b').textContent, '48 items · 1.2GB');
     assert.deepEqual(ui.rows(), ['Deny', 'Delete 48 permanently']);
@@ -505,7 +507,7 @@ test('a permission request with only an always option never lets Enter grant it'
   }
 });
 
-test('Always allow is never the initial focus nor the default Enter; a focused one keeps its native keys', async () => {
+test('Always allow is never the initial focus nor the default Enter', async () => {
   const permission = card(
     permissionRequest([
       { id: 'o1', kind: 'allow_once', label: 'Once' },
@@ -533,7 +535,9 @@ test('Always allow is never the initial focus nor the default Enter; a focused o
       await ui.done();
     }
   }
-  // A focused Always allow keeps the native Enter / Space activation.
+});
+
+test('a focused Always allow keeps the native Enter / Space activation', async () => {
   const c = card({ ...comment, id: 'r2', remember: ['once', 'agent'] });
   const ui = await mount(c.element);
   try {
@@ -670,30 +674,38 @@ test('a browser takeover offers "Import again from Chrome" as its own button, wh
   }
 });
 
-test('a browser takeover offers "Open", which shows the exact handed-over page and keeps the card open', async () => {
+async function mountOpenTakeover(desktop) {
   const { MarkdownSessionContext } = await import('./MarkdownLink.tsx');
-  const { onBrowserPageRevealRequested } = await import('./browser-page-request.ts');
   const previous = dom.window.mixdogDesktop;
   const takeover = { surface: 'browser', instructions: 'Sign in', tab: 'p14' };
   const approval = { id: 't-open', name: 'ask_user', kind: 'takeover', sessionId: 'sess-t', takeover };
-  const mountCard = () =>
-    mount(React.createElement(MarkdownSessionContext.Provider, { value: 'sess-t' }, card(approval).element));
+  dom.window.mixdogDesktop = desktop;
+  const ui = await mount(
+    React.createElement(MarkdownSessionContext.Provider, { value: 'sess-t' }, card(approval).element)
+  );
+  const done = ui.done;
+  ui.done = async () => {
+    dom.window.mixdogDesktop = previous;
+    await done();
+  };
+  return ui;
+}
 
-  // No browser panel can open here: no button.
-  dom.window.mixdogDesktop = {};
-  let ui = await mountCard();
+test('a browser takeover without a browser panel to open offers no Open button', async () => {
+  const ui = await mountOpenTakeover({});
   try {
     assert.deepEqual(ui.rows(), ['Cancel', 'Done']);
   } finally {
     await ui.done();
   }
+});
 
-  // Desktop: the pane's page control selects that tab, then the panel opens on it.
+test('a desktop browser takeover Open selects the page tab through the pane control and reveals the panel', async () => {
+  const { onBrowserPageRevealRequested } = await import('./browser-page-request.ts');
   const reveals = [];
   const stop = onBrowserPageRevealRequested((request) => reveals.push(request.sessionId));
   const selected = [];
-  dom.window.mixdogDesktop = { browserPageControl: async (owner, input) => selected.push([owner, input]) };
-  ui = await mountCard();
+  const ui = await mountOpenTakeover({ browserPageControl: async (owner, input) => selected.push([owner, input]) });
   try {
     // 열기 is its own full-width row on top; 취소 · 완료 share the row below.
     assert.deepEqual(ui.rows(), ['Open', 'Cancel', 'Done']);
@@ -706,12 +718,18 @@ test('a browser takeover offers "Open", which shows the exact handed-over page a
     assert.deepEqual(reveals, ['sess-t']);
     assert.equal(ui.rows().length, 3, 'the card stays open');
   } finally {
+    stop();
     await ui.done();
   }
+});
 
-  // Chrome import available too: Open, then Import, each on its own row; Cancel · Done stay a pair.
-  dom.window.mixdogDesktop = { browserPageControl: async () => {}, browserProfileImportSources: async () => [] };
-  ui = await mountCard();
+test('a browser takeover with Chrome import lists Open and Import each on its own row, Cancel · Done as a pair', async () => {
+  const { onBrowserPageRevealRequested } = await import('./browser-page-request.ts');
+  const stop = onBrowserPageRevealRequested(() => {});
+  const ui = await mountOpenTakeover({
+    browserPageControl: async () => {},
+    browserProfileImportSources: async () => [],
+  });
   try {
     assert.deepEqual(ui.rows(), ['Open', 'Import again from Chrome', 'Cancel', 'Done']);
     assert.deepEqual(
@@ -720,25 +738,26 @@ test('a browser takeover offers "Open", which shows the exact handed-over page a
     );
     assert.equal(ui.doc.querySelector('.approval-buttons').style.getPropertyValue('--approval-columns'), '2');
   } finally {
+    stop();
     await ui.done();
   }
+});
 
-  // A paired phone has no pane page control: the host's session tab control does the same.
-  selected.length = 0;
-  reveals.length = 0;
+test("a paired phone's browser takeover Open selects the tab through the host's session tab control", async () => {
+  const { onBrowserPageRevealRequested } = await import('./browser-page-request.ts');
+  const reveals = [];
+  const stop = onBrowserPageRevealRequested((request) => reveals.push(request.sessionId));
   const controls = [];
-  dom.window.mixdogDesktop = {
+  const ui = await mountOpenTakeover({
     remoteBrowserSessionTabs: true,
     remoteBrowserControl: async (owner, input) => controls.push([owner, input]),
-  };
-  ui = await mountCard();
+  });
   try {
     await ui.click(ui.button('Open'));
     assert.deepEqual(controls, [['sess-t', { type: 'select-tab', tabId: 'p14' }]]);
     assert.deepEqual(reveals, ['sess-t']);
   } finally {
     stop();
-    dom.window.mixdogDesktop = previous;
     await ui.done();
   }
 });
@@ -1117,7 +1136,7 @@ test('a sign-in whose saveChatLogins loads on sends the save slot', async () => 
   ]);
 });
 
-test('a one-time code: 3-3 boxes from its length, the current box marked, a paste fills all and enters it', async () => {
+test('a six-digit one-time code: 3-3 boxes, the current box marked, a paste fills all and enters it', async () => {
   const previous = dom.window.mixdogDesktop;
   const desktop = secretDesktop();
   dom.window.mixdogDesktop = desktop.api;
@@ -1154,9 +1173,14 @@ test('a one-time code: 3-3 boxes from its length, the current box marked, a past
     assert.deepEqual(desktop.provided, [[request.secret.requestId, '482190']], 'full: entered at once');
     assert.deepEqual(c.decisions, [{ approved: true, response: 'provide-secret' }]);
   } finally {
+    dom.window.mixdogDesktop = previous;
     await ui.done();
   }
-  // 8 characters read 4-4; 직접 하기 answers a skip the agent can tell apart.
+});
+
+test('an eight-digit one-time code reads 4-4; 직접 하기 answers a skip the agent can tell apart', async () => {
+  const previous = dom.window.mixdogDesktop;
+  dom.window.mixdogDesktop = secretDesktop().api;
   const eight = card(secretRequest('o2', { form: 'otp', length: 8 }));
   const ui8 = await mount(eight.element);
   try {
@@ -1317,6 +1341,28 @@ test('the top-left says how long a secret has left by its expiry; a takeover sho
   }
 });
 
+const savedLoginAccounts = [
+  { id: 'c1', label: 'd•••m' },
+  { id: 'c2', label: 'o•••s@example.com' },
+];
+const savedLoginFillId = 'secret_login-0123456789';
+
+test('saved logins without the page they may go into are not offered', async () => {
+  const previous = dom.window.mixdogDesktop;
+  dom.window.mixdogDesktop = loginDesktop().api;
+  const unbound = card(
+    loginTakeover('a0', { takeover: { ...loginTakeover('a0').takeover, accounts: savedLoginAccounts } })
+  );
+  const ui0 = await mount(unbound.element);
+  try {
+    assert.equal(ui0.doc.querySelectorAll('.approval-account').length, 0);
+    assert.ok(!ui0.rows().includes('Sign in with this account'));
+  } finally {
+    dom.window.mixdogDesktop = previous;
+    await ui0.done();
+  }
+});
+
 test('saved logins for the page: masked radio rows, 지금 안 함 / 직접 로그인 / 이 계정으로 로그인 fills and settles', async () => {
   const previous = dom.window.mixdogDesktop;
   const desktop = loginDesktop();
@@ -1328,20 +1374,8 @@ test('saved logins for the page: masked radio rows, 지금 안 함 / 직접 로�
     return fillResult;
   };
   dom.window.mixdogDesktop = desktop.api;
-  const accounts = [
-    { id: 'c1', label: 'd•••m' },
-    { id: 'c2', label: 'o•••s@example.com' },
-  ];
-  const fillId = 'secret_login-0123456789';
-  // Saved logins without the page they may go into are not offered.
-  const unbound = card(loginTakeover('a0', { takeover: { ...loginTakeover('a0').takeover, accounts } }));
-  const ui0 = await mount(unbound.element);
-  try {
-    assert.equal(ui0.doc.querySelectorAll('.approval-account').length, 0);
-    assert.ok(!ui0.rows().includes('Sign in with this account'));
-  } finally {
-    await ui0.done();
-  }
+  const accounts = savedLoginAccounts;
+  const fillId = savedLoginFillId;
   const c = card(loginTakeover('a1', { takeover: { ...loginTakeover('a1').takeover, accounts, fillId } }));
   const ui = await mount(c.element);
   try {
@@ -1383,10 +1417,20 @@ test('saved logins for the page: masked radio rows, 지금 안 함 / 직접 로�
     ]);
     assert.deepEqual(c.decisions, [{ approved: true, response: 'done', reason: 'saved_login' }]);
   } finally {
+    dom.window.mixdogDesktop = previous;
     await ui.done();
   }
-  // "다른 계정 입력": the sign-in window, as today.
-  const other = card(loginTakeover('a2', { takeover: { ...loginTakeover('a2').takeover, accounts, fillId } }));
+});
+
+test('choosing "Use another account" among saved logins falls back to the sign-in window', async () => {
+  const previous = dom.window.mixdogDesktop;
+  const desktop = loginDesktop();
+  dom.window.mixdogDesktop = desktop.api;
+  const other = card(
+    loginTakeover('a2', {
+      takeover: { ...loginTakeover('a2').takeover, accounts: savedLoginAccounts, fillId: savedLoginFillId },
+    })
+  );
   const ui2 = await mount(other.element);
   try {
     await act(async () => [...ui2.doc.querySelectorAll('.approval-account input')].at(-1).click());
@@ -2177,14 +2221,15 @@ test('the requester chip names the connector, not the raw tool id (kept as the t
   }
 });
 
-test("the runtime's known reasons read in the UI language; an agent's own reason stays as written; an outbound card shows neither", async () => {
-  const { approvalReasonText } = await import('./ApprovalCard.tsx');
+const knownApprovalReasons = [
+  'This sends or posts on your behalf; it needs your approval.',
+  "This agent's permission blocks this action.",
+  'This connector tool is set to ask before it runs for this agent.',
+];
+
+test("the runtime's known reasons are in every locale catalog and the retired keys are gone", async () => {
   const { readFileSync, readdirSync } = await import('node:fs');
-  const known = [
-    'This sends or posts on your behalf; it needs your approval.',
-    "This agent's permission blocks this action.",
-    'This connector tool is set to ask before it runs for this agent.',
-  ];
+  const known = knownApprovalReasons;
   {
     const ko = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
     for (const key of known.slice(2)) assert.ok(/[가-힣]/.test(ko[key] ?? ''), `ko: ${key}`);
@@ -2204,10 +2249,17 @@ test("the runtime's known reasons read in the UI language; an agent's own reason
     for (const key of known) assert.ok(catalog[key], `${file}: ${key}`);
     for (const key of removed) assert.equal(catalog[key], undefined, `${file}: dead key ${key}`);
   }
+});
+
+test("a known reason reads in the UI language and an agent's own reason stays as written", async () => {
+  const { approvalReasonText } = await import('./ApprovalCard.tsx');
+  const known = knownApprovalReasons;
   assert.equal(approvalReasonText(known[0]), known[0]);
   assert.equal(approvalReasonText('The review team asked for it.'), 'The review team asked for it.');
-  // An outbound request's reason is not shown on the card.
-  const reasoned = await mount(card({ ...comment, id: 'pr1', reason: known[0] }).element);
+});
+
+test('an outbound card shows neither a reason nor a danger note', async () => {
+  const reasoned = await mount(card({ ...comment, id: 'pr1', reason: knownApprovalReasons[0] }).element);
   try {
     assert.equal(reasoned.doc.querySelector('.approval-reason'), null);
     assert.doesNotMatch(reasoned.doc.querySelector('.approval-prompt').textContent, /needs your approval/);
@@ -2289,20 +2341,21 @@ test("a sub-agent's request shown in the top-level chat names its chain, links i
   }
 });
 
+const handedRequest = {
+  id: 'h1',
+  name: 'shell',
+  kind: 'approval',
+  agentId: 'lead',
+  args: { command: 'npm test' },
+  remember: ['once'],
+  chain: [],
+  sessionId: 'sess_task',
+  surfaceSessionId: 'sess_home_github-watcher',
+  handoff: { title: 'Fix login' },
+};
+
 test('a request of a session this chat handed work to: the amber target chip beside who asks, its session one click away', async () => {
-  // As the runtime copies a task session's request into the bot chat that created it.
-  const handed = {
-    id: 'h1',
-    name: 'shell',
-    kind: 'approval',
-    agentId: 'lead',
-    args: { command: 'npm test' },
-    remember: ['once'],
-    chain: [],
-    sessionId: 'sess_task',
-    surfaceSessionId: 'sess_home_github-watcher',
-    handoff: { title: 'Fix login' },
-  };
+  const handed = handedRequest;
   const { ApprovalOpenSessionContext } = await import('./approval-prompt.tsx');
   const docked = [];
   const opened = [];
@@ -2311,7 +2364,7 @@ test('a request of a session this chat handed work to: the amber target chip bes
   // The app's opener dispatches this window's event.
   const nodeCustomEvent = globalThis.CustomEvent;
   globalThis.CustomEvent = dom.window.CustomEvent;
-  let ui = await mount(
+  const ui = await mount(
     React.createElement(
       ApprovalOpenSessionContext.Provider,
       { value: (id) => docked.push(id) },
@@ -2333,16 +2386,22 @@ test('a request of a session this chat handed work to: the amber target chip bes
     assert.deepEqual(docked, [], 'never as a sub-agent of this chat');
   } finally {
     await ui.done();
+    dom.window.removeEventListener('mixdog:open-task-session', onOpen);
+    globalThis.CustomEvent = nodeCustomEvent;
   }
-  // In the task session's own pane: no target chip and no link to itself.
-  ui = await mount(card({ ...handed, id: 'h2' }, { hostSessionId: 'sess_task' }).element);
+});
+
+test("in the handed-off task session's own pane there is no target chip and no link to itself", async () => {
+  const ui = await mount(card({ ...handedRequest, id: 'h2' }, { hostSessionId: 'sess_task' }).element);
   try {
     assert.equal(ui.doc.querySelector('.approval-target-chip'), null);
     assert.equal(ui.doc.querySelector('.approval-who .approval-link'), null);
   } finally {
     await ui.done();
   }
-  // Another bot's chat is named by that bot's face and name, once.
+});
+
+test("another bot's chat is named by that bot's face and name, once", async () => {
   const botChat = {
     ...comment,
     id: 'h3',
@@ -2352,7 +2411,7 @@ test('a request of a session this chat handed work to: the amber target chip bes
     surfaceSessionId: 'sess_home_mailer',
     handoff: { title: 'GitHub', agentId: 'github-watcher' },
   };
-  ui = await mount(card(botChat, { agentMode: true, hostSessionId: 'sess_home_mailer' }).element);
+  const ui = await mount(card(botChat, { agentMode: true, hostSessionId: 'sess_home_mailer' }).element);
   try {
     assert.deepEqual(
       [...ui.doc.querySelectorAll('.approval-who .approval-chip-name')].map((node) => node.textContent),
@@ -2362,8 +2421,6 @@ test('a request of a session this chat handed work to: the amber target chip bes
     assert.equal(ui.doc.querySelector('.approval-target-mark'), null);
   } finally {
     await ui.done();
-    dom.window.removeEventListener('mixdog:open-task-session', onOpen);
-    globalThis.CustomEvent = nodeCustomEvent;
   }
 });
 

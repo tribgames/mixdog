@@ -1,28 +1,17 @@
-// Korean (and other) IME commits in xterm under Linux/ibus reach onData more
-// than once: xterm's CompositionHelper re-reads the helper textarea (substring
-// from the composition start) in a timer after compositionend, a following
-// keydown re-reads it again, and the `input` insertText path emits the same
-// text a third time. Which of these fire, and when, depends on timing (the
-// timer can run 100 ms late, after the next syllable already started), so
-// filtering xterm's echoes by time window or prefix both doubled syllables and
-// could drop real input.
-//
-// The guard instead removes what xterm re-reads. It runs in the capture phase,
-// ahead of xterm's own textarea listeners, sends every committed text exactly
-// once itself and empties the textarea. xterm's timer then reads nothing, with
-// one exception: when the next syllable's composition has already started it
-// reads a slice of that preedit text — those slices (printable data that is
-// part of the textarea content while composing) are dropped. Everything else
-// on xterm's onData stream — keys, space, digits, punctuation, control bytes,
-// paste — always passes.
+// IME commits in xterm under Linux/ibus reach onData more than once: xterm's
+// CompositionHelper re-reads the helper textarea in a timer after compositionend
+// (up to 100 ms late), a following keydown re-reads it again, and the `input`
+// insertText path emits it a third time. The guard runs in the capture phase
+// ahead of xterm's textarea listeners, sends each committed text once itself
+// and empties the textarea; the slice xterm's timer reads of an already started
+// next composition is dropped. Everything else on onData passes.
 //
 // ibus-hangul commits a syllable in one of two shapes (real capture, VM QA5):
 //   A  compositionend{data:'한'}
 //   B  compositionupdate '' → input(deleteContentBackward) → compositionend{data:''}
 //        → input(insertText '글')
-// In B the text arrives on the insertText input event that follows within a few
-// milliseconds; xterm's own _inputEvent would emit it again, so that event is
-// consumed here.
+// In B xterm's own _inputEvent would emit the insertText again, so that event
+// is consumed here.
 
 function printable(data: string): boolean {
   for (const char of data) {

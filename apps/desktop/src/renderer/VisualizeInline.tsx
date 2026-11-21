@@ -1,7 +1,3 @@
-// An inline (direct-renderer) visualize pane: the agent's Mermaid / SVG /
-// chart / HTML / Markdown source drawn in a dead sandboxed frame (see
-// visualize-inline.ts). A render failure shows the error and the source here
-// and is reported to main, which lists it with the tab's page problems.
 import { useEffect, useState } from 'react';
 
 import type { VisualizePaneView } from '../shared/visualize';

@@ -1,9 +1,3 @@
-/**
- * Coordinates read off a screenshot are accepted only while that screenshot
- * still describes the page: the same snapshot id, taken recently, the same
- * document revision, and an unchanged URL and viewport. Anything else is
- * refused rather than scaled onto a page that has moved on.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserCommand, GuestSlot } from './host-types';

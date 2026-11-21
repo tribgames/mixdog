@@ -1,11 +1,3 @@
-/**
- * "로그인 유지 중인 사이트": the sites the managed Browser Use profile stays
- * signed in to, with per-site sign-out and a full wipe. A site is a cookie
- * domain holding at least one HttpOnly cookie — the kind sign-ins use, since
- * page scripts can never read it; a subdomain folds into a listed parent
- * (accounts.example.com into example.com). Only site names and counts leave
- * here: cookie names and values never do.
- */
 import type { BrowserCookie, BrowserCookieJar } from './cookie-jar';
 import { cookieHost, signOutCookieMatcher, validSignOutSite } from './cookie-sign-out-scopes';
 

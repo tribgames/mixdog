@@ -148,11 +148,10 @@ export function summarizeTurnReviewPatch(patch: string): TurnReviewSummary {
   }
 }
 
-/** Diffs in transcript order — text patches and the digests a phone's copy
- *  carries — summarized as one change. Each diff is analyzed on its own: joined
- *  as text, a plain `---/+++` patch after a `diff --git` one was read as the
- *  tail of that file's last hunk and its lines counted to the wrong file. */
 export type TurnReviewDiffSegment = string | { row: TurnReviewRowRef; summary: UiDiffSummary };
+/** Diffs in transcript order, summarized as one change. Each is analyzed on its
+ *  own: joined as text, a plain `---/+++` patch after a `diff --git` one counts
+ *  to the wrong file. */
 export function summarizeTurnReviewSegments(segments: readonly TurnReviewDiffSegment[]): TurnReviewSummary {
   const analyzed: AnalyzedFile[] = [];
   for (const segment of segments) {
@@ -205,6 +204,15 @@ export function summarizeAuthoritativeTurnReview(filesInput: TurnReviewFile[], p
   return turnReviewSummaryOf(files);
 }
 
+function foldEntry(target: TurnReviewFileEntry, entry: TurnReviewFileEntry): void {
+  target.additions += entry.additions;
+  target.deletions += entry.deletions;
+  target.lineStats ||= entry.lineStats;
+  target.status ||= entry.status;
+  target.binary ||= entry.binary;
+  appendEntry(target, entry);
+}
+
 export function mergeTurnReviewSummaries(summaries: TurnReviewSummary[]): TurnReviewSummary {
   const files: TurnReviewSummary['files'] = new Map();
   let additions = 0;
@@ -221,12 +229,7 @@ export function mergeTurnReviewSummaries(summaries: TurnReviewSummary[]): TurnRe
         binary: false,
         parts: [],
       };
-      merged.additions += entry.additions;
-      merged.deletions += entry.deletions;
-      merged.lineStats ||= entry.lineStats;
-      merged.status ||= entry.status;
-      merged.binary ||= entry.binary;
-      appendEntry(merged, entry);
+      foldEntry(merged, entry);
       files.set(name, merged);
     }
   }
@@ -277,10 +280,6 @@ export function toolPublishesPatch(item: TranscriptItem): boolean {
   return classifyToolCategory(String(item.name || ''), item.args) === 'Patch';
 }
 
-/** Categories whose tools cannot write the worktree. Every other one (Patch,
- *  Shell and Git, which run arbitrary commands, an agent whose worker edits,
- *  Visualize, whose capture and export write project files,
- *  MCP/Office/Tidy/Other tools) may, so a finished call of it re-reads. */
 const READ_ONLY_CATEGORIES = new Set([
   'Read',
   'Search',
@@ -364,15 +363,22 @@ export function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart
   };
 }
 
-/** Every successful patch-publishing tool call of the whole transcript (not
- *  just the current turn): the file set from their patches, the line totals
- *  from the same workload count the activity cards use. */
-export function summarizeSessionTranscriptReview(items: TranscriptItem[], cwd = ''): TurnReviewSummary {
-  const patches: TurnReviewDiffSegment[] = [];
+/** A `write` call publishes no diff: its content counted as added lines, as the
+ *  activity card counts them. */
+function writeToolPatch(item: TranscriptItem): string | null {
+  const args = parseToolArgs(item.args) || {};
+  const target = String(args.file_path ?? args.filePath ?? args.path ?? '').replace(/\\/g, '/');
+  const content = typeof args.content === 'string' ? args.content : '';
+  if (!target || !content) return null;
+  const lines = content.replace(/\n$/, '').split('\n');
+  const created = /^\s*Created\b/.test(String(item.result ?? ''));
+  return `diff --git a/${target} b/${target}\n${created ? 'new file mode 100644\n--- /dev/null\n' : `--- a/${target}\n`}+++ b/${target}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line: string) => `+${line}`).join('\n')}\n`;
+}
+
+function transcriptDiffSegments(items: TranscriptItem[]): TurnReviewDiffSegment[] {
+  const segments: TurnReviewDiffSegment[] = [];
   for (const item of items) {
     if (item?.kind !== 'tool') continue;
-    // Grouped cards (`__aggregate__`) key their categories as
-    // `Patch|Editing|Edited|file|files`, never a bare `Patch`.
     const patchCard =
       toolPublishesPatch(item) ||
       (item.aggregate === true && Object.keys(item.categories || {}).some((key) => key.startsWith('Patch|')));
@@ -382,56 +388,43 @@ export function summarizeSessionTranscriptReview(items: TranscriptItem[], cwd = 
     if (item.isError === true || Number(item.errorCount || 0) >= count) continue;
     if (parseToolArgs(item.args)?.dry_run === true) continue;
     if (written) {
-      // `write` publishes no diff: synthesize the added lines from its content
-      // the way the card counts them (a new file is all additions).
-      const args = parseToolArgs(item.args) || {};
-      const target = String(args.file_path ?? args.filePath ?? args.path ?? '').replace(/\\/g, '/');
-      const content = typeof args.content === 'string' ? args.content : '';
-      if (!target || !content) continue;
-      const lines = content.replace(/\n$/, '').split('\n');
-      const created = /^\s*Created\b/.test(String(item.result ?? ''));
-      patches.push(
-        `diff --git a/${target} b/${target}\n${created ? 'new file mode 100644\n--- /dev/null\n' : `--- a/${target}\n`}+++ b/${target}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line: string) => `+${line}`).join('\n')}\n`
-      );
+      const patch = writeToolPatch(item);
+      if (patch) segments.push(patch);
       continue;
     }
-    // `edit`-dialect calls carry no patch in their arguments; the runtime's
-    // per-call `uiDiff` is the change they made. An explicit empty uiDiff means
-    // the call changed nothing.
     const digest = uiDiffDigest(item);
     if (digest) {
-      // A grouped card's digest is of one member's diff (`uiDiffMemberId`), and is read back by that member's id, not the card's.
       const id = typeof item.uiDiffMemberId === 'string' ? item.uiDiffMemberId : String(item.id ?? '');
-      patches.push({ row: { id, revision: toolRowRevision(item) }, summary: digest });
+      segments.push({ row: { id, revision: toolRowRevision(item) }, summary: digest });
       continue;
     }
     const uiDiff = typeof item.uiDiff === 'string' ? item.uiDiff : null;
     const patch = uiDiff !== null ? uiDiff : findPatch(item);
-    if (patch) patches.push(patch);
+    if (patch) segments.push(patch);
   }
-  const summary = summarizeTurnReviewSegments(patches);
-  // Tool patches sometimes carry ABSOLUTE paths; the session diff's rows are
-  // project-relative, and the two sources must meet on the same key.
-  const root = String(cwd || '')
-    .replace(/\\/g, '/')
-    .replace(/\/+$/, '')
-    .toLowerCase();
-  if (!root) return summary;
+  return segments;
+}
+
+/** The project-relative form of a diff file name: the folder is compared
+ *  case-insensitively and the name kept as written; names outside it stay as
+ *  given. */
+export function reviewKey(rawName: string, cwd: string): string {
+  const root = cwd.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const normalized = rawName.replace(/\\/g, '/');
+  return root && normalized.toLowerCase().startsWith(`${root}/`) ? normalized.slice(root.length + 1) : rawName;
+}
+
+/** Every successful patch-publishing tool call of the whole transcript, not
+ *  just the current turn. */
+export function summarizeSessionTranscriptReview(items: TranscriptItem[], cwd = ''): TurnReviewSummary {
+  const summary = summarizeTurnReviewSegments(transcriptDiffSegments(items));
+  if (!cwd) return summary;
   const files: TurnReviewSummary['files'] = new Map();
   for (const [name, entry] of summary.files) {
-    const normalized = name.replace(/\\/g, '/');
-    const relative = normalized.toLowerCase().startsWith(`${root}/`) ? normalized.slice(root.length + 1) : name;
+    const relative = reviewKey(name, cwd);
     const merged = files.get(relative);
-    if (!merged) {
-      files.set(relative, entry);
-      continue;
-    }
-    merged.additions += entry.additions;
-    merged.deletions += entry.deletions;
-    merged.lineStats ||= entry.lineStats;
-    merged.status ||= entry.status;
-    merged.binary ||= entry.binary;
-    appendEntry(merged, entry);
+    if (merged) foldEntry(merged, entry);
+    else files.set(relative, entry);
   }
   return turnReviewSummaryOf(files);
 }
@@ -453,10 +446,6 @@ export function summarizeSessionDiffRows(rows: readonly SessionDiffRow[]): TurnR
   return turnReviewSummaryOf(files);
 }
 
-/** A transcript file the runtime diff lacks becomes a row, and a row takes the
- *  larger counts and the patch of the transcript's own edit, for a diff that
- *  is NOT the complete set (a runtime without ownership metadata): such a diff
- *  may only cover the running turn, so it never lowers the transcript's. */
 function mergeTranscriptIntoRows(rows: readonly SessionDiffRow[], transcript: TurnReviewSummary): SessionDiffRow[] {
   const known = new Set(rows.map((row) => row.path));
   const merged = rows.map((row) => {
@@ -492,12 +481,9 @@ function mergeTranscriptIntoRows(rows: readonly SessionDiffRow[], transcript: Tu
   return merged;
 }
 
-/** THE session file list, shared by the pane, its title and the island.
- *  A `complete` runtime result is the net change set and is final: the
- *  transcript (historical activity, blind to Undo) never adds, drops or
- *  recounts a file — it only completes a row the runtime flagged `unmeasured`
- *  (an old record that kept no counts). Anything else falls back to the
- *  transcript-merged list the island always showed. */
+/** The session file list shared by the pane, its title and the island. A
+ *  `complete` runtime result is final: the transcript only completes rows
+ *  flagged `unmeasured`. Anything else merges the transcript in. */
 export function resolveSessionRows(
   result: SessionDiffResult | null,
   items: TranscriptItem[],

@@ -4,15 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// Sending a prompt: the composer clears (its card shrinks and hands the
-// followed transcript the freed room) and the optimistic bubble plus the
-// working band join the thread. They must reach the screen in ONE frame. When
-// the phone deferred the bubble as a transition, the tap's own commit painted
-// first — composer shrunk, history slid down, no bubble — and the bubble
-// landed frames later, shoving the history back up: the sent prompt popped out
-// of the composer. The real list, rows, live band, dock, mobile stylesheet and
-// the real submit action (useConversationComposerActions) run in real Chrome
-// on a phone and on a desktop surface; every painted frame is sampled.
 const resolveDir = fileURLToPath(new URL('.', import.meta.url));
 const loader = { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' };
 const PHONE_UA =
@@ -192,56 +183,59 @@ async function openPage(browser, bundle, styles, { phone }) {
   return { page, errors };
 }
 
+async function launchSendFixture(t, surface) {
+  const [bundle, styles] = await Promise.all([
+    build({
+      stdin: { resolveDir, loader: 'tsx', contents: HARNESS },
+      outfile: 'transcript-send-stability.js',
+      bundle: true,
+      write: false,
+      format: 'iife',
+      jsx: 'automatic',
+      define: { 'process.env.NODE_ENV': '"production"', 'import.meta.url': '"http://localhost/renderer/"' },
+      loader,
+      plugins: [
+        {
+          name: 'worker-stub',
+          setup(builder) {
+            // The editor and markdown workers are not part of a sent bubble.
+            builder.onResolve({ filter: /\?worker$/ }, (args) => ({ path: args.path, namespace: 'worker-stub' }));
+            builder.onLoad({ filter: /.*/, namespace: 'worker-stub' }, () => ({
+              contents: 'export default class {};',
+              loader: 'js',
+            }));
+          },
+        },
+      ],
+    }),
+    build({
+      stdin: {
+        resolveDir,
+        loader: 'css',
+        contents:
+          '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css"; @import "./mobile-web-runtime.css";',
+      },
+      outfile: 'transcript-send-stability.css',
+      bundle: true,
+      write: false,
+      loader,
+    }),
+  ]);
+  const browser = await puppeteer.launch({
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+    headless: true,
+  });
+  t.after(() => browser.close());
+  const { page, errors } = await openPage(browser, bundle, styles, { phone: surface === 'phone' });
+  await page.evaluate(() => {
+    window.rowCost = 60;
+  });
+  return { page, errors };
+}
+
 for (const surface of ['phone', 'desktop']) {
   test(`${surface}: the sent bubble, the composer and the history move together in one frame`, async (t) => {
-    const [bundle, styles] = await Promise.all([
-      build({
-        stdin: { resolveDir, loader: 'tsx', contents: HARNESS },
-        outfile: 'transcript-send-stability.js',
-        bundle: true,
-        write: false,
-        format: 'iife',
-        jsx: 'automatic',
-        define: { 'process.env.NODE_ENV': '"production"', 'import.meta.url': '"http://localhost/renderer/"' },
-        loader,
-        plugins: [
-          {
-            name: 'worker-stub',
-            setup(builder) {
-              // The editor and markdown workers are not part of a sent bubble.
-              builder.onResolve({ filter: /\?worker$/ }, (args) => ({ path: args.path, namespace: 'worker-stub' }));
-              builder.onLoad({ filter: /.*/, namespace: 'worker-stub' }, () => ({
-                contents: 'export default class {};',
-                loader: 'js',
-              }));
-            },
-          },
-        ],
-      }),
-      build({
-        stdin: {
-          resolveDir,
-          loader: 'css',
-          contents:
-            '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css"; @import "./mobile-web-runtime.css";',
-        },
-        outfile: 'transcript-send-stability.css',
-        bundle: true,
-        write: false,
-        loader,
-      }),
-    ]);
-    const browser = await puppeteer.launch({
-      ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-      headless: true,
-    });
-    t.after(() => browser.close());
-    const { page, errors } = await openPage(browser, bundle, styles, { phone: surface === 'phone' });
-    // A phone's slow render of the new row: long enough that a deferred row
-    // would land several frames after the tap's own commit.
-    await page.evaluate(() => {
-      window.rowCost = 60;
-    });
+    const { page, errors } = await launchSendFixture(t, surface);
     const before = await page.evaluate(async () => (await window.sampleFrames(2, 'fixture:sent-1')).at(-1));
     const frames = await page.evaluate(async () => {
       const sampling = window.sampleFrames(60, 'fixture:sent-1');

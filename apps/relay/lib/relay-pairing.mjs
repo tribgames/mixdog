@@ -1,7 +1,3 @@
-// Browser client registration and the approval handoff (`POST /claim`,
-// `GET /claim/<claimId>`). The relay routes and stores; it never authorizes:
-// the desktop decides, and the pairing material it returns is sealed to the
-// browser's throwaway public key, so this hop forwards a box it cannot open.
 import { randomUUID } from 'node:crypto';
 
 import { clientProfile } from './device-store.mjs';
@@ -141,12 +137,6 @@ function jsonResponder(response) {
   };
 }
 
-// GET /claim/<id>: the container polls until the desktop answers. The claim id
-// (an unguessable UUID only the original claimant was given) is the poll's
-// secret; an approved claim answers with the credential to anyone who presents
-// it until APPROVED_CLAIM_RETAIN_MS passes or the client registers. An id this
-// relay does not hold (a restart, or retention over) is `unknown`, which the
-// client answers by claiming again; `expired` is a claim that really lapsed.
 function answerClaimPoll(claims, claimId, json) {
   const claim = claims.get(claimId);
   if (!claim) {
@@ -165,10 +155,6 @@ function answerClaimPoll(claims, claimId, json) {
   });
 }
 
-// Idempotent: a phone that reloads mid-approval (a backgrounded web app is
-// discarded freely) resumes the request the user is already looking at
-// instead of raising a second prompt on the desktop. A different key is a
-// different container and does get its own request.
 function pendingClaimId(claims, deviceId, clientId, publicKey) {
   for (const [id, pending] of claims) {
     if (

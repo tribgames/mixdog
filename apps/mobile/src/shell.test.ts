@@ -29,7 +29,10 @@ test('paired hosts are remembered, ordered and forgotten', () => {
   const b = parsePairingLink(`https://b.example.com/d/${ID}/`)!;
   let book = rememberHost(emptyHostBook(), a, 1);
   book = rememberHost(book, b, 2);
-  assert.deepEqual(book.hosts.map((host) => host.url), [b.url, a.url]);
+  assert.deepEqual(
+    book.hosts.map((host) => host.url),
+    [b.url, a.url]
+  );
   assert.equal(book.last, b.url);
   book = rememberHost(book, a, 3);
   assert.equal(book.hosts.length, 2);

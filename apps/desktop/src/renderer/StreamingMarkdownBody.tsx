@@ -34,10 +34,6 @@ function promoteMarkdownAst(
   visibleSource: string
 ): RenderedMarkdownAst | null {
   if (current?.text === parsedText) return current;
-  // Results are single-flight, but never let an older parse replace a newer
-  // one if one ever lands out of order. A current parse the visible text has
-  // since been cut or rewritten under is stale, not newer: the parse of the
-  // shorter text on screen replaces it.
   if (
     current &&
     current.source.length > source.length &&
@@ -129,26 +125,12 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
     }
   }
   const exact = current?.text === parseText ? current : null;
-  // While a newer parse is in flight, the last COMPLETED parse stays on
-  // screen — also when the text was cut or rewritten under it. The live tail
-  // chunk is cut to its frozen block every time the next block starts, and
-  // dropping the stale parse there blanked the block (and the tail below it)
-  // for a whole worker round trip: the transcript collapsed and regrew at
-  // every paragraph. The stale parse is one worker round trip old and is
-  // replaced by the parse of the text on screen as soon as it lands.
   const synced = lastSync.current;
   const usable =
     (syncRoot ? synced : null) ??
     exact ??
     (synced && (!current || synced.source.length >= current.source.length) ? synced : current);
   const renderedRoot = usable?.root ?? null;
-  // A cold web Worker can trail the first streamed tokens by a network round
-  // trip. Fenced scripts still reserve their final card/mono geometry during
-  // that gap; ordinary prose stays hidden so raw Markdown markers never flash.
-  // A completed reply (`sync` false) never paints source: raw prose and
-  // tables would reflow into their final structure when the parse lands, so
-  // its row stays reserved (CSS holds the measured/estimated box) and empty
-  // until the AST arrives.
   const showFencedSourceFallback = sync && !renderedRoot && containsFencedCodeMarkdown(text);
 
   useEffect(() => {
@@ -161,12 +143,6 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
     const requestedAt = performance.now();
     queue.current?.request(parseText, (root, parsedText) => {
       noteStreamWorkerParse(requestedAt);
-      // Requiring an EXACT match here meant that whenever the worker was
-      // slower than the 20 Hz publication cadence every result was discarded,
-      // so the live tail kept its raw "**"/"`" markers for the whole stream
-      // and only styled itself once output stopped. A result whose source is
-      // still a prefix of the current text is promoted instead, exactly like
-      // the last completed parse.
       if (requestedText.current !== parsedText && !requestedSource.current.startsWith(source)) {
         return;
       }
@@ -177,17 +153,6 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   }, [parse, parseText, syncRoot]);
   useEffect(() => () => queue.current?.dispose(), []);
 
-  // The live tail is parsed on a paced tick, so styled markdown appears WHILE
-  // the model is typing. Our worker is the pace:
-  // the newest completed parse stays mounted (a few tokens behind) instead of
-  // dropping the block back to source-shaped text, at settlement too. Before
-  // the first result, ordinary source stays hidden: showing it even for one
-  // paint creates the raw-Markdown flash this pipeline forbids. Fenced scripts
-  // alone use a source projection with their final code-card grammar.
-  // `parse` gates only whether NEW parses are requested. A tail past the cap
-  // keeps its last completed parse on screen — falling back to source there
-  // un-styled markdown that was already rendered, which is the one thing the
-  // reader must never see (the projection never shows source either).
   if (usable) {
     return (
       <MarkdownAstBody
@@ -239,12 +204,6 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   fadeOffset?: number;
   copyControl: MarkdownCopyControl;
 }) {
-  // Stable chunks promote exactly (immutable text -> exact AST, whose source
-  // never changes). The live tail renders the latest COMPLETED parse and
-  // trails the raw text by worker latency (paced streaming markdown).
-  // `parseText` is the healed form of `text` for the live tail: the parser
-  // sees closed markers while the source fallback still shows exactly what
-  // the model has emitted.
   return (
     <ParsedMarkdownBody
       text={text}

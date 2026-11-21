@@ -1,23 +1,8 @@
-/**
- * The desktop quit, ordered so it feels instant: every window disappears
- * first, then teardown (service detach, an in-tree daemon's stop and the
- * PostgreSQL it started) runs in the still-running main process, and the app
- * exits once it settles. A launch that arrives while that teardown runs is
- * not lost: the old instance still holds the single-instance lock, so it
- * relaunches the app on its way out instead of reviving a quitting window.
- */
-
 import { IN_TREE_DAEMON_STOP_GRACE_MS } from '../shared/core-src/standalone/daemon-stop-budget.mjs';
 
-/** Bound on waiting for a daemon in this app's process tree to exit after its
- *  forced stop. A healthy daemon shutdown (PostgreSQL stop included) measures
- *  ~0.6 s; past this the app exits and the daemon dies with it. The daemon
- *  arms its own forced PostgreSQL stop at the start of its shutdown, at this
- *  constant less the stop's signal margin (`daemon-stop-budget.mjs`
- *  PG_FORCED_STOP_AT_MS, mirrored by the core's `PG_FORCED_STOP_AT`), and its
- *  whole-shutdown backstop is 15 s (`SHUTDOWN_BUDGET`): this is the launcher's
- *  wait (`stopInTreeDaemon`), not a longer one. Windows are
- *  already hidden, so a longer wait only delays the invisible process exit. */
+/** A healthy daemon shutdown (PostgreSQL stop included) measures ~0.6 s. The daemon arms its forced PostgreSQL stop at
+ *  this constant less the stop's signal margin (`daemon-stop-budget.mjs` PG_FORCED_STOP_AT_MS, mirrored by the core's
+ *  `PG_FORCED_STOP_AT`); its whole-shutdown backstop is 15 s (`SHUTDOWN_BUDGET`). */
 export const DESKTOP_DAEMON_STOP_TIMEOUT_MS = IN_TREE_DAEMON_STOP_GRACE_MS;
 
 /** What a quit's stop of its core came to: the request (see `CoreStopRequest`), whether the core had exited when the wait

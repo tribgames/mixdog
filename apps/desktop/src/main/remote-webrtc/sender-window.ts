@@ -1,9 +1,3 @@
-/**
- * The sender renderer: a hidden, trusted window of this app (its own page and
- * narrow preload, no remote content) that owns every RTCPeerConnection of the
- * live view. Created on demand and released after the last viewer leaves;
- * main stays the authority and the sender only reports.
- */
 import { BrowserWindow, type IpcMainEvent, session } from 'electron';
 import { tagRendererSurface } from '../process-memory-diagnostics';
 

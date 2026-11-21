@@ -1284,7 +1284,7 @@
   border-radius: var(--mx-radius-md);
   background: var(--mx-hover);
   color: var(--mx-accent);
-  font-weight: var(--mx-weight-bold, 700);
+  font-weight: 700;
 }
 .question-icon[data-tone="done"] {
   color: var(--mx-success);

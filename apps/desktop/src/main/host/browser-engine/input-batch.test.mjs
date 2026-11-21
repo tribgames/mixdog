@@ -6,10 +6,6 @@ import { registerInputBatch } from './input-batch.ts';
 
 const METHOD = 'host/browser/input/batch';
 
-/**
- * A page whose debugger records every input event. `script(event, n)` may answer 'dialog'
- * for the n-th event, abort the call, or change the page; the default answer is 'completed'.
- */
 function harness({ script, guardVerdict = { blocked: false }, stateOverride, evaluated } = {}) {
   const handlers = new Map();
   const connection = { request: async () => ({}), handleRequest: (method, handler) => handlers.set(method, handler) };

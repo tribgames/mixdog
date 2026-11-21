@@ -1,27 +1,3 @@
-/**
- * runtime/shared/tool-card-model.mjs — the ONE collapsed tool-card text model.
- *
- * Every surface (TUI ToolExecution, desktop ToolCard) derives its tool-card
- * header label, parenthesized arg summary, and collapsed `└ detail` row from
- * deriveToolCardModel() so per-tool formats, casing, status merging
- * ("Failed · cause", "Exit 1", "Running · 12s") can never drift between
- * clients. src/tui/components/tool-execution/{text-format,surface-detail}.mjs
- * re-export the pure surface/status helpers from this file; width fitting and
- * theme colors stay surface-side.
- *
- *   tool-card-model/inline-text.mjs      — single-row text hygiene, row budgets
- *   tool-card-model/terminal-status.mjs  — status words, tone, ` · <time>` merge
- *   tool-card-model/shell-surface.mjs    — shell/run status and header
- *   tool-card-model/agent-surface.mjs    — agent titles, summary, response detection
- *   tool-card-model/background-task.mjs  — `background task` envelope
- *   tool-card-model/generic-detail.mjs   — default completed detail, load_tool
- *   tool-card-model/card-input.mjs       — normalized counts / progress / budgets
- *   tool-card-model/aggregate-card.mjs   — tool GROUP card model
- *   tool-card-model/displayed-result.mjs — which result text the card shows
- *   tool-card-model/card-status.mjs      — terminal status + status fragments
- *   tool-card-model/card-detail.mjs      — collapsed detail row
- *   tool-card-model/card-header.mjs      — header label + arg summary
- */
 import { formatToolSurface } from './tool-surface.mjs';
 import { pluralize, toolCallDisplayIdentity } from './tool-primitives.mjs';
 import { deriveAggregateCardModel } from './tool-card-model/aggregate-card.mjs';

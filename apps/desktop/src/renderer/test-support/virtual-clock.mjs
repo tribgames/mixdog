@@ -1,9 +1,4 @@
-// A virtual clock for page tests that measure frame-by-frame behaviour: the page's `performance.now`, `Date.now`, timers and
-// `requestAnimationFrame` run on a clock that only the pump advances, and the pump only advances it once the page has nothing else to do
-// (its microtasks and message-channel tasks, one real rendering frame for the observers). Machine load changes how long a step takes, never
-// what a step sees. CSS animations are paused and stepped on the same clock. Install it before the bundle under test:
-//   await page.evaluate(VIRTUAL_CLOCK);
-// Page code then waits with plain `setTimeout`/`requestAnimationFrame`; time passes while it waits.
+// Install before the bundle under test: await page.evaluate(VIRTUAL_CLOCK);
 export const VIRTUAL_CLOCK = `
   (() => {
     const real = {

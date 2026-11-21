@@ -85,9 +85,7 @@ export function useOnboardingRun(api: DesktopApi) {
   return { run, pending, error, setError, capabilityPendingRef };
 }
 
-/** The provider setup and profile the steps edit, read on mount (and again on
- *  `load(true)`); a client-managed setup follows desktop sign-ins on the
- *  shared desktop-provider cadence, plus focus and reconnect. */
+/** The provider setup and profile the steps edit, read on mount and again on `load(true)`. */
 export function useOnboardingSetup(api: DesktopApi, setError: (error: string) => void) {
   const [loading, setLoading] = useState(true);
   const [providerSetup, setProviderSetup] = useState<RecordValue>({});
@@ -121,8 +119,14 @@ export function useOnboardingSetup(api: DesktopApi, setError: (error: string) =>
     if (!loadedRef.current) void load();
   }, [load]);
 
+  useManagedSetupFollow(api, providerSetup.managedByClient === true, setProviderSetup);
+  return { loading, load, providerSetup, profile, setProfile };
+}
+
+/** A client-managed setup follows desktop sign-ins on the shared desktop-provider cadence, plus focus and reconnect. */
+function useManagedSetupFollow(api: DesktopApi, managed: boolean, setProviderSetup: (setup: RecordValue) => void) {
   useEffect(() => {
-    if (providerSetup.managedByClient !== true) return;
+    if (!managed) return;
     let cancelled = false;
     let pending = false;
     const refresh = async () => {
@@ -136,8 +140,6 @@ export function useOnboardingSetup(api: DesktopApi, setError: (error: string) =>
       }
     };
     const onRefresh = () => void refresh().catch(() => undefined);
-    // Desktop sign-ins have no event on a server window: follow them on the
-    // shared desktop-provider cadence, plus focus and reconnect.
     const leave = waitForDesktopProviders(onRefresh);
     window.addEventListener('focus', onRefresh);
     window.addEventListener('mixdog:remote-reconnected', onRefresh);
@@ -147,8 +149,7 @@ export function useOnboardingSetup(api: DesktopApi, setError: (error: string) =>
       window.removeEventListener('focus', onRefresh);
       window.removeEventListener('mixdog:remote-reconnected', onRefresh);
     };
-  }, [api, providerSetup.managedByClient]);
-  return { loading, load, providerSetup, profile, setProfile };
+  }, [api, managed, setProviderSetup]);
 }
 
 /** The wizard as a modal: background made inert while it is open and focus

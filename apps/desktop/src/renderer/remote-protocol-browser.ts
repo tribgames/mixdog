@@ -1,13 +1,3 @@
-// The phone's browser calls over the protocol: the live view of the PC's browser (frames, the WebRTC signal, page input), the main
-// workspace's tabs, history, saved-login fill and profile import, and the release of a tab's page. Node answered them from the window
-// process's browser host (remote-browser-methods.ts, remote-methods.ts `browserRemoteControl` / `browserReleasePage`,
-// remote-relay-client-calls.ts at 0bf8fe0457); the core serves each now:
-//  - page input and the seven parity actions are `browser/command` (a relay origin reaches only Node's phone table, with Node's argument
-//    checks: mixdog-exthost domain_browser.rs / browser_validate.rs), which the desktop host runs (main/host/browser-command.ts);
-//  - the live view is `browser/stream` + `browser/streamAck` (frames come back as `browser/frame`), the WebRTC signal is
-//    `browser/webrtcSignal` (its pushes come back the same way) and the display list is `browser/screenDisplays`;
-//  - the tab list and an import's progress are the desktop's `hostState` section (`browserTabs`, `browserImport`), which the page
-//    reads as Node's pushes: tabs only while the phone watches them (`browserRemoteTabs([true])`).
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import type { UiOpenRequestedParams } from '../../../../packages/protocol/src/index.ts';
 import {
@@ -33,6 +23,40 @@ const tabsOf = (value: unknown): unknown[] => {
 
 /** Whether each page is watching the PC's tabs (Node's `browserTabs.watch(clientId, watch)`), per context. */
 const watching = new WeakSet<object>();
+
+const MARK_KEYS = [BROWSER_APPROVAL_SESSIONS_KEY, BROWSER_DIALOG_APPROVAL_SESSIONS_KEY] as const;
+
+/** The union of the approval-session lists the host publishes under each mark key, fanned out when it changes. */
+function createApprovalMarks(ctx: PhoneProtocolHost['ctx']) {
+  const marks = new Map<string, string[]>();
+  const publish = (ids: string[]): void => {
+    if (
+      ids.length === ctx.browserApprovalSessionIds.length &&
+      ids.every((id, index) => id === ctx.browserApprovalSessionIds[index])
+    )
+      return;
+    ctx.browserApprovalSessionIds = ids;
+    ctx.fanOut(ctx.browserApprovalSessionListeners, ids);
+  };
+  return {
+    read(client: Client, keys: readonly string[]): void {
+      for (const key of keys) {
+        const value = hostState(client, key);
+        if (value === undefined) marks.delete(key);
+        else {
+          // A section stub is not a clear. Keep that source's last known list without blocking the other source.
+          const ids = readBrowserApprovalSessions(value);
+          if (ids !== null) marks.set(key, ids);
+        }
+      }
+      publish([...new Set([...marks.values()].flat())].sort());
+    },
+    reset(): void {
+      marks.clear();
+      publish([]);
+    },
+  };
+}
 
 export const adapter: PhoneProtocolAdapter = {
   group: 'browser',
@@ -87,40 +111,18 @@ export const adapter: PhoneProtocolAdapter = {
   install(host) {
     const { ctx } = host;
     let unwire: (() => void) | undefined;
-    const markKeys = [BROWSER_APPROVAL_SESSIONS_KEY, BROWSER_DIALOG_APPROVAL_SESSIONS_KEY] as const;
-    const marks = new Map<string, string[]>();
-    const publishMarks = (ids: string[]): void => {
-      if (
-        ids.length === ctx.browserApprovalSessionIds.length &&
-        ids.every((id, index) => id === ctx.browserApprovalSessionIds[index])
-      )
-        return;
-      ctx.browserApprovalSessionIds = ids;
-      ctx.fanOut(ctx.browserApprovalSessionListeners, ids);
-    };
+    const approvalMarks = createApprovalMarks(ctx);
     const wire = (client: Client): void => {
       unwire?.();
-      const readMarks = (keys: readonly string[]): void => {
-        for (const key of keys) {
-          const value = hostState(client, key);
-          if (value === undefined) marks.delete(key);
-          else {
-            // A section stub is not a clear. Keep that source's last known list without blocking the other source.
-            const ids = readBrowserApprovalSessions(value);
-            if (ids !== null) marks.set(key, ids);
-          }
-        }
-        publishMarks([...new Set([...marks.values()].flat())].sort());
-      };
-      if (client.store.appFeed()) readMarks(markKeys);
+      if (client.store.appFeed()) approvalMarks.read(client, MARK_KEYS);
       const offStore = client.store.subscribe((change) => {
         if (change.type === 'appSnapshot') {
-          readMarks(markKeys);
+          approvalMarks.read(client, MARK_KEYS);
           return;
         }
         if (change.type !== 'section' || change.section !== 'hostState') return;
         if (change.key === BROWSER_APPROVAL_SESSIONS_KEY || change.key === BROWSER_DIALOG_APPROVAL_SESSIONS_KEY) {
-          if (!(client.store as { readonly owed?: unknown }).owed) readMarks([change.key]);
+          if (!(client.store as { readonly owed?: unknown }).owed) approvalMarks.read(client, [change.key]);
           return;
         }
         // A snapshot or a resumed replay is what stood while the connection was away, not a change this phone is told of.
@@ -155,8 +157,7 @@ export const adapter: PhoneProtocolAdapter = {
     const off = host.onClient?.(wire);
     const offReset = host.onPairingReset?.(() => {
       unwire?.();
-      marks.clear();
-      publishMarks([]);
+      approvalMarks.reset();
     });
     if (!off)
       void ctx.phone.start().then(

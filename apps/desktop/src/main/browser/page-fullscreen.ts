@@ -1,12 +1,3 @@
-/**
- * A page's element fullscreen (a video's own button, `requestFullscreen()`) as
- * the person sees it. The page lives in a window the shell never shows, so
- * Chromium's fullscreen alone only grows that hidden window while the pane
- * goes blank. The shell goes fullscreen instead and the pane fills it; the
- * page is then sized to the shown area like any pane resize. Esc, the page's
- * own exit, another tab being shown, or the page closing leaves it, and the
- * shell and pane return to their layout.
- */
 import type { BrowserWindow, Event, Input, WebContents } from 'electron';
 
 interface PageFullscreenHost {

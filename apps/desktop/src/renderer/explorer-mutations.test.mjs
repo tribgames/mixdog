@@ -1,17 +1,13 @@
-// Explorer file-operation cover: which entries a copy/move is allowed to
-// touch, how a batch reports partial failure, and the naming a nested "a/b/c"
-// creation resolves to. Paste and drag-and-drop share this code, so the rules
-// are pinned once here instead of twice through the pane.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
   explorerCreatedEntry,
-  explorerErrorText,
   explorerTransferRels,
   transferExplorerEntries,
   trashExplorerEntries,
 } from './explorer-mutations.ts';
+import { errorMessage } from './editor-pane-session-errors.ts';
 
 const projectPath = 'C:/demo';
 
@@ -69,7 +65,7 @@ test('a transfer runs one entry at a time and reports the first failure', async 
     copy: false,
   });
   assert.deepEqual(moved.failed, ['first.txt', 'second.txt']);
-  assert.equal(explorerErrorText(moved.firstError), 'EBUSY: first.txt is locked');
+  assert.equal(errorMessage(moved.firstError), 'EBUSY: first.txt is locked');
 });
 
 test('a delete attempts every entry and hands back only what survived', async () => {
@@ -87,7 +83,7 @@ test('a delete attempts every entry and hands back only what survived', async ()
   });
   assert.deepEqual(attempted, ['a.txt', 'locked.txt', 'b.txt']);
   assert.deepEqual(result.failed, ['locked.txt']);
-  assert.equal(explorerErrorText(result.firstError), 'EBUSY: locked.txt is in use');
+  assert.equal(errorMessage(result.firstError), 'EBUSY: locked.txt is in use');
 });
 
 test('a host without the file bridge settles instead of throwing', async () => {
@@ -124,6 +120,6 @@ test('nested creation reveals every folder it introduced', () => {
 
 test('failure text keeps the message the file bridge sent', () => {
   const message = "EPERM: operation not permitted, unlink 'C:/demo/a.txt'";
-  assert.equal(explorerErrorText(new Error(message)), message);
-  assert.equal(explorerErrorText('plain failure'), 'plain failure');
+  assert.equal(errorMessage(new Error(message)), message);
+  assert.equal(errorMessage('plain failure'), 'plain failure');
 });

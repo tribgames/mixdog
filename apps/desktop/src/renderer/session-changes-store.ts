@@ -201,10 +201,6 @@ function changesKey({ cwd, source, sessionId }: ChangesTarget): string {
   return `${cwdRoots.get(cwd) || cwd}\0${source}`;
 }
 
-/** Entries whose cwd was just switched to: what they hold was read for an
- *  earlier workspace of the session, so it is not shown until a read of the
- *  new cwd lands (a merge returning to the project folder must not flash the
- *  worktree's — or the folder's old — counts). */
 const staleKeys = new Set<string>();
 
 function readEntry(target: ChangesTarget): ChangesEntry | undefined {
@@ -344,12 +340,6 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
   const cached = readCachedDockGitState(cwd);
   const dockState = cached.ready && !cached.error ? Promise.resolve(cached) : requestDockGitState(cwd);
   if (source === 'session') {
-    // The session's net change: its earliest baseline against the worktree,
-    // scoped to the files it touched (getSessionReviewDiff).
-    // Every scheduler pass re-reads, but it is a re-check, not a change
-    // signal: a read already running (the Session Diff pane's) answers it.
-    // A read begun for another workspace of the session is never joined: it
-    // queues a follow-up instead, which starts after the switch.
     const join = sessionReadCwds.get(sessionId) === cwd;
     sessionReadCwds.set(sessionId, cwd);
     const [dock, result] = await Promise.all([dockState, fetchSessionDiff(sessionId, { force: true, join })]);
@@ -632,13 +622,6 @@ const PATCH_CACHE_MAX_ENTRIES = 4096;
 const PATCH_READ_CONCURRENCY = 4;
 /** Landed patches are announced together, at most once per this window. */
 const PATCH_NOTIFY_MS = 100;
-/** `stamp`: what the patch was read for (a Git row's status and counts, or a
- *  result revision); a file whose stamp did not move keeps it without a read.
- *  `seq` orders reads of one file, so an older answer never replaces a newer.
- *  `failed`: that read errored; the next refresh or request asks again.
- *  `patch`/`tooLarge` then hold the last good text, if any (`hadPatch`),
- *  shown beside the failure notice. `bytes`: `patch`'s UTF-8 length, summed
- *  against the set's byte limit. */
 const patches = new RendererLruCache<
   string,
   { stamp: string; seq: number; bytes: number; failed?: boolean; hadPatch?: boolean } & SessionDiffFilePatch
@@ -920,12 +903,6 @@ function requestGitPatches(target: ChangesTarget, key: string, entry: ChangesEnt
   }
 }
 
-/** The files whose patches a set of rows asks for: the lazy ones, within the
- *  per-file limit; a capped set reads only the selected file. The open and
- *  the intent prefetch both ask through this, so they name the same files. */
-/** Per list: whether it is capped and (uncapped) its wanted files, for the
- *  reader kind and patch-cache version they were worked out at: a data change
- *  (the list, a landed patch) works them out again, a render does not. */
 const wantedSets = new WeakMap<
   readonly SessionDiffRow[],
   Map<string, { version: number; capped: boolean; wanted: SessionDiffRow[] }>
@@ -964,12 +941,6 @@ function wantedPatchRows(
 
 const wantedRow = (lazy: (row: SessionDiffRow) => boolean, row: SessionDiffRow) =>
   lazy(row) && !sessionDiffRowOverLineLimit(row);
-
-// ── The selected file of a capped set ────────────────────────────────────
-// A capped set reads and draws one file. Which one is decided here for both
-// the pane and the intent prefetch, so the prefetch asks for the file the
-// open will. Each pane owns its pick (local state); while mounted it only
-// publishes it, by its pane key, for the intents that open that pane.
 
 const publishedSelections = new Map<string, { sessionId: string; path: string }>();
 
@@ -1284,7 +1255,7 @@ export function useSessionChanges({
   const laneItemsForKey = lane?.items;
   const changeRevision = useMemo(() => `${fileChangeKey(laneItemsForKey)}:${busy ? 1 : 0}`, [laneItemsForKey, busy]);
   const fallback = !gitOnly && !git;
-  const diff = useSessionDiffRefresh({ sessionId: fallback ? session : '', active, revision: changeRevision, busy });
+  const diff = useSessionDiffRefresh({ sessionId: fallback ? session : '', active, revision: changeRevision });
   const lastScopedTarget = useRef<ChangesTarget | null>(null);
   useEffect(() => {
     if (!active || !project || !session || !sessionScopedSource(source)) return;

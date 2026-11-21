@@ -27,10 +27,6 @@ export function createZoomCapture(host: PixelCaptureHost, sources: ReturnType<ty
     allocateFrameId,
   } = host;
 
-  /** Zoom exists to resolve what the full frame could not, so the crop answers
-   *  with its own recognized text instead of sending the caller back to the
-   *  capture that already failed on these pixels. OCR reads the encoded crop,
-   *  so its boxes are already this frame's coordinates. */
   async function recognizeZoomText(command: ComputerCommand, jpeg: Buffer): Promise<string> {
     if (command.include_ocr !== true) return '';
     try {

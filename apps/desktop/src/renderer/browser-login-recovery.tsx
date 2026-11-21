@@ -1,11 +1,3 @@
-// An expired sign-in in the managed Browser Use profile, and the two ways
-// back: sign in again on the page, or copy the sign-in again from Chrome with
-// the existing importer (one-shot and only while Chrome is closed, so it is
-// offered here rather than re-synced automatically). The attended takeover
-// card offers the import beside "Done"; the routine card of a run that
-// met the expired sign-in (routine-result.mjs) offers both (agent-chat-row.tsx).
-// Sign-ins are shared by every session, so signing in from the thread's pane
-// is enough for the routine's next run.
 import { routineLoginRequiredSite } from '../shared/core-src/runtime/agent/orchestrator/session/routine-result.mjs';
 import { requestBrowserImport, requestBrowserPage, revealBrowserPane } from './browser-page-request';
 import { t } from './i18n';

@@ -1,8 +1,3 @@
-// The phone's review reads over `mixdogd` (the turn review bar, the transcript's turn changes and the session diff):
-// `invokeCapability` for the five review reads, answered as Node's relay did (remote-methods.ts `invokeCapability` at b6f10295a): the
-// request's shape and the read's argument rules (ipc-validation.ts validateTurnCapabilityArgs) before anything is sent, then the core
-// over the desktop's capability lane (remote-capability-lane.ts), with the value alone (VALUE_ONLY_SESSION_CAPABILITIES: Node never
-// sent these reads the session's snapshot).
 import {
   requiredCapabilityRequest,
   TURN_REVIEW_CAPABILITY_ARITY,

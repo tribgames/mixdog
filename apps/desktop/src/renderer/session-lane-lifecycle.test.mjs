@@ -55,38 +55,41 @@ test('a released callback cannot unsubscribe a replacement pane', () => {
 // A decorated renderer lane as the desktop host publishes it: a transcript
 // window of user / tool-card / assistant rows (a live tool card carries both
 // the shown and the raw result text), plus the host-injected read-outs.
+function toolCardRow(sessionId, turn, resultChars) {
+  const output = `PS C:\\Project\\sample> npm test # ${sessionId} ${turn}\n`.padEnd(resultChars, 'ok 1 - passes\n');
+  return {
+    id: `${sessionId}-t${turn}`,
+    kind: 'tool',
+    name: 'shell',
+    count: 1,
+    completedCount: 1,
+    headerFinalized: true,
+    calls: [
+      {
+        callId: `${sessionId}-c${turn}`,
+        name: 'shell',
+        args: { command: 'npm test', cwd: 'C:\\Project\\sample' },
+        category: 'shell',
+        summary: 'npm test',
+        isError: false,
+        exitCode: 0,
+        resultText: output,
+        rawResultText: `${output}\n`,
+        resolved: true,
+        startedAt: 1,
+        completedAt: 2,
+      },
+    ],
+  };
+}
+
 function laneFrame(sessionId, rows, resultChars) {
   const items = [];
   for (let index = 0; index < rows; index += 1) {
     const turn = Math.floor(index / 3);
     if (index % 3 === 0) items.push({ id: `${sessionId}-u${turn}`, kind: 'user', text: `Fix step ${turn}` });
-    else if (index % 3 === 1) {
-      const output = `PS C:\\Project\\sample> npm test # ${sessionId} ${turn}\n`.padEnd(resultChars, 'ok 1 - passes\n');
-      items.push({
-        id: `${sessionId}-t${turn}`,
-        kind: 'tool',
-        name: 'shell',
-        count: 1,
-        completedCount: 1,
-        headerFinalized: true,
-        calls: [
-          {
-            callId: `${sessionId}-c${turn}`,
-            name: 'shell',
-            args: { command: 'npm test', cwd: 'C:\\Project\\sample' },
-            category: 'shell',
-            summary: 'npm test',
-            isError: false,
-            exitCode: 0,
-            resultText: output,
-            rawResultText: `${output}\n`,
-            resolved: true,
-            startedAt: 1,
-            completedAt: 2,
-          },
-        ],
-      });
-    } else items.push({ id: `${sessionId}-a${turn}`, kind: 'assistant', text: `Step ${turn} is done.`.repeat(20) });
+    else if (index % 3 === 1) items.push(toolCardRow(sessionId, turn, resultChars));
+    else items.push({ id: `${sessionId}-a${turn}`, kind: 'assistant', text: `Step ${turn} is done.`.repeat(20) });
   }
   return {
     sessionId,

@@ -36,11 +36,6 @@ function harness(context) {
   return async (props) => act(async () => root.render(React.createElement(CommandSurface, props)));
 }
 
-/**
- * The core's `getQuotaHistory` for a few scripted meter readings ({ provider, account, label, ts, usedPct, resetAt }): the subscription
- * whose meter moved last opens, on the account in use (`pool.selectedId`, else the one that moved last), on the asked window (else the
- * weekly one, else the first). `history` lists a window's past windows newest first, `page` of them ten at a time.
- */
 function quotaWorld(
   context,
   {
@@ -523,16 +518,29 @@ test('a limit window is valued at Mixdog’s own rate over the whole limit, outs
   assert.equal(quotaValue({ ...summary, costPerPercent: null }, true), '—');
 });
 
-test('the usage dialog header switches to subscription usage and opens there next time', async (context) => {
-  // The recorded window opened on a whole hour in Seoul; assert every tick in that display zone.
+const seoulZone = (context) => {
   const previousZone = process.env.TZ;
   process.env.TZ = 'Asia/Seoul';
   context.after(() => {
     if (previousZone === undefined) delete process.env.TZ;
     else process.env.TZ = previousZone;
   });
+};
+
+async function openClaudeFiveHour(context) {
+  seoulZone(context);
   const render = harness(context);
-  const { calls, responses, api } = quotaApi(context);
+  const world = quotaApi(context);
+  focusQuotaUsage({ provider: 'anthropic-oauth', window: '5H' });
+  const props = { surface: 'stats', open: true, onClose() {}, api: world.api };
+  await render(props);
+  return { ...world, render, props };
+}
+
+test('the usage dialog header switches to subscription usage and opens there next time', async (context) => {
+  seoulZone(context);
+  const render = harness(context);
+  const { calls, api } = quotaApi(context);
   const props = { surface: 'stats', open: true, onClose() {}, api };
   await render(props);
   const heading = document.querySelector('#command-surface-title');
@@ -549,7 +557,17 @@ test('the usage dialog header switches to subscription usage and opens there nex
     window: '7D',
   });
 
-  // What is shown and its exact period share one row; the period chips follow.
+  await render({ ...props, open: false });
+  await render(props);
+  assert.equal(tab('OAuth usage').getAttribute('aria-selected'), 'true', 'the last choice reopens');
+});
+
+test('subscription usage opens on the weekly window beside its selectors', async (context) => {
+  seoulZone(context);
+  const render = harness(context);
+  const { api } = quotaApi(context);
+  window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'quota');
+  await render({ surface: 'stats', open: true, onClose() {}, api });
   assert.ok(document.querySelector('.stats-controls > .quota-selectors + .stats-period'));
   assert.equal(document.querySelector('.quota-subscription .mx-select-value').textContent, 'Claude');
   await act(async () => document.querySelector('.quota-subscription [role="combobox"]').click());
@@ -558,15 +576,14 @@ test('the usage dialog header switches to subscription usage and opens there nex
   assert.deepEqual(texts('.quota-window'), ['5H', '7D']);
   assert.equal(document.querySelector('.quota-window[aria-pressed="true"]').textContent, '7D', 'weekly opens first');
   assert.equal(document.querySelectorAll('.stats-card > b')[0].textContent, '12%');
-  // The weekly rest, 88 %, spread over the 5 d 3.5 h left: about 17 % a day.
   assert.equal(document.querySelectorAll('.stats-card > b')[1].textContent, t('{{percent}} a day', { percent: '17%' }));
-  await act(async () =>
-    [...document.querySelectorAll('.quota-window')].find((node) => node.textContent === '5H').click()
-  );
-  assert.deepEqual(calls.at(-1), { provider: 'anthropic-oauth', account: 'default', window: '5H', view: 'window' });
+});
+
+test('the five-hour window reads its used share, allowance and unvalued cost', async (context) => {
+  const { calls, responses } = await openClaudeFiveHour(context);
+  assert.deepEqual(calls.at(-1), { provider: 'anthropic-oauth', account: '', window: '5H', view: 'window' });
   assert.deepEqual(texts('.stats-card small'), [t('Used'), t('Allowance to reset'), t('Est. value'), t('Per 1%')]);
   assert.equal(document.querySelectorAll('.stats-card > b')[0].textContent, '30%');
-  // 70 % left over the 3.5 h to the 18:00 reset: 20 % an hour.
   assert.equal(
     document.querySelectorAll('.stats-card > b')[1].textContent,
     t('{{percent}} an hour', { percent: '20%' })
@@ -576,30 +593,27 @@ test('the usage dialog header switches to subscription usage and opens there nex
     t('{{time}} left', { time: '3h 30m' })
   );
   const { summary } = responses.at(-1);
-  // Two priced rises and no earlier window: too little to value the limit
-  // in dollars yet, and both value cards say why.
   assert.equal(summary.costPerPercent, null);
   const notEnough = t('Not enough measured usage to estimate.');
   for (const index of [2, 3]) {
     assert.equal(document.querySelectorAll('.stats-card > b')[index].textContent, '—');
     assert.equal(document.querySelectorAll('.stats-card')[index].querySelector('em').textContent, notEnough);
   }
-  // 30 % in the first hour runs out 2 h 20 m later, before the 18:00 reset.
   assert.equal(document.querySelectorAll('.stats-card')[0].dataset.tone, 'danger');
+});
+
+test('the five-hour chart draws the measured line, the forecast, the models and the slots', async (context) => {
+  await openClaudeFiveHour(context);
   assert.deepEqual(texts('.quota-mix li > b'), ['20%', '10%', '70%']);
   assert.equal(
     [...document.querySelectorAll('.quota-trend header *')].some((node) => node.textContent === t('Trend')),
     false,
     'only the visible Trend heading is gone'
   );
-  // 13:00→13:30 had no reading; 13:30→14:00 was read every quarter hour.
   assert.ok(document.querySelector('.quota-chart-unmeasured').getAttribute('d'));
   assert.ok(document.querySelector('.quota-chart-line').getAttribute('d'));
-  // The forecast stops where it runs out, at 16:20.
   assert.match(document.querySelector('.quota-chart-forecast').getAttribute('d'), /L666\.7,0\.0$/);
   assert.ok(document.querySelector('.quota-chart-pace'));
-  // The legend names only the models stacked under the meter; the axis ticks
-  // whole hours and names now.
   assert.equal(document.querySelectorAll('.quota-chart-stack').length, 2);
   assert.equal(document.querySelectorAll('.quota-legend li').length, 2);
   assert.equal(document.querySelectorAll('.quota-legend li > i[data-series]').length, 2);
@@ -616,28 +630,28 @@ test('the usage dialog header switches to subscription usage and opens there nex
   );
   assert.equal(document.querySelectorAll('.quota-chart-slots > *').length, 10);
   assert.equal(document.querySelectorAll('button.quota-chart-slot').length, 3, 'only elapsed slots open a card');
-  // Laid out like token usage: the subscription's row, then its models.
+});
+
+test('the five-hour table lists the subscription, its models and the window history', async (context) => {
+  await openClaudeFiveHour(context);
   assert.equal(document.querySelector('.quota-table .stats-provider-row b').textContent, 'Claude');
   assert.deepEqual(texts('.quota-table .stats-share-cell'), ['30%', '20%', '10%']);
   assert.equal(document.querySelectorAll('.quota-table .stats-model-row').length, 2);
   assert.equal(document.querySelectorAll('.quota-history-table tbody tr').length, 1);
   assert.equal(document.querySelector('.quota-history-pager'), null, 'one page needs no pager');
   assert.match(document.querySelector('.quota-history-table').textContent, new RegExp(t('In progress')));
-  // A window's list-price value: the recorded money, and no rate-based figures before the rate is known.
   assert.deepEqual(
     [...document.querySelector('.quota-history-table tbody tr').cells].slice(-3).map((cell) => cell.textContent),
     [usageMoney(3), '—', '—']
   );
+});
 
+test('the last-24-hours period reads the day the window rose in', async (context) => {
+  const { calls } = await openClaudeFiveHour(context);
   await act(async () => button('Last 24 hours').click());
   assert.equal(calls.at(-1).view, 'hour');
   assert.deepEqual(texts('.stats-card small'), [t('Times maxed out'), t('Period usage'), t('Est. value'), t('Per 1%')]);
-  // The day holds the whole five-hour window, which rose from 0 to 30 %.
   assert.equal(document.querySelectorAll('.stats-card > b')[1].textContent, '30%');
-
-  await render({ ...props, open: false });
-  await render(props);
-  assert.equal(tab('OAuth usage').getAttribute('aria-selected'), 'true', 'the last choice reopens');
 });
 
 test('subscription values distinguish recorded money, inferred outside use and their total', async (context) => {

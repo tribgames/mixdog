@@ -1,10 +1,6 @@
-// The 48px global activity rail is a stable landmark
-// on every surface (chat and code alike). It contains only destinations that
-// swap the adjacent panel; creation actions live in the Sessions panel header.
-// Usage and Settings live at the rail foot.
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import type React from 'react';
-import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { DesktopUpdaterState } from '../shared/contract';
 import {
@@ -34,11 +30,6 @@ import { RemotePcSwitcher } from './RemotePcSwitcher';
 import { usePlainBrowserChrome } from './titlebar';
 import type { WorkbenchSideViewDescriptor, WorkbenchSideViewId } from './workbench-side-view-layout';
 
-// The flyout body loads in the post-boot warm-up lane, on hover/focus intent,
-// or on the open itself — not with the rail; its data is already warm in the
-// shared usage store. A loaded module renders directly: React.lazy suspended
-// every first mount even when the chunk was cached, and React's fallback
-// throttle then held an empty popup for 300ms+.
 /** One mouse-wheel notch in pixel units. */
 const WHEEL_NOTCH_PIXELS = 100;
 
@@ -88,68 +79,11 @@ function usagePinGlyph(rows: ReturnType<typeof useUsageRailPin>['usagePinRows'],
   return <span className="codicon codicon-pie-chart" aria-hidden="true" />;
 }
 
-// Memoised: the rail sits beside every App commit (a session switch is four)
-// and changes only with its destinations, the shown one and Settings.
-export const ActivityRail = memo(function ActivityRail({
-  settingsOpen,
-  onOpenSettings,
-  desktopUpdaterState,
-  onInstallDesktopUpdate,
-  onOpenProviders,
-  onOpenUsageStats,
-  usageApi,
-  navigationItems,
-  activeNavigationId,
-  onSelectNavigation,
-}: {
-  /** The settings surface is open, so the rail-foot button reads selected. */
-  settingsOpen: boolean;
-  /** A section opens Settings on it (the update slot's "see progress"). */
-  onOpenSettings(section?: RailUpdateSettingsTarget): void;
-  /** The desktop app's own updater, for the slot above Usage. */
-  desktopUpdaterState?: DesktopUpdaterState;
-  onInstallDesktopUpdate?(): void;
-  onOpenProviders?(): void;
-  /** Opens the token-usage statistics dialog from the usage flyout header. */
-  onOpenUsageStats?(): void;
-  /** Overridable only for tests; the rail warms usage through the host API. */
-  usageApi?: UsageApi;
-  navigationItems: readonly WorkbenchSideViewDescriptor[];
-  activeNavigationId: WorkbenchSideViewId | null;
-  onSelectNavigation(id: WorkbenchSideViewId): void;
-}) {
-  // Subscription usage moved off the session panel (user decision): the rail
-  // hosts an account toggle and the panel stays a pure session
-  // list. Only the dashboard MARKUP is flyout-scoped; its data lives in the
-  // shared store below so the first open never starts from nothing.
-  const [usageOpen, setUsageOpen] = useState(false);
-  const plainBrowserChrome = usePlainBrowserChrome();
-  // ABB: the usage flyout closes on hardware back.
-  useMobileBack(usageOpen, () => setUsageOpen(false));
-  const usageSnapshot = useSyncExternalStore(subscribeUsageDashboard, getUsageDashboardSnapshot);
-  const railRef = useRef<HTMLElement | null>(null);
-  const navRef = useRef<HTMLElement | null>(null);
-  const settingsRef = useRef<HTMLButtonElement | null>(null);
-  const railUpdate = useRailUpdate(desktopUpdaterState, onInstallDesktopUpdate, onOpenSettings);
-  const {
-    usagePinned,
-    toggleUsagePin,
-    railBars,
-    setRailBars,
-    accountsExpanded,
-    setAccountsExpanded,
-    railSlots,
-    setRailSlots,
-    usagePinRows,
-    usagePinScroll,
-    loading: usagePinLoading,
-  } = useUsageRailPin(
-    usageSnapshot,
-    { rail: railRef, nav: navRef, settings: settingsRef },
-    desktopFeatureEnabled('usage'),
-    railUpdate ? RAIL_UPDATE_SLOT_HEIGHT : 0,
-    usageApi ?? window.mixdogDesktop
-  );
+/** The usage button's slot stack steps by wheel notch or by its step buttons. */
+function useUsageSlotStepping(
+  usagePinScroll: ReturnType<typeof useUsageRailPin>['usagePinScroll'],
+  railRef: { current: HTMLElement | null }
+) {
   // The wheel moves the stack one slot per discrete notch; a smooth (trackpad)
   // stream of small pixel deltas accumulates to a notch before it steps.
   // Horizontal or zero vertical deltas never step.
@@ -185,6 +119,58 @@ export const ActivityRail = memo(function ActivityRail({
     if (rail?.querySelector(`[data-rail-step="${direction}"]`)) return;
     rail?.querySelector<HTMLButtonElement>(`[data-rail-step="${-direction}"]`)?.focus();
   });
+  return { stepOnWheel, stepFromControl };
+}
+
+function useSidebarUsageComponent(open: boolean) {
+  const [fetched, setFetched] = useState(loadedSidebarUsageModule);
+  const usageModule = fetched ?? loadedSidebarUsageModule();
+  useEffect(() => {
+    if (!open || usageModule) return undefined;
+    let live = true;
+    loadSidebarUsageModule().then(
+      (module) => {
+        if (live) setFetched(module);
+      },
+      // A failed chunk keeps the placeholder; the next open retries the load.
+      () => undefined
+    );
+    return () => {
+      live = false;
+    };
+  }, [open, usageModule]);
+  return usageModule?.SidebarUsage;
+}
+
+function useDismissOnOutsidePress(open: boolean, dismiss: () => void) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        target?.closest(
+          '.rail-usage-popup, .sidebar-usage-toggle, [data-provider-account-overlay], [data-usage-menu-overlay]'
+        )
+      )
+        return;
+      dismiss();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') dismiss();
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open, dismiss]);
+}
+
+function useUsageFlyout() {
+  const [usageOpen, setUsageOpen] = useState(false);
+  // ABB: the usage flyout closes on hardware back.
+  useMobileBack(usageOpen, () => setUsageOpen(false));
   // Anchor the flyout's bottom edge to the Usage button itself, measured at
   // open time (static offsets drifted a few px from the real rail layout).
   const [usageAnchorBottom, setUsageAnchorBottom] = useState(48);
@@ -197,23 +183,12 @@ export const ActivityRail = memo(function ActivityRail({
       Math.round((window.visualViewport?.height ?? window.innerHeight) - bounds.bottom)
     );
   };
-  const [fetchedUsageModule, setFetchedUsageModule] = useState(loadedSidebarUsageModule);
-  const usageModule = fetchedUsageModule ?? loadedSidebarUsageModule();
+  const SidebarUsage = useSidebarUsageComponent(usageOpen);
+  const closeUsage = useCallback(() => setUsageOpen(false), []);
+  useDismissOnOutsidePress(usageOpen, closeUsage);
   useEffect(() => {
-    if (!usageOpen || usageModule) return undefined;
-    let live = true;
-    loadSidebarUsageModule().then(
-      (module) => {
-        if (live) setFetchedUsageModule(module);
-      },
-      // A failed chunk keeps the placeholder; the next open retries the load.
-      () => undefined
-    );
-    return () => {
-      live = false;
-    };
-  }, [usageOpen, usageModule]);
-  const SidebarUsage = usageModule?.SidebarUsage;
+    if (!usageOpen) preparedUsageAnchor.current = null;
+  }, [usageOpen]);
   const toggleUsage = (element: HTMLButtonElement) => {
     if (!usageOpen && preparedUsageAnchor.current === null) rememberUsageAnchor(element);
     commitImmediateOverlay(() => {
@@ -223,6 +198,82 @@ export const ActivityRail = memo(function ActivityRail({
       setUsageOpen((open) => !open);
     });
   };
+  return {
+    usageOpen,
+    setUsageOpen,
+    usageAnchorBottom,
+    usageClickGuard,
+    rememberUsageAnchor,
+    toggleUsage,
+    SidebarUsage,
+  };
+}
+
+// Memoised: the rail sits beside every App commit (a session switch is four)
+// and changes only with its destinations, the shown one and Settings.
+export const ActivityRail = memo(function ActivityRail({
+  settingsOpen,
+  onOpenSettings,
+  desktopUpdaterState,
+  onInstallDesktopUpdate,
+  onOpenProviders,
+  onOpenUsageStats,
+  usageApi,
+  navigationItems,
+  activeNavigationId,
+  onSelectNavigation,
+}: {
+  /** The settings surface is open, so the rail-foot button reads selected. */
+  settingsOpen: boolean;
+  /** A section opens Settings on it (the update slot's "see progress"). */
+  onOpenSettings(section?: RailUpdateSettingsTarget): void;
+  /** The desktop app's own updater, for the slot above Usage. */
+  desktopUpdaterState?: DesktopUpdaterState;
+  onInstallDesktopUpdate?(): void;
+  onOpenProviders?(): void;
+  /** Opens the token-usage statistics dialog from the usage flyout header. */
+  onOpenUsageStats?(): void;
+  /** Overridable only for tests; the rail warms usage through the host API. */
+  usageApi?: UsageApi;
+  navigationItems: readonly WorkbenchSideViewDescriptor[];
+  activeNavigationId: WorkbenchSideViewId | null;
+  onSelectNavigation(id: WorkbenchSideViewId): void;
+}) {
+  const {
+    usageOpen,
+    setUsageOpen,
+    usageAnchorBottom,
+    usageClickGuard,
+    rememberUsageAnchor,
+    toggleUsage,
+    SidebarUsage,
+  } = useUsageFlyout();
+  const plainBrowserChrome = usePlainBrowserChrome();
+  const usageSnapshot = useSyncExternalStore(subscribeUsageDashboard, getUsageDashboardSnapshot);
+  const railRef = useRef<HTMLElement | null>(null);
+  const navRef = useRef<HTMLElement | null>(null);
+  const settingsRef = useRef<HTMLButtonElement | null>(null);
+  const railUpdate = useRailUpdate(desktopUpdaterState, onInstallDesktopUpdate, onOpenSettings);
+  const {
+    usagePinned,
+    toggleUsagePin,
+    railBars,
+    setRailBars,
+    accountsExpanded,
+    setAccountsExpanded,
+    railSlots,
+    setRailSlots,
+    usagePinRows,
+    usagePinScroll,
+    loading: usagePinLoading,
+  } = useUsageRailPin(
+    usageSnapshot,
+    { rail: railRef, nav: navRef, settings: settingsRef },
+    desktopFeatureEnabled('usage'),
+    railUpdate ? RAIL_UPDATE_SLOT_HEIGHT : 0,
+    usageApi ?? window.mixdogDesktop
+  );
+  const { stepOnWheel, stepFromControl } = useUsageSlotStepping(usagePinScroll, railRef);
   // The rail is always mounted, so restore the synchronous cache seed and start
   // one deduped refresh immediately. This lets pinned usage paint on first entry
   // instead of waiting for the post-boot idle queue.
@@ -235,31 +286,6 @@ export const ActivityRail = memo(function ActivityRail({
       release();
     };
   }, [usageApi]);
-  useEffect(() => {
-    if (!usageOpen) {
-      preparedUsageAnchor.current = null;
-      return undefined;
-    }
-    const dismiss = (event: PointerEvent) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (
-        target?.closest(
-          '.rail-usage-popup, .sidebar-usage-toggle, [data-provider-account-overlay], [data-usage-menu-overlay]'
-        )
-      )
-        return;
-      setUsageOpen(false);
-    };
-    const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setUsageOpen(false);
-    };
-    document.addEventListener('pointerdown', dismiss, true);
-    document.addEventListener('keydown', keydown);
-    return () => {
-      document.removeEventListener('pointerdown', dismiss, true);
-      document.removeEventListener('keydown', keydown);
-    };
-  }, [usageOpen]);
   const openUsageStats = onOpenUsageStats
     ? () => {
         setUsageOpen(false);

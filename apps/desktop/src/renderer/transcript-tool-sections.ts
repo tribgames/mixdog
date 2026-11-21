@@ -150,10 +150,15 @@ export function toolFileSection(text: string, path: string): ToolOutputSection {
 
 const LIST_ROW = /^(.+)\t(file|dir)$/;
 
-function fileEntry(path: string, kind: 'file' | 'dir'): ToolFileEntry {
+/** A path without its trailing separator, split into its name and folder (either separator). */
+export function toolPathParts(path: string): { path: string; name: string; dir: string } {
   const clean = path.replace(/[\\/]+$/, '');
   const cut = Math.max(clean.lastIndexOf('/'), clean.lastIndexOf('\\'));
-  return { path: clean, name: clean.slice(cut + 1), dir: cut > 0 ? clean.slice(0, cut) : '', kind };
+  return { path: clean, name: clean.slice(cut + 1), dir: cut > 0 ? clean.slice(0, cut) : '' };
+}
+
+function fileEntry(path: string, kind: 'file' | 'dir'): ToolFileEntry {
+  return { ...toolPathParts(path), kind };
 }
 
 /** A glob, find or list result as file rows. Lines that are not paths come

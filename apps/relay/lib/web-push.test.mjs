@@ -248,15 +248,40 @@ test('the web app reads the relay key, the same one after a restart', async (t) 
   assert.equal(again.publicKey, publicKey);
 });
 
-test('each PC delivers through its own association; unauthorized senders are refused', async (t) => {
-  const { relay, pushService, pcA, pcB, tokenA, tokenB, http } = await twoPcRelay(t);
+async function registeredPcs(t) {
+  const context = await twoPcRelay(t);
+  const { relay, pcA, pcB, tokenA, tokenB, http } = context;
   const legA = await desktopLeg(relay, pcA);
   const legB = await desktopLeg(relay, pcB);
-  const capabilities = await legA.next('relay-capabilities');
-  assert.equal(capabilities.webPush, 1);
-  assert.deepEqual((await legA.next('webpush-subscriptions')).subscriptions, []);
+  t.after(() => {
+    legA.socket.close();
+    legB.socket.close();
+  });
+  // One browser, one subscription, registered with BOTH PCs by each PC's own credential.
+  assert.equal((await http('/webpush/register', tokenA, { endpoint: ENDPOINT, sealed: sealed('a') })).status, 200);
+  assert.equal((await http('/webpush/register', tokenB, { endpoint: ENDPOINT, sealed: sealed('b') })).status, 200);
+  const setA = (await legA.next('webpush-subscriptions', 1)).subscriptions;
+  const setB = (await legB.next('webpush-subscriptions', 1)).subscriptions;
+  return {
+    ...context,
+    legA,
+    legB,
+    setA,
+    setB,
+    payload: Buffer.from('ciphertext-from-a').toString('base64url'),
+  };
+}
 
-  // No credential, a wrong credential, a cross-site page: nothing is bound.
+test('a ready desktop leg learns the relay delivers web push and starts with no subscriptions', async (t) => {
+  const { relay, pcA } = await twoPcRelay(t);
+  const legA = await desktopLeg(relay, pcA);
+  t.after(() => legA.socket.close());
+  assert.equal((await legA.next('relay-capabilities')).webPush, 1);
+  assert.deepEqual((await legA.next('webpush-subscriptions')).subscriptions, []);
+});
+
+test('no credential, a wrong credential or a cross-site page bind nothing', async (t) => {
+  const { relay, tokenA, http } = await twoPcRelay(t);
   assert.equal((await http('/webpush/register', '', { endpoint: ENDPOINT, sealed: sealed() })).status, 401);
   assert.equal((await http('/webpush/register', 'f'.repeat(64), { endpoint: ENDPOINT, sealed: sealed() })).status, 401);
   const crossSite = await fetch(`http://127.0.0.1:${relay.port}/webpush/register`, {
@@ -265,22 +290,21 @@ test('each PC delivers through its own association; unauthorized senders are ref
     body: JSON.stringify({ endpoint: ENDPOINT, sealed: sealed() }),
   });
   assert.equal(crossSite.status, 403);
+  assert.equal((await (await http('/webpush/status', tokenA, { endpoint: ENDPOINT })).json()).registered, false);
+});
 
-  // The browser registers ONE subscription with BOTH PCs, each with its own credential.
-  assert.equal((await http('/webpush/register', tokenA, { endpoint: ENDPOINT, sealed: sealed('a') })).status, 200);
-  assert.equal((await http('/webpush/register', tokenB, { endpoint: ENDPOINT, sealed: sealed('b') })).status, 200);
-  const setA = (await legA.next('webpush-subscriptions', 1)).subscriptions;
-  const setB = (await legB.next('webpush-subscriptions', 1)).subscriptions;
-  // Each PC sees only its own association, with the box sealed for it.
+test('each PC sees only its own association, with the box sealed for it', async (t) => {
+  const { setA, setB, tokenA, http } = await registeredPcs(t);
   assert.deepEqual(setA, [{ endpoint: ENDPOINT, clientId: 'aaaaaaaa', sealed: sealed('a') }]);
   assert.deepEqual(setB, [{ endpoint: ENDPOINT, clientId: 'bbbbbbbb', sealed: sealed('b') }]);
   assert.equal((await (await http('/webpush/status', tokenA, { endpoint: ENDPOINT })).json()).registered, true);
+});
 
-  // Both PCs deliver; the relay signs and forwards ciphertext verbatim.
-  const payloadA = Buffer.from('ciphertext-from-a').toString('base64url');
-  legA.send({ type: 'webpush-send', endpoint: ENDPOINT, clientId: 'aaaaaaaa', payload: payloadA });
+test('both PCs deliver, and the relay signs and forwards the ciphertext verbatim', async (t) => {
+  const { relay, pushService, legA, legB, payload } = await registeredPcs(t);
+  legA.send({ type: 'webpush-send', endpoint: ENDPOINT, clientId: 'aaaaaaaa', payload });
   assert.equal((await legA.next('webpush-result')).ok, true);
-  legB.send({ type: 'webpush-send', endpoint: ENDPOINT, clientId: 'bbbbbbbb', payload: payloadA });
+  legB.send({ type: 'webpush-send', endpoint: ENDPOINT, clientId: 'bbbbbbbb', payload });
   assert.equal((await legB.next('webpush-result')).ok, true);
   assert.equal(pushService.requests.length, 2);
   const [first] = pushService.requests;
@@ -289,29 +313,33 @@ test('each PC delivers through its own association; unauthorized senders are ref
   assert.equal(Buffer.from(first.init.body).toString(), 'ciphertext-from-a');
   const key = verifyVapid(first.init.headers.Authorization, ENDPOINT);
   assert.equal(key, (await (await fetch(`http://127.0.0.1:${relay.port}/webpush/key`)).json()).publicKey);
+});
 
-  // A PC cannot borrow another PC's association.
-  legA.send({ type: 'webpush-send', endpoint: ENDPOINT, clientId: 'bbbbbbbb', payload: payloadA });
-  assert.equal((await legA.next('webpush-result', 1)).error, 'unbound-subscription');
-  assert.equal(pushService.requests.length, 2);
+test('a PC cannot borrow another PC association', async (t) => {
+  const { pushService, legA, payload } = await registeredPcs(t);
+  legA.send({ type: 'webpush-send', endpoint: ENDPOINT, clientId: 'bbbbbbbb', payload });
+  assert.equal((await legA.next('webpush-result')).error, 'unbound-subscription');
+  assert.equal(pushService.requests.length, 0);
+});
 
-  // Revoking the browser on PC A removes only A's association.
+test('revoking the browser on one PC removes only that PC association', async (t) => {
+  const { pushService, legA, legB, tokenA, http, payload } = await registeredPcs(t);
   legA.send({ type: 'revoke-client', requestId: 'r1', clientId: 'aaaaaaaa' });
   assert.equal((await legA.next('client-revoked')).ok, true);
   assert.deepEqual((await legA.next('webpush-subscriptions', 2)).subscriptions, []);
-  legA.send({ type: 'webpush-send', endpoint: ENDPOINT, clientId: 'aaaaaaaa', payload: payloadA });
-  assert.equal((await legA.next('webpush-result', 2)).error, 'unbound-subscription');
+  legA.send({ type: 'webpush-send', endpoint: ENDPOINT, clientId: 'aaaaaaaa', payload });
+  assert.equal((await legA.next('webpush-result')).error, 'unbound-subscription');
   // The revoked credential cannot re-bind either.
   assert.equal((await http('/webpush/register', tokenA, { endpoint: ENDPOINT, sealed: sealed('a') })).status, 401);
-  legB.send({ type: 'webpush-send', endpoint: ENDPOINT, clientId: 'bbbbbbbb', payload: payloadA });
-  assert.equal((await legB.next('webpush-result', 1)).ok, true);
-  assert.equal(pushService.requests.length, 3);
+  legB.send({ type: 'webpush-send', endpoint: ENDPOINT, clientId: 'bbbbbbbb', payload });
+  assert.equal((await legB.next('webpush-result')).ok, true);
+  assert.equal(pushService.requests.length, 1);
+});
 
-  // Unregistering with PC B's credential removes B's association.
+test('unregistering with a PC credential removes that PC association', async (t) => {
+  const { legB, tokenB, http } = await registeredPcs(t);
   assert.deepEqual(await (await http('/webpush/unregister', tokenB, { endpoint: ENDPOINT })).json(), { removed: true });
   assert.deepEqual((await legB.next('webpush-subscriptions', 2)).subscriptions, []);
-  legA.socket.close();
-  legB.socket.close();
 });
 
 test('associations are persisted, and a retired subscription (410) is dropped for every PC', async (t) => {

@@ -1,7 +1,3 @@
-// This PC's notification preferences and the conversation overrides, read from the core's config key `notifications`
-// (Settings writes it through `config/value/write`; the migration fills it from the old notification-preferences.json).
-// The main process holds the config section as the core pushes it, so each read is the current value: a preference
-// changed in Settings applies to the next toast, taskbar flash and Browser Use approval toast without a re-read request.
 import { NOTIFICATION_PC_DEVICE_ID } from '../shared/contract-notifications';
 import type { DesktopSectionsSnapshot } from '../shared/contract-sections';
 import {

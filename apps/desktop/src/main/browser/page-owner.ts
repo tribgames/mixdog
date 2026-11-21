@@ -91,11 +91,6 @@ export function createBrowserPageOwner(host: {
     if (implicitBlanks.get(sessionId) === guest) implicitBlanks.delete(sessionId);
   }
 
-  /** Closes the session's implicit initial page (made by the pane or by an
-   *  agent command, never by "+") once it is still an untouched about:blank
-   *  and the agent works in `keep` instead. A page the user took (selected,
-   *  "+"-reused, navigated) or one that loaded anything is kept, and so is
-   *  the session's last page. */
   function discardUntouchedBlank(sessionId: string, keep: WebContents): boolean {
     const blank = implicitBlanks.get(sessionId);
     const entry = pages.get(sessionId);

@@ -11,12 +11,6 @@ export interface IdleObservation {
   desktopLocked?: boolean;
 }
 
-/** Pauses the host may end by itself once the desktop has been quiet: a
- *  recovery that could not be verified, an input observer that failed, or a
- *  release a busy target did not acknowledge in time. The takeover already
- *  stopped their sessions, and only a cleanup that confirmed the release
- *  (`cleanupState === 'ready'`) makes them eligible. A user's own Pause, Stop
- *  or takeover always waits for the user. */
 const IDLE_RESUME_REASONS = [
   'input_recovery_unconfirmed',
   'input_observation_unavailable',

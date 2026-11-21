@@ -1,8 +1,3 @@
-// When the automatic cookie import runs: once shortly after start (or opt-in)
-// if Chrome is not running, and once per Chrome exit (an event, never polled);
-// never while Chrome lives, one run at a time, only for the one bound profile,
-// only once a key is saved for it, and not again after "needs one manual
-// import". Fake timers, a fake Chrome-exit watch and a fake importer.
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

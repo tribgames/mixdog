@@ -1,17 +1,9 @@
 /**
- * Comparing the text of a performance trace result (`BrowserPerformanceTrace.summary`).
- *
  * Format, from performance.ts:
  *   Trace duration: <int>ms
  *   Events: <int>[; dropped after cap: <int>]
  *   Top trace events:
  *   - <name>: <int> event(s), <int>.<2 digits>ms total
- *
- * The duration and each entry's total are wall-clock numbers; `normalizeTraceDurations`
- * rewrites exactly those two number fields and nothing else, so counts, names
- * and structure still compare. Live traces of different runs never hold the
- * same events (Chromium's GC and sampling), so callers compare traces rendered
- * from one recorded event list.
  */
 
 const DURATION_LINE = /^Trace duration: \d+ms$/;

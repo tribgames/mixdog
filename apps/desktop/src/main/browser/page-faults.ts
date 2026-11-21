@@ -1,8 +1,3 @@
-/**
- * A page's fault line, as the pane shows it: a crashed or unresponsive
- * renderer, and a main-frame load that never arrived. A new load clears a
- * load failure; a finished error document does not.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserGuestStateStore } from './host-state';
@@ -11,6 +6,7 @@ import { redactBrowserUrl } from './redaction';
 
 /** Prefix of a fault set by a failed main-frame load; a new load clears it. */
 const LOAD_FAULT = 'page failed to load: ';
+const NET_ERR_ABORTED = -3;
 
 export function watchPageFaults(state: BrowserGuestStateStore, guest: WebContents): void {
   // Electron repeats `unresponsive` while a page stays stuck; the log keeps
@@ -47,12 +43,8 @@ export function watchPageFaults(state: BrowserGuestStateStore, guest: WebContent
     record.crashed = false;
     record.network.finishDocument(guest.getURL());
   });
-  // A page that never arrived (refused, unreachable, bad certificate) is a
-  // fault the pane shows; without it the pane sits on an empty document.
-  // A superseded navigation (-3) is not a failure.
-  // The address keeps two failures in a row distinct for the pane.
   guest.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
-    if (!isMainFrame || code === -3) return;
+    if (!isMainFrame || code === NET_ERR_ABORTED) return;
     // The address stays out of the log; the sink keeps only the host.
     reportPageFault(guest, {
       source: 'did-fail-load',

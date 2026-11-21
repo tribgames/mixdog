@@ -89,54 +89,63 @@ test('only interrupted durable creations are retried, not application errors', a
   );
 });
 
-test('three failed synchronizations in a row recycle the connection, and a new connection retries at full speed', async (t) => {
+function createFailingSync(t) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  let attempts = 0;
-  let recycled = 0;
-  let failing = true;
+  const counts = { attempts: 0, recycled: 0 };
   const sync = createRemoteViewSync({
     synchronize: async () => {
-      attempts += 1;
-      if (failing) throw new Error('host rejected the sync');
+      counts.attempts += 1;
+      throw new Error('host rejected the sync');
     },
     state: () => {},
     error: () => {},
     interrupted: () => new Error('interrupted'),
     recycle: () => {
-      recycled += 1;
+      counts.recycled += 1;
     },
   });
+  return { sync, counts };
+}
+
+test('three failed synchronizations in a row recycle the connection', async (t) => {
+  const { sync, counts } = createFailingSync(t);
   sync.open();
   const waiting = sync.ready();
   waiting.catch(() => {});
   await setImmediate();
-  assert.equal(attempts, 1);
+  assert.equal(counts.attempts, 1);
   t.mock.timers.tick(250);
   await setImmediate();
-  assert.equal(attempts, 2);
-  assert.equal(recycled, 0);
+  assert.equal(counts.attempts, 2);
+  assert.equal(counts.recycled, 0);
   t.mock.timers.tick(500);
   await setImmediate();
-  assert.equal(attempts, 3);
-  assert.equal(recycled, 1, 'the third failure asks the owner for a fresh connection');
-  // The owner's recycle closes this connection, which ends every wait.
+  assert.equal(counts.attempts, 3);
+  assert.equal(counts.recycled, 1, 'the third failure asks the owner for a fresh connection');
   sync.close();
   await assert.rejects(waiting, /interrupted/);
+});
 
-  // The replacement connection must not inherit the grown backoff.
-  failing = false;
+test('a new connection retries at full speed, not at the previous backoff', async (t) => {
+  const { sync, counts } = createFailingSync(t);
   sync.open();
   await setImmediate();
-  assert.equal(attempts, 4);
-  failing = true;
-  const attemptsBefore = attempts;
-  sync.close();
-  failing = true;
-  sync.open();
-  await setImmediate();
-  assert.equal(attempts, attemptsBefore + 1);
   t.mock.timers.tick(250);
   await setImmediate();
-  assert.equal(attempts, attemptsBefore + 2, 'first retry after open waits the base delay, not the previous 1 s+');
+  t.mock.timers.tick(500);
+  await setImmediate();
+  assert.equal(counts.attempts, 3);
+  sync.close();
+  const attemptsBefore = counts.attempts;
+  sync.open();
+  await setImmediate();
+  assert.equal(counts.attempts, attemptsBefore + 1);
+  t.mock.timers.tick(250);
+  await setImmediate();
+  assert.equal(
+    counts.attempts,
+    attemptsBefore + 2,
+    'first retry after open waits the base delay, not the previous 1 s+'
+  );
   sync.close();
 });

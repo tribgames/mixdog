@@ -1,13 +1,6 @@
-// Local-only relay for phone-layout checks: builds the CURRENT renderer into a
-// temp folder and serves it from the repo's own relay on a free loopback port.
-// The production relay is never contacted; an isolated instance dials THIS one
-// via `dev:isolated -- --relay <relayUrl>` and a headless phone-emulated
-// Chromium pairs against it (probes/phone-shot.mjs).
-//
-// Usage (from apps/desktop; keep it running in the background):
+// Usage (from apps/desktop; keep it running):
 //   node scripts/probes/phone-relay.mjs --name <tag> [--skip-build]
-// Prints one JSON line {"relayUrl","bundle","dataDir"}; stop it with Ctrl+C or
-// by cancelling its task. Scratch lives in %TEMP%/<tag>/ (never apps/desktop/out).
+// Prints one JSON line {"relayUrl","bundle","dataDir"}.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

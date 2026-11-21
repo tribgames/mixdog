@@ -10,7 +10,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
 import type { SessionAttention } from '../shared/session-attention';
 import { sessionDisplayTitle } from './session-display-title';
@@ -165,6 +165,162 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   );
 });
 
+/** Whether the title is wider than its slot: only then does it fade at the row edge. */
+function useTitleOverflow(label: string) {
+  const titleRef = useRef<HTMLElement>(null);
+  const [overflowing, setOverflowing] = useState(false);
+  // Only a title that does not fit fades at the row edge.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: label is not read, but a new title changes the text width and must re-measure.
+  useLayoutEffect(() => {
+    const title = titleRef.current;
+    if (!title) return undefined;
+    const measure = () => setOverflowing(title.scrollWidth > title.clientWidth);
+    measure();
+    // Test DOMs have no observer; they only need the first measurement.
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(title);
+    return () => observer.disconnect();
+  }, [label]);
+  return { titleRef, overflowing };
+}
+
+/** Pressing F2 in the composer renames the session it sends to. The first
+ *  visible row to handle it claims the key (the session may also sit in another list). */
+function useComposerRenameShortcut(
+  enabled: boolean,
+  session: DesktopSessionSummary,
+  titleInput: RefObject<HTMLInputElement | null>,
+  onStartRename: (session: DesktopSessionSummary) => void
+) {
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'F2' || event.defaultPrevented || event.isComposing) return;
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      if (!(event.target instanceof Element) || !event.target.matches('form.composer textarea')) return;
+      if (event.target.closest<HTMLElement>('form.composer')?.dataset.composerSessionId !== session.id) return;
+      // A parked (closed drawer, retained) sidebar is inert.
+      if (!titleInput.current || titleInput.current.closest('[inert]')) return;
+      event.preventDefault();
+      onStartRename(session);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [enabled, onStartRename, session]);
+}
+
+function SessionRowActions({
+  session,
+  label,
+  editing,
+  confirmingDelete,
+  deleting,
+  finalizeOpen,
+  onStartDelete,
+  onCancelDelete,
+  onConfirmDelete,
+  onArchiveSession,
+  onFavoriteSession,
+}: {
+  session: DesktopSessionSummary;
+  label: string;
+  editing: boolean;
+  confirmingDelete: boolean;
+  deleting: boolean;
+  finalizeOpen(): void;
+  onStartDelete(session: DesktopSessionSummary): void;
+  onCancelDelete(): void;
+  onConfirmDelete(session: DesktopSessionSummary): void;
+  onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
+  onFavoriteSession(sessionId: string, favorite: boolean): Promise<void>;
+}) {
+  return (
+    <div
+      className="session-row-actions"
+      onClickCapture={finalizeOpen}
+      inert={editing ? true : undefined}
+      aria-hidden={editing ? true : undefined}
+    >
+      {/* Archived rows always carry restore/delete; any other row shows the
+          same cancel/confirm pair while a menu-started delete awaits
+          confirmation. */}
+      {(session.archived === true || confirmingDelete) && (
+        <>
+          {/* A deleted bot's chat restores the bot with it (session-sidebar.tsx). */}
+          <button
+            type="button"
+            className={`session-row-action ${confirmingDelete ? 'session-row-delete-cancel' : 'session-row-restore'}`}
+            aria-label={
+              confirmingDelete ? t('Cancel deleting {{name}}', { name: label }) : t('Restore {{name}}', { name: label })
+            }
+            data-tooltip={confirmingDelete ? t('Cancel') : t('Restore')}
+            disabled={confirmingDelete && deleting}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (confirmingDelete) onCancelDelete();
+              else void onArchiveSession(session.id, false).catch(() => {});
+            }}
+          >
+            {confirmingDelete ? <X size={14} /> : <ArchiveRestore size={14} />}
+          </button>
+          <button
+            type="button"
+            className={`session-row-action ${
+              confirmingDelete ? 'session-row-delete-confirm' : 'session-row-delete danger'
+            }`}
+            aria-label={
+              confirmingDelete ? t('Confirm deleting {{name}}', { name: label }) : t('Delete {{name}}', { name: label })
+            }
+            data-tooltip={confirmingDelete ? t('Delete') : undefined}
+            disabled={confirmingDelete && deleting}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (confirmingDelete) onConfirmDelete(session);
+              else onStartDelete(session);
+            }}
+          >
+            <Trash2 size={confirmingDelete ? 12 : 13} />
+          </button>
+        </>
+      )}
+      {session.archived !== true && !confirmingDelete && (
+        <button
+          type="button"
+          className={`session-row-action session-row-favorite ${session.favorite === true ? 'active' : ''}`}
+          aria-label={session.favorite === true ? t('Remove from favorites') : t('Add to favorites')}
+          aria-pressed={session.favorite === true}
+          data-tooltip={session.favorite === true ? t('Remove from favorites') : t('Add to favorites')}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void onFavoriteSession(session.id, session.favorite !== true).catch(() => {});
+          }}
+        >
+          <Star size={14} fill={session.favorite === true ? 'currentColor' : 'none'} />
+        </button>
+      )}
+      {session.archived !== true && !confirmingDelete && (
+        <button
+          type="button"
+          className="session-row-action session-row-archive"
+          aria-label={t('Archive {{name}}', { name: label })}
+          data-tooltip={t('Archive')}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void onArchiveSession(session.id, true).catch(() => {});
+          }}
+        >
+          <Archive size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 const SessionRow = React.memo(function SessionRow({
   session,
   reorder,
@@ -231,21 +387,7 @@ const SessionRow = React.memo(function SessionRow({
   const label = forkNumber ? forkDisplayTitle(sessionLabel(session), forkNumber) : sessionLabel(session);
   // A deleted bot's archived chat: the bot's face before its name.
   const deletedBot = session.agentDeleted === true ? session.agentHome || '' : '';
-  const titleRef = useRef<HTMLElement>(null);
-  const [overflowing, setOverflowing] = useState(false);
-  // Only a title that does not fit fades at the row edge.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: label is not read, but a new title changes the text width and must re-measure.
-  useLayoutEffect(() => {
-    const title = titleRef.current;
-    if (!title) return undefined;
-    const measure = () => setOverflowing(title.scrollWidth > title.clientWidth);
-    measure();
-    // Test DOMs have no observer; they only need the first measurement.
-    if (typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(measure);
-    observer.observe(title);
-    return () => observer.disconnect();
-  }, [label]);
+  const { titleRef, overflowing } = useTitleOverflow(label);
   const dragSelection = useMemo(
     () => ({ kind: 'session' as const, id: session.id, title: label }),
     [label, session.id]
@@ -273,25 +415,7 @@ const SessionRow = React.memo(function SessionRow({
       finalizeOpen();
     }
   }, [confirmingDelete, deleting, editing, resume, finalizeOpen]);
-  // Opening a session moves focus to its composer, so F2 there renames the
-  // session that composer sends to, as it does on the row itself. The first
-  // visible row to handle it claims the key (the session may also sit in
-  // another list).
-  useEffect(() => {
-    if (editing || confirmingDelete || deleting) return undefined;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'F2' || event.defaultPrevented || event.isComposing) return;
-      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
-      if (!(event.target instanceof Element) || !event.target.matches('form.composer textarea')) return;
-      if (event.target.closest<HTMLElement>('form.composer')?.dataset.composerSessionId !== session.id) return;
-      // A parked (closed drawer, retained) sidebar is inert.
-      if (!titleInput.current || titleInput.current.closest('[inert]')) return;
-      event.preventDefault();
-      onStartRename(session);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [confirmingDelete, deleting, editing, onStartRename, session]);
+  useComposerRenameShortcut(!editing && !confirmingDelete && !deleting, session, titleInput, onStartRename);
   const clearNativeDrag = useCallback(() => {
     const drag = nativeDrag.current;
     nativeDrag.current = null;
@@ -473,92 +597,19 @@ const SessionRow = React.memo(function SessionRow({
         </span>
         {attention === 'unread' && <SessionRowUnreadDot name={label} />}
       </button>
-      <div
-        className="session-row-actions"
-        onClickCapture={finalizeOpen}
-        inert={editing ? true : undefined}
-        aria-hidden={editing ? true : undefined}
-      >
-        {/* Archived rows always carry restore/delete; any other row shows the
-            same cancel/confirm pair while a menu-started delete awaits
-            confirmation. */}
-        {(session.archived === true || confirmingDelete) && (
-          <>
-            {/* A deleted bot's chat restores the bot with it (session-sidebar.tsx). */}
-            <button
-              type="button"
-              className={`session-row-action ${confirmingDelete ? 'session-row-delete-cancel' : 'session-row-restore'}`}
-              aria-label={
-                confirmingDelete
-                  ? t('Cancel deleting {{name}}', { name: label })
-                  : t('Restore {{name}}', { name: label })
-              }
-              data-tooltip={confirmingDelete ? t('Cancel') : t('Restore')}
-              disabled={confirmingDelete && deleting}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                if (confirmingDelete) onCancelDelete();
-                else void onArchiveSession(session.id, false).catch(() => {});
-              }}
-            >
-              {confirmingDelete ? <X size={14} /> : <ArchiveRestore size={14} />}
-            </button>
-            <button
-              type="button"
-              className={`session-row-action ${
-                confirmingDelete ? 'session-row-delete-confirm' : 'session-row-delete danger'
-              }`}
-              aria-label={
-                confirmingDelete
-                  ? t('Confirm deleting {{name}}', { name: label })
-                  : t('Delete {{name}}', { name: label })
-              }
-              data-tooltip={confirmingDelete ? t('Delete') : undefined}
-              disabled={confirmingDelete && deleting}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                if (confirmingDelete) onConfirmDelete(session);
-                else onStartDelete(session);
-              }}
-            >
-              <Trash2 size={confirmingDelete ? 12 : 13} />
-            </button>
-          </>
-        )}
-        {session.archived !== true && !confirmingDelete && (
-          <button
-            type="button"
-            className={`session-row-action session-row-favorite ${session.favorite === true ? 'active' : ''}`}
-            aria-label={session.favorite === true ? t('Remove from favorites') : t('Add to favorites')}
-            aria-pressed={session.favorite === true}
-            data-tooltip={session.favorite === true ? t('Remove from favorites') : t('Add to favorites')}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void onFavoriteSession(session.id, session.favorite !== true).catch(() => {});
-            }}
-          >
-            <Star size={14} fill={session.favorite === true ? 'currentColor' : 'none'} />
-          </button>
-        )}
-        {session.archived !== true && !confirmingDelete && (
-          <button
-            type="button"
-            className="session-row-action session-row-archive"
-            aria-label={t('Archive {{name}}', { name: label })}
-            data-tooltip={t('Archive')}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void onArchiveSession(session.id, true).catch(() => {});
-            }}
-          >
-            <Archive size={14} />
-          </button>
-        )}
-      </div>
+      <SessionRowActions
+        session={session}
+        label={label}
+        editing={editing}
+        confirmingDelete={confirmingDelete}
+        deleting={deleting}
+        finalizeOpen={finalizeOpen}
+        onStartDelete={onStartDelete}
+        onCancelDelete={onCancelDelete}
+        onConfirmDelete={onConfirmDelete}
+        onArchiveSession={onArchiveSession}
+        onFavoriteSession={onFavoriteSession}
+      />
     </div>
   );
 });

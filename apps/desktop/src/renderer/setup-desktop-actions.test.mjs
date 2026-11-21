@@ -315,11 +315,15 @@ test('appearance composerStyle and questionAnswerConfirm write, read back and re
   assert.equal(window.localStorage.getItem('mixdog.desktop.question-confirm.v1'), 'off');
 });
 
-test('appearance timeFormat, sidePanelPosition, font sizes, ligatures and chatTextSize write, read back and reject bad values', async (t) => {
+async function appearancePreferences(t) {
   const { installTestDom } = await import('./test-support/test-dom.mjs');
   installTestDom(t, { actEnvironment: false, expose: ['MutationObserver'] });
   const { desktopSetupPreferences } = await import('./use-setup-desktop-request.ts');
-  const prefs = desktopSetupPreferences({});
+  return desktopSetupPreferences({});
+}
+
+test('appearance timeFormat, sidePanelPosition, font sizes, ligatures and chatTextSize write and read back', async (t) => {
+  const prefs = await appearancePreferences(t);
   const start = await prefs.read();
   assert.deepEqual(
     [start.timeFormat, start.sidePanelPosition, start.uiScale, start.codeSize, start.codeLigatures, start.chatTextSize],
@@ -362,6 +366,11 @@ test('appearance timeFormat, sidePanelPosition, font sizes, ligatures and chatTe
   );
   await prefs.write({ uiScale: 1.2, codeSize: 20 });
   assert.equal((await prefs.read()).uiScale, 1.2);
+});
+
+test('appearance rejects bad timeFormat, sidePanelPosition, chatTextSize, uiScale, codeSize and ligatures, changing nothing', async (t) => {
+  const prefs = await appearancePreferences(t);
+  await prefs.write({ chatTextSize: 'extra-large', uiScale: 1.2, codeSize: 20 });
   for (const [bad, message] of [
     [{ timeFormat: '36h' }, /system, 12h or 24h/],
     [{ sidePanelPosition: 'left' }, /right, bottom or auto/],
@@ -476,11 +485,20 @@ test('botOverlay applies every field through the pet API and status desktop read
     { ...after, scales: undefined, representativeBot: undefined },
     { ...expected, scales: undefined, representativeBot: undefined }
   );
-  // Position mirrors the Settings select: a placement turns itself on; "free" turns the current one off.
+});
+
+test('botOverlay position "free" turns the current placement off', async () => {
+  const { run, calls, status } = petFixture();
+  await run({ action: 'set_desktop_settings', desktop: { botOverlay: { position: 'onScreen' } } });
   calls.length = 0;
   await run({ action: 'set_desktop_settings', desktop: { botOverlay: { position: 'free' } } });
   assert.deepEqual(calls, [['onScreen', false]]);
   assert.equal((await status()).position, 'free');
+});
+
+test('botOverlay position turns a placement on, and an enabled change is a separate write', async () => {
+  const { run, calls, status } = petFixture();
+  await run({ action: 'set_desktop_settings', desktop: { botOverlay: { enabled: false, position: 'free' } } });
   calls.length = 0;
   await run({ action: 'set_desktop_settings', desktop: { botOverlay: { position: 'pinnedHere' } } });
   await run({ action: 'set_desktop_settings', desktop: { botOverlay: { position: 'pinnedHere', enabled: true } } });
@@ -571,38 +589,30 @@ test('botOverlay rejects bad values without writing and refuses to enable withou
   assert.equal((await status()).enabled, true);
 });
 
-test('appearance fonts, skin transparency and an imported color theme write, read back and reject bad values', async (t) => {
-  const { installTestDom } = await import('./test-support/test-dom.mjs');
-  installTestDom(t, { actEnvironment: false, expose: ['MutationObserver'] });
-  const { desktopSetupPreferences } = await import('./use-setup-desktop-request.ts');
-  const { importUserTheme } = await import('./appearance/user-theme.ts');
-  const { THEME_SCHEMA_URL } = await import('./appearance/theme-file.ts');
-  const imported = importUserTheme(
-    JSON.stringify({ $schema: THEME_SCHEMA_URL, name: 'Harbor', roles: { background: '#0f1720', text: '#e6edf3' } })
-  );
-  assert.ok(imported.ok);
-  const prefs = desktopSetupPreferences({});
-  const start = await prefs.read();
-  assert.equal(start.skinOuterTransparency, 50);
-  assert.equal(start.skinMainTransparency, 50);
-  assert.equal(start.uiFont, '');
-  assert.equal(start.colorTheme, imported.id);
-  assert.deepEqual(
-    start.colorThemes.map((entry) => entry.value),
-    ['builtin', imported.id]
-  );
-  const result = await prefs.write({
-    uiFont: ' "Inter" ',
-    codeFont: 'Fira Code',
-    skinTransparency: 80,
-    colorTheme: 'builtin',
-  });
+test('appearance fonts write trimmed, read back and reject bad values', async (t) => {
+  const prefs = await appearancePreferences(t);
+  assert.equal((await prefs.read()).uiFont, '');
+  const result = await prefs.write({ uiFont: ' "Inter" ', codeFont: 'Fira Code' });
   assert.equal(result.saved, true);
   assert.equal(result.uiFont, 'Inter');
   assert.equal(result.codeFont, 'Fira Code');
-  assert.equal(result.skinOuterTransparency, 80);
-  assert.equal(result.skinMainTransparency, 80);
-  assert.equal(result.colorTheme, 'builtin');
+  await prefs.write({ uiFont: '' });
+  const status = await prefs.read();
+  assert.equal(status.uiFont, '');
+  assert.equal(status.codeFont, 'Fira Code');
+  await assert.rejects(prefs.write({ uiFont: 'Inter; color: red' }), /font family/);
+  await assert.rejects(prefs.write({ codeFont: 'monospace' }), /font family/);
+  assert.equal((await prefs.read()).codeFont, 'Fira Code');
+});
+
+test('appearance skin transparency: one value sets both sliders, a slider field overrides its own; bad values rejected', async (t) => {
+  const prefs = await appearancePreferences(t);
+  const start = await prefs.read();
+  assert.equal(start.skinOuterTransparency, 50);
+  assert.equal(start.skinMainTransparency, 50);
+  const both = await prefs.write({ skinTransparency: 80 });
+  assert.equal(both.skinOuterTransparency, 80);
+  assert.equal(both.skinMainTransparency, 80);
   const split = await prefs.write({ skinTransparency: 30, skinMainTransparency: 70 });
   assert.equal(split.skinOuterTransparency, 30, 'skinTransparency sets both, a slider field overrides its own');
   assert.equal(split.skinMainTransparency, 70);
@@ -610,21 +620,32 @@ test('appearance fonts, skin transparency and an imported color theme write, rea
   assert.equal(outerOnly.skinOuterTransparency, 5);
   assert.equal(outerOnly.skinMainTransparency, 70, 'the other slider stays');
   await prefs.write({ skinTransparency: 80 });
-  await prefs.write({ uiFont: '', colorTheme: imported.id });
-  const status = await prefs.read();
-  assert.equal(status.uiFont, '');
-  assert.equal(status.codeFont, 'Fira Code');
-  assert.equal(status.colorTheme, imported.id);
-  await assert.rejects(prefs.write({ uiFont: 'Inter; color: red' }), /font family/);
-  await assert.rejects(prefs.write({ codeFont: 'monospace' }), /font family/);
   await assert.rejects(prefs.write({ skinTransparency: 101 }), /0 to 100/);
   await assert.rejects(prefs.write({ skinTransparency: 12.5 }), /0 to 100/);
   await assert.rejects(prefs.write({ skinOuterTransparency: -1 }), /skinOuterTransparency.*0 to 100/);
   await assert.rejects(prefs.write({ skinMainTransparency: 100.5 }), /skinMainTransparency.*0 to 100/);
-  await assert.rejects(prefs.write({ colorTheme: 'theme-missing' }), /Unknown color theme/);
   const after = await prefs.read();
-  assert.equal(after.codeFont, 'Fira Code');
   assert.equal(after.skinOuterTransparency, 80);
   assert.equal(after.skinMainTransparency, 80);
-  assert.equal(after.colorTheme, imported.id);
+});
+
+test('appearance imported color theme is listed, selectable, and unknown ids are rejected', async (t) => {
+  const prefs = await appearancePreferences(t);
+  const { importUserTheme } = await import('./appearance/user-theme.ts');
+  const { THEME_SCHEMA_URL } = await import('./appearance/theme-file.ts');
+  const imported = importUserTheme(
+    JSON.stringify({ $schema: THEME_SCHEMA_URL, name: 'Harbor', roles: { background: '#0f1720', text: '#e6edf3' } })
+  );
+  assert.ok(imported.ok);
+  const start = await prefs.read();
+  assert.equal(start.colorTheme, imported.id);
+  assert.deepEqual(
+    start.colorThemes.map((entry) => entry.value),
+    ['builtin', imported.id]
+  );
+  assert.equal((await prefs.write({ colorTheme: 'builtin' })).colorTheme, 'builtin');
+  await prefs.write({ colorTheme: imported.id });
+  assert.equal((await prefs.read()).colorTheme, imported.id);
+  await assert.rejects(prefs.write({ colorTheme: 'theme-missing' }), /Unknown color theme/);
+  assert.equal((await prefs.read()).colorTheme, imported.id);
 });

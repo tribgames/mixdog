@@ -1,10 +1,3 @@
-/**
- * How the banner leaves the screen. A command that settles within a few
- * frames would otherwise flash the banner too briefly to read, which the user
- * experiences as never being told at all — so a visible stretch is held to a
- * minimum before the fade begins, and a snapshot that turns visible again
- * cancels the pending hide.
- */
 import type { OverlayWindowEntry } from './overlay-windows';
 
 const OVERLAY_FADE_OUT_MS = 180;

@@ -141,27 +141,31 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
         await settleAfterAction(guest, signal);
       }
     } catch (error) {
-      if (tracingStarted) {
-        try {
-          // Cancellation may be the reason setup failed, but cleanup must
-          // still reach Chromium instead of inheriting the cancelled signal.
-          await cdp.call(guest, 'Tracing.end');
-          tracesByGuest.delete(guest);
-        } catch (cleanupError) {
-          throw new Error(
-            `${error instanceof Error ? error.message : String(error)}; ` +
-              `trace cleanup also failed (${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}). ` +
-              'Run performance with operation:"stop" to retry cleanup.'
-          );
-        }
-      } else {
-        tracesByGuest.delete(guest);
-      }
+      await discardFailedTrace(guest, error, tracingStarted);
       throw error;
     }
     return {
       text: `Performance trace started${command.reload ? ' and page reloaded' : ''}. Run performance with operation:"stop" after the scenario.`,
     };
+  }
+
+  async function discardFailedTrace(guest: WebContents, error: unknown, tracingStarted: boolean): Promise<void> {
+    if (!tracingStarted) {
+      tracesByGuest.delete(guest);
+      return;
+    }
+    try {
+      // Cancellation may be the reason setup failed, but cleanup must
+      // still reach Chromium instead of inheriting the cancelled signal.
+      await cdp.call(guest, 'Tracing.end');
+      tracesByGuest.delete(guest);
+    } catch (cleanupError) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}; ` +
+          `trace cleanup also failed (${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}). ` +
+          'Run performance with operation:"stop" to retry cleanup.'
+      );
+    }
   }
 
   async function stopTraceResult(guest: WebContents, signal?: AbortSignal): Promise<{ text: string }> {

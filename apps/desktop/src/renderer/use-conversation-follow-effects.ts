@@ -41,10 +41,6 @@ export function useConversationFollowEffects({
     // different offsets across the first frames (re-entry jump/flicker).
     armFollow();
   }, [armFollow, transcriptSessionKey]);
-  // Shrinking the settled transcript — especially during compaction — removes
-  // rows the reader may be anchored to, so return to the live tail. The follow
-  // hook watches viewport size, not content shrinkage. Same-length lane
-  // publications and growing history leave the reading position alone.
   const transcriptSwapRef = useRef({ sessionKey: '', count: 0 });
   useLayoutEffect(() => {
     const count = settledRowCount(settledItems);
@@ -57,18 +53,6 @@ export function useConversationFollowEffects({
     armFollow();
     scrollToEndRef.current();
   }, [armFollow, scrollToEndRef, settledItems, transcriptSessionKey]);
-  // Content growth is watched on the rows commit (without a second
-  // observer): a transcript that no longer OVERFLOWS holds no reading
-  // position, so a shrink that fits inside the viewport re-arms follow instead
-  // of leaving auto-scroll released with nothing left to scroll. Driven by the
-  // rows commit, so virtual-core stays the only content-growth authority.
-  // The viewport is read on the next frame, not in the commit: the rows the
-  // commit mounted and the list's own writes (its spacer, a landing's offset)
-  // left layout dirty, so a read here forced a second full layout of the
-  // mounted rows inside every rows commit of a reader scrolled up (23-33 ms
-  // per commit on a phone catching up after resume). At the next frame the
-  // browser has laid them out for paint, and the check reads that layout.
-  // A transcript that fits is re-armed a frame later; nothing scrolls there.
   const overflowCheck = useRef(0);
   const latest = useRef({ armFollow, following });
   latest.current = { armFollow, following };

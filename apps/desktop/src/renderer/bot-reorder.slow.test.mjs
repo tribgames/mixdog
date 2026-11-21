@@ -7,11 +7,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// Bot reorder in real Chrome with the real CSS: the Bots page and the Sessions
-// bot section drag-reorder through one host-stored order; the drop line shows
-// where a dragged bot lands, in both lists. Screenshots are taken mid-drag and
-// after the drop (MIXDOG_QA_DIR, default %TEMP%\mixdog-qa\bot-reorder).
-
 const lazyChunkBoundary = {
   name: 'lazy-chunk-boundary',
   setup(pluginBuild) {

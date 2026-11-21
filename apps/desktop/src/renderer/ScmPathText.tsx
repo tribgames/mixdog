@@ -1,15 +1,3 @@
-// A changed path renders as ONE continuous sentence and lets
-// COLOUR carry the structure:
-// the directory prefix — its separators included — is dim, the file name is
-// bright. There is no name/path column pair and no second line.
-//
-// Truncation is an ALGORITHM, never a CSS ellipsis that eats the file name at
-// narrow dock widths: the FILE NAME stays whole while the DIRECTORY prefix
-// shortens to `pre…/name`, the directory/file split walks the truncated text
-// back apart, and the full path only moves into a tooltip once something was
-// actually dropped. The available width is measured on the rendered box and
-// the text against the row's own font (canvas measureText) in a
-// measure-then-fit loop, re-run whenever the row resizes.
 import { useLayoutEffect, useRef, useState } from 'react';
 
 /** Middle ellipsis — the fallback when not even
@@ -34,20 +22,12 @@ export function truncateScmPath(path: string, length: number): string {
   // No directory prefix, fall back to middle ellipsis.
   if (lastSeparator === -1) return truncateMid(path, length);
   const fileNameLength = path.length - lastSeparator - 1;
-  // The file name prefixed with `…/` would already be too long: the
-  // directory goes entirely and only the NAME shortens — a middle ellipsis
-  // across the whole path cut it mid-string (`src/co…nent.tsx`) and hid where
-  // the name starts.
   if (fileNameLength + 2 > length) return truncateMid(path.substring(lastSeparator + 1), length);
   const pre = path.substring(0, length - fileNameLength - 2);
   const post = path.substring(lastSeparator);
   return `${pre}…${post}`;
 }
 
-/** Split the truncated text back into its dim directory prefix and its bright
- *  file name: the whole directory, or its kept head up to the `…/` the
- *  truncation inserted (the `…/` counts towards the directory, purely for
- *  looks); a name-only truncation has no directory part. */
 export function splitScmPath(
   truncated: string,
   directory: string
@@ -83,15 +63,6 @@ function fittingLengthBySearch(text: string, available: number, width: (value: s
   return best;
 }
 
-/** The longest character count whose truncation still FITS `available` px.
- *
- *  A `pre…/name` truncation only varies in how many DIRECTORY characters it
- *  keeps, so the fit is found by summing memoized per-character widths from
- *  the left until the `…/name` tail no longer fits, then confirmed with one
- *  real measurement (stepping down a character if kerning made the sum
- *  optimistic). The binary search this replaces measured ~8 fresh strings per
- *  row — a Source Control list of a few hundred changes spent 100ms+ in
- *  measureText on its first paint (opening Source Control would hitch). */
 function fittingLength(text: string, available: number, width: (value: string) => number): number {
   if (width(text) <= available) return text.length;
   const lastSeparator = text.lastIndexOf('/');
@@ -115,10 +86,6 @@ function fittingLength(text: string, available: number, width: (value: string) =
   return length;
 }
 
-/** ONE 2D context per document, re-fonted per call: every row used to mint
- *  its own canvas + context on every measurement, and a windowed list of
- *  1,000+ changes minted dozens per scroll tick (CPU profile: canvas
- *  creation + getBoundingClientRect dominated the boot main thread). */
 const measureContexts = new WeakMap<Document, CanvasRenderingContext2D | null>();
 /** Text widths repeat heavily (same directories, same file names) — keep a
  *  bounded per-font memo so a re-measure after a resize is mostly lookups. */

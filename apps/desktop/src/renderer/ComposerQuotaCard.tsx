@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { useQuotaRemaining } from './ComposerIsland';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
@@ -43,49 +43,57 @@ function stopCopy(card: ComposerQuotaCardModel): { title: string; guidance: stri
   };
 }
 
-/**
- * The quota stop as one pill line between the island and the prompt input:
- * what happened, when it resets, how to continue now, and resuming at the
- * reset. It has no close: it leaves with the stop itself. When the guidance
- * does not fit the line it is hidden and kept as the tooltip and accessible
- * description; everything else always stays on the line.
- */
+function resumeCopy(card: ComposerQuotaCardModel, time: string, stopGuidance: string) {
+  if (card.reserved) {
+    return {
+      guidance: t('Resume reserved · click to cancel'),
+      buttonLabel: t('Cancel resume'),
+      buttonIcon: 'loading' as const,
+      buttonAction: card.onToggleResume,
+    };
+  }
+  if (card.onResume) {
+    return {
+      guidance: t('Continue from where you left off.'),
+      buttonLabel: t('Resume with changed model'),
+      buttonIcon: 'play' as const,
+      buttonAction: card.onResume,
+    };
+  }
+  return {
+    guidance: stopGuidance,
+    buttonLabel: t('Resume at {{time}}', { time }),
+    buttonIcon: 'clock' as const,
+    buttonAction: card.onToggleResume,
+  };
+}
+
+function useGuidanceOverflow(guideRef: RefObject<HTMLSpanElement | null>, watched: readonly unknown[]): boolean {
+  const [hidden, setHidden] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the watched values change the guidance text, so the overflow must be re-measured.
+  useEffect(() => {
+    const guide = guideRef.current;
+    if (!guide) return undefined;
+    const measure = () => setHidden(guide.scrollWidth > guide.clientWidth);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(guide);
+    return () => observer.disconnect();
+  }, [guideRef, ...watched]);
+  return hidden;
+}
+
+/** The quota stop as one pill line between the island and the prompt input; it has no close and leaves with the stop. */
 export function ComposerQuotaCard({ card }: { card: ComposerQuotaCardModel }) {
   const remaining = useQuotaRemaining(card.resetAt);
   const time = card.resetAt === null ? '' : quotaResetLabel(card.resetAt);
   const resumeNow = Boolean(card.onResume && !card.reserved);
   const { title, guidance: stopGuidance } = stopCopy(card);
-  let guidance = stopGuidance;
-  let buttonLabel = t('Resume at {{time}}', { time });
-  let buttonIcon: 'clock' | 'loading' | 'play' = 'clock';
-  let buttonAction = card.onToggleResume;
-  if (card.reserved) {
-    guidance = t('Resume reserved · click to cancel');
-    buttonLabel = t('Cancel resume');
-    buttonIcon = 'loading';
-  } else if (resumeNow) {
-    guidance = t('Continue from where you left off.');
-    buttonLabel = t('Resume with changed model');
-    buttonIcon = 'play';
-    buttonAction = card.onResume;
-  }
+  const { guidance, buttonLabel, buttonIcon, buttonAction } = resumeCopy(card, time, stopGuidance);
   const guidanceId = useId();
   const guideRef = useRef<HTMLSpanElement>(null);
-  const [guidanceHidden, setGuidanceHidden] = useState(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: guidance, time and remaining change the guidance text, so the overflow must be re-measured.
-  useEffect(() => {
-    const guide = guideRef.current;
-    if (!guide) return undefined;
-    // Only the guidance shrinks; hidden, it keeps its box, so the
-    // measurement stays stable.
-    const measure = () => setGuidanceHidden(guide.scrollWidth > guide.clientWidth);
-    measure();
-    // Test DOMs have no observer; they only need the first measurement.
-    if (typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(measure);
-    observer.observe(guide);
-    return () => observer.disconnect();
-  }, [guidance, time, remaining]);
+  const guidanceHidden = useGuidanceOverflow(guideRef, [guidance, time, remaining]);
   return (
     <section
       className="composer-quota-card"

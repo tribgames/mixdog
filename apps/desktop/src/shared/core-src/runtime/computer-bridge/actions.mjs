@@ -1,7 +1,3 @@
-/**
- * One action catalogue, with explicit capabilities for each execution boundary.
- * Native reads and public replay-safe reads deliberately have different scopes.
- */
 const catalogue = {};
 function action(name, capabilities) {
   catalogue[name] = Object.freeze({

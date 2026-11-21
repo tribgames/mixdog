@@ -46,17 +46,6 @@ export {
   transcriptScrollGeometryRegistered,
 } from './transcript-follow-rules';
 
-/**
- * Transcript auto-scroll + session scroll-gesture grammar.
- *
- * The hook owns the pinned flag: it flips only on the reader's input (wheel,
- * key, a press on a control) or on a judged scroll (judgeScrollEvent). It also
- * owns the 250ms gesture window and the scroll signals. TranscriptList owns
- * EVERY scroll write: virtual row geometry, append following, and
- * measured-size anchoring. This hook asks for scrollToEnd only to put a
- * pinned viewport back. The timeline owns viewport resizing as well as row
- * geometry.
- */
 interface TranscriptFollow {
   following: boolean;
   followingRef: RefObject<boolean>;
@@ -146,11 +135,7 @@ export function useTranscriptFollow({
   }, [cancelJumpPin]);
 
   const hasGesture = useCallback(() => Date.now() - gestureAt.current < GESTURE_WINDOW_MS, []);
-  // A scrollTop write while Chromium animates a wheel scroll cancels the
-  // animation: every row measured into view while scrolling up (its estimate
-  // corrected) cut the wheel's ramp short, and the transcript caught on each
-  // one. Like a touch fling, the ramp holds those
-  // corrections as a row offset until its scroll events go quiet.
+  // A scrollTop write cancels Chromium's wheel-scroll animation, so a wheel ramp holds measured-size corrections until its scroll events go quiet.
   const wheelScrolling = useCallback(() => {
     const wheel = wheelAt.current;
     if (!wheel) return false;
@@ -219,15 +204,7 @@ export function useTranscriptFollow({
     resetSignals();
     resetTouch();
   }, [resetSignals, resetTouch]);
-  // A finger on the glass owns the viewport before its first touchmove is
-  // handled. On a phone the compositor scrolls from the first move past the
-  // slop while the main thread is still busy with a streaming frame; the end
-  // pin that frame requested then wrote the old bottom back under the finger
-  // and every small upward drag juddered until the scroll released follow.
-  // A pin requested meanwhile waits for the finger (the end pin retries every
-  // frame), so a tap that never scrolls still lands on the new bottom. An
-  // up-key owns the viewport for its window the same way: the pin waits for
-  // the scroll the key causes, or for the window to pass if it causes none.
+  // On a phone the compositor scrolls from the first move past the slop before the main thread handles touchmove.
   const hasReaderScroll = useCallback(
     () =>
       hasGesture() ||
@@ -238,12 +215,6 @@ export function useTranscriptFollow({
     [fingerOnGlass, hasGesture, hasTouchScroll, signals]
   );
   const restore = useCallback(() => scrollToBottom(false), [scrollToBottom]);
-  // Session switch: the viewport element survives while the timeline remounts
-  // for the new session. Offsets, distances, and programmatic writes from the
-  // previous session must not judge the new session's first frames — a stale
-  // baseline made the entry scroll read as a reader leave (or a return) and
-  // the transcript visibly jumped on every tab switch. Never writes scrollTop:
-  // the virtual timeline owns the entry position.
   const resetSessionKey = useRef(sessionKey);
   useEffect(() => {
     if (resetSessionKey.current === sessionKey) return;
@@ -321,10 +292,6 @@ export function useTranscriptFollow({
   const handleSelectionAutoScroll = useCallback(
     (delta: number) => {
       if (!Number.isFinite(delta) || delta === 0) return;
-      // Claim reader ownership before TranscriptList writes scrollTop so the
-      // virtual end anchor cannot pull against that write in the same frame.
-      // The release itself is the scroll's: a selection drag that has to
-      // autoscroll is real pointer travel, so it vouches for the scrolls up.
       markGesture();
       signals.current.pressAt = Date.now();
     },
@@ -341,10 +308,6 @@ export function useTranscriptFollow({
       clearMutation();
       // The scrollbar and empty padding are the scroller itself.
       if (event.target === root) markGesture();
-      // A press on the scroller itself (its scrollbar) vouches for the upward
-      // scrolls that follow until it ends. A press on content does not: a
-      // stationary click moves nothing, and a selection drag vouches once it
-      // autoscrolls (handleSelectionAutoScroll).
       if (event.target === root && (event.button ?? 0) === 0 && event.pointerType !== 'touch') {
         signals.current.pressAt = Date.now();
       }
@@ -400,17 +363,8 @@ export function useTranscriptFollow({
     const element = viewport.current;
     if (element) scheduleScrollState(element);
   }, [cancelJumpPin, clearReaderGesture, publish, scheduleScrollState, scrollToBottom, startJumpPin, viewport]);
-  // Session ENTRY only re-arms following; it must not write scrollTop. The
-  // virtual timeline already resolves its end position (initialOffset +
-  // scrollToEnd), and a raw `scrollTop = scrollHeight` here made entry carry
-  // TWO scroll authorities aiming at different offsets — the multi-frame
-  // jump/flicker on re-entering a session.
   const arm = useCallback(() => {
-    // A pin from the previous session must not write into the new one.
     cancelJumpPin();
-    // Entry and submit explicitly return ownership to the tail. Keeping the
-    // previous wheel/drag window open made the timeline reject the append's
-    // only bottom pin, leaving the new prompt below the viewport.
     clearReaderGesture();
     publish(true);
     const element = viewport.current;

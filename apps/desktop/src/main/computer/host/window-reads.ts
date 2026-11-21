@@ -1,7 +1,3 @@
-/**
- * Window-list and integrity reads against the resident backend, filtered so
- * the app's own Computer Use surfaces never appear as targets.
- */
 import type { ComputerCommand, PowerShellResponse } from '../shared/types';
 import { normalizeComputerWindowRecords, type ComputerWindowRecord } from '../shared/window-transition';
 import { filterComputerUseInternalWindows } from '../overlay/internal-windows';
@@ -102,10 +98,6 @@ export function createWindowReads(host: WindowReadsHost) {
     }
   }
 
-  /** A window list nothing waits on, read by the host's own window-arrivals
-   *  worker. No command ever queues there, so a slow or stuck read delays no
-   *  session's input, and a timeout retires only that worker: no session
-   *  loses its worker or refs. */
   const peekComputerWindows = (command: ComputerCommand, includeApp = false) =>
     readComputerWindows(command, includeApp, WINDOW_ARRIVALS_SESSION_ID);
 

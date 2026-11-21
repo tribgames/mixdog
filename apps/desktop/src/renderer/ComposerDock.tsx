@@ -71,17 +71,48 @@ interface ComposerDockProps {
   children: ReactNode;
 }
 
-/**
- * The chrome stacked ABOVE the prompt input, with the composer itself as the
- * last child. A New Task draft keeps its project/workflow/mode context bar; a
- * session gets the composer island in a fixed slot instead (Goal, background
- * jobs, changed files, a waiting quota resume, tool approval, flashes), then
- * the quota card.
- *
- * The dock is an in-flow sibling below the transcript viewport: every member
- * takes its real height (an empty island slot none), and the transcript
- * viewport above gets whatever the dock leaves.
- */
+function useTurnReviewBar() {
+  const [reviewModule, setReviewModule] = useState(() => loadedReviewModule);
+  const [moduleFailure, setModuleFailure] = useState<{ error: unknown } | null>(null);
+  useEffect(() => {
+    if (reviewModule) return undefined;
+    let active = true;
+    reviewModulePromise ??= import('./TurnReview').then((module) => (loadedReviewModule = module));
+    void reviewModulePromise.then(
+      (module) => {
+        if (active) setReviewModule(module);
+      },
+      (error: unknown) => {
+        if (active) setModuleFailure({ error });
+      }
+    );
+    return () => {
+      active = false;
+    };
+  }, [reviewModule]);
+  if (moduleFailure) throw moduleFailure.error;
+  return reviewModule?.TurnReviewBar;
+}
+
+function useContextBarHeight(shown: boolean) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const height = useRef(0);
+  useEffect(() => {
+    const bar = shown ? ref.current : null;
+    if (!bar) return undefined;
+    const observer = new ResizeObserver(() => {
+      height.current = bar.offsetHeight;
+    });
+    observer.observe(bar);
+    return () => {
+      observer.disconnect();
+      height.current = 0;
+    };
+  }, [shown]);
+  return { ref, height };
+}
+
+/** The chrome stacked above the prompt input, the composer itself the last child: a New Task draft's context bar, or a session's island and quota card. */
 export function ComposerDock({
   sessionId,
   goalIsland,
@@ -104,60 +135,14 @@ export function ComposerDock({
   pendingInput = false,
   children,
 }: ComposerDockProps) {
-  const [reviewModule, setReviewModule] = useState(() => loadedReviewModule);
-  // The merge notice belongs to the session that merged (the segment names it
-  // when the merge settles, so a route change mid-merge cannot strand it) and
-  // expires on its own: the dock outlives session switches and the island
-  // remounts per session, so a kept notice would replay on every remount and
-  // other sessions.
   const [worktreeFlash, setWorktreeFlash] = useState<{ sessionId: string; flash: ComposerIslandFlash } | null>(null);
   useEffect(() => {
     if (!worktreeFlash) return undefined;
     const timer = window.setTimeout(() => setWorktreeFlash(null), WORKTREE_FLASH_MS);
     return () => window.clearTimeout(timer);
   }, [worktreeFlash]);
-  const [moduleFailure, setModuleFailure] = useState<{ error: unknown } | null>(null);
-  // The draft context bar's height as last committed (0 once it is gone): the
-  // island that replaces it in the next commit (the draft's first submit)
-  // mounts at that height, so the swap moves nothing even when the new
-  // session's pill has nothing to carry yet.
-  const contextBarRef = useRef<HTMLDivElement | null>(null);
-  const contextBarHeight = useRef(0);
-  // Observed rather than read every commit: an offsetHeight read in a layout
-  // effect forces a synchronous layout inside each click commit.
-  useEffect(() => {
-    const bar = showProjectSelector ? contextBarRef.current : null;
-    if (!bar) return undefined;
-    const observer = new ResizeObserver(() => {
-      contextBarHeight.current = bar.offsetHeight;
-    });
-    observer.observe(bar);
-    return () => {
-      observer.disconnect();
-      contextBarHeight.current = 0;
-    };
-  }, [showProjectSelector]);
-  useEffect(() => {
-    if (reviewModule) return undefined;
-    let active = true;
-    reviewModulePromise ??= import('./TurnReview').then((module) => (loadedReviewModule = module));
-    void reviewModulePromise.then(
-      (module) => {
-        if (active) setReviewModule(module);
-      },
-      (error: unknown) => {
-        if (active) setModuleFailure({ error });
-      }
-    );
-    return () => {
-      active = false;
-    };
-  }, [reviewModule]);
-  const TurnReviewBar = reviewModule?.TurnReviewBar;
-  // The island is memoised: everything handed to it keeps its identity until
-  // what it shows changes. The pane's open routes are fresh closures on every
-  // App commit, so they are called through stable events; whether a route
-  // exists still decides what the segments offer.
+  const { ref: contextBarRef, height: contextBarHeight } = useContextBarHeight(showProjectSelector);
+  const TurnReviewBar = useTurnReviewBar();
   const openSessionDiff = useStableEvent(() => onOpenSessionDiff?.());
   const hasSessionDiff = Boolean(onOpenSessionDiff);
   const openChanges = useMemo(
@@ -242,7 +227,6 @@ export function ComposerDock({
   );
   const gitCwd = workspace?.cwd || reviewCwd;
   const git = useMemo(() => <IslandGitSegment sessionId={sessionId} cwd={gitCwd} />, [sessionId, gitCwd]);
-  if (moduleFailure) throw moduleFailure.error;
 
   // The route names a session whose first lane snapshot has not arrived
   // (a reload, a session opening): no island yet, so it mounts once, whole
@@ -273,11 +257,6 @@ export function ComposerDock({
         </div>
       )}
       {!showProjectSelector && !awaitingLane && (
-        // One island per session: a surviving slot carried the outgoing
-        // session's height into the new one and animated toward it (with the
-        // collapse grace), shifting the end-pinned transcript by the
-        // slot height on every switch. Keyed by the route address, which
-        // changes in the same commit as the transcript, unlike the snapshot.
         <ComposerIsland
           key={reviewSessionId}
           routeSessionId={reviewSessionId}

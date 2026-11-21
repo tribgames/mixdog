@@ -1,10 +1,3 @@
-// Renders the Mixdog brand mark (same algorithm as
-// apps/desktop/scripts/generate-brand-icons.mjs: ink gradient tile + white
-// rounded-cap M) into the source images @capacitor/assets consumes:
-//   assets/icon-only.png        1024  full-bleed tile (legacy launchers)
-//   assets/icon-foreground.png  1024  transparent + safe-zone M (adaptive)
-//   assets/icon-background.png  1024  gradient tile (adaptive underlay)
-//   assets/splash.png(-dark)    2732  flat ink + centered rounded tile
 import { deflateSync } from 'node:zlib';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +10,7 @@ let crcTable;
 function crc32(buffer) {
   crcTable ??= Array.from({ length: 256 }, (_, n) => {
     let c = n;
-    for (let k = 0; k < 8; k += 1) c = (c & 1) ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
     return c >>> 0;
   });
   let crc = 0xffffffff;
@@ -82,10 +75,10 @@ function insideMonogram(x, y, size) {
   const center = 128 * scale;
   const point = 166 * scale;
   return (
-    insideStroke(x, y, left, top, left, bottom, width)
-    || insideStroke(x, y, right, top, right, bottom, width)
-    || insideStroke(x, y, left, top, center, point, width)
-    || insideStroke(x, y, center, point, right, top, width)
+    insideStroke(x, y, left, top, left, bottom, width) ||
+    insideStroke(x, y, right, top, right, bottom, width) ||
+    insideStroke(x, y, left, top, center, point, width) ||
+    insideStroke(x, y, center, point, right, top, width)
   );
 }
 
@@ -98,16 +91,22 @@ function render(canvasSize, mode, virtualSize = canvasSize) {
   const samples = supersample * supersample;
   for (let y = 0; y < canvasSize; y += 1) {
     for (let x = 0; x < canvasSize; x += 1) {
-      let red = 0; let green = 0; let blue = 0; let alpha = 0;
+      let red = 0;
+      let green = 0;
+      let blue = 0;
+      let alpha = 0;
       for (let sy = 0; sy < supersample; sy += 1) {
         for (let sx = 0; sx < supersample; sx += 1) {
           const px = x + (sx + 0.5) / supersample - offsetXY;
           const py = y + (sy + 0.5) / supersample - offsetXY;
           const inMark = mode !== 'plate' && insideMonogram(px, py, virtualSize);
-          const inPlate = mode === 'square' || mode === 'plate'
-            || (mode === 'tile' && insideRoundedSquare(px, py, virtualSize));
+          const inPlate =
+            mode === 'square' || mode === 'plate' || (mode === 'tile' && insideRoundedSquare(px, py, virtualSize));
           if (inMark) {
-            red += 255; green += 255; blue += 255; alpha += 255;
+            red += 255;
+            green += 255;
+            blue += 255;
+            alpha += 255;
           } else if (inPlate) {
             const t = Math.min(1, Math.max(0, py / virtualSize));
             red += inkTop[0] + (inkBottom[0] - inkTop[0]) * t;

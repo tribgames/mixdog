@@ -1,17 +1,7 @@
 /**
- * The direct-transport peer host (hidden trusted window, see
- * main/remote-transport/peer-window.ts; docs/remote-transport.md §3, §5, §9 1B).
- * It owns every transport RTCPeerConnection of this PC. The PC always offers:
- * per connection it creates both channels before the offer, applies the
- * phone's answer and candidates, and moves carrier messages as binary in both
- * directions. Window main stays the authority: it validates every signal,
- * checks the DTLS certificate against the signaled fingerprints and keeps the
- * backpressure accounting; this page only runs the peer connections and
- * reports.
- *
- * Ordering promise to main: for one connection, `connected` (the remote
- * certificate) is emitted before `open`, and `open` before any `message`, so
- * main has checked the certificate before it sees a byte from the peer.
+ * Ordering promise to main (main/remote-transport/peer-window.ts): for one connection, `connected` (the remote
+ * certificate) is emitted before `open`, and `open` before any `message`, so main has checked the certificate
+ * before it sees a byte from the peer.
  */
 import {
   REMOTE_TRANSPORT_BUFFER_HIGH_BYTES,
@@ -27,10 +17,9 @@ import {
   type RemoteWebrtcCandidateType,
   type RemoteWebrtcIceServer,
 } from '../../shared/remote-webrtc';
+import { remoteCertificate } from '../remote-webrtc-certificate';
 
-// Window main ↔ peer host protocol (channel names: REMOTE_TRANSPORT_PEER_IPC in
-// main/remote-transport/peer-window.ts). Carrier bytes travel as Uint8Array
-// through structured clone: binary, never base64.
+// Carrier bytes cross the IPC hop as Uint8Array through structured clone: binary, never base64.
 
 /** `app` is `mixdog-transport` (reliable, ordered; kinds 1 and 2), `control`
  *  is `mixdog-transport-control` (reliable, ordered, its own SCTP stream; kind
@@ -138,19 +127,6 @@ function textField(source: object | null, name: string): string | undefined {
 const describe = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).slice(0, REMOTE_TRANSPORT_MAX_DETAIL_CHARS);
 
-/** The DTLS transport's remote certificate, as RTCCertificateStats names it. */
-async function remoteCertificate(pc: RTCPeerConnection) {
-  const report = await pc.getStats();
-  for (const stats of report.values()) {
-    if (stats.type !== 'transport' || !stats.remoteCertificateId) continue;
-    const certificate = report.get(stats.remoteCertificateId);
-    if (certificate) {
-      return { fingerprint: certificate.fingerprint, fingerprintAlgorithm: certificate.fingerprintAlgorithm };
-    }
-  }
-  return null;
-}
-
 /** The selected pair's path (§5 fallback order: direct, then TURN). */
 async function selectedPath(pc: RTCPeerConnection): Promise<'direct' | 'turn' | null> {
   const report = await pc.getStats();
@@ -195,10 +171,7 @@ export function startRemoteTransportPeerHost(env: RemoteTransportPeerHostEnv): v
     });
   }
 
-  /** Waits for this channel's drain to the low threshold. The threshold was set
-   *  when the channel was created, before its first send; the amount is read
-   *  again right after the listener is registered, so a drain that happened
-   *  before the registration is reported instead of missed. */
+  // The amount is read again after registering: `bufferedamountlow` does not fire for a drain that already happened.
   function armLow(connection: Connection, channel: RemoteTransportPeerChannel): void {
     if (connection.armed[channel]) return;
     const target = connection.channels[channel];

@@ -1,7 +1,3 @@
-// A server window's record: what main knows of a server whose window the core asked for (`host/window/open`). The core
-// owns the connection (the tunnel, the link, the reconnects); main keeps the id, the name, and the one question a window
-// needs answered: where the server's core listens (`connections/endpoint`, asked of this PC's core on every dial, so a
-// tunnel the core re-opened is followed). Nothing else of the old per-server connection object lives in this process.
 import type {
   ConnectionEndpoint,
   ConnectionIdParams,

@@ -31,16 +31,21 @@ function scopeOf(rule: OpScopeRule): (params: Json) => OpScope | undefined {
 }
 
 const methods = new Map<string, MethodInfo>(
-  methodTable.clientMethods.map((m) => [m.method, { class: m.class, mutation: m.opScope.kind !== 'none', opScope: scopeOf(m.opScope) }]),
+  methodTable.clientMethods.map((m) => [
+    m.method,
+    { class: m.class, mutation: m.opScope.kind !== 'none', opScope: scopeOf(m.opScope) },
+  ])
 );
 const sectionMethods = new Set<string>(
-  methodTable.serverNotifications.filter((n) => n.delivery === 'app' && n.params === 'SectionUpdate').map((n) => n.method),
+  methodTable.serverNotifications
+    .filter((n) => n.delivery === 'app' && n.params === 'SectionUpdate')
+    .map((n) => n.method)
 );
 
 const scopedMethods = new Set<string>(
   methodTable.serverNotifications
     .filter((n) => n.delivery === 'anyScoped' || (typeof n.delivery === 'object' && 'scoped' in n.delivery))
-    .map((n) => n.method),
+    .map((n) => n.method)
 );
 /** Notifications delivered on a scoped feed (`fs:<watchId>`, `ports`, ...). */
 export const isScopedMethod = (method: string): boolean => scopedMethods.has(method);
@@ -49,7 +54,9 @@ const notificationMethods = new Set<string>(methodTable.serverNotifications.map(
 /** A notification method this client's table lists: a fixed protocol name, safe for a host log. */
 export const isKnownNotification = (method: string): boolean => notificationMethods.has(method);
 
-const offeredRequests = new Set<string>(methodTable.serverRequests.filter((r) => r.requires === null).map((r) => r.method));
+const offeredRequests = new Set<string>(
+  methodTable.serverRequests.filter((r) => r.requires === null).map((r) => r.method)
+);
 /** Server requests the core offers every eligible connection (`requires: null`, the approvals): each stays open until the core
  *  resolves it (`serverRequest/resolved`) or the socket closes (P §8.3-8.4), so a client holds it until then. The others are sent
  *  to the one connection holding a capability (`requires`: `host.*`, `modelProxy`; DS §12): that connection's answer ends one, and

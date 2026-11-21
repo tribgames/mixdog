@@ -4,19 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// The phone's agent panel in headless Chrome: the real PaneSideDock around the
-// real AgentPanel (profile form + routines list over stubbed capabilities),
-// with the app's own styles bundled the way the renderer imports them
-// (bootstrap-styles.ts plus every component's CSS import: tab-strip.css,
-// pane-layout.css, routines.css, settings.css …).
-// (a) The dock's title row drops the repeated "Profile" but keeps its close
-//     control, at the same height and right edge as any other view's row; the
-//     panel's own tabs stay; the desktop keeps the title.
-// (b) The sheet's opposite swipe (rightward, back toward the edge it slid in
-//     from) follows the finger and closes it, also when it starts over the
-//     panel's tabs or its routine list; a vertical drag, a short slow drag or
-//     an aborted one leaves it open; a swipe that starts in a profile input
-//     stays the input's (the edge swipe's long-standing exclusion).
 // PHONE_AGENT_PANEL_SHOT=<file.png> keeps a picture of the open phone sheet.
 
 const ENTRY = `

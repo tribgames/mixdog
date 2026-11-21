@@ -389,7 +389,7 @@ const MODEL_SELECTION_KEYS = new Set([
   'fallbacks',
   'onlyIfEmpty',
 ]);
-const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
+const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick', 'withCatalogState']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh', 'unlockKeychain', 'recheckKeychain']);
 const SKILLS_STATUS_OPTION_KEYS = new Set(['projectPath']);
 // A secret value has no key here: it travels only through provideSecretInput.
@@ -808,39 +808,9 @@ export function requiredCustomProviderInput(value: unknown, modelsOptional = fal
     throw new TypeError('custom provider schemaVersion is invalid.');
   }
   if (input.requestBody !== undefined) plainRecord(input.requestBody, 'custom provider requestBody');
-  // Shape only; the runtime validates the names and values and refuses credential headers.
-  if (input.headers !== undefined) {
-    const headers = plainRecord(input.headers, 'custom provider headers');
-    const values = Object.values(headers);
-    if (values.length > CUSTOM_MAX_HEADERS) throw new TypeError('custom provider headers are too large.');
-    if (values.some((value) => typeof value !== 'string')) {
-      throw new TypeError('custom provider headers are invalid.');
-    }
-  }
-  // Shape only; the runtime ties them to the protocol and to each other.
-  if (input.wires !== undefined) {
-    if (
-      !Array.isArray(input.wires) ||
-      input.wires.length === 0 ||
-      input.wires.length > CUSTOM_WIRES.size ||
-      input.wires.some((wire) => typeof wire !== 'string' || !CUSTOM_WIRES.has(wire))
-    ) {
-      throw new TypeError('custom provider wires are invalid.');
-    }
-  }
-  if (input.modelWires !== undefined) {
-    const modelWires = plainRecord(input.modelWires, 'custom provider modelWires');
-    const ids = Object.keys(modelWires);
-    if (ids.length > CUSTOM_MAX_OVERRIDES) throw new TypeError('custom provider modelWires are too large.');
-    for (const modelId of ids) {
-      requireSafeModelId(modelId);
-      const wire = modelWires[modelId];
-      if (typeof wire !== 'string' || !CUSTOM_WIRES.has(wire)) {
-        throw new TypeError('custom provider modelWires are invalid.');
-      }
-    }
-  }
-  // v2 states models as modelOverrides; a legacy `models` list is unversioned only.
+  if (input.headers !== undefined) requiredCustomHeaders(input.headers);
+  if (input.wires !== undefined) requiredCustomWires(input.wires);
+  if (input.modelWires !== undefined) requiredCustomModelWires(input.modelWires);
   if (input.schemaVersion === 2 && input.models !== undefined) {
     throw new TypeError('custom provider models are invalid.');
   }
@@ -863,9 +833,47 @@ export function requiredCustomProviderInput(value: unknown, modelsOptional = fal
   if (input.models === undefined && (modelsOptional || input.schemaVersion === 2)) {
     return input;
   }
-  if (!Array.isArray(input.models) || input.models.length > CUSTOM_MAX_OVERRIDES)
+  requiredCustomLegacyModels(input.models);
+  return input;
+}
+
+function requiredCustomHeaders(value: unknown): void {
+  const headers = plainRecord(value, 'custom provider headers');
+  const values = Object.values(headers);
+  if (values.length > CUSTOM_MAX_HEADERS) throw new TypeError('custom provider headers are too large.');
+  if (values.some((header) => typeof header !== 'string')) {
+    throw new TypeError('custom provider headers are invalid.');
+  }
+}
+
+function requiredCustomWires(wires: unknown): void {
+  if (
+    !Array.isArray(wires) ||
+    wires.length === 0 ||
+    wires.length > CUSTOM_WIRES.size ||
+    wires.some((wire) => typeof wire !== 'string' || !CUSTOM_WIRES.has(wire))
+  ) {
+    throw new TypeError('custom provider wires are invalid.');
+  }
+}
+
+function requiredCustomModelWires(value: unknown): void {
+  const modelWires = plainRecord(value, 'custom provider modelWires');
+  const ids = Object.keys(modelWires);
+  if (ids.length > CUSTOM_MAX_OVERRIDES) throw new TypeError('custom provider modelWires are too large.');
+  for (const modelId of ids) {
+    requireSafeModelId(modelId);
+    const wire = modelWires[modelId];
+    if (typeof wire !== 'string' || !CUSTOM_WIRES.has(wire)) {
+      throw new TypeError('custom provider modelWires are invalid.');
+    }
+  }
+}
+
+function requiredCustomLegacyModels(models: unknown): void {
+  if (!Array.isArray(models) || models.length > CUSTOM_MAX_OVERRIDES)
     throw new TypeError('custom provider models are invalid.');
-  for (const model of input.models) {
+  for (const model of models) {
     const row = plainRecord(model, 'custom provider model');
     requireAllowedKeys(row, CUSTOM_MODEL_KEYS, 'custom provider model');
     requiredString(row.id, 'custom provider model id', CUSTOM_MAX_MODEL_ID);
@@ -876,7 +884,6 @@ export function requiredCustomProviderInput(value: unknown, modelsOptional = fal
       }
     }
   }
-  return input;
 }
 
 function requireSafeModelId(modelId: string): void {
@@ -891,12 +898,6 @@ function requireSafeModelId(modelId: string): void {
   }
 }
 
-/**
- * Check one model override with the runtime normalizer's accept set
- * (custom-provider-config.mjs; checked by custom-provider-validation.test.mjs). `patch` additionally
- * allows null to delete a property; its wire values are not tied to levels
- * because the service prunes them against the merged levels.
- */
 function validateCustomModelOverride(value: unknown, patch: boolean, protocol?: unknown): void {
   const row = plainRecord(value, 'custom provider model override');
   requireAllowedKeys(row, CUSTOM_OVERRIDE_KEYS, 'custom provider model override');
@@ -925,7 +926,12 @@ function validateCustomModelOverride(value: unknown, patch: boolean, protocol?: 
     }
   }
   if (row.reasoning === undefined || nullable(row.reasoning)) return;
-  const reasoning = plainRecord(row.reasoning, 'custom provider reasoning');
+  validateCustomReasoning(row.reasoning, patch, protocol);
+}
+
+function validateCustomReasoning(value: unknown, patch: boolean, protocol: unknown): void {
+  const nullable = (v: unknown) => patch && v === null;
+  const reasoning = plainRecord(value, 'custom provider reasoning');
   requireAllowedKeys(reasoning, CUSTOM_REASONING_KEYS, 'custom provider reasoning');
   const { levels, wireFormat, wireValues, replay } = reasoning;
   let declared: Set<string> | null = null;
@@ -1091,6 +1097,32 @@ function requiredWorkspaceSearchLimit(value: unknown): number {
   return value as number;
 }
 
+function requiredBase64Data(data: unknown, maxLength: number, message: string): string {
+  if (typeof data !== 'string' || !data || data.length > maxLength || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) {
+    throw new TypeError(message);
+  }
+  return data;
+}
+
+function promptImagePart(part: Record<string, unknown>) {
+  const mimeType = requiredString(part.mimeType, 'image mime type', 64).toLowerCase();
+  if (!PROMPT_IMAGE_MIME_PATTERN.test(mimeType)) {
+    throw new TypeError('image type is unsupported.');
+  }
+  const data = requiredBase64Data(part.data, MAX_PROMPT_IMAGE_BASE64_LENGTH, 'image data is invalid.');
+  return { type: 'image' as const, data, mimeType };
+}
+
+function promptFilePart(part: Record<string, unknown>) {
+  const mimeType = canonicalPromptFileMimeType(
+    requiredString(part.mimeType, 'file mime type', MAX_PROMPT_FILE_MIME_LENGTH)
+  );
+  if (!mimeType) throw new TypeError('file type is unsupported.');
+  const data = requiredBase64Data(part.data, MAX_PROMPT_FILE_BASE64_LENGTH, 'file data is invalid.');
+  const filename = typeof part.filename === 'string' ? part.filename.slice(0, 160) : '';
+  return { type: 'file' as const, data, mimeType, ...(filename ? { filename } : {}) };
+}
+
 export function requiredPromptContent(value: unknown): DesktopPromptContent {
   if (typeof value === 'string') {
     if (!value.trim() || value.length > MAX_PROMPT_LENGTH) throw new TypeError('prompt is invalid.');
@@ -1120,43 +1152,20 @@ export function requiredPromptContent(value: unknown): DesktopPromptContent {
     if (part.type === 'image') {
       imageCount += 1;
       if (imageCount > MAX_PROMPT_IMAGES) throw new TypeError('too many prompt images.');
-      const mimeType = requiredString(part.mimeType, 'image mime type', 64).toLowerCase();
-      if (!PROMPT_IMAGE_MIME_PATTERN.test(mimeType)) {
-        throw new TypeError('image type is unsupported.');
-      }
-      if (
-        typeof part.data !== 'string' ||
-        !part.data ||
-        part.data.length > MAX_PROMPT_IMAGE_BASE64_LENGTH ||
-        !/^[A-Za-z0-9+/]*={0,2}$/.test(part.data)
-      ) {
-        throw new TypeError('image data is invalid.');
-      }
-      imageLength += part.data.length;
+      const image = promptImagePart(part);
+      imageLength += image.data.length;
       if (imageLength > MAX_PROMPT_IMAGE_BASE64_TOTAL) throw new TypeError('prompt images are too large.');
       hasContent = true;
-      return { type: 'image' as const, data: part.data, mimeType };
+      return image;
     }
     if (part.type === 'file') {
       fileCount += 1;
       if (fileCount > MAX_PROMPT_FILES) throw new TypeError('too many prompt files.');
-      const mimeType = canonicalPromptFileMimeType(
-        requiredString(part.mimeType, 'file mime type', MAX_PROMPT_FILE_MIME_LENGTH)
-      );
-      if (!mimeType) throw new TypeError('file type is unsupported.');
-      if (
-        typeof part.data !== 'string' ||
-        !part.data ||
-        part.data.length > MAX_PROMPT_FILE_BASE64_LENGTH ||
-        !/^[A-Za-z0-9+/]*={0,2}$/.test(part.data)
-      ) {
-        throw new TypeError('file data is invalid.');
-      }
-      fileLength += part.data.length;
+      const file = promptFilePart(part);
+      fileLength += file.data.length;
       if (fileLength > MAX_PROMPT_FILE_BASE64_TOTAL) throw new TypeError('prompt files are too large.');
       hasContent = true;
-      const filename = typeof part.filename === 'string' ? part.filename.slice(0, 160) : '';
-      return { type: 'file' as const, data: part.data, mimeType, ...(filename ? { filename } : {}) };
+      return file;
     }
     throw new TypeError('prompt part type is unsupported.');
   });
@@ -1571,6 +1580,28 @@ function validateSecret(secret: unknown, name: string): void {
   }
 }
 
+function validateVertexSettings(settings: unknown, secret: unknown, adc: boolean): void {
+  const options = optionalPlainRecord(settings);
+  if (!options) throw new TypeError('Vertex AI settings are invalid.');
+  if (
+    options.authMode !== undefined &&
+    options.authMode !== 'service-account' &&
+    options.authMode !== 'api-key' &&
+    !adc
+  ) {
+    throw new TypeError('Vertex AI authentication mode is invalid.');
+  }
+  if (adc && secret !== '') throw new TypeError('Vertex AI gcloud login takes no key.');
+  if (options.location !== undefined && options.location !== '') {
+    requiredString(options.location, 'Vertex AI location', 63);
+    if (!/^[a-z0-9-]+$/.test(String(options.location))) throw new TypeError('Vertex AI location is invalid.');
+  }
+  if (options.projectId !== undefined && options.projectId !== '') {
+    requiredString(options.projectId, 'Vertex AI project ID', 128);
+    if (!/^[a-zA-Z0-9._:-]+$/.test(String(options.projectId))) throw new TypeError('Vertex AI project ID is invalid.');
+  }
+}
+
 function validateCredentialCapabilityArgs(capability: DesktopCapability, args: readonly unknown[]): void {
   // A Vertex AI gcloud login (ADC) save sends no secret at all.
   const vertexAdc = capability === 'saveProviderApiKey' && optionalPlainRecord(args[2])?.authMode === 'adc';
@@ -1579,28 +1610,7 @@ function validateCredentialCapabilityArgs(capability: DesktopCapability, args: r
   }
   if (capability === 'saveProviderApiKey' && args[2] !== undefined) {
     if (args[0] !== 'vertex-ai') throw new TypeError('Provider settings are only supported for Vertex AI.');
-    const options = optionalPlainRecord(args[2]);
-    if (!options) throw new TypeError('Vertex AI settings are invalid.');
-    // service-account: the JSON key; api-key: an express-mode API key.
-    if (
-      options.authMode !== undefined &&
-      options.authMode !== 'service-account' &&
-      options.authMode !== 'api-key' &&
-      !vertexAdc
-    ) {
-      throw new TypeError('Vertex AI authentication mode is invalid.');
-    }
-    if (vertexAdc && args[1] !== '') throw new TypeError('Vertex AI gcloud login takes no key.');
-    // No location (or an empty one) leaves it unset: the environment's region, then global.
-    if (options.location !== undefined && options.location !== '') {
-      requiredString(options.location, 'Vertex AI location', 63);
-      if (!/^[a-z0-9-]+$/.test(String(options.location))) throw new TypeError('Vertex AI location is invalid.');
-    }
-    if (options.projectId !== undefined && options.projectId !== '') {
-      requiredString(options.projectId, 'Vertex AI project ID', 128);
-      if (!/^[a-zA-Z0-9._:-]+$/.test(String(options.projectId)))
-        throw new TypeError('Vertex AI project ID is invalid.');
-    }
+    validateVertexSettings(args[2], args[1], vertexAdc);
   }
   if (
     capability === 'saveCustomProvider' ||

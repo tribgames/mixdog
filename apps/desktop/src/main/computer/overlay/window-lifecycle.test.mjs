@@ -308,6 +308,48 @@ test('repeated unresponsive renderers are removed without an automatic restart l
   }
 });
 
+test('repeated renderer failures retry after a doubling backoff', async (t) => {
+  fault = '';
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
+  const start = windows.length;
+  const overlay = createComputerUseOverlay({
+    stop: async () => {},
+    pause: async () => coordinator.pauseForUser('user_pause'),
+  });
+  try {
+    coordinator.beginCommand({ sessionId: 'backoff-fixture', action: 'capture', mode: 'background' });
+    await settle();
+    windows[start].emit('unresponsive');
+    await settle();
+    await settle();
+    windows[start + 1].emit('unresponsive');
+    await settle();
+    await settle();
+    assert.equal(windows.length, start + 2, 'the second failure waits instead of recreating');
+    t.mock.timers.tick(4_999);
+    await settle();
+    assert.equal(windows.length, start + 2, 'still inside the 5 s backoff');
+    t.mock.timers.tick(1);
+    await settle();
+    await settle();
+    assert.equal(windows.length, start + 3, 'recreated once the 5 s backoff elapsed');
+    assert.equal(windows[start + 2].isVisible(), true);
+    windows[start + 2].emit('unresponsive');
+    await settle();
+    await settle();
+    t.mock.timers.tick(9_999);
+    await settle();
+    assert.equal(windows.length, start + 3, 'the third failure backs off for 10 s');
+    t.mock.timers.tick(1);
+    await settle();
+    await settle();
+    assert.equal(windows.length, start + 4);
+  } finally {
+    overlay.dispose();
+    coordinator.reset();
+  }
+});
+
 test('a crashed control renderer pauses input and is replaced with live controls', async () => {
   fault = '';
   const start = windows.length;

@@ -1,8 +1,3 @@
-// A group room's transcript rows (agent-room.mjs): a member's words read as
-// ordinary assistant text under a small face and name; a pass is one faint
-// line; a limit stop is one such line with an inline "Continue" (no counts,
-// the same for rows saved before); the overlay row names who is
-// speaking now. The user's own bubble only gains a "→ name" chip.
 import { useContext, useEffect, useState } from 'react';
 import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { TranscriptItem, TranscriptRoomRow } from './desktop-types';
@@ -59,10 +54,6 @@ function useClockUntil(until: number | null): number {
   return now;
 }
 
-/** The room paused on the provider's usage limit: why, on which model and
- *  when it resets. A quota that resets offers "Continue" once the reset has
- *  passed (the limit then clears and the room goes on); a plan or billing
- *  stop offers none, since only a change of model or plan helps. */
 function UsageLimitRow({ room }: { room: TranscriptRoomRow }) {
   const usage = room.usage as NonNullable<TranscriptRoomRow['usage']>;
   const now = useClockUntil(usage.resetAt);

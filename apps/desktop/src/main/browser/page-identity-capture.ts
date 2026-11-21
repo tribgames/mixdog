@@ -92,10 +92,6 @@ async function readPreviewThumbnail(
   return image && !image.isEmpty() ? cardThumbnail(image, 'center') : null;
 }
 
-/** What the page at `url` declares about itself, as identity facts the
- *  store does not have yet (`known`): its preview image as a thumbnail, its
- *  icon and its title. Read through the browser session; null when nothing
- *  usable came back. */
 export async function readBrowserPagePreview(
   session: Electron.Session,
   url: string,

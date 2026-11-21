@@ -1,7 +1,3 @@
-// The whole-PC screen view's full-screen host on a paired phone: one overlay,
-// mounted once in the app shell, opened through remote-screen-request.ts. It
-// lists the PC's displays, offers the monitor picker only when there are two
-// or more (frame B), and then shows the pane (frame C).
 import { ChevronRight, Monitor } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useState, type CSSProperties } from 'react';
 

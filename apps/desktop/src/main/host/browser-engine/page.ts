@@ -31,7 +31,7 @@ import { type BrowserGuestStateStore, pushBounded } from '../../browser/host-sta
 import { redactBrowserText } from '../../browser/redaction';
 import { pause } from '../../browser/settle';
 import { type BrowserMailLink, mailLinkWindowMs } from '../../browser/url-policy';
-import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
+import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError, isPlainObject } from '../connection';
 import type { EngineContext } from './context';
 import { ENGINE_ERROR } from './errors';
 import { checkPrecondition } from './precondition';
@@ -76,10 +76,6 @@ function failed(message: string): HostRpcError {
 
 function refused(reason: string): HostRpcError {
   return new HostRpcError(ENGINE_ERROR.refused, reason, { reason });
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function clamp(value: unknown, fallback: number, min: number, max: number): number {
@@ -127,7 +123,7 @@ export function guardBeforeDispatch(page: EnginePageCall, expect: unknown): (() 
 /** The CDP session a `FrameRef` names; a session that is not one of the page's is a plain failure. */
 function frameTarget(page: EnginePageCall, frame: unknown): { sessionId?: string; frameId?: string } {
   if (frame === undefined || frame === null) return {};
-  if (!isObject(frame)) throw new HostRpcError(HOST_INVALID_PARAMS, 'frame must be an object.');
+  if (!isPlainObject(frame)) throw new HostRpcError(HOST_INVALID_PARAMS, 'frame must be an object.');
   const { sessionId, frameId } = frame as FrameRef;
   if (sessionId !== undefined && !page.state.cdpSessions.has(sessionId)) {
     throw failed(`frame session ${sessionId} is not attached to the page`);
@@ -135,14 +131,9 @@ function frameTarget(page: EnginePageCall, frame: unknown): { sessionId?: string
   return { sessionId, frameId };
 }
 
-/**
- * The wire mail link (`{url, expiresAt}`) as the url policy reads it. The core
- * decided the provenance; the host keeps checking what it can see: the exact
- * https link, inside the sign-in window that ends at `expiresAt`.
- */
 function policyMailLink(link: unknown): BrowserMailLink | undefined {
   if (link === undefined || link === null) return undefined;
-  if (!isObject(link) || typeof link.url !== 'string' || typeof link.expiresAt !== 'number') {
+  if (!isPlainObject(link) || typeof link.url !== 'string' || typeof link.expiresAt !== 'number') {
     throw new HostRpcError(HOST_INVALID_PARAMS, 'mailLink needs url and expiresAt.');
   }
   const { url, expiresAt } = link as unknown as WireMailLink;
@@ -400,7 +391,7 @@ async function read(
   const { guest } = page;
   assertNotBlocked(page);
   const kind = params.kind;
-  const options = isObject(params.options) ? params.options : {};
+  const options = isPlainObject(params.options) ? params.options : {};
   const maxChars = clamp(options.maxChars, READ_DEFAULT_CHARS, 1, READ_MAX_CHARS_WIRE);
   // Where a text read starts: a text longer than one read returns is read in parts, each from where the last ended.
   const offset = clamp(options.offset, 0, 0, READ_MAX_OFFSET);

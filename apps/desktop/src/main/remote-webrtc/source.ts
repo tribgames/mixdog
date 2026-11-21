@@ -1,8 +1,3 @@
-/**
- * A video source the WebRTC sender streams: the browser page of a session, or
- * the whole PC screen (remote-screen/screen-webrtc-sources.ts). Main owns
- * capture; the sender only encodes what a source hands it.
- */
 import type {
   RemoteScreenCapturePlan,
   RemoteScreenHelperCredential,

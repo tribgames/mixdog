@@ -1,8 +1,3 @@
-// The timeline teaches the shared height store from its measured rows. An
-// agent chat paints nothing for most tool rounds (a blank row, 0px): never
-// learning that 0 estimated every unmeasured round at a coding tool card's
-// height, and scrolling up through a bot chat's history corrected each one as
-// it came into view (a 26px shift). The two surfaces learn apart.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { installTestDom } from './test-support/test-dom.mjs';

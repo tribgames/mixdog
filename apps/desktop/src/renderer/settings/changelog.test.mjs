@@ -51,11 +51,7 @@ test('1.1.0 -> 1.1.1 with the stored mark intact announces 1.1.1 once', () => {
   assert.equal(peekWhatsNew(storage, '1.1.1', true), 'already-shown');
 });
 
-test('1.1.0 -> 1.1.1 after localStorage was lost still announces, instead of passing for a fresh install', () => {
-  // Installed-app evidence: the Local Storage database was recreated empty
-  // during the 1.1.0 session, and the 1.1.1 launch logged reason=fresh-install.
-  // (1.1.1 is already marked shown in this module by the test above, so the
-  // same upgrade runs here as 1.2.0 -> 1.2.1.)
+test('1.2.0 -> 1.2.1 after localStorage was lost still announces, instead of passing for a fresh install', () => {
   const storage = memoryStorage();
   assert.equal(peekWhatsNew(storage, '1.2.1', true), 'pending');
   assert.equal(storage.data.has(SEEN_VERSION_KEY), false, 'nothing is recorded until the notice is shown');

@@ -332,16 +332,6 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
   let helperVideo = false;
   let videoPath: ScreenVideoPath = 'capture';
   const videoPathListeners = new Set<(path: ScreenVideoPath) => void>();
-  /**
-   * The status's helper block besides the decision. The offer comes from the
-   * install-state check at start (without a key: the phone names its key only
-   * when it asks) and from each install request of this session (relative to
-   * its key); a check or request answered after a later one started counts
-   * for nothing (`installTurn`). The issue is the helper's latest reportable
-   * code while this session has it active; it ends when the helper is
-   * deactivated, at a helper change (`helperIssueAfterChange`), and
-   * `grant_expired` once the next grant was relayed.
-   */
   let helperFacts: ScreenHelperFacts = { offer: 'none', outcome: null, detail: null, issue: null };
   let installTurn = 0;
   /** The password request of this session that is with PC access (one at a
@@ -354,14 +344,6 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     credentialRequest.abort.abort();
     wipeCredential(credentialRequest.credential);
   };
-  /**
-   * The installed service was stopped and could not be started (after a
-   * reboot it is registered but stopped). `ensureService` asks the helper to
-   * start it at session start when the install is current, and each time the
-   * helper is activated while not connected; the answer shows as helper
-   * `failed` in the status until a connection (`active`) or a later start
-   * succeeds. An answer after a later attempt started counts for nothing.
-   */
   let serviceDown = false;
   let serviceTurn = 0;
   const challengeListeners = new Set<(challenge: SecureDesktopGrantChallenge) => void>();
@@ -378,10 +360,6 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
   let cursorSample = 0;
   const cursorListeners = new Set<(cursor: ScreenCursor) => void>();
 
-  // Every press is held by the backend that injected it; input, backend
-  // switches and releases share one serialized, cancellable queue.
-  // Each backend reports the desktop (session + desktop) a command would land
-  // on now; presses are tagged with it and their releases go nowhere else.
   const router = new ScreenInputRouter(
     {
       desktop: {
@@ -515,13 +493,6 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     return next.mode === 'blocked' ? null : 'desktop';
   };
 
-  /**
-   * Re-reads the desktop state. The gate and the status change at once; the
-   * backend change runs as one turn of the input queue: the previous
-   * backend's presses are released through it (dropped if it can't reach
-   * their desktop), the helper activates when it takes over, and it is
-   * deactivated after its own presses were released.
-   */
   const refreshDecision = (): void => {
     if (!running) return;
     const next = decideScreenSource(helperState());
@@ -715,18 +686,6 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     return router.dispatch(commands, allowed);
   }
 
-  /**
-   * Cursor sampling (`deps.sampleCursor`): the input host's read-back of the
-   * cursor (physical desktop pixels, the space the mapping uses), mapped to
-   * video pixels, published when it changed. Sampled once per capture frame
-   * interval (`1000 / maxFrameRate` ms): the cursor is baked into the video,
-   * which shows at most `maxFrameRate` pictures a second, so a position
-   * sampled more often could not match any frame the phone shows, and one per
-   * frame keeps the trackpad anchor at most a frame behind. One read at a
-   * time; none while the helper serves the secure desktop (the host can't
-   * read the cursor there) or while the cursor is on another display. A read
-   * that completes after a switch to the helper or a new geometry is dropped.
-   */
   const startCursorSampling = (): void => {
     let reading = false;
     const timer = setInterval(
@@ -757,12 +716,6 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     subscriptions.push(() => clearInterval(timer));
   };
 
-  /**
-   * The absolute deadline of the running stop. A later `stop` with a shorter
-   * `deadlineMs` moves it earlier and re-arms its timer; it is never moved
-   * later. When it passes: during the release step the host is killed and the
-   * router abandoned; while the host closes, its graceful stop is cut short.
-   */
   let stopDeadline: {
     at: number;
     timer?: ReturnType<typeof setTimeout>;
@@ -825,10 +778,6 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     for (const listener of stopListeners) listener(reason);
     deps.indicator.hide();
     deps.log({ type: 'stop', ...ids, reason });
-    // The watchdog runs from this moment, whatever the queue is waiting on: a
-    // hung helper is killed and every pending send is abandoned, which lets
-    // the release step below finish at once (what it could not send is
-    // dropped and counted).
     armStopDeadline();
     // The release is queued behind any in-flight command, so it undoes it.
     stopping = router.releaseAll().then(async () => {

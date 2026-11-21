@@ -1,9 +1,3 @@
-/**
- * Commands answered by observing rather than acting: state verification, app
- * and history listings, and the capture, screenshot and zoom replies. A pixel
- * capture that produced no frame becomes a pixel_unavailable verdict here;
- * anything else falls through to input delivery.
- */
 import { readComputerRunRecords } from '../session/run-log';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { pixelUnavailableReply, type CommandReplies } from './command-replies';

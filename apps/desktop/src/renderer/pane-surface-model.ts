@@ -141,10 +141,6 @@ function conversationSurfaceFor(leaf: PaneLeaf, handoff: boolean): ConversationS
     : [];
 }
 
-/** The conversation surfaces to mount: each pane's active conversation, the
- *  outgoing handoff layers, owners parked behind a utility tab and, with a
- *  `retainLimit`, recently shown sessions. `recent` is the new recency list
- *  when retention ran, else null. */
 function collectConversationLeaves(
   workspace: Pick<ReturnType<typeof usePaneWorkspace>, 'leaves' | 'restorePending'>,
   handoffs: Iterable<PaneSurfaceSnapshot>,
@@ -258,10 +254,6 @@ export function usePaneConversationOwners(
   const conversationOwnerSequence = useRef(0);
   const conversationOwners = useRef<ConversationOwner[]>([]);
   const recentSelections = useRef<RecentSelection[]>([]);
-  // A retained conversation pins its whole transcript and DOM while nobody
-  // looks at it; once the window has idled, it reopens cold like any session
-  // past the retain budget. One holding unfinished work (its gate says no)
-  // stays until it says yes, unless it is shown again first.
   const [, setReleases] = useState(0);
   const releaseGates = useRef(new Map<string, { gate: ConversationReleaseGate; stop: () => void }>());
   const pendingReleases = useRef(new Set<string>());

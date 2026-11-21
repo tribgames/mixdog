@@ -1,8 +1,3 @@
-/**
- * The accessibility side of a state capture: its element budget, the bound
- * snapshot read and fold, the elements placed on the captured frame, and the
- * one content re-read a chrome-only answer earns.
- */
 import { DEFAULT_CAPTURE_MAX_ELEMENTS } from '../shared/common';
 import {
   frameElements,

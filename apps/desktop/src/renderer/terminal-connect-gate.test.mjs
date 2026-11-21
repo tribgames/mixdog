@@ -3,11 +3,6 @@ import test from 'node:test';
 
 import { createTerminalConnectGate } from './terminal-connect-gate.ts';
 
-// A terminal pane's connects (TerminalPane) against a fake host with the same
-// contract as the PTY host (attach never spawns, ensure spawns a dead or
-// missing shell), whose spawns the test counts: a warm-up attaches only, the
-// real open ensures.
-
 function managerWithCountedSpawns() {
   const shell = { spawns: 0, exit: null };
   const live = new Map();

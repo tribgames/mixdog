@@ -47,7 +47,6 @@ test('an unavailable background Git read renders a neutral state without the raw
         projectPath: 'C:/project',
         status: null,
         statusReady: true,
-        loading: false,
         statusError: 'raw IPC failure',
         onRefreshStatus() {},
         active: false,

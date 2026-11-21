@@ -1,9 +1,3 @@
-// Messages split by author, because what the person typed, what the model
-// produced, what a tool returned and what an attachment cost all grow for
-// different reasons and are reduced in different ways. Runtime-authored
-// reminders are the system speaking, so they ride in the system row as their
-// own group instead of a category of their own. The remaining rows are the
-// request surface, which is not a message at all.
 export const CONTEXT_CATEGORIES = [
   { key: 'system', label: 'System messages' },
   { key: 'user', label: 'User messages' },

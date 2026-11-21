@@ -1,10 +1,3 @@
-/**
- * markdown-pipeline.test.mjs — desktop/web markdown element coverage.
- *
- * Pins the worker AST pipeline (parseMarkdownToHast) and the streaming source
- * fallback so the two never diverge from the terminal surfaces covered by
- * scripts/markdown-surface-test.mjs.
- */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

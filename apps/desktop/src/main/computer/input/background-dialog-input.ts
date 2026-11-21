@@ -1,11 +1,5 @@
-/**
- * Why a dialog refuses background keystrokes. A modal dialog routes keys
- * through the dialog manager of the thread that owns the input focus, so a
- * message posted to an unfocused dialog is discarded, and the keys that press
- * a default button never reach one. Reporting delivery as a success while the
- * dialog stands untouched is worse than a refusal: the caller reads "done" and
- * moves on.
- */
+// Win32: a modal dialog routes keys through the dialog manager of the thread that owns
+// input focus, so a message posted to an unfocused dialog is discarded.
 import type { ComputerWindowRecord } from '../shared/window-transition';
 
 /** Win32 registers every standard dialog under this class. */

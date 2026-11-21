@@ -1,8 +1,3 @@
-// A paired remote client cannot reach the host's page server, so a scripted
-// inline page (`chart` / `html` content) is built here from the content that
-// travels in the tab state. A chart page carries the locally bundled ECharts
-// (loaded on first use, never from a CDN). The result is an ordinary page
-// source: it goes through the same script gate ([Run]) as an HTML file page.
 import type { VisualizeInlineContent, VisualizePaneSource } from '../shared/visualize';
 import { inlinePageDocument } from '../shared/visualize-inline-page';
 

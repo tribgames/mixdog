@@ -1,7 +1,3 @@
-// One attachment tile shared by the composer, the automation editors and sent
-// user messages: an image is its own thumbnail; anything else shows a picture
-// of its content (PDF first page, code or prose minimap, else the drawn
-// document sheet) above a bar with its name and a small coloured type word.
 import { X } from 'lucide-react';
 import { useEffect, useState, type HTMLAttributes, type ReactNode } from 'react';
 import { textLineCount, type ComposerAttachment } from './composer-support';
@@ -17,6 +13,7 @@ import {
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { sha256Hex } from './sha256';
+import { byteSize } from './text-format';
 
 type AttachmentCardKind = 'image' | 'pasted' | 'text' | 'pdf' | 'office';
 
@@ -37,13 +34,6 @@ function attachmentCardType(
   return { tone, word, prose: tone === 'txt' };
 }
 
-// Rendered first pages of attached PDFs, by their base64 data: a card that
-// re-renders, or the same file in the composer and the sent message, reuses
-// one rasterization. Bounded; failures stay cached so they never retry in a loop.
-// Keyed by the attachment's trusted identity, else the SHA-256 of its data:
-// a key of the base64 itself kept every recent PDF's bytes alive after its
-// card and message were gone, and a short hash let one PDF show another's page.
-// Exported so tests can seed a page without rasterizing a PDF.
 const PDF_PAGE_CACHE_LIMIT = 12;
 export const pdfPages = new Map<string, Promise<string>>();
 
@@ -91,12 +81,6 @@ function PdfFirstPage({ data, contentId, tone }: { data: string; contentId?: str
   ) : (
     <DocSheet tone={tone} />
   );
-}
-
-function byteSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** Card kind of a composer or automation attachment. */

@@ -610,6 +610,52 @@ function box(raw: Record<string, unknown>): InspectBox {
 
 const SEVERITIES: readonly string[] = ['error', 'warning', 'info'];
 
+function inspectElement(entry: unknown): InspectElement {
+  const item = record(entry);
+  const secret = Array.isArray(item.flags) && item.flags.includes('secret');
+  const shown = secret ? '[redacted]' : text(item.value, 60);
+  return {
+    role: text(item.role, 24),
+    name: text(item.name, 80),
+    selector: text(item.selector, 200),
+    tag: text(item.tag, 24),
+    ...(typeof item.value === 'string' ? { value: shown } : {}),
+    flags: list(item.flags, 6)
+      .map((flag) => text(flag, 24))
+      .filter(Boolean),
+    ...box(item),
+  };
+}
+
+function inspectFinding(entry: unknown): InspectFinding[] {
+  const item = record(entry);
+  const kind = (INSPECT_FINDING_KINDS as readonly string[]).includes(item.kind as string)
+    ? (item.kind as InspectFindingKind)
+    : null;
+  if (!kind) return [];
+  return [
+    {
+      kind,
+      severity: SEVERITIES.includes(item.severity as string) ? (item.severity as InspectSeverity) : 'warning',
+      message: text(item.message, 240),
+      selector: text(item.selector, 200),
+      ...box(item),
+    },
+  ];
+}
+
+function inspectOutlineItem(entry: unknown): InspectOutlineItem {
+  const item = record(entry);
+  return {
+    depth: Math.max(0, Math.min(8, int(item.depth))),
+    kind: item.kind === 'landmark' ? 'landmark' : 'heading',
+    role: text(item.role, 24),
+    level: Math.max(0, Math.min(6, int(item.level))),
+    name: text(item.name, 100),
+    selector: text(item.selector, 200),
+  };
+}
+
 /** A page's answer, bounded and typed; `{ error }` when it reported one, null
  *  when it is not an inspection at all. */
 export function visualizePageInspection(value: unknown): PageInspection | { error: string } | null {
@@ -619,53 +665,13 @@ export function visualizePageInspection(value: unknown): PageInspection | { erro
   if (!Array.isArray(raw.elements) || !Array.isArray(raw.findings) || !Array.isArray(raw.outline)) return null;
   const viewport = record(raw.viewport);
   const page = record(raw.page);
-  const elements = list(raw.elements, MAX_INSPECT_ELEMENTS).map((entry): InspectElement => {
-    const item = record(entry);
-    const secret = Array.isArray(item.flags) && item.flags.includes('secret');
-    const shown = secret ? '[redacted]' : text(item.value, 60);
-    return {
-      role: text(item.role, 24),
-      name: text(item.name, 80),
-      selector: text(item.selector, 200),
-      tag: text(item.tag, 24),
-      ...(typeof item.value === 'string' ? { value: shown } : {}),
-      flags: list(item.flags, 6)
-        .map((flag) => text(flag, 24))
-        .filter(Boolean),
-      ...box(item),
-    };
-  });
-  const findings = list(raw.findings, MAX_INSPECT_FINDINGS).flatMap((entry): InspectFinding[] => {
-    const item = record(entry);
-    const kind = (INSPECT_FINDING_KINDS as readonly string[]).includes(item.kind as string)
-      ? (item.kind as InspectFindingKind)
-      : null;
-    if (!kind) return [];
-    return [
-      {
-        kind,
-        severity: SEVERITIES.includes(item.severity as string) ? (item.severity as InspectSeverity) : 'warning',
-        message: text(item.message, 240),
-        selector: text(item.selector, 200),
-        ...box(item),
-      },
-    ];
-  });
+  const elements = list(raw.elements, MAX_INSPECT_ELEMENTS).map(inspectElement);
+  const findings = list(raw.findings, MAX_INSPECT_FINDINGS).flatMap(inspectFinding);
   return {
     viewport: { width: Math.max(0, int(viewport.width)), height: Math.max(0, int(viewport.height)) },
     page: { width: Math.max(0, int(page.width)), height: Math.max(0, int(page.height)) },
     scope: text(raw.scope, 200),
-    outline: list(raw.outline, MAX_INSPECT_OUTLINE).map((entry): InspectOutlineItem => {
-      const item = record(entry);
-      return {
-        depth: Math.max(0, Math.min(8, int(item.depth))),
-        kind: item.kind === 'landmark' ? 'landmark' : 'heading',
-        role: text(item.role, 24),
-        level: Math.max(0, Math.min(6, int(item.level))),
-        name: text(item.name, 100),
-        selector: text(item.selector, 200),
-      };
-    }),
+    outline: list(raw.outline, MAX_INSPECT_OUTLINE).map(inspectOutlineItem),
     elements,
     elementCount: Math.max(elements.length, int(raw.elementCount)),
     findings,
@@ -674,7 +680,6 @@ export function visualizePageInspection(value: unknown): PageInspection | { erro
     partial: raw.partial === true,
   };
 }
-
 const boxText = (item: InspectBox): string => `${item.x},${item.y} ${item.w}×${item.h}`;
 
 /** Lines that fit `budget` characters; the rest is summarized. */

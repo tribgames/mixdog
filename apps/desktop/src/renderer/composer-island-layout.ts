@@ -53,20 +53,12 @@ function rememberFit(island: HTMLElement, room: number): void {
   evictOldest(fitByRoom, FIT_BY_ROOM_MAX);
 }
 
-/** Swaps segment words for bare counts only when the full labels overflow the
- *  island's room. The room comes from the stage's ResizeObserver, whose first
- *  delivery lands after layout and before the first paint; the pill's
- *  full-label width is read only for content it has not laid out before. */
 export function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefObject<HTMLDivElement | null>) {
   useLayoutEffect(() => {
     const island = islandRef.current;
     const pill = pillRef.current;
     const stage = island?.parentElement;
     if (!island || !pill || !stage) return undefined;
-    // The pill's full-label width depends on its content only, so it is read
-    // (data-measuring, two style passes) when the content changes; a resize
-    // of the room — every step of a window drag — only compares against it.
-    // Read inside the mount commit, both forced a layout of the whole page.
     let needed = -1;
     let room = -1;
     const measureFull = (key: string) => {
@@ -79,11 +71,6 @@ export function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRe
       evictOldest(fullLabelWidths, FULL_LABEL_WIDTHS_MAX);
     };
     const overflows = () => pill.scrollWidth > pill.clientWidth;
-    // The width the full labels may take: the room, less what the overlay bot
-    // pinned above this message box takes at its right end — on both sides,
-    // as the pill is centred — so they show only where they clear the bot.
-    // The bot's width moves with its setting, scale and zoom, never with the
-    // pill's, so the switch cannot feed back on itself.
     const budget = () => room - 2 * petIslandReserveFor(island);
     const fitLabels = (contentChanged: boolean) => {
       if (room < 0) return;
@@ -135,12 +122,6 @@ export function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRe
         if (signature === fitSignature) return;
         fitSignature = signature;
       }
-      // The narrow room's give-ways (tight padding, the worktree name's pips
-      // and glyph) follow from the labels' fit, so they come off first: the
-      // full-label read and the overflow check see the whole labels. Read
-      // under them, a width measured beside an open side panel stayed too
-      // small once the room widened again, and the full pill ran under the
-      // pinned bot.
       island.removeAttribute('data-fit-tight');
       island.removeAttribute('data-fit-pips');
       island.removeAttribute('data-fit-glyph');
@@ -149,10 +130,6 @@ export function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRe
       fitTight();
       rememberFit(island, room);
     };
-    // The first paint is already fitted: the island starts from the state the
-    // last one settled in at this room (the room is read here, in the mount's
-    // layout effect, where the slot's own sync already lays the stage out) and
-    // is fitted at once against its own labels, not after a frame.
     const initialRoom = stage.clientWidth;
     if (initialRoom > 0) {
       applyFit(island, fitByRoom.get(initialRoom) ?? lastFit);
@@ -209,13 +186,6 @@ const ISLAND_UNDECIDED = '[data-island-pending], [data-entry-pending]';
 
 type SlotPresence = 'open' | 'grace' | 'closing' | 'closed';
 
-/** Each session's last resting (pill) slot height, 0 once its island emptied.
- *  A session switch remounts the island before its segments have read their
- *  state; the slot reserves this height for the mount instead of opening late
- *  and lifting the composer. Kept across reloads (most recent sessions only);
- *  a session never shown has no entry: it reserves the resting height of the
- *  island it replaces in the same dock (carriedHeight), or mounts at its true
- *  state. */
 const RESTING_SLOT_HEIGHTS_KEY = 'mixdog:composer-island-resting-heights';
 const RESTING_SLOT_HEIGHTS_MAX = 200;
 let restingSlotHeights: Map<string, number> | null = null;
@@ -318,10 +288,6 @@ const APPROVAL_TIGHT_ROOM = 420;
 /** The gap a docked card keeps clear of the pane's top edge (the tab bar),
  *  so its top border and corners never sit flush against it. */
 const APPROVAL_TOP_GAP = 10;
-/** The order a docked card short of room gives up space in, before its
- *  preview gets smaller than readable (15-approval-prompt.css): the stacked
- *  buttons go side by side; the last resort scrolls the island with the
- *  buttons at its floor. */
 const APPROVAL_FIT_STEPS = ['row', 'compact', 'scroll'];
 /** The preview's readable floor: this many lines, or all of it. */
 const APPROVAL_PREVIEW_LINES = 3;
@@ -423,31 +389,6 @@ function observeIslandSizes(slot: HTMLElement, island: HTMLElement, pane: Elemen
   };
 }
 
-/**
- * Owns the slot's explicit height and data-presence. Content opens the slot
- * at once to the stage's real height; a change while open eases there
- * (data-motion carries the CSS transition, which reverses mid-flight on its
- * own). The last content leaving holds the slot for ISLAND_COLLAPSE_GRACE_MS,
- * then eases it to 0. Mount (a session switch remounts the island) and
- * reduced motion apply every change instantly; reduced motion turning on
- * mid-motion lands the slot at its target at once. The island's entry fade
- * (data-entry) is enabled only by content arriving, or the island changing
- * shape, after the first frame: a mounted island draws at its final state,
- * and so does an island a session had open when it was last shown, once its
- * late segments land (only an island's first appearance in a session fades).
- * Content changes are read in the mutation microtask, before the frame's
- * layout, so the transcript's viewport observer sees the new dock in the same
- * frame. Segments render from their own state, so the island's DOM, not its
- * props, is watched. An island mounted in place of other dock chrome
- * (heldHeightRef, the draft context bar) starts at that chrome's height:
- * empty, it stays there for the mount frame and then takes the ordinary
- * grace and collapse, as if its last content had just left. Otherwise an
- * island remounted for a session it showed before starts at that session's
- * resting height (a session never shown: the carried height of the island it
- * replaces) and holds it up to ISLAND_RESERVE_HOLD_MS for the first segment,
- * so an entry opens without moving the composer. The hold lasts only while a
- * segment is undecided, and holds the transcript's reveal (data-reserved).
- */
 export function useIslandSlotPresence(
   slotRef: RefObject<HTMLDivElement | null>,
   islandRef: RefObject<HTMLDivElement | null>,
@@ -467,9 +408,6 @@ export function useIslandSlotPresence(
       heldHeightRef.current > 0
         ? heldHeightRef.current
         : (rememberedSlotHeight(sessionIdRef.current) ?? carriedHeightRef.current);
-    // A reserved mount waits for its segments' first read (a cold session's
-    // lane and git state), which outlasts the ordinary grace; the hold ends
-    // with the first content, or once no segment is left undecided.
     let reserving = false;
     // A reserved height is only a guess at the island's resting height, so
     // while it stands the slot is unsettled dock chrome: it holds the
@@ -529,11 +467,6 @@ export function useIslandSlotPresence(
       const animate = armed && !reducedMotion.matches;
       const content = Boolean(island.querySelector(ISLAND_CONTENT));
       const mode = island.getAttribute('data-mode');
-      // Set in the same microtask as the change, so the style pass that
-      // shows the new content starts its fade; once set it stays. A session
-      // coming back to its open island, or content landing in a retained
-      // (unpainted) conversation, is no entry: the fade would replay the
-      // moment the session is shown again.
       if (armed && content && (!carried || mode !== shape)) {
         if (returning || slot.closest('[data-retained]')) slot.removeAttribute('data-entry');
         else slot.setAttribute('data-entry', '');
@@ -557,13 +490,6 @@ export function useIslandSlotPresence(
         }
         return;
       }
-      // Every segment has decided and none shows: nothing can fill the
-      // reservation (a bot chat carries no late segments at all). Held to
-      // the hold's end, it closed seconds after the entry painted and dropped
-      // the end-pinned transcript by the slot's height. The room is empty, so
-      // behind a still-hidden entry (Conversation data-transcript-entering)
-      // there is no motion to show: it closes at once, not after the reveal
-      // waited out an unseen easing.
       if (reserving && !island.querySelector(ISLAND_UNDECIDED)) {
         cancelGrace();
         reserve(false);

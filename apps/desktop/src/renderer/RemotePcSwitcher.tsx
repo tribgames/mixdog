@@ -42,44 +42,52 @@ function switcherPcDetail(pc: SwitcherPc): string {
   return `${state} · ${relativeWhen(pc.lastConnectedAt)}`;
 }
 
-/** The saved-PC state of a remote surface (phone, other-PC window, browser):
- *  the PC being driven, the others, whether the link is alive, and the
- *  switch / connect actions every PC menu shares. `reloadOn` re-reads the list
- *  (a menu opening). */
 /** Whether this surface drives another PC (and so shows the PC card). */
 export function remotePcSurface(): boolean {
   return Boolean(remoteWindowInfo()) || isRemoteBrowserRenderer();
+}
+
+function useReloadedList<T>(
+  enabled: boolean,
+  reloadOn: unknown,
+  read: () => Promise<T[]> | T[] | undefined,
+  subscribe: (reload: () => void) => (() => void) | undefined
+): T[] {
+  const [list, setList] = useState<T[]>([]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the list reloads when the menu opens, not on bridge identity.
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let live = true;
+    const load = () => {
+      void Promise.resolve(read())
+        .then((next) => live && next && setList(next))
+        .catch(() => undefined);
+    };
+    load();
+    const unsubscribe = subscribe(load);
+    return () => {
+      live = false;
+      unsubscribe?.();
+    };
+  }, [enabled, reloadOn]);
+  return list;
 }
 
 function useRemotePcs(reloadOn: unknown = false) {
   const windowInfo = remoteWindowInfo();
   const bridge = remoteWindowSwitcher();
   const remote = remotePcSurface();
-  const [pcs, setPcs] = useState<SwitcherPc[]>([]);
+  const pcs = useReloadedList<SwitcherPc>(
+    remote,
+    reloadOn,
+    () => (bridge ? bridge.listHosts() : loadWebSwitcherPcs()),
+    (load) => window.mixdogDesktop?.subscribeHostListsChanged?.(load)
+  );
   const connectionState = useSyncExternalStore(
     subscribeRemoteConnectionState,
     currentRemoteConnectionState,
     () => null
   );
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the list reloads when the menu opens, not on bridge identity.
-  useEffect(() => {
-    if (!remote) return undefined;
-    let live = true;
-    const load = () => {
-      const pending = bridge ? bridge.listHosts() : loadWebSwitcherPcs();
-      void Promise.resolve(pending)
-        .then((next) => live && setPcs(next))
-        .catch(() => undefined);
-    };
-    load();
-    // Presence and the saved list change through main's event (this window's own bridge when it has one).
-    const unsubscribe = window.mixdogDesktop?.subscribeHostListsChanged?.(load);
-    return () => {
-      live = false;
-      unsubscribe?.();
-    };
-  }, [remote, reloadOn]);
 
   const announcedName = useRemoteHostName();
   // The saved-PC entry may have no name (the relay no longer serves it): fall
@@ -137,42 +145,14 @@ export function RemotePcLabel() {
 function useMainWindowPcs(reloadOn: unknown, enabled: boolean) {
   const api = typeof window === 'undefined' ? undefined : window.mixdogDesktop;
   const [settings] = useRemoteAccessSettings(enabled ? api : undefined);
-  const [hosts, setHosts] = useState<DesktopRemoteHost[]>([]);
   const listed = enabled && Boolean(api?.listRemoteHosts);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the list reloads when the menu opens, not on bridge identity.
-  useEffect(() => {
-    if (!listed) return undefined;
-    let live = true;
-    const load = () => {
-      void window.mixdogDesktop
-        ?.listRemoteHosts?.()
-        .then((next) => live && setHosts(next))
-        .catch(() => undefined);
-    };
-    load();
-    const unsubscribe = window.mixdogDesktop?.subscribeHostListsChanged?.(load);
-    return () => {
-      live = false;
-      unsubscribe?.();
-    };
-  }, [listed, reloadOn]);
-  const [sshHosts, setSshHosts] = useState<DesktopSshHost[]>([]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the list reloads when the menu opens, not on bridge identity.
-  useEffect(() => {
-    if (!enabled) return undefined;
-    let live = true;
-    const load = () => {
-      void sshListHosts()
-        .then((next) => live && setSshHosts(next))
-        .catch(() => undefined);
-    };
-    load();
-    const unsubscribe = subscribeSshHostsChanged(load);
-    return () => {
-      live = false;
-      unsubscribe();
-    };
-  }, [enabled, reloadOn]);
+  const hosts = useReloadedList<DesktopRemoteHost>(
+    listed,
+    reloadOn,
+    () => window.mixdogDesktop?.listRemoteHosts?.(),
+    (load) => window.mixdogDesktop?.subscribeHostListsChanged?.(load)
+  );
+  const sshHosts = useReloadedList<DesktopSshHost>(enabled, reloadOn, sshListHosts, subscribeSshHostsChanged);
   const thisPc: SwitcherPc = {
     id: '',
     name: settings?.name || t('This PC'),
@@ -278,6 +258,10 @@ export function RemotePcCard() {
   useMobileBack(open, () => setOpen(false));
   const { remote, pcs, others, name, connected, connectAnother, switchTo } = useRemotePcs(open);
   if (!remote) return null;
+  const connectFromMenu = (): void => {
+    setOpen(false);
+    connectAnother();
+  };
   const head = (
     <>
       <span className="remote-pc-card-name">
@@ -312,18 +296,9 @@ export function RemotePcCard() {
               setOpen(false);
               switchTo(pc);
             }}
-            onOpenPc={() => {
-              setOpen(false);
-              connectAnother();
-            }}
-            onConnectDevice={() => {
-              setOpen(false);
-              connectAnother();
-            }}
-            onSettings={() => {
-              setOpen(false);
-              connectAnother();
-            }}
+            onOpenPc={connectFromMenu}
+            onConnectDevice={connectFromMenu}
+            onSettings={connectFromMenu}
           />
         </div>
       )}
@@ -381,10 +356,6 @@ function SwitcherButton({
   );
 }
 
-/** PC button at the title band's leading edge, or at the top of the activity
- *  rail in a plain browser tab (which has no band). A remote surface (another
- *  PC's window, tablet/browser) shows "● <PC name> ▾"; the main window shows
- *  this PC's name the same way once other PCs are saved, and nothing before. */
 export function RemotePcSwitcher({ placement = 'titlebar' }: { placement?: 'titlebar' | 'rail' } = {}) {
   const rail = placement === 'rail';
   const switcherClass = rail ? 'remote-pc-switcher remote-pc-switcher-rail' : 'remote-pc-switcher';

@@ -1,8 +1,3 @@
-/**
- * Loopback command server + discovery file — the pair that exposes the
- * runtime's `browser` tool. Opt-in via Settings, mirroring Computer Use;
- * the pane infrastructure runs regardless of the toggle.
- */
 import type { WebContents } from 'electron';
 import { validateBrowserToolArgs } from '../../shared/core-src/runtime/browser-bridge/action-schema.mjs';
 import { bridgeDiscoveryDirectory } from '../bridge/discovery-file';

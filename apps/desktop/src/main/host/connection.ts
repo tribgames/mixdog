@@ -85,6 +85,10 @@ export const HOST_CAPABILITIES = {
 /** The fields of a generated protocol params type, each still to be checked (a wire value is unknown). */
 export type WireFields<T> = { [K in keyof T]?: unknown };
 
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 /** `T` is the generated params type: reading a field it does not declare does not compile. */
 export function objectParams<T extends object = Record<string, unknown>>(
   value: unknown,

@@ -96,7 +96,7 @@ test('a close handoff presents the closed session only in the cold surface, neve
   }
 });
 
-test('createPaneConversationRenderer builds conversation surface with appropriate titles and props', async () => {
+function setupPaneRenderer() {
   const { dom } = installTestDom(null, {
     html: '<!doctype html><html><body><div id="root"></div></body></html>',
     jsdom: { url: 'about:blank' },
@@ -182,8 +182,24 @@ test('createPaneConversationRenderer builds conversation surface with appropriat
     ...baseOptions,
     openFileInSideDock: (...args) => dockCalls.push(args),
   });
-
   const root = createRoot(dom.window.document.getElementById('root'));
+  return {
+    dom,
+    root,
+    renderer,
+    baseOptions,
+    tabCalls,
+    dockCalls,
+    counts: {
+      paneSubmit: () => paneSubmitCalls,
+      paneDraftSubmit: () => paneDraftSubmitCalls,
+      defaultSubmit: () => defaultSubmitCalls,
+    },
+  };
+}
+
+test('createPaneConversationRenderer titles each pane and routes its submit by selection', async () => {
+  const { root, renderer, counts } = setupPaneRenderer();
 
   // 1. Render draft pane
   const draftElement = renderer({ kind: 'new' }, true, () => {}, 'leaf-1');
@@ -217,16 +233,26 @@ test('createPaneConversationRenderer builds conversation surface with appropriat
   assert.equal(await missingSessionElement.props.conversationProps.submit(), 'paneSubmit:session-missing');
 
   // 5. Fallback selection routes to default submit without evaluating paneSubmitFor or paneDraftSubmitFor
-  const recordedPaneSubmitCalls = paneSubmitCalls;
-  const recordedPaneDraftSubmitCalls = paneDraftSubmitCalls;
+  const recordedPaneSubmitCalls = counts.paneSubmit();
+  const recordedPaneDraftSubmitCalls = counts.paneDraftSubmit();
   const fallbackElement = renderer({ kind: 'project', path: '/projects/active' }, true, () => {}, 'leaf-1');
   assert.equal(fallbackElement.props.title, 'New task');
   assert.equal(await fallbackElement.props.conversationProps.submit(), 'defaultSubmit');
-  assert.equal(paneSubmitCalls, recordedPaneSubmitCalls);
-  assert.equal(paneDraftSubmitCalls, recordedPaneDraftSubmitCalls);
-  assert.equal(defaultSubmitCalls, 1);
+  assert.equal(counts.paneSubmit(), recordedPaneSubmitCalls);
+  assert.equal(counts.paneDraftSubmit(), recordedPaneDraftSubmitCalls);
+  assert.equal(counts.defaultSubmit(), 1);
 
-  // 6. A transcript file link opens in that pane's side dock, not a main tab.
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+test('a transcript file link opens in the pane side dock, else a main tab previewed per the link preference', async () => {
+  const { root, renderer, baseOptions, tabCalls, dockCalls } = setupPaneRenderer();
+  const sessionElement = renderer({ kind: 'session', id: 'session-123' }, true, () => {}, 'leaf-1');
+  await act(async () => {
+    root.render(sessionElement);
+  });
   sessionElement.props.conversationProps.onOpenFile('C:/p', 'src/a.ts', 7, 'tok');
   assert.deepEqual(dockCalls, [['leaf-1', 'C:/p', 'src/a.ts', 7, 'tok']]);
   assert.deepEqual(tabCalls, []);

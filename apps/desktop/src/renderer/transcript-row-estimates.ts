@@ -4,35 +4,12 @@ import { profileCacheStorage } from './profile-cache-storage';
 import type { TranscriptRowModel } from './transcript-rows';
 import { TRANSCRIPT_ROW_ESTIMATE } from './transcript-virtual-cache';
 
-/**
- * Size estimates for rows the timeline has not measured yet.
- *
- * A row mounted at a wrong estimate is corrected when it is measured. Above the
- * reader that correction is a scroll write (the content in view must not move),
- * and a scroll write during a touch fling or wheel ramp is felt as a hitch:
- * a first pass up a phone transcript wrote scrollTop ~18 times (+204/-22 px,
- * the 60 px flat estimate against 264 px replies and 38 px tool groups).
- *
- * Two sources replace the flat estimate, best first:
- * - the row's own last measured height at this width, remembered across
- *   sessions, page loads and older-page landings;
- * - the median measured height of rows of the same SHAPE (tag + coarse content
- *   features) at this width. Transcripts repeat their shapes, so a session's
- *   own first rows teach the estimate for the rest of its history.
- *
- * Heights depend on width, so both are keyed by the timeline's width — and on
- * the surface painting the row: an agent chat frames replies as bubbles and
- * paints nothing for most tool rounds (0px), so the two learn apart.
- */
-
 /** What paints the rows: a coding transcript, a bot's chat, or a group room
  *  (member speeches, a band that is empty between member turns). */
 export type TranscriptRowSurface = 'coding' | 'agent' | 'room';
 
-// Bumped together when the transcript's typography changes: heights measured
-// under the old type no longer match (v2: 16px reading body, new markdown
-// spacing). The key is the phone's and the browser's; the desktop's heights
-// are the main process's cache of that name.
+// The key is the phone's and the browser's; the desktop's heights are the main
+// process's cache of that name.
 const STORAGE_KEY = 'mixdog.transcript-row-heights.v2';
 const PROFILE_CACHE = 'transcript-row-heights-v2' satisfies RendererCacheName;
 const KEY_LIMIT = 2_000;

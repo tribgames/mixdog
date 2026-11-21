@@ -12,15 +12,6 @@ type PaneDialog = NonNullable<DesktopBrowserPageFrame['dialog']>;
 
 const PROMPT_CHANGED = 'Browser prompt changed; answer was not sent.';
 
-/** Human answers are bound to a specific prompt as well as a document.
- * Only the trusted main process chooses file paths; the renderer sends none.
- *
- * The dialog a view of a page offers is, in order: the dialog holding the
- * page (its own, or one open on a page sharing its renderer), a leave
- * confirmation, then a notice of a dialog the page opened that was dismissed
- * unseen. A dialog on a page another session controls blocks this one too,
- * but what it says and how it is answered stay with that session: the view
- * only says it is waiting. */
 export function createBrowserLocalPrompts(host: {
   state: BrowserGuestStateStore;
   dialogs: Pick<ReturnType<typeof createBrowserDialogReport>, 'handleDialog'>;

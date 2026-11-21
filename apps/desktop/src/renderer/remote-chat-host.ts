@@ -1,11 +1,3 @@
-// PH-2 "Chat" calls that need more than a request mapping, over `mixdogd`: the three start calls (Node's blank snapshot, no
-// thread), the remote-session fields every snapshot carries, transcript paging, the stale-view refusal, and the refusal
-// texts. Each answers what Node's host (b6f10295a) answered the phone; the expectations are its recordings
-// (native/core/fixtures/phone-chat/host.json, remote-chat-host.test.mjs).
-//
-// It wraps the base adapter of remote-protocol-chat.ts (`createChatApi`) and replaces only the calls it owns:
-//   import { createChatHostApi } from './remote-chat-host.ts';
-//   const api = createChatHostApi(client, shared, createChatApi(client, shared, options), hostOptions);
 import type {
   DesktopNewTaskSubmitResult,
   DesktopPromptContent,
@@ -88,10 +80,7 @@ export function requiredTranscriptHistoryRequest(value: unknown): DesktopTranscr
   } as DesktopTranscriptHistoryRequest;
 }
 
-/** Whether Node's submission intake would take this prompt: `promptDisplayText` (queue-helpers.mjs:89) of it is not blank, or the submit names a
- *  display text (submission.mjs:14-15 answers `false` otherwise, and the host's reply is `false` / `accepted: false`). The text is
- *  `promptContentText` (prompt-utils.mjs:10) of the content without its attachment-reference parts. The core takes a blank prompt and
- *  starts an empty turn, so the refusal is made here, before anything is sent. */
+/** Whether the host's submission intake takes this prompt: its text without attachment-reference parts, or the submit's `displayText`, is not blank. The core would start an empty turn, so the refusal is made here. */
 function showsText(prompt: unknown, submit: unknown): boolean {
   const displayText = (submit as { displayText?: unknown } | null)?.displayText;
   if (typeof displayText === 'string' && displayText.trim()) return true;
@@ -110,12 +99,10 @@ function showsText(prompt: unknown, submit: unknown): boolean {
 const reasonOf = (error: unknown): unknown =>
   (error as { detail?: { data?: { reason?: unknown } } } | null)?.detail?.data?.reason;
 
-export function createChatHostApi(client: ChatClient, shared: ChatHostShared, base: ChatApi, options: ChatHostOptions) {
-  const remoteId = (): string => remoteSessionIdOf(options.remoteSession());
-  // Every snapshot the page is handed is bounded like the fold's states (remote-transcript.ts); the fold itself stays whole.
-  const decorated = <T>(snapshot: T): T => withRemoteSession(remoteTranscriptSnapshot(snapshot) as T, remoteId());
-  // The whole rows of history pages handed to the page, by session and row id: a row outside the live fold has no other place to read
-  // its full output from. Bounded; the oldest go first.
+type Send = (method: string, params: unknown) => Promise<unknown>;
+
+/** History pages read from the core; the whole rows handed out are held, by session and row id, because a row outside the live fold has no other place to read its full output from. */
+function createTranscriptHistory(send: Send, shared: ChatHostShared) {
   const heldHistory = new Map<string, Map<string, unknown>>();
   const holdHistory = (sessionId: string, rows: readonly unknown[]): void => {
     const held = heldHistory.get(sessionId) ?? new Map<string, unknown>();
@@ -130,10 +117,69 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
     while (held.size > HELD_HISTORY_ROWS) held.delete(held.keys().next().value as string);
     while (heldHistory.size > HELD_HISTORY_SESSIONS) heldHistory.delete(heldHistory.keys().next().value as string);
   };
-  const send = (method: string, params: unknown): Promise<unknown> =>
+  return {
+    heldRows: (sessionId: string): ReadonlyMap<string, unknown> | undefined => heldHistory.get(sessionId),
+    /** `desktop`: the desktop's own pages keep every row whole; the phone's rows are the capped projection of remoteTranscriptRow. */
+    async read(
+      sessionId: string,
+      request: DesktopTranscriptHistoryRequest,
+      desktop: boolean
+    ): Promise<DesktopTranscriptHistoryPage> {
+      const history = requiredTranscriptHistoryRequest(request);
+      const state = shared.sessionStateOf(sessionId);
+      if (!state) throw new Error(READ_NOT_VIEWED);
+      const older = 'before' in history;
+      const anchor = (history as { before?: string; after?: string })[older ? 'before' : 'after'];
+      const boundary = older ? state.items?.[0] : state.items?.at(-1);
+      const cursor =
+        history.position && CORE_TRANSCRIPT_HISTORY_POSITION.test(history.position)
+          ? history.position
+          : boundary?.id === anchor
+            ? historyPositionOf(boundary, older ? 'before' : 'after')
+            : undefined;
+      let page: { data?: unknown[]; hasOlder?: boolean; hasNewer?: boolean };
+      try {
+        page = (await send('thread/items/list', {
+          threadId: sessionId,
+          cursor: cursor ?? { type: 'item', itemId: anchor },
+          sortDirection: older ? 'desc' : 'asc',
+          limit: history.limit,
+          ...(history.byteBudget ? { byteBudget: history.byteBudget } : {}),
+        })) as typeof page;
+      } catch (error) {
+        if (reasonOf(error) === 'cursorInvalidated')
+          return { items: [], hasOlder: false, hasNewer: false, reset: true } as DesktopTranscriptHistoryPage;
+        throw error;
+      }
+      const items = shared.foldRows(page.data ?? []);
+      const positions = items.map((item) => historyPositionOf(item, older ? 'before' : 'after') ?? null);
+      const positionEdges = items.map((item) => {
+        const before = historyPositionOf(item, 'before');
+        const after = historyPositionOf(item, 'after');
+        return before === after
+          ? null
+          : { ...(before === undefined ? {} : { before }), ...(after === undefined ? {} : { after }) };
+      });
+      holdHistory(sessionId, items);
+      return {
+        items: desktop ? items : items.map((item) => remoteTranscriptRow(item, false).row),
+        hasOlder: page.hasOlder === true,
+        hasNewer: page.hasNewer === true,
+        ...(positions.some((position) => position !== null) ? { positions } : {}),
+        ...(positionEdges.some((edges) => edges !== null) ? { positionEdges } : {}),
+      } as DesktopTranscriptHistoryPage;
+    },
+  };
+}
+
+export function createChatHostApi(client: ChatClient, shared: ChatHostShared, base: ChatApi, options: ChatHostOptions) {
+  const remoteId = (): string => remoteSessionIdOf(options.remoteSession());
+  const decorated = <T>(snapshot: T): T => withRemoteSession(remoteTranscriptSnapshot(snapshot) as T, remoteId());
+  const send: Send = (method, params) =>
     client.call(method, params).catch((error: unknown) => {
       throw shared.coreErrorForWindow(error);
     });
+  const history = createTranscriptHistory(send, shared);
   const start = async (call: StartCall, projectPath?: string): Promise<SessionSnapshot> => {
     const { cwd, projectPath: project } = await startFolder(
       ({ method, params }) => send(method, params),
@@ -197,63 +243,16 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
     setModelRoute: async (...args: Parameters<ChatApi['setModelRoute']>) =>
       decorated(await base.setModelRoute(...args)),
     setFast: async (...args: Parameters<ChatApi['setFast']>) => decorated(await base.setFast(...args)),
-    // desktop: the desktop's own pages keep every row whole; the phone's rows are the capped projection of remoteTranscriptRow.
-    readTranscriptHistory: async (
+    readTranscriptHistory: (
       sessionId: string,
       request: DesktopTranscriptHistoryRequest,
       desktop = false
-    ): Promise<DesktopTranscriptHistoryPage> => {
-      const history = requiredTranscriptHistoryRequest(request);
-      const state = shared.sessionStateOf(sessionId);
-      if (!state) throw new Error(READ_NOT_VIEWED);
-      const older = 'before' in history;
-      const anchor = (history as { before?: string; after?: string })[older ? 'before' : 'after'];
-      const boundary = older ? state.items?.[0] : state.items?.at(-1);
-      const cursor =
-        history.position && CORE_TRANSCRIPT_HISTORY_POSITION.test(history.position)
-          ? history.position
-          : boundary?.id === anchor
-            ? historyPositionOf(boundary, older ? 'before' : 'after')
-            : undefined;
-      let page: { data?: unknown[]; hasOlder?: boolean; hasNewer?: boolean };
-      try {
-        page = (await send('thread/items/list', {
-          threadId: sessionId,
-          cursor: cursor ?? { type: 'item', itemId: anchor },
-          sortDirection: older ? 'desc' : 'asc',
-          limit: history.limit,
-          ...(history.byteBudget ? { byteBudget: history.byteBudget } : {}),
-        })) as typeof page;
-      } catch (error) {
-        // The row is gone (a rewind or a clear): the reader returns to the live tail.
-        if (reasonOf(error) === 'cursorInvalidated')
-          return { items: [], hasOlder: false, hasNewer: false, reset: true } as DesktopTranscriptHistoryPage;
-        throw error;
-      }
-      const items = shared.foldRows(page.data ?? []);
-      const positions = items.map((item) => historyPositionOf(item, older ? 'before' : 'after') ?? null);
-      const positionEdges = items.map((item) => {
-        const before = historyPositionOf(item, 'before');
-        const after = historyPositionOf(item, 'after');
-        return before === after
-          ? null
-          : { ...(before === undefined ? {} : { before }), ...(after === undefined ? {} : { after }) };
-      });
-      holdHistory(sessionId, items);
-      return {
-        items: desktop ? items : items.map((item) => remoteTranscriptRow(item, false).row),
-        hasOlder: page.hasOlder === true,
-        hasNewer: page.hasNewer === true,
-        ...(positions.some((position) => position !== null) ? { positions } : {}),
-        ...(positionEdges.some((edges) => edges !== null) ? { positionEdges } : {}),
-      } as DesktopTranscriptHistoryPage;
-    },
+    ): Promise<DesktopTranscriptHistoryPage> => history.read(sessionId, request, desktop),
     readTranscriptItem: async (sessionId: string, itemId: string, replayToken?: string) => {
       try {
         return await base.readTranscriptItem(sessionId, itemId, replayToken);
       } catch (error) {
-        // A row a history page showed is not in the live fold: its whole output is the page's held copy.
-        const held = replayToken === undefined ? heldHistory.get(sessionId) : undefined;
+        const held = replayToken === undefined ? history.heldRows(sessionId) : undefined;
         const output = held ? remoteToolOutput({ items: [...held.values()] }, itemId) : null;
         if (output) return output;
         throw error;

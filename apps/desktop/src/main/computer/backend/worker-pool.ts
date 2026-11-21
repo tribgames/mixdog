@@ -1,9 +1,3 @@
-/**
- * The resident PowerShell workers: publishing the host script, caching its
- * compiled types per build, keeping one worker warm, routing requests, and the
- * one-shot elevated path for targets a normal worker cannot reach. The pool
- * owns worker state; the host tells it whether the bridge is still wanted.
- */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 
@@ -47,8 +41,6 @@ const POINTER_FEEDBACK_ACTIONS = [
   'type',
 ];
 
-/** Progress phases a pointer event may claim; anything else is not a phase
- *  this build emits and is counted as invalid rather than reported. */
 const POINTER_PROGRESS_PHASES = ['move', 'prepare', 'press', 'release', 'drag', 'scroll', 'type'];
 
 /** What one request is, as the pool has to treat it: whose session it belongs
@@ -281,20 +273,11 @@ export function createWorkerPool(host: WorkerPoolHost) {
     requests.retire(reader, new Error('computer_reader_yielded: a session needed the worker slot'));
   }
 
-  /** The Windows helper this host starts never injects input a core helper
-   *  would read as the user's (the core's own helper does every action): each
-   *  request is read_only, whatever it says, except the releases of what this
-   *  helper itself holds, which lift nothing when it holds nothing. */
   function hostRequestScope(request: Record<string, unknown>): { read_only?: boolean } {
     if (process.platform !== 'win32') return {};
     return { read_only: !HOST_RELEASE_ACTIONS.has(String(request.action)) };
   }
 
-  /** One worker request under the command endpoint the caller runs in (`command-fence.ts`), if any: each is admitted through the
-   *  endpoint (`commit` and its signal) right before it is sent, except a release of what the worker holds (teardown), and every
-   *  one is counted (`track`) until it settled and, when its worker was retired (whether the request was answered first, as a
-   *  capture whose cleanup was unconfirmed is, or failed with the retirement), until that worker's exit is observed.
-   *  The request itself is sent outside the endpoint, so the worker, its timers and its listeners never carry it. */
   function fenced(
     request: Record<string, unknown>,
     send: () => { reply: Promise<PowerShellResponse>; child?: ChildProcessWithoutNullStreams }

@@ -1,7 +1,5 @@
-// The renderer's session capabilities as core requests (capability-route.ts): the exact op name and params each
-// converted capability sends, the capabilities that have no op and so never leave the process, and the lane's wiring
-// into a connection. Expectations come from the spec map and the Rust schema (protocol.md section 12.4,
-// `operations_map.json`, `client_methods.json`), not from the router.
+// Expectations come from the spec map and the Rust schema (protocol.md section 12.4, `operations_map.json`,
+// `client_methods.json`), not from the router.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -848,10 +846,6 @@ test('renameSession keeps the host check for the session id before the title', a
   assert.deepEqual(all, []);
 });
 
-// On a core connection the host sends the renderer's arguments as they are and the core resolves a project path itself:
-// `skills/skillsStatus` reads `options.projectPath` (skills_service.rs `requested_cwd`, folder from
-// `SessionProjectWorkspaces`) and the five session-less `project/*Branch*` capabilities read `input.projectPath`
-// (project/service.rs `registered_project`). This pins what reaches the core for each of them.
 test('a draft skillsStatus names its Project in options, never a folder, and a session call still addresses its thread', async () => {
   const { calls, lane } = recordingLane(async () => ({ cwd: '/resolved' }));
   await lane.invoke('skillsStatus', [{ projectPath: 'C:\\work\\app' }]);
@@ -1011,10 +1005,6 @@ test('getQuotaAutoResume finds its own config subtree and is on unless it is exp
   }
 });
 
-// `resolveToolApprovalForSession` has no request op: the card's `id` is the id of the `item/*` server request the core asked
-// (the lane's own projection shows it as a string), and the decision goes to `thread/approval/answer` for the request's own
-// thread, without `device` (the core stamps the answering connection's device: `ToolApprovalDecision`). The card is told the
-// core's `accepted`: false when another decision resolved the request first.
 test("resolveToolApproval answers the server request the card shows with the core's acceptance, and false for an id the core no longer asks", async () => {
   const { emit, lane, calls } = recordingLane(async (_method, params) => ({ accepted: params.approvalId === '7' }));
   const ask = (id, thread, surface) => ({

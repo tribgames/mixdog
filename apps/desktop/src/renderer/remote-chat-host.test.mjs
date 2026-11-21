@@ -1,7 +1,3 @@
-// Exercises the replies a paired phone receives through the host
-// adapter over scripted `mixdogd` replies, and compares the whole answer: the blank snapshots of the start calls, the remote fields,
-// transcript pages, the stale-view refusal and the refusal texts. The scripted reply of each case is the shape its Rust handler
-// returns (file:line in the comments).
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mergeToolRows, rowOf } from '../../../../packages/protocol-client/src/rows.ts';

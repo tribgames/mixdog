@@ -4,15 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// The phone sheets in 07-mobile-chrome.css: the right side sheet
-// (.pane-side-dock), the left session drawer (.sidebar-drawer-frame) and its
-// scrim (.sidebar-backdrop). Each one that was still `visibility: hidden` when
-// its open began was "no visible change" to Chromium, so its transform/opacity
-// ran on the main thread and any long task (a body mount) froze it mid-slide.
-// The drawer also starts every phone session with an instant close, and the
-// first tap's intent stamp opened it in one jump before the commit reset
-// data-motion.
-
 const FIXTURE = `
   <div class="main-panel" style="position: fixed; inset: 0;">
     <div class="conversation" style="height: 100%;"><p>Chat</p></div>
@@ -160,7 +151,7 @@ function animationsOf(trace) {
 /** Fraction of the way from the closed to the open value. */
 const progress = (surface, rest, sample) => (surface.value(sample) - rest.closed) / (rest.open - rest.closed);
 
-test('the phone sheets and drawer move on the compositor, continuously, from the tap', async (t) => {
+async function launchSheets(t) {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
   const styles = await build({
     stdin: {
@@ -194,19 +185,22 @@ test('the phone sheets and drawer move on the compositor, continuously, from the
   );
   await page.addStyleTag({ content: styles.outputFiles[0].text });
   await page.addScriptTag({ content: PROBES });
-  // The stylesheet arrives after the fixture, so the sheets first move to their parking places.
   await wait(page, 500);
   await frame(page, 4);
-  const closed = await page.evaluate(() => window.readSurfaces());
+  t.after(() => assert.deepEqual(errors, []));
+  return { page, closed: await page.evaluate(() => window.readSurfaces()) };
+}
+
+test('closed phone sheets park off-screen and rest hidden', async (t) => {
+  const { closed } = await launchSheets(t);
   assert.ok(closed.dock.left >= 389, 'the closed side sheet parks off the right edge');
   assert.ok(closed.drawer.left < -300, 'the closed drawer parks off the left edge');
   assert.equal(closed.scrim.opacity, 0, 'the closed scrim is clear');
   for (const surface of SURFACES) assert.equal(surface.visibility(closed), 'hidden', `${surface.label} rests hidden`);
+});
 
-  // Every open is traced under a long task two frames in, for Chromium's
-  // compositing verdict (a main-thread sample cannot see compositor
-  // progress, so these opens are judged by the trace). The first drawer tap
-  // follows the phone start's instant close (the fixture's data-motion).
+test('the phone sheets and drawer open on the compositor', async (t) => {
+  const { page } = await launchSheets(t);
   await page.tracing.start({ categories: ['blink.animations', 'devtools.timeline'] });
   for (const trigger of [() => window.setDock(true), () => window.tapDrawer(true)]) {
     await page.evaluate(`(${trigger.toString()})(); window.longTaskLater(120);`);
@@ -228,18 +222,28 @@ test('the phone sheets and drawer move on the compositor, continuously, from the
       `${surface.label}: the open ${surface.property} runs on the compositor (no compositeFailed)`
     );
   }
+});
+
+async function readOpenSurfaces(page) {
+  await page.evaluate(() => {
+    window.setDock(true);
+    window.tapDrawer(true);
+  });
+  await wait(page, 700);
   const open = await page.evaluate(() => window.readSurfaces());
   await page.evaluate(() => {
     window.setDock(false);
     window.instantDrawer(false);
   });
   await wait(page, 500);
+  return open;
+}
 
-  for (const surface of SURFACES) {
+for (const surface of SURFACES) {
+  test(`${surface.label} opens and closes continuously from the tap`, async (t) => {
+    const { page, closed } = await launchSheets(t);
+    const open = await readOpenSurfaces(page);
     const rest = { closed: surface.value(closed), open: surface.value(open) };
-    // An unloaded open, sampled every frame from before the tap: on its way
-    // within the first frames, never already at rest, never backwards, visible
-    // throughout, then at rest.
     await page.evaluate(() => window.arm());
     await frame(page);
     const tapAt = await page.evaluate(`(${surface.open.toString()})()`);
@@ -281,11 +285,12 @@ test('the phone sheets and drawer move on the compositor, continuously, from the
     for (const sample of between)
       assert.equal(surface.visibility(sample), 'visible', `${surface.label}: the exit stays visible`);
     assert.equal(surface.visibility(closing.at(-1)), 'hidden', `${surface.label}: the closed state hides`);
-  }
+  });
+}
 
-  // A drawer change with no tap stamp and instant motion (a navigation
-  // close): the drawer and its scrim land at their end state on the first
-  // frame after it, and stay there.
+test('an instant drawer change lands in one step', async (t) => {
+  const { page, closed } = await launchSheets(t);
+  const open = await readOpenSurfaces(page);
   for (const opened of [true, false]) {
     await page.evaluate(() => window.arm());
     await frame(page);
@@ -315,8 +320,11 @@ test('the phone sheets and drawer move on the compositor, continuously, from the
       );
     }
   }
+});
 
-  // Reduced motion: every surface opens and closes in one step.
+test('reduced motion opens and closes every surface in one step', async (t) => {
+  const { page, closed } = await launchSheets(t);
+  const open = await readOpenSurfaces(page);
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   for (const opened of [true, false]) {
     await page.evaluate(() => window.arm());
@@ -339,5 +347,4 @@ test('the phone sheets and drawer move on the compositor, continuously, from the
       );
     }
   }
-  assert.deepEqual(errors, []);
 });

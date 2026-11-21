@@ -1,9 +1,3 @@
-/**
- * Zoom geometry: the requested image-space region validated against the frame
- * it names, mapped to physical pixels, and the base surface rectangle a fresh
- * shot is cut from. The zoom frame it records keeps the parent's window or
- * display identity so later commands still address the same surface.
- */
 import type { NativeImage } from 'electron';
 
 import type { CaptureFrame, ComputerCommand } from '../shared/types';

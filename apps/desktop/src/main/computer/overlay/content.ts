@@ -38,12 +38,6 @@ function overlayLabels(locale: string, kind: OverlayKind) {
   };
 }
 
-/**
- * Stop ends the task and is always present, pressable, and in the same place:
- * reaching for it can itself pause the agent (the user's own input), and
- * nothing on the pill ever changes what the press does. A pause never ends by
- * itself, so while paused Resume appears to Stop's left; Stop never moves.
- */
 export function overlayHtml(locale: string, kind: OverlayKind = 'computer'): string {
   const labels = overlayLabels(locale, kind);
   const remote = kind === 'remote';

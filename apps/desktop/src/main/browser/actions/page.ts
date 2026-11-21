@@ -1,8 +1,3 @@
-/**
- * Page-level controls that are not gestures: running script, request
- * interception, init scripts, device emulation, cookies, storage, and
- * performance tracing.
- */
 import type { WebContents } from 'electron';
 
 import {

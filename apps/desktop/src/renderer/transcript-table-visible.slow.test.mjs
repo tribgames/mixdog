@@ -1,11 +1,3 @@
-// A settled reply's blocks in view always show their content, in headless
-// Chrome through the real transcript pipeline (lane store, rows, virtual list,
-// follow, live markdown, word fades, block parking). The reply holds a table
-// between a bold line and a paragraph, with long text around it. However the
-// table reaches the reader (scroll, resize and the text above reflowing, zoom,
-// the surface or window shown again, the turn ending, the next turn arriving), no
-// block in view is a parked box and no painted text of it stays transparent.
-//
 // Set MIXDOG_TABLE_CAPTURES to a folder to keep screenshots of the table
 // scrolled in from the parking reach's edge, and of any blank view found.
 import assert from 'node:assert/strict';
@@ -364,7 +356,7 @@ test('a table in view always shows its content', async (t) => {
     assert.deepEqual(errors, []);
   });
 
-  await t.test('scrolled, resized, zoomed, shown again and followed by the next turn', async (t) => {
+  await t.test('scrolled back to the table from every part of the reply', async (t) => {
     const { page, errors } = await openReply(t, browser, assets, { session: 'table-scroll', width: 640 });
     await expectShown(page, 'completed at the bottom');
     await page.evaluate('window.revealTable()');
@@ -374,6 +366,11 @@ test('a table in view always shows its content', async (t) => {
       await page.evaluate('window.revealTable(120)');
       await expectShown(page, `back to the table from ${ratio}`);
     }
+    assert.deepEqual(errors, []);
+  });
+
+  await t.test('resized wider at the top and stepped through', async (t) => {
+    const { page, errors } = await openReply(t, browser, assets, { session: 'table-resize', width: 640 });
     // Wider at the top: the text above takes fewer lines and every box below
     // was measured at the narrower width. The reader then steps down through
     // the whole reply.
@@ -393,6 +390,11 @@ test('a table in view always shows its content', async (t) => {
       await page.evaluate('window.revealTable()');
       await expectShown(page, `resized to ${width}, table revealed`);
     }
+    assert.deepEqual(errors, []);
+  });
+
+  await t.test('zoomed in and back', async (t) => {
+    const { page, errors } = await openReply(t, browser, assets, { session: 'table-zoom', width: 640 });
     // Zoom: the CSS viewport shrinks and the device scale grows.
     const session = await page.createCDPSession();
     await page.evaluate('window.scrollToRatio(0)');
@@ -413,6 +415,12 @@ test('a table in view always shows its content', async (t) => {
     });
     await page.evaluate('window.frames(10)');
     await expectShown(page, 'zoomed back');
+    assert.deepEqual(errors, []);
+  });
+
+  await t.test('the surface hidden and shown again', async (t) => {
+    const { page, errors } = await openReply(t, browser, assets, { session: 'table-hidden' });
+    await page.evaluate('window.revealTable()');
     // A surface hidden (another tab or session) and shown again elsewhere.
     for (const hide of ['display: none', 'content-visibility: hidden']) {
       await page.evaluate('window.scrollToRatio(1)');
@@ -423,7 +431,12 @@ test('a table in view always shows its content', async (t) => {
       await page.evaluate('window.revealTable()');
       await expectShown(page, `shown again after ${hide}, table revealed`);
     }
-    // The window minimized and restored at another place.
+    assert.deepEqual(errors, []);
+  });
+
+  await t.test('the window minimized and restored at another place', async (t) => {
+    const { page, errors } = await openReply(t, browser, assets, { session: 'table-minimized', width: 640 });
+    const session = await page.createCDPSession();
     await page.evaluate('window.scrollToRatio(1)');
     const { windowId } = await session.send('Browser.getWindowForTarget');
     await session.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
@@ -433,7 +446,12 @@ test('a table in view always shows its content', async (t) => {
     await page.evaluate('window.frames(10)');
     await page.evaluate('window.revealTable()');
     await expectShown(page, 'window restored');
-    // The next turn arrives while the table is in view.
+    assert.deepEqual(errors, []);
+  });
+
+  await t.test('the next turn arrives while the table is in view', async (t) => {
+    const { page, errors } = await openReply(t, browser, assets, { session: 'table-next-turn', width: 640 });
+    await page.evaluate('window.revealTable()');
     await page.evaluate(`window.fixture.prompt('next', 'And the next run?')`);
     await page.evaluate('window.frames(10)');
     await expectShown(page, 'the next message arrived');

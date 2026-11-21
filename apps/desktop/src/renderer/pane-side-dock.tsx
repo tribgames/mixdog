@@ -1,20 +1,11 @@
-// Per-pane right dock: ONE side-tab unit per pane. The horizontal
-// header selects every child — classic panel views, the pane's browser, and
-// file diff surfaces opened from project tools — and each child shows STANDALONE under
-// the header, without a second tab row. The whole unit folds and overlays as
-// one body; its children and open diff tabs survive folds and persist per
-// pane id across restarts.
 import {
   startTransition,
-  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
-  type Dispatch,
   type ReactNode,
-  type SetStateAction,
 } from 'react';
 import { FolderTree } from 'lucide-react';
 import type { SideFileChrome } from './side-surface-strip';
@@ -49,7 +40,6 @@ import { PaneDockSurfaceSlot } from './pane-side-dock-surface-slot';
 import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
 import { DeferredPersistentSurface } from './PaneSurfaceGate';
 import {
-  PANE_SIDE_DOCK_KEY,
   PANE_SIDE_DOCK_WIDTH_KEY,
   PANE_SIDE_DOCK_DEFAULT_WIDTH,
   PANE_SIDE_DOCK_MIN_WIDTH,
@@ -65,31 +55,9 @@ import {
   paneDiffShowing,
   paneDockActiveRoot,
   paneDiffStacks,
-  LEGACY_SIDE_SURFACE_KEYS,
-  CLOSED_ENTRY,
-  firstPanelRoot,
-  storablePaneSideDocks,
-  normalizePaneSideDocks,
-  samePaneSideDocks,
-  sameParked,
-  paneDockRestored,
-  withParkedOpen,
-  paneLocalSurface,
-  paneDockForeign,
-  reconcilePaneDockOwners,
-  ownedBy,
-  withPaneDockFileOpened,
-  withPaneDockFileActivated,
-  withPaneDockFileKept,
-  withPaneDockFileClosed,
-  withPaneDockFolderOpened,
-  withPaneDockFolderClosed,
-  withPaneDockDiffOpened,
-  withPaneDockDiffClosed,
   readStoredWidth,
   readSharedDockWidth,
   type PaneSideDockDiff,
-  type PaneSideDiffRequest,
   type PaneSideDockFolder,
   type PaneSideDockEntry,
 } from './pane-side-dock-model';
@@ -107,11 +75,9 @@ import {
   type WorkbenchSideViewId,
   type WorkbenchSideViewPlacement,
 } from './workbench-side-view-layout';
-import { getSidePanelMode, sidePanelLayout, subscribeSidePanelMode } from './side-panel-preferences';
 import { t } from './i18n';
-import { getLinkPreview, subscribeLinkPreview } from './link-preview-preference';
 import { syncTranscriptWidths } from './transcript-list-resize-patch';
-import { sameSideFiles, sideFileTabDirtyKey, type PaneSideDockFile } from './side-file-tabs';
+import type { PaneSideDockFile } from './side-file-tabs';
 
 export {
   PANE_SIDE_DOCK_DEFAULT_WIDTH,
@@ -148,12 +114,6 @@ export {
 export type { PaneSideDockDiff, PaneSideDockFolder, PaneSideDockEntry } from './pane-side-dock-model';
 export type { PaneSideDockFile };
 
-// The Goal capsule stays on the composer, never in the diff column: there it
-// would read as the Goal UI leaking into Source Control.
-/** A closed diff column waits at least this long, and for a typing pause of
- *  the same length, before its tree is dropped: the unmount commit of a
- *  large diff is one uninterruptible task, so it must not land between two
- *  keystrokes. */
 const PANE_DOCK_DIFF_RETAIN_MS = 1_500;
 export function useRetainedDiff(diff: PaneSideDockDiff | null): PaneSideDockDiff | null {
   const [retained, setRetained] = useState<PaneSideDockDiff | null>(diff);
@@ -193,512 +153,6 @@ export function useRetainedDiff(diff: PaneSideDockDiff | null): PaneSideDockDiff
   }, [diff]);
   return retained;
 }
-function readStoredPaneSideDocks(): unknown {
-  try {
-    return JSON.parse(window.localStorage.getItem(PANE_SIDE_DOCK_KEY) || 'null');
-  } catch {
-    return null;
-  }
-}
-
-function modeDefaultOpen(): boolean {
-  return sidePanelLayout(getSidePanelMode()).dockOpen;
-}
-
-/** Opening keeps whatever child the dock already had and falls back to the
- *  first panel root; a dock with no child at all stays closed. */
-function openedPaneDockEntry(entry: PaneSideDockEntry, firstRoot: WorkbenchSideViewId | null): PaneSideDockEntry {
-  const view = entry.view ?? firstRoot;
-  return { ...entry, open: view !== null || entry.surface !== '', view };
-}
-
-/** The dock map follows the live pane list and the current right-side layout:
- *  splits, closes, and view moves re-shape it declaratively, and the
- *  side-panel mode policy owns the open/folded half of its contract. */
-function usePaneSideDockShape({
-  leafKey,
-  groupsKey,
-  sessionsKey,
-  leafIdsRef,
-  groupsRef,
-  paneSessionsRef,
-  isDirty,
-  ownerOf,
-  setDocks,
-}: {
-  leafKey: string;
-  groupsKey: string;
-  /** Changes with the session ids of each pane's tabs and the one it shows. */
-  sessionsKey: string;
-  leafIdsRef: { current: readonly string[] };
-  groupsRef: { current: readonly WorkbenchSideViewGroup[] };
-  paneSessionsRef: { current: Readonly<Record<string, readonly string[]>> | undefined };
-  isDirty: (leafId: string, fileKey: string) => boolean;
-  ownerOf: PaneDockOwnerOf;
-  setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>;
-}): void {
-  // Splits, closes, and view moves re-shape the map declaratively: entries
-  // follow the live pane list and the CURRENT right-side layout, so a view
-  // dragged to the left sidebar can never linger as a pane's active view.
-  // Owned entries follow their session's tab first, so a pane that closes
-  // while its session moves hands the owned state over before it drops; an
-  // owner shown again then takes its parked front back.
-  const followOwners = (current: Record<string, PaneSideDockEntry>) => {
-    const paneSessions = paneSessionsRef.current;
-    const owned = paneSessions ? reconcilePaneDockOwners(current, paneSessions, isDirty) : current;
-    let restored = owned;
-    for (const [leafId, entry] of Object.entries(owned)) {
-      const back = paneDockRestored(entry, ownerOf(leafId));
-      if (back !== entry) restored = { ...restored, [leafId]: back };
-    }
-    return restored;
-  };
-  // biome-ignore lint/correctness/useExhaustiveDependencies: leafKey/groupsKey are the change triggers for the ref-held leaf ids and groups
-  useEffect(() => {
-    setDocks((current) => {
-      const next = normalizePaneSideDocks(
-        followOwners(current),
-        leafIdsRef.current,
-        groupsRef.current,
-        modeDefaultOpen(),
-        true
-      );
-      return samePaneSideDocks(current, next) ? current : next;
-    });
-  }, [leafKey, groupsKey]);
-  // A tab switch or a tab moving between live panes only re-homes owned
-  // state: the live entries are not re-read as if from storage (that drops
-  // file tabs opened with a file-scoped access token, which never survive a
-  // restart but must survive a tab switch).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionsKey is the change trigger for the ref-held pane sessions and shown sessions
-  useEffect(() => {
-    setDocks(followOwners);
-  }, [sessionsKey]);
-  // The side-panel mode policy still owns the dock half of its contract:
-  // switching to open-both expands every pane dock, close-* folds them.
-  useEffect(
-    () =>
-      subscribeSidePanelMode(() => {
-        const open = modeDefaultOpen();
-        setDocks((current) => {
-          const next: Record<string, PaneSideDockEntry> = {};
-          for (const [leafId, entry] of Object.entries(current)) {
-            next[leafId] = {
-              ...entry,
-              open: open && (entry.view !== null || entry.surface !== ''),
-            };
-          }
-          return samePaneSideDocks(current, next) ? current : next;
-        });
-      }),
-    [setDocks]
-  );
-}
-
-function usePaneSideDockStorage(docks: Record<string, PaneSideDockEntry>): void {
-  // The retired beside-the-panel surface store is merged into this dock.
-  useEffect(() => {
-    for (const key of LEGACY_SIDE_SURFACE_KEYS) {
-      try {
-        window.localStorage.removeItem(key);
-      } catch {
-        /* cosmetic */
-      }
-    }
-  }, []);
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(PANE_SIDE_DOCK_KEY, JSON.stringify(storablePaneSideDocks(docks)));
-    } catch {
-      // Dock state remains active for this renderer session.
-    }
-  }, [docks]);
-}
-
-/** The single writer for a pane's dock entry: it applies the caller's update
- *  and keeps the previous entry object when nothing actually changed. */
-function usePaneSideDockPatch({
-  groupsRef,
-  setDocks,
-}: {
-  groupsRef: { current: readonly WorkbenchSideViewGroup[] };
-  setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>;
-}) {
-  // biome-ignore lint/correctness/useExhaustiveDependencies: groupsRef is a ref read at call time; setDocks is a useState setter owned by usePaneSideDocks
-  return useCallback(
-    (
-      leafId: string,
-      updater: (entry: PaneSideDockEntry, firstRoot: WorkbenchSideViewId | null) => PaneSideDockEntry
-    ) => {
-      setDocks((current) => {
-        const firstRoot = firstPanelRoot(groupsRef.current);
-        const entry = current[leafId] ?? { ...CLOSED_ENTRY, view: firstRoot };
-        const next = updater(entry, firstRoot);
-        const same =
-          next.open === entry.open &&
-          next.view === entry.view &&
-          next.surface === entry.surface &&
-          next.diff === entry.diff &&
-          sameSideFiles(next.files, entry.files) &&
-          (next.activeFile ?? null) === (entry.activeFile ?? null) &&
-          (next.folder ?? null) === (entry.folder ?? null) &&
-          (next.owner ?? '') === (entry.owner ?? '') &&
-          sameParked(next.parked, entry.parked);
-        return same && current[leafId] ? current : { ...current, [leafId]: next };
-      });
-    },
-    []
-  );
-}
-
-type PaneSideDockPatch = ReturnType<typeof usePaneSideDockPatch>;
-
-/** A diff or file target from a project tool or transcript link: a trimmed
- *  project and a forward-slash, project-relative path. */
-function cleanDockTarget(project: string, rel: string): { project: string; rel: string } {
-  return {
-    project: String(project || '').trim(),
-    rel: String(rel || '')
-      .replace(/\\/g, '/')
-      .replace(/^\/+/, ''),
-  };
-}
-
-/** Header-tab, open, and fold commands for the unit as a whole. */
-function usePaneDockViewCommands(patch: PaneSideDockPatch, ownerOf: PaneDockOwnerOf) {
-  /** Header-tab click contract: a panel view lands in the body, the browser lands as its stacked
-   *  surface; folding stays with the dock's own toggle/close controls.
-   *  One rule for every caller (header buttons, reveals, dock-tab events):
-   *  while another session's file tabs, Files tree or diff are in front, a
-   *  tab that does not own them opens what it picked, and the owner's front
-   *  (which child, open or folded) is parked in `parked`. The file tabs,
-   *  Files tree and diff themselves stay in the entry, mounted (unsaved
-   *  edits intact); the owner gets its front back when it is shown again
-   *  (paneDockRestored). The owner's own pick drops a parked front. */
-  const select = useCallback(
-    (leafId: string, id: WorkbenchSideViewId) => {
-      const owner = ownerOf(leafId);
-      patch(leafId, (entry) => {
-        const { parked: previous, ...base } = entry;
-        const picked =
-          id === PANE_DOCK_BROWSER_SURFACE || id === PANE_DOCK_TERMINAL_SURFACE
-            ? { ...base, open: true, surface: id }
-            : { ...base, open: true, view: id, surface: '' };
-        // The owner's front: parked now, or kept parked across another non-owner pick.
-        let parked: PaneSideDockEntry['parked'];
-        if (paneDockForeign(entry, owner)) parked = { open: entry.open, surface: entry.surface };
-        else if (entry.owner && entry.owner !== owner && previous && paneLocalSurface(previous.surface))
-          parked = previous;
-        return parked ? { ...picked, parked } : picked;
-      });
-    },
-    [patch, ownerOf]
-  );
-  /** Ensure the dock is open, optionally landing on a specific child. */
-  const open = useCallback(
-    (leafId: string, id?: WorkbenchSideViewId) => {
-      if (id) {
-        select(leafId, id);
-        return;
-      }
-      const owner = ownerOf(leafId);
-      patch(leafId, (entry, firstRoot) =>
-        paneDockForeign(entry, owner) ? withParkedOpen(entry, true, firstRoot) : openedPaneDockEntry(entry, firstRoot)
-      );
-    },
-    [patch, select, ownerOf]
-  );
-  const setOpen = useCallback(
-    (leafId: string, nextOpen: boolean) => {
-      const owner = ownerOf(leafId);
-      patch(leafId, (entry, firstRoot) => {
-        if (paneDockForeign(entry, owner)) return withParkedOpen(entry, nextOpen, firstRoot);
-        return nextOpen ? openedPaneDockEntry(entry, firstRoot) : { ...entry, open: false };
-      });
-    },
-    [patch, ownerOf]
-  );
-  /** Fold/unfold the WHOLE unit — header, panel view, browser,
-   *  and diff surfaces together. Children survive the fold. */
-  const toggle = useCallback(
-    (leafId: string) => {
-      const owner = ownerOf(leafId);
-      patch(leafId, (entry, firstRoot) => {
-        if (paneDockForeign(entry, owner)) return withParkedOpen(entry, !entry.parked?.open, firstRoot);
-        return entry.open ? { ...entry, open: false } : openedPaneDockEntry(entry, firstRoot);
-      });
-    },
-    [patch, ownerOf]
-  );
-  return { select, open, setOpen, toggle };
-}
-
-/** The session a pane shows right now ('' for none): it owns what opens in its dock. */
-type PaneDockOwnerOf = (leafId: string) => string;
-
-/** Opens and closes the unit's single file diff. */
-function usePaneDockDiffCommands(patch: PaneSideDockPatch, ownerOf: PaneDockOwnerOf) {
-  const openDiff = useCallback(
-    (leafId: string, project: string, rel: string, request: PaneSideDiffRequest) => {
-      const { project: cleanProject, rel: cleanRel } = cleanDockTarget(project, rel);
-      if (!cleanProject || !cleanRel) return;
-      const owner = ownerOf(leafId);
-      patch(leafId, (entry) =>
-        ownedBy(
-          withPaneDockDiffOpened(entry, {
-            kind: 'diff',
-            project: cleanProject,
-            rel: cleanRel,
-            ...request,
-          }),
-          owner
-        )
-      );
-    },
-    [patch, ownerOf]
-  );
-  const closeDiff = useCallback(
-    (leafId: string) => {
-      patch(leafId, (entry) => withPaneDockDiffClosed(entry));
-    },
-    [patch]
-  );
-  return { openDiff, closeDiff };
-}
-
-/** The side file tabs: open, close, activate, and keep. */
-function usePaneDockFileCommands(
-  patch: PaneSideDockPatch,
-  /** Dirty keys of the open file tabs; dirty tabs are never evicted. */
-  dirtyKeysRef: { current: ReadonlySet<string> },
-  ownerOf: PaneDockOwnerOf
-) {
-  const openFile = useCallback(
-    (
-      leafId: string,
-      project: string,
-      rel: string,
-      line?: number,
-      accessToken?: string,
-      column?: number,
-      request?: { preview?: boolean; from?: string; sidePreview?: boolean }
-    ) => {
-      const { project: cleanProject, rel: cleanRel } = cleanDockTarget(project, rel);
-      if (!cleanProject || !cleanRel) return;
-      const nonce = Date.now();
-      const owner = ownerOf(leafId);
-      patch(leafId, (entry) =>
-        ownedBy(
-          withPaneDockFileOpened(
-            entry,
-            {
-              project: cleanProject,
-              rel: cleanRel,
-              ...(line ? { line } : {}),
-              ...(line && column ? { column } : {}),
-              ...(accessToken ? { accessToken } : {}),
-            },
-            nonce,
-            {
-              preview: request?.preview,
-              from: request?.from,
-              sidePreview: request?.sidePreview,
-              now: nonce,
-              isDirty: (fileKey) => dirtyKeysRef.current.has(sideFileTabDirtyKey(leafId, fileKey)),
-            }
-          ),
-          owner
-        )
-      );
-    },
-    [patch, dirtyKeysRef, ownerOf]
-  );
-  const closeFile = useCallback(
-    (leafId: string, fileKey?: string) => {
-      patch(leafId, (entry) => withPaneDockFileClosed(entry, fileKey));
-    },
-    [patch]
-  );
-  const activateFile = useCallback(
-    (leafId: string, fileKey: string) => {
-      const owner = ownerOf(leafId);
-      patch(leafId, (entry) => {
-        const activated = withPaneDockFileActivated(entry, fileKey);
-        return activated === entry ? entry : ownedBy(activated, owner);
-      });
-    },
-    [patch, ownerOf]
-  );
-  const keepFile = useCallback(
-    (leafId: string, fileKey: string) => {
-      patch(leafId, (entry) => withPaneDockFileKept(entry, fileKey));
-    },
-    [patch]
-  );
-  return { openFile, closeFile, activateFile, keepFile };
-}
-
-/** The Files tree a transcript folder link opens. */
-function usePaneDockFolderCommands(patch: PaneSideDockPatch, ownerOf: PaneDockOwnerOf) {
-  const openFolder = useCallback(
-    (leafId: string, project: string, rel: string) => {
-      const cleanProject = String(project || '').trim();
-      const trimmedRel = String(rel || '')
-        .replace(/\\/g, '/')
-        .replace(/^\/+|\/+$/g, '');
-      const cleanRel = trimmedRel === '.' ? '' : trimmedRel;
-      if (!cleanProject) return;
-      const nonce = Date.now();
-      const owner = ownerOf(leafId);
-      patch(leafId, (entry) =>
-        ownedBy(withPaneDockFolderOpened(entry, { project: cleanProject, rel: cleanRel }, nonce), owner)
-      );
-    },
-    [patch, ownerOf]
-  );
-  const closeFolder = useCallback(
-    (leafId: string) => {
-      patch(leafId, (entry) => withPaneDockFolderClosed(entry));
-    },
-    [patch]
-  );
-  return { openFolder, closeFolder };
-}
-
-/** Every command a dock header, tab, or project tool can issue. */
-function usePaneSideDockCommands({
-  groupsRef,
-  dirtyKeysRef,
-  ownerOf,
-  setDocks,
-}: {
-  groupsRef: { current: readonly WorkbenchSideViewGroup[] };
-  /** Dirty keys of the open file tabs; dirty tabs are never evicted. */
-  dirtyKeysRef: { current: ReadonlySet<string> };
-  ownerOf: PaneDockOwnerOf;
-  setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>;
-}) {
-  const patch = usePaneSideDockPatch({ groupsRef, setDocks });
-  return {
-    ...usePaneDockViewCommands(patch, ownerOf),
-    ...usePaneDockDiffCommands(patch, ownerOf),
-    ...usePaneDockFileCommands(patch, dirtyKeysRef, ownerOf),
-    ...usePaneDockFolderCommands(patch, ownerOf),
-  };
-}
-
-/** Link preview turned off: a preview tab becomes a normal tab. */
-function useLinkPreviewKeep(setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>): void {
-  useEffect(() => {
-    const apply = () => {
-      if (getLinkPreview()) return;
-      setDocks((current) => {
-        let changed = false;
-        const next: Record<string, PaneSideDockEntry> = {};
-        for (const [leafId, entry] of Object.entries(current)) {
-          const kept = withPaneDockFileKept(entry);
-          if (kept !== entry) changed = true;
-          next[leafId] = kept;
-        }
-        return changed ? next : current;
-      });
-    };
-    apply();
-    return subscribeLinkPreview(apply);
-  }, [setDocks]);
-}
-
-export function usePaneSideDocks({
-  leafIds,
-  groups,
-  sessionOf,
-  paneSessions,
-}: {
-  leafIds: readonly string[];
-  groups: readonly WorkbenchSideViewGroup[];
-  /** The session each pane shows ('' for none), read when something opens in its dock. */
-  sessionOf?: (leafId: string) => string;
-  /** The session ids of each pane's tabs: owned dock state follows them
-   *  (reconcilePaneDockOwners). Absent: ownership is not reconciled. */
-  paneSessions?: Readonly<Record<string, readonly string[]>>;
-}) {
-  const leafKey = leafIds.join('\0');
-  const groupsKey = groups.map((group) => group.join(',')).join('|');
-  const [docks, setDocks] = useState<Record<string, PaneSideDockEntry>>(() =>
-    normalizePaneSideDocks(readStoredPaneSideDocks(), leafIds, groups, modeDefaultOpen())
-  );
-  const groupsRef = useRef(groups);
-  groupsRef.current = groups;
-  const leafIdsRef = useRef(leafIds);
-  leafIdsRef.current = leafIds;
-  const paneSessionsRef = useRef(paneSessions);
-  paneSessionsRef.current = paneSessions;
-  const sessionsKey = paneSessions
-    ? Object.entries(paneSessions)
-        .map(([leafId, ids]) => `${leafId}:${ids.join(',')}`)
-        .join('|')
-    : '';
-  const dirtyKeysRef = useRef<ReadonlySet<string>>(new Set());
-  const isDirty = useCallback(
-    (leafId: string, fileKey: string) => dirtyKeysRef.current.has(sideFileTabDirtyKey(leafId, fileKey)),
-    []
-  );
-  const sessionOfRef = useRef(sessionOf);
-  sessionOfRef.current = sessionOf;
-  const ownerOf = useCallback((leafId: string) => sessionOfRef.current?.(leafId) ?? '', []);
-  // What each pane shows: an owner shown again gets its parked front back.
-  const shownKey = sessionOf ? leafIds.map((leafId) => `${leafId}:${sessionOf(leafId)}`).join('|') : '';
-  usePaneSideDockShape({
-    leafKey,
-    groupsKey,
-    sessionsKey: `${sessionsKey}\n${shownKey}`,
-    leafIdsRef,
-    groupsRef,
-    paneSessionsRef,
-    isDirty,
-    ownerOf,
-    setDocks,
-  });
-  usePaneSideDockStorage(docks);
-  useLinkPreviewKeep(setDocks);
-  const entryFor = useCallback((leafId: string): PaneSideDockEntry => docks[leafId] ?? CLOSED_ENTRY, [docks]);
-  const {
-    select,
-    open,
-    setOpen,
-    toggle,
-    openDiff,
-    closeDiff,
-    openFile,
-    closeFile,
-    activateFile,
-    keepFile,
-    openFolder,
-    closeFolder,
-  } = usePaneSideDockCommands({
-    groupsRef,
-    dirtyKeysRef,
-    ownerOf,
-    setDocks,
-  });
-  return {
-    docks,
-    dirtyKeysRef,
-    entryFor,
-    select,
-    open,
-    setOpen,
-    toggle,
-    openDiff,
-    closeDiff,
-    openFile,
-    closeFile,
-    activateFile,
-    keepFile,
-    openFolder,
-    closeFolder,
-  };
-}
 
 function useDockWidthPrefs() {
   const [dockPref, setDockPref] = useState(readSharedDockWidth);
@@ -713,11 +167,6 @@ function useDockWidthPrefs() {
   return { dockPref, setDockPref, diffPref, setDiffPref };
 }
 
-/**
- * Unified width: inline, the whole unit — diff
- * pair included — always leaves the conversation its workspace floor, and when
- * the unit cannot fit, the WHOLE unit floats over the pane (한몸 오버레이).
- */
 function resolveDockLayout({
   cellWidth,
   room,
@@ -743,11 +192,6 @@ function resolveDockLayout({
 }) {
   const panelDesired = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(panelPref, PANE_SIDE_DOCK_MAX_WIDTH));
   const diffDesired = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(diffPref, PANE_SIDE_DOCK_MAX_WIDTH));
-  // Narrow ladder:
-  //   1단계 — the diff pair can no longer stand side by side even as a
-  //   sheet, so the diff STACKS over the panel with a back step (2뎁스).
-  //   2단계 — even one column cannot fit beside the rail, so the unit takes
-  //   the WHOLE pane (browser included: 브라우저는 전체).
   const sheetAvail = cellWidth > 0 ? cellWidth - 48 : Number.POSITIVE_INFINITY;
   const pairMin = PANE_SIDE_DOCK_MIN_WIDTH * 2;
   const twoDepth = paneDiffStacks(diffShowing, sheetAvail, pairMin, mobileSheet);
@@ -1245,11 +689,6 @@ function renderPaneDockHeader(
     renderDiffHeaderControls,
   } = props;
   const { sessionSurfaceShowing, sessionDiffPanelShowing, diffShowing, filesShowing } = showing;
-  // ONE header line for the whole unit, spanning
-  // [diff | panel] at the PANE strip's height. The child icons moved to the
-  // pane strip's right end (PaneDockToggles), so the header names only the
-  // showing child and carries the fold X — the Claude Desktop card grammar.
-  // The title is text-only: the strip icon already identifies the view.
   const activeRoot = paneDockActiveRoot(entry);
   // The phone sheet names the last shown child through its exit.
   const titleRoot = activeRoot ?? (mobileSheet ? entry.view : null);
@@ -1346,10 +785,6 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   const { dockPref, setDockPref, diffPref, setDiffPref } = useDockWidthPrefs();
   // The dock header mounts the diff controls; the pane body shares this state.
   const diffView = useDiffViewState('pane-side-dock');
-  // The workspace column's inline-dock flag (useInlineDockFlag): rewritten by
-  // every render, false until the layout below resolves an inline dock. Called
-  // before every measuring hook: on the commit that creates the host its
-  // layout effect is the one that claims, and it must run before theirs.
   const inlineDock = useRef(false);
   inlineDock.current = false;
   useInlineDockFlag(hostRef, inlineDock);
@@ -1411,12 +846,6 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     maxWidth: PANE_SIDE_DOCK_MAX_WIDTH,
     commitWidth: (width) => commitWidthPref(PANE_SIDE_DOCK_DIFF_WIDTH_KEY, width),
   });
-  // Unmounting the diff's whole column — thousands of diff rows — inside the
-  // click commit would stall a keystroke landing in that same task for
-  // 30–70ms. The
-  // column only HIDES on close; the retained tree is dropped later, in
-  // idle time and as a transition, so typing keeps its own frames. A reopen
-  // of the same file inside that window reuses the live tree.
   const retainedDiff = useRetainedDiff(entry.diff);
   // The hidden column keeps its last shown width: the diff library observes
   // its wrapper's size and re-lays out every row on any change, so a width

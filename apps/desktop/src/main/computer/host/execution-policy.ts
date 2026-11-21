@@ -16,53 +16,66 @@ function invalid(): never {
   );
 }
 
-export function createComputerExecutionPolicy(raw?: unknown, now = Date.now) {
-  let actions: Set<string> | undefined;
+interface ParsedPolicy {
+  actions: Set<string> | undefined;
+  windows: Map<string, number>;
+  launches: Set<string>;
+  elevated: boolean;
+  expiresAt: number;
+}
+
+function policyStrings(value: Record<string, unknown>, field: string): string[] {
+  const list = value[field] ?? [];
+  if (
+    !Array.isArray(list) ||
+    list.length > 128 ||
+    list.some((entry) => typeof entry !== 'string' || !entry.trim() || entry !== entry.trim() || entry.length > 4096)
+  )
+    invalid();
+  return list as string[];
+}
+
+function parseComputerPolicy(raw: unknown): ParsedPolicy {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) invalid();
+  const value = raw as Record<string, unknown>;
+  if (Object.keys(value).some((key) => !FIELDS.has(key)) || value.version !== 1) invalid();
+  const actions = new Set(policyStrings(value, 'actions'));
+  if ([...actions].some((action) => !ACTIONS.has(action))) invalid();
+  const launches = new Set(policyStrings(value, 'launchTargets'));
   const windows = new Map<string, number>();
-  let launches = new Set<string>();
-  let elevated = true;
-  let expiresAt = Infinity;
-  if (raw !== undefined) {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) invalid();
-    const value = raw as Record<string, unknown>;
-    if (Object.keys(value).some((key) => !FIELDS.has(key)) || value.version !== 1) invalid();
-    const strings = (field: string): string[] => {
-      const list = value[field] ?? [];
-      if (
-        !Array.isArray(list) ||
-        list.length > 128 ||
-        list.some(
-          (entry) => typeof entry !== 'string' || !entry.trim() || entry !== entry.trim() || entry.length > 4096
-        )
-      )
-        invalid();
-      return list as string[];
-    };
-    actions = new Set(strings('actions'));
-    if ([...actions].some((action) => !ACTIONS.has(action))) invalid();
-    launches = new Set(strings('launchTargets'));
-    const targets = value.windows ?? [];
-    if (!Array.isArray(targets) || targets.length > 128) invalid();
-    for (const target of targets) {
-      if (
-        !target ||
-        typeof target !== 'object' ||
-        Array.isArray(target) ||
-        Object.keys(target).some((key) => !['id', 'pid'].includes(key)) ||
-        typeof target.id !== 'string' ||
-        !/^hwnd:0x[0-9a-f]+$/i.test(target.id) ||
-        !Number.isSafeInteger(target.pid) ||
-        target.pid < 1 ||
-        windows.has(target.id)
-      )
-        invalid();
-      windows.set(target.id, target.pid);
-    }
-    if (value.allowElevatedInput !== undefined && typeof value.allowElevatedInput !== 'boolean') invalid();
-    elevated = value.allowElevatedInput === true;
-    if (typeof value.expiresAt !== 'string' || !Number.isFinite(Date.parse(value.expiresAt))) invalid();
-    expiresAt = Date.parse(value.expiresAt);
+  const targets = value.windows ?? [];
+  if (!Array.isArray(targets) || targets.length > 128) invalid();
+  for (const target of targets) {
+    if (
+      !target ||
+      typeof target !== 'object' ||
+      Array.isArray(target) ||
+      Object.keys(target).some((key) => !['id', 'pid'].includes(key)) ||
+      typeof target.id !== 'string' ||
+      !/^hwnd:0x[0-9a-f]+$/i.test(target.id) ||
+      !Number.isSafeInteger(target.pid) ||
+      target.pid < 1 ||
+      windows.has(target.id)
+    )
+      invalid();
+    windows.set(target.id, target.pid);
   }
+  if (value.allowElevatedInput !== undefined && typeof value.allowElevatedInput !== 'boolean') invalid();
+  if (typeof value.expiresAt !== 'string' || !Number.isFinite(Date.parse(value.expiresAt))) invalid();
+  return {
+    actions,
+    windows,
+    launches,
+    elevated: value.allowElevatedInput === true,
+    expiresAt: Date.parse(value.expiresAt),
+  };
+}
+
+export function createComputerExecutionPolicy(raw?: unknown, now = Date.now) {
+  const { actions, windows, launches, elevated, expiresAt }: ParsedPolicy =
+    raw === undefined
+      ? { actions: undefined, windows: new Map(), launches: new Set(), elevated: true, expiresAt: Infinity }
+      : parseComputerPolicy(raw);
   const assertCurrent = () => {
     if (now() >= expiresAt) throw new Error('computer_policy_expired: the configured authorization has expired');
   };

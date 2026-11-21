@@ -184,8 +184,8 @@ const seats = (host) =>
   cards(host).map((card) => card.previousElementSibling?.querySelector('.mx-handoff-name')?.textContent ?? '');
 const click = (node) => act(async () => node.click());
 
-test("a handed-off session's question shows under its line with the same options and is answered once through the chat", async (t) => {
-  const { host, calls, opened, show } = harness(t);
+async function twoSessions(t) {
+  const ui = harness(t);
   await act(async () =>
     publishSessionGlances([
       { id: LEAD, title: 'Rank model', preview: '', working: true },
@@ -198,7 +198,11 @@ test("a handed-off session's question shows under its line with the same options
       { id: TASK, awaitingApproval: true, awaitingQuestion: true },
     ])
   );
-  const rows = [user, round('r1', [send('s1', 'atask_1'), create('c1')]), replied];
+  return { ...ui, rows: [user, round('r1', [send('s1', 'atask_1'), create('c1')]), replied] };
+}
+
+test("a handed-off session's question shows under its line with the same options as the session's card", async (t) => {
+  const { host, show, rows } = await twoSessions(t);
 
   // No question: the lines alone.
   await show(rows, null);
@@ -229,6 +233,11 @@ test("a handed-off session's question shows under its line with the same options
   await show(rows, [copy('q1', LEAD, RANK), copy('q2', TASK, MARKETS)]);
   assert.deepEqual(seats(host), ['Sent to Rank model', 'Markets']);
   assert.deepEqual(optionLabels(cards(host)[1]), ['API', 'Scrape']);
+});
+
+test("a handed-off session's question is answered once through the chat and leaves with its copy", async (t) => {
+  const { host, calls, opened, show, rows } = await twoSessions(t);
+  await show(rows, [copy('q1', LEAD, RANK), copy('q2', TASK, MARKETS)]);
 
   // Answered here: through this chat's copy, once; the card leaves at once.
   const [rank] = cards(host);

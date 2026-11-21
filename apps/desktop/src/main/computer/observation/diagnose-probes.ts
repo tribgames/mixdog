@@ -1,9 +1,3 @@
-/**
- * The readiness probes `diagnose` runs against the native side: whether the
- * target exposes semantic accessibility, whether the OS OCR has the requested
- * language, and whether the input observer sees an idle desktop. Each probe
- * answers in place — a failure is a finding, never an error out of diagnose.
- */
 import type { ComputerCommand } from '../shared/types';
 import type { ComputerWindowRecord } from '../shared/window-transition';
 import type { InspectHost } from './inspect';
@@ -97,11 +91,7 @@ export async function probeOcr(host: DiagnoseProbeHost, command: ComputerCommand
   }
 }
 
-/**
- * Why the native observer refuses foreground input, by its metadata-only
- * reason. Windows does not say whether it dropped a hook, so a missed input
- * is reported as missed rather than as a removed hook.
- */
+/** Windows does not say whether it dropped a hook, so a missed input is reported as missed, not as a removed hook. */
 const OBSERVER_REASONS: Record<string, string> = {
   hooks_unavailable: 'foreground input is unavailable: the input observation hooks could not be installed',
   input_gap:

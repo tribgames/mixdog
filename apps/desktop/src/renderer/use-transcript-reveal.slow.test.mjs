@@ -4,10 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// The entry reveal against the real virtual list and its real measurements in
-// a real browser: a revisit whose remembered geometry still holds paints its
-// rows (at the end it was pinned to) in the first frame, and one whose inputs
-// changed while away never paints a frame at a wrong offset.
 const HARNESS = `
   import { useMemo, useRef, useState } from 'react';
   import { createRoot } from 'react-dom/client';
@@ -75,10 +71,6 @@ const HARNESS = `
     tall: (key) => {
       window.tallKey = key;
     },
-    // Finds a pane height at which the row crossing the viewport's upper edge
-    // shows less than the thread's top padding: such a row ends, in spacer
-    // coordinates, above the scroll offset (the scroll offset counts the
-    // padding, row offsets do not).
     findPartialTopRow: async () => {
       const inset = Number.parseFloat(getComputedStyle(document.querySelector('.thread')).paddingTop) || 0;
       for (let height = 420; height <= 600; height += 2) {
@@ -293,10 +285,6 @@ test('a revisit reveals in its first frame only while its remembered geometry st
   expect(!expanded[0].visible, 'tool expansion changed while away: not revealed in frame 1');
   assertNoWrongFrame(expanded, 'tool expansion changed while away');
 
-  // A changed row crossing the viewport's upper edge, below which every row is
-  // unchanged. The edge row ends above the scroll offset in spacer coordinates
-  // (the offset counts the thread's top padding), so the selection of visible
-  // rows must convert before comparing.
   const edge = await page.evaluate(() => window.fixture.findPartialTopRow());
   assert.ok(edge.key, `a pane height shows a top row partly (padding ${edge.inset}px)`);
   await visit('B');

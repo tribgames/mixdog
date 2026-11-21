@@ -8,9 +8,9 @@ import test from 'node:test';
 import { MIXDOG_HOST_CSHARP } from './native-source.ts';
 import { PS_RUNTIME } from './ps-runtime.ts';
 
-test('native dispatch rejects old observations, clipped cursors, and stale message error codes without desktop input', {
-  skip: process.platform !== 'win32' && 'Windows only',
-}, async () => {
+const windows = { skip: process.platform !== 'win32' && 'Windows only' };
+
+async function runAuditFixture(body) {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-native-audit-state-'));
   try {
     const observation = await readFile(new URL('./sources/InputObservation.cs', import.meta.url), 'utf8');
@@ -80,20 +80,8 @@ $tokens=$null;$errors=$null
 $ast=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $env:AUDIT_FIXTURE 'runtime.ps1'),[ref]$tokens,[ref]$errors)
 $node=$ast.Find({param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Handle'},$true)
 . ([scriptblock]::Create($node.Extent.Text))
-$req=@{action='drag';delivery='foreground';observed_input_monitor_id='original';observed_input_user_sequence=3}
-$null=Handle $req
-[MixInputObservation]::Snapshot.Sequence=4
 $caught=@()
-try { Handle $req } catch { $caught += $_.Exception.ToString() }
-[MixInputObservation]::Snapshot.Sequence=3
-[MixInputObservation]::Snapshot.Generation='replacement'
-try { Handle $req } catch { $caught += $_.Exception.ToString() }
-[MixInputObservation]::Snapshot.Generation='original'
-[NativeFixture]::Clipped=$true
-try { [NativeFixture]::Click(10,20) } catch { $caught += $_.Exception.ToString() }
-[NativeFixture]::Clipped=$false
-[NativeFixture]::Click(10,20)
-try { [NativeFixture]::FailedPress() } catch { $caught += $_.Exception.ToString() }
+${body}
 @{dispatched=$script:dispatched;presses=[NativeFixture]::Presses;releases=[NativeFixture]::Releases;errors=$caught} | ConvertTo-Json -Compress
 `;
     const { stdout } = await promisify(execFile)(
@@ -105,20 +93,49 @@ try { [NativeFixture]::FailedPress() } catch { $caught += $_.Exception.ToString(
         env: { ...process.env, AUDIT_FIXTURE: directory },
       }
     );
-    const result = JSON.parse(stdout.trim());
-    assert.equal(result.dispatched, 1);
-    assert.equal(result.presses, 1);
-    assert.equal(result.releases, 1);
-    assert.equal(result.errors.length, 4);
-    for (const [index, pattern] of [
-      /user_input_active/,
-      /input_observation_unavailable/,
-      /target_mismatch/,
-      /background_target_hung/,
-    ].entries()) {
-      assert.match(result.errors[index], pattern);
-    }
+    return JSON.parse(stdout.trim());
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+}
+
+test('a drag with an outdated or replaced input observation is refused after one dispatch', windows, async () => {
+  const result = await runAuditFixture(`
+$req=@{action='drag';delivery='foreground';observed_input_monitor_id='original';observed_input_user_sequence=3}
+$null=Handle $req
+[MixInputObservation]::Snapshot.Sequence=4
+try { Handle $req } catch { $caught += $_.Exception.ToString() }
+[MixInputObservation]::Snapshot.Sequence=3
+[MixInputObservation]::Snapshot.Generation='replacement'
+try { Handle $req } catch { $caught += $_.Exception.ToString() }
+`);
+  assert.equal(result.dispatched, 1);
+  assert.equal(result.errors.length, 2);
+  assert.match(result.errors[0], /user_input_active/);
+  assert.match(result.errors[1], /input_observation_unavailable/);
+});
+
+test(
+  'a click whose cursor lands off target is refused and the same click unclipped is sent once',
+  windows,
+  async () => {
+    const result = await runAuditFixture(`
+[NativeFixture]::Clipped=$true
+try { [NativeFixture]::Click(10,20) } catch { $caught += $_.Exception.ToString() }
+[NativeFixture]::Clipped=$false
+[NativeFixture]::Click(10,20)
+`);
+    assert.equal(result.presses, 1);
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0], /target_mismatch/);
+  }
+);
+
+test('a background press that fails with a hung target still releases once', windows, async () => {
+  const result = await runAuditFixture(`
+try { [NativeFixture]::FailedPress() } catch { $caught += $_.Exception.ToString() }
+`);
+  assert.equal(result.releases, 1);
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /background_target_hung/);
 });

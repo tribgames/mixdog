@@ -15,11 +15,6 @@ const CLOSE_DURATION = 110;
 
 type StudioViewport = { left: number; top: number; width: number; height: number };
 
-/** The Studio composer's pill sits at the trailing end of the line under the
- *  card, so its sheet opens above with the right edges aligned (the
- *  end-justified pill grows leftwards into it); the settings `field` sits at
- *  the trailing edge of its row, so its sheet opens below, right edges
- *  aligned too. */
 function measuredSheet(
   trigger: HTMLElement,
   rect: { left: number; right: number; top: number; bottom: number },
@@ -48,11 +43,6 @@ export function studioSheetStyle(
   } as CSSProperties;
 }
 
-/**
- * The menu's open/close lifecycle and panel geometry: whether the sheet is
- * open or animating closed, which pane is open, the sheet and flyout boxes,
- * the drilled (phone) state and the pill's morph width.
- */
 export function useStudioRouteMenuPanels({
   field,
   rowCount,

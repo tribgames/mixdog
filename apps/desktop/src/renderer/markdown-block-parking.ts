@@ -1,32 +1,5 @@
 import { createContext } from 'react';
 
-// A reply keeps in the DOM only the top-level blocks near its scroller's
-// viewport. A block further away is parked: one empty box of the block's
-// measured height and of the gaps it kept to its neighbours stands in its
-// place, so the reply's geometry is unchanged while the block's elements are
-// gone. The virtual list unmounts whole rows only; one long reply is a single
-// row (a 150 KB reply held ~24k elements, ~150 MB, while any of it was in
-// range, and behind every retained tab).
-//
-// A reply still arriving parks too, or the whole of it stays mounted until it
-// ends (a 100k-character reply peaked 130 MB above its settled size, and the
-// renderer keeps what a peak committed). Only its last body and the block
-// before it stay: that body is parsed again as text arrives, and each parse
-// would return what had parked of them.
-//
-// A box holds the gaps to its two neighbours as they were, so it stands only
-// while those are the blocks next to it and unchanged: it is dropped when one
-// of them changes (release) and when another element stands next to it (sync).
-//
-// A selection copies what is in the DOM, so the parked blocks it runs over
-// return, and stay while it is over them.
-//
-// A block is parked from its own layout, so nothing is estimated: a block that
-// was never laid out stays mounted. A parked box stands for its block at the
-// width and type size it was measured at; returned to the DOM under another,
-// the block takes its real height again, and above the reader that growth is
-// reported to the list (parkedBlockGrewAbove) so the content in view stays.
-
 /** Attribute of a top-level block's element: the block's id. */
 export const UNIT_ATTRIBUTE = 'data-md-unit';
 export const PARKED_ATTRIBUTE = 'data-md-parked';
@@ -293,12 +266,6 @@ function createParking(beforePark?: (element: HTMLElement) => void) {
     const unsettled = growing ? lastBodyOf(container) : null;
     const returning: string[] = [];
     const parking: Array<[string, ParkedBlock, HTMLElement]> = [];
-    // The observer reports a box only when it crosses the reach. One it counts
-    // within reach (a box touching the edge, or a geometry that moved since
-    // its frame) is never reported again while it comes into view, so that
-    // word returns it whatever the box's rect says now; a block parks only
-    // when the observer and its rect both put it out of reach. Each target's
-    // latest entry is its state.
     const latest = new Map<Element, IntersectionObserverEntry>();
     for (const entry of entries) latest.set(entry.target, entry);
     // Every block is measured before any of them changes.

@@ -1,13 +1,3 @@
-// The visualize panel's user → agent feedback: the bridge to the HTML panes'
-// page script (choices, page readiness, pin numbers), the Comment layer the
-// panel lays over a commentable pane, the hint strip under the toolbar, and
-// the composer cards (VisualizeFeedbackCards.tsx) that carry the feedback into the next message. What a
-// pane offers (element click, dragged region, video time, crop source) comes
-// from its entry in shared/visualize-comment-kinds.ts. Every pin and choice is
-// tied to a real user gesture the page cannot produce
-// (visualize-feedback-gate.ts). Crops come from a window capture on the
-// desktop, or from the image / video frame itself; a client with neither (a
-// paired remote client on an HTML or PDF pane) sends its pins without one.
 import {
   type FormEvent,
   type MouseEvent,
@@ -237,10 +227,6 @@ function requestVisualizeMeasure(
 
 type CaptureArea = (area: VisualizeFeedbackRect, masks: VisualizeFeedbackRect[]) => Promise<VisualizePinImage | null>;
 
-/** A page crop of `area` (the frame's viewport px), redacted against the page
- *  as it is at the shot: `before` gives the fresh masks, `after` is asked
- *  once more after the shot, and any change there or in the frame's place
- *  (or no answer) discards the crop. */
 async function capturePageArea<T extends { masks: VisualizeFeedbackRect[] }>(
   target: HTMLIFrameElement,
   area: VisualizeFeedbackRect,
@@ -328,10 +314,6 @@ async function captureMediaArea(
   return captureWindowArea(windowArea);
 }
 
-/** Queue a new comment's pin, with how its crop is taken: an element is
- *  described afresh by its page, an HTML area measured again, an image or
- *  video-frame area drawn from the picture (a video settled on the pin's
- *  time first), anything else captured from the window. */
 function addCommentPin(
   sessionId: string,
   base: Omit<VisualizePin, 'id' | 'target'>,
@@ -389,6 +371,50 @@ function addCommentPin(
     return captureMediaArea(element, natural, windowArea);
   };
   return { added, crop };
+}
+
+function settlePageChoice({
+  session,
+  shown,
+  pane,
+  index,
+  message,
+  commenting,
+  reset,
+}: {
+  session: string;
+  shown: VisualizeTabView;
+  pane: VisualizePaneView;
+  index: number;
+  message: Extract<VisualizeFeedbackPageMessage, { type: 'choice' }>;
+  commenting(): boolean;
+  reset(): void;
+}): void {
+  const choice = {
+    tabId: shown.id,
+    tabLabel: shown.label,
+    pane: index,
+    file: visualizePaneFile(pane),
+    group: message.group,
+    choice: message.choice,
+    label: message.label,
+  };
+  void consumeVisualizeChoiceGesture({ sessionId: session, tabId: shown.id, pane: index }).then((spent) => {
+    if (spent) {
+      if (!setVisualizeChoice(session, choice, message.selected)) reset();
+      return;
+    }
+    // An unpick without a gesture leaves the queue as it is (the chip clears it).
+    const proposed =
+      message.selected &&
+      !commenting() &&
+      proposeVisualizeChoice(
+        visualizeProposalKey(session, shown.id, index),
+        { sessionId: session, choice, reset },
+        performance.now()
+      );
+    if (!proposed) reset();
+  });
 }
 
 /** Wires the active tab's HTML panes to the feedback store: injects the page
@@ -476,12 +502,6 @@ export function useVisualizeFeedbackBridge({
         answered.set(event.source, now);
         postToPage(frame, stateRef.current(index, true));
       } else if (message.type === 'tweaks') {
-        // A document announces its own controls once it is ready (never
-        // throttled: a reload at the same URL announces again). Its saved
-        // overrides are replayed from these definitions only: a new document
-        // has nothing applied, so nothing from the previous one is cleared.
-        // A malformed block is logged by the page itself, which the desktop
-        // reports as a page problem.
         const defs = setVisualizeTweakDefs(session, shown.id, index, message.raw);
         const replay = tweaksRef.current(index);
         if (replay) postToPage(frame, replay);
@@ -493,35 +513,15 @@ export function useVisualizeFeedbackBridge({
       } else if (message.type === 'choice') {
         // Comment mode covers the pane: no page click can be a choice then.
         if (live.current.comment) return;
-        const choice = {
-          tabId: shown.id,
-          tabLabel: shown.label,
-          pane: index,
-          file: visualizePaneFile(pane),
-          group: message.group,
-          choice: message.choice,
-          label: message.label,
-        };
-        // One real gesture in this very pane per choice (main saw it).
         const page = frame;
-        const reset = () => postToPage(page, stateRef.current(index, true));
-        void consumeVisualizeChoiceGesture({ sessionId: session, tabId: shown.id, pane: index }).then((spent) => {
-          if (spent) {
-            if (!setVisualizeChoice(session, choice, message.selected)) reset();
-            return;
-          }
-          // No gesture main saw (remote client, touch tap, failed lookup):
-          // the user confirms in the panel's own bar. An unpick without a
-          // gesture leaves the queue as it is (the chip clears it).
-          const proposed =
-            message.selected &&
-            !live.current.comment &&
-            proposeVisualizeChoice(
-              visualizeProposalKey(session, shown.id, index),
-              { sessionId: session, choice, reset },
-              performance.now()
-            );
-          if (!proposed) reset();
+        settlePageChoice({
+          session,
+          shown,
+          pane,
+          index,
+          message,
+          commenting: () => live.current.comment,
+          reset: () => postToPage(page, stateRef.current(index, true)),
         });
       }
     };
@@ -547,11 +547,6 @@ export function useVisualizeFeedbackBridge({
     return () => body.removeEventListener('load', onLoad, true);
   }, [body]);
 
-  // Panel → pages: Comment mode and the pin numbers. Keyed on what is sent
-  // (the shown panes and their messages), not on the tab object or the whole
-  // feedback / tweak state, so an unrelated change resends nothing.
-  // tweaksRevision only re-renders this hook when a tweak changes; the tweak
-  // messages themselves are part of the key.
   void tweaksRevision;
   const pageKey =
     body && tab
@@ -703,10 +698,6 @@ export function VisualizeCommentLayer({
       postToPage(target, { type: 'hover-step', dir });
     }
   };
-  /** A pin card asked for a pin the page draws (an element, an anchored
-   *  region): ask its page to describe the element, for where it is now. The
-   *  request stays pending until the answer comes (a page not ready yet is
-   *  asked again on its `ready`), or it expires. */
   const describePinOpen = () => {
     const pin = peekVisualizePinOpen(sessionId, tab.id, index);
     const selector = pin ? pinElement(pin) : null;
@@ -984,7 +975,6 @@ export function VisualizeCommentLayer({
     if (!beginVisualizeCapture()) return;
     let image: VisualizePinImage | null = null;
     try {
-      // Hide the marks for the shot: this layer's and the page's.
       if (paged && frame) postToPage(frame, { type: 'hide' });
       setCapturing(true);
       await nextFrames();

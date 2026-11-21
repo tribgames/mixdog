@@ -6,12 +6,6 @@ const itemText = (item: TranscriptItem): string => {
   return item.text == null ? '' : String(item.text);
 };
 
-// Identity baselines keep only a clipped prefix of long texts, plus a
-// fingerprint (length + hash of the FULL text). Every match against a clipped
-// record is exact or declined: equal length needs an equal hash; a record
-// that is the shorter side (streaming growth) is proven a prefix by hashing
-// the incoming text's first `length` chars; a clipped record that is the
-// longer side has no proof and never aligns.
 type TextFingerprint = { length: number; hash: number };
 const clippedFingerprints = new WeakMap<object, TextFingerprint>();
 
@@ -152,15 +146,8 @@ function compareAlignment(
   return a.idMatches - b.idMatches || a.overlap - b.overlap;
 }
 
-/** Rows lined up by kind alone (two turn-completion rows, two tool calls of the
- *  same name) must share at least this many positions before an alignment
- *  without a single id match may adopt ids: one completion row against another
- *  is a coincidence, and adopting across it spliced an older page into the
- *  newest turn. */
 const MIN_ANONYMOUS_OVERLAP = 8;
 
-/** Whether an alignment is evidence enough to adopt ids: at least one shared
- *  id, or an overlap covering the shorter side (up to MIN_ANONYMOUS_OVERLAP). */
 function alignmentAnchored(
   candidate: { overlap: number; idMatches: number },
   previousLength: number,

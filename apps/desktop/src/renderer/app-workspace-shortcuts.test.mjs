@@ -20,6 +20,42 @@ function Harness({ actions }) {
   return null;
 }
 
+const idle = () => {};
+const IDLE_ACTIONS = {
+  tabs: [],
+  activeTabKey: '',
+  navigateTab: idle,
+  startTask: idle,
+  startProjectlessTask: idle,
+  openSettings: idle,
+  toggleSidebar: idle,
+  toggleDock: idle,
+  togglePanel: idle,
+  openQuickAccess: idle,
+  openCommandPalette: idle,
+  openFindInFiles: idle,
+  openTabSwitcher: idle,
+  focusSiblingPane: idle,
+  focusVerticalPane: idle,
+  navigateBack: idle,
+  navigateForward: idle,
+};
+
+async function mountKeymap(t, actions = {}, nodes = []) {
+  const host = document.createElement('main');
+  document.body.append(host, ...nodes);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    for (const node of nodes) node.remove();
+  });
+  await act(async () => {
+    root.render(React.createElement(Harness, { actions: { ...IDLE_ACTIONS, ...actions } }));
+  });
+  return { host, root };
+}
+
 test('Ctrl+T and Ctrl+` remain unclaimed', async (t) => {
   const host = document.createElement('main');
   document.body.append(host);
@@ -78,7 +114,7 @@ test('Ctrl+T and Ctrl+` remain unclaimed', async (t) => {
   );
 });
 
-test('app-level Ctrl+F, Ctrl+K, Ctrl+digit and bracket shortcuts', async (t) => {
+async function mountAppKeys(t) {
   const host = document.createElement('main');
   const editor = document.createElement('div');
   editor.className = 'monaco-editor';
@@ -138,13 +174,25 @@ test('app-level Ctrl+F, Ctrl+K, Ctrl+digit and bracket shortcuts', async (t) => 
     return event.defaultPrevented;
   };
 
+  return { calls, render, press, plain, editor, sessionSearches: () => sessionSearches };
+}
+
+const THREE_TABS = [{ key: 'a' }, { key: 'b' }, { key: 'c' }];
+
+test('Ctrl+F opens session search with no tab open and is left alone with tabs open', async (t) => {
+  const { render, press, plain, sessionSearches } = await mountAppKeys(t);
   await render([]);
   assert.equal(await press(plain, 'f'), true);
-  assert.equal(sessionSearches, 1);
+  assert.equal(sessionSearches(), 1);
 
-  await render([{ key: 'a' }, { key: 'b' }, { key: 'c' }]);
+  await render(THREE_TABS);
   assert.equal(await press(plain, 'f'), false);
-  assert.equal(sessionSearches, 1);
+  assert.equal(sessionSearches(), 1);
+});
+
+test('Ctrl+K, Ctrl+digit and Ctrl+bracket shortcuts open the palette, switch tabs and walk history', async (t) => {
+  const { calls, render, press, plain } = await mountAppKeys(t);
+  await render(THREE_TABS);
   await press(plain, 'k');
   await press(plain, '/');
   await press(plain, '2');
@@ -154,13 +202,19 @@ test('app-level Ctrl+F, Ctrl+K, Ctrl+digit and bracket shortcuts', async (t) => 
   await press(plain, ']', 'BracketRight');
   await press(plain, '}', 'BracketRight', true);
   assert.deepEqual(calls, ['palette', 'palette', 'tab:b', 'tab:c', 'back', 'forward', 'tab:b']);
+});
 
-  calls.length = 0;
+test('Ctrl+B toggles the dock and Ctrl+Shift+B the sidebar', async (t) => {
+  const { calls, render, press, plain } = await mountAppKeys(t);
+  await render(THREE_TABS);
   await press(plain, 'b');
   await press(plain, 'B', '', true);
   assert.deepEqual(calls, ['dock', 'sidebar']);
+});
 
-  calls.length = 0;
+test('the code editor keeps Ctrl+K, Ctrl+/ and Ctrl+] for itself', async (t) => {
+  const { calls, render, press, editor } = await mountAppKeys(t);
+  await render(THREE_TABS);
   assert.equal(await press(editor, 'k'), false);
   assert.equal(await press(editor, '/'), false);
   assert.equal(await press(editor, ']', 'BracketRight'), false);
@@ -282,11 +336,6 @@ test('Alt+Left/Right walks history except in the browser page, the terminal and,
     });
     return event.defaultPrevented;
   };
-  assert.equal(await press(host, 'ArrowLeft'), true);
-  assert.equal(await press(host, 'ArrowRight'), true);
-  assert.equal(await press(terminal, 'ArrowLeft'), false);
-  assert.equal(await press(browser, 'ArrowLeft'), false);
-  assert.deepEqual(calls, ['back', 'forward']);
   const input = document.createElement('input');
   const checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
@@ -331,7 +380,6 @@ test('Alt+Left/Right walks history except in the browser page, the terminal and,
 
 /** Renders the keymap over a plain area, the browser pane, a terminal and a code editor. */
 async function mountHistorySurfaces(t) {
-  const host = document.createElement('main');
   const composer = document.createElement('textarea');
   const surfaces = {};
   for (const [name, className] of [
@@ -346,41 +394,12 @@ async function mountHistorySurfaces(t) {
     surface.append(inner);
     surfaces[name] = inner;
   }
-  document.body.append(host, composer, ...Object.values(surfaces).map((inner) => inner.parentElement));
-  const root = createRoot(host);
   const calls = [];
-  const noop = () => {};
-  t.after(async () => {
-    await act(async () => root.unmount());
-    host.remove();
-    composer.remove();
-    for (const inner of Object.values(surfaces)) inner.parentElement.remove();
-  });
-  await act(async () => {
-    root.render(
-      React.createElement(Harness, {
-        actions: {
-          tabs: [],
-          activeTabKey: '',
-          navigateTab: noop,
-          startTask: noop,
-          startProjectlessTask: noop,
-          openSettings: noop,
-          toggleSidebar: noop,
-          toggleDock: noop,
-          togglePanel: noop,
-          openQuickAccess: noop,
-          openCommandPalette: noop,
-          openFindInFiles: noop,
-          openTabSwitcher: noop,
-          focusSiblingPane: noop,
-          focusVerticalPane: noop,
-          navigateBack: () => calls.push('back'),
-          navigateForward: () => calls.push('forward'),
-        },
-      })
-    );
-  });
+  const { host } = await mountKeymap(
+    t,
+    { navigateBack: () => calls.push('back'), navigateForward: () => calls.push('forward') },
+    [composer, ...Object.values(surfaces).map((inner) => inner.parentElement)]
+  );
   return { host, composer, surfaces, calls };
 }
 
@@ -436,42 +455,13 @@ test('mouse buttons 3/4 walk back/forward, including over the code editor, excep
 });
 
 test('Ctrl+Alt+N starts a task without a project; Ctrl+N is unchanged; AltGr is not claimed', async (t) => {
-  const host = document.createElement('main');
   const plain = document.createElement('textarea');
-  document.body.append(host, plain);
-  const root = createRoot(host);
-  t.after(async () => {
-    await act(async () => root.unmount());
-    host.remove();
-    plain.remove();
-  });
   const calls = [];
-  const noop = () => {};
-  await act(async () => {
-    root.render(
-      React.createElement(Harness, {
-        actions: {
-          tabs: [],
-          activeTabKey: '',
-          navigateTab: noop,
-          startTask: () => calls.push('start'),
-          startProjectlessTask: () => calls.push('projectless'),
-          openSettings: noop,
-          toggleSidebar: noop,
-          toggleDock: noop,
-          togglePanel: noop,
-          openQuickAccess: noop,
-          openCommandPalette: noop,
-          openFindInFiles: noop,
-          openTabSwitcher: noop,
-          focusSiblingPane: noop,
-          focusVerticalPane: noop,
-          navigateBack: noop,
-          navigateForward: noop,
-        },
-      })
-    );
-  });
+  await mountKeymap(
+    t,
+    { startTask: () => calls.push('start'), startProjectlessTask: () => calls.push('projectless') },
+    [plain]
+  );
   const press = async (init, altGraph = false) => {
     const event = new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
     if (altGraph) event.getModifierState = (name) => name === 'AltGraph';
@@ -492,47 +482,12 @@ test('Ctrl+Alt+N starts a task without a project; Ctrl+N is unchanged; AltGr is 
   assert.deepEqual(calls, []);
 });
 
-test('a presented modal dialog outranks the keymap, a parked one does not, and plain typing never queries the document', async (t) => {
-  const host = document.createElement('main');
+async function mountTypingField(t, actions) {
   const field = document.createElement('textarea');
   const parked = document.createElement('div');
   parked.setAttribute('aria-hidden', 'true');
   parked.innerHTML = '<section role="dialog" aria-modal="true"></section>';
-  document.body.append(host, field, parked);
-  const root = createRoot(host);
-  t.after(async () => {
-    await act(async () => root.unmount());
-    host.remove();
-    field.remove();
-    parked.remove();
-  });
-  const calls = [];
-  const noop = () => {};
-  await act(async () => {
-    root.render(
-      React.createElement(Harness, {
-        actions: {
-          tabs: [],
-          activeTabKey: '',
-          navigateTab: noop,
-          startTask: () => calls.push('start'),
-          startProjectlessTask: noop,
-          openSettings: noop,
-          toggleSidebar: noop,
-          toggleDock: noop,
-          togglePanel: noop,
-          openQuickAccess: noop,
-          openCommandPalette: noop,
-          openFindInFiles: noop,
-          openTabSwitcher: noop,
-          focusSiblingPane: noop,
-          focusVerticalPane: noop,
-          navigateBack: noop,
-          navigateForward: noop,
-        },
-      })
-    );
-  });
+  await mountKeymap(t, actions, [field, parked]);
   const press = async (init) => {
     const event = new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
     await act(async () => {
@@ -540,6 +495,12 @@ test('a presented modal dialog outranks the keymap, a parked one does not, and p
     });
     return event.defaultPrevented;
   };
+  return { parked, press };
+}
+
+test('a presented modal dialog outranks the keymap and a parked one does not', async (t) => {
+  const calls = [];
+  const { parked, press } = await mountTypingField(t, { startTask: () => calls.push('start') });
   const ctrlN = { key: 'n', code: 'KeyN', ctrlKey: true };
   assert.equal(await press(ctrlN), true, 'a parked dialog leaves the keymap working');
   parked.removeAttribute('aria-hidden');
@@ -547,7 +508,10 @@ test('a presented modal dialog outranks the keymap, a parked one does not, and p
   parked.setAttribute('aria-hidden', 'true');
   assert.equal(await press(ctrlN), true, 'parked again');
   assert.deepEqual(calls, ['start', 'start']);
+});
 
+test('plain typing never queries the document for dialogs', async (t) => {
+  const { press } = await mountTypingField(t);
   const wide = (self) => self === document || self === document.documentElement || self === document.body;
   let queries = 0;
   const original = window.Document.prototype.querySelectorAll;
@@ -563,10 +527,9 @@ test('a presented modal dialog outranks the keymap, a parked one does not, and p
   assert.equal(queries, 0);
 });
 
-test('Ctrl/Cmd + = - 0 step the UI size once per press, except where another surface owns the key', async (t) => {
+async function mountZoomKeys(t) {
   const { getFontSettings, setFontSettings } = await import('./appearance/font-settings.ts');
   const { registerZoomTarget } = await import('./zoom-target.ts');
-  const host = document.createElement('main');
   const plain = document.createElement('div');
   const editor = document.createElement('div');
   editor.className = 'monaco-editor';
@@ -575,43 +538,8 @@ test('Ctrl/Cmd + = - 0 step the UI size once per press, except where another sur
   const terminal = document.createElement('div');
   terminal.className = 'xterm';
   const preview = document.createElement('div');
-  document.body.append(host, plain, editor, browser, terminal, preview);
-  const root = createRoot(host);
-  t.after(async () => {
-    await act(async () => root.unmount());
-    for (const node of [host, plain, editor, browser, terminal, preview]) node.remove();
-    window.localStorage.clear();
-  });
-  const noop = () => {};
-  await act(async () => {
-    root.render(
-      React.createElement(Harness, {
-        actions: Object.fromEntries(
-          [
-            'navigateTab',
-            'startTask',
-            'openSettings',
-            'toggleSidebar',
-            'toggleDock',
-            'togglePanel',
-            'openQuickAccess',
-            'openCommandPalette',
-            'openFindInFiles',
-            'openTabSwitcher',
-            'focusSiblingPane',
-            'focusVerticalPane',
-            'navigateBack',
-            'navigateForward',
-          ]
-            .map((name) => [name, noop])
-            .concat([
-              ['tabs', []],
-              ['activeTabKey', ''],
-            ])
-        ),
-      })
-    );
-  });
+  await mountKeymap(t, {}, [plain, editor, browser, terminal, preview]);
+  t.after(() => window.localStorage.clear());
   const press = async (target, key, init = {}) => {
     const event = new window.KeyboardEvent('keydown', {
       key,
@@ -624,8 +552,12 @@ test('Ctrl/Cmd + = - 0 step the UI size once per press, except where another sur
     return event.defaultPrevented;
   };
   const scale = () => getFontSettings().uiScale;
-
   setFontSettings({ uiScale: 1 });
+  return { press, scale, setFontSettings, registerZoomTarget, plain, editor, browser, terminal, preview };
+}
+
+test('Ctrl/Cmd + = - 0 step the UI size once per press', async (t) => {
+  const { press, scale, setFontSettings, plain, editor } = await mountZoomKeys(t);
   assert.equal(await press(plain, '='), true);
   assert.equal(scale(), 1.05);
   assert.equal(await press(plain, '+', { shiftKey: true }), true);
@@ -644,17 +576,20 @@ test('Ctrl/Cmd + = - 0 step the UI size once per press, except where another sur
   // Meta works too, and the code editor does not own these keys.
   assert.equal(await press(editor, '=', { ctrlKey: false, metaKey: true }), true);
   assert.equal(scale(), 1.05);
+});
 
-  // The browser pane and the terminal own their zoom/control keys.
-  setFontSettings({ uiScale: 1 });
+test('the browser pane and the terminal own their zoom keys, and Alt chords are not zoom', async (t) => {
+  const { press, scale, plain, browser, terminal } = await mountZoomKeys(t);
   for (const surface of [browser, terminal]) {
     for (const key of ['=', '-', '0']) assert.equal(await press(surface, key), false, key);
   }
   // Alt chords are not zoom.
   assert.equal(await press(plain, '=', { altKey: true }), false);
   assert.equal(scale(), 1);
+});
 
-  // A zoom host that would take the key keeps it: no second scaling.
+test('a zoom host that would take the key keeps it: no second scaling', async (t) => {
+  const { press, scale, registerZoomTarget, plain, preview } = await mountZoomKeys(t);
   let hostZoomed = 0;
   const unregister = registerZoomTarget({
     element: preview,

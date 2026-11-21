@@ -1,28 +1,9 @@
-// Post-reveal warmup for UI fonts.
-//
-// The boot gate only guarantees the faces used by the FIRST painted tree.
-// Pretendard's dynamic subset declares 92 Hangul range slices that otherwise
-// load lazily the first time a menu label, tab title, session row — or a
-// TYPED character — reaches a new codepoint range. Each first use re-rendered
-// that text a frame later and, while
-// the slice was still in flight, left the character unpainted.
-//
-// Warming every slice once removes that class of stall at the source. Faces
-// warm in small idle-time batches everywhere; a browser/phone additionally
-// fetches ~2MB over the network, so it uses smaller batches, holds
-// off until the opening screen has settled, and skips the warmup on a metered
-// or slow connection, where the dynamic subset's on-demand behavior is the
-// better trade. The service worker keeps the fetched slices, so a phone pays
-// for this once rather than on every visit.
 import { inputQuietRemainingMs } from './boot-warmup';
 import { connectionQuality, isRemoteSurface } from './network-conditions';
 import { resolveUiLanguage } from './i18n';
 
 const REMOTE_WARMUP_BATCH = 6;
-// Local faces are disk reads, but each still parses on the main thread: one
-// pass over the whole inventory (90+ Hangul slices) held it 100–240ms right
-// where a first keystroke lands. Slices of a dozen keep every pass under a
-// frame and yield to input between them.
+// Measured: one pass over all 90+ Hangul slices held the main thread 100–240ms.
 const LOCAL_WARMUP_BATCH = 12;
 // The first screen's own transfers own the link until then.
 const REMOTE_WARMUP_DELAY_MS = 3_000;
@@ -45,11 +26,6 @@ export function scheduleFontWarmup(): void {
       typeof window.requestIdleCallback === 'function'
         ? (callback) => window.requestIdleCallback(callback, { timeout: 2_000 })
         : (callback) => window.setTimeout(callback, 250);
-    // Every face that finishes loading re-lays out all text of its family, one
-    // full layout per face (~90 Hangul slices), costing more the more rows are
-    // mounted. On a phone that warmup landed in the first seconds of scrolling
-    // the transcript or the sessions drawer, so batches wait, like the boot
-    // lane, until scrolling and typing pause.
     const idle = (callback: () => void): void => {
       idleSlice(() => {
         const wait = inputQuietRemainingMs();
@@ -57,11 +33,6 @@ export function scheduleFontWarmup(): void {
         else callback();
       });
     };
-    // Hangul is 2.8MB of the 3.4MB font inventory. A remote surface whose UI
-    // is not Korean warms the rest and leaves those slices to the dynamic
-    // subset's own on-demand loading — the behaviour they would have had
-    // anyway, for text they are unlikely to type. Korean UI and the local
-    // desktop (disk reads) keep the full warmup.
     const warmHangul = !remote || resolveUiLanguage() === 'ko';
     const pending: FontFace[] = [];
     document.fonts.forEach((face) => {

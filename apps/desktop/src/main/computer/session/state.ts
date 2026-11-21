@@ -1,9 +1,3 @@
-/**
- * What a session accumulates while it observes: capture frames, element alias
- * targets, the observed window scope, and the last capture used as a change
- * baseline. The helpers here are the only writers, and a mutation invalidates
- * exactly the parts bound to a stale observation.
- */
 import type {
   CaptureFrame,
   ComputerCommand,
@@ -38,9 +32,6 @@ export function createSessionState(host: SessionStateHost) {
   const framesBySession = new Map<string, Map<string, CaptureFrame>>();
   const elementTargetsBySession = new Map<string, Map<number, ElementAliasTarget>>();
   const observedWindowBySession = new Map<string, ObservedWindowScope>();
-  // Last semantic capture per session. It outlives the ref/frame invalidation a
-  // mutation triggers, so the fresh capture that follows can report what
-  // changed instead of making the model re-read the whole tree.
   const lastCaptureBySession = new Map<string, CaptureBaseline>();
   // The rows the model holds of the last observation, which an observation
   // delta is computed against. Unlike the element targets, a session's own

@@ -1,15 +1,9 @@
 // Desktop-leg side of relay-owned Web Push (lib/web-push.mjs).
-//
 //   relay -> desktop: { type: 'webpush-subscriptions', subscriptions: [{ endpoint, clientId, sealed }] }
-//                     the full set THIS PC may deliver to; sent when the leg
-//                     opens and again whenever it changes.
+//                     the full set this PC may deliver to; sent when the leg opens and whenever it changes.
 //   desktop -> relay: { type: 'webpush-send', endpoint, clientId, payload, ttl?, urgency?, topic? }
 //                     `payload` is the RFC 8291 aes128gcm body, base64url.
 //   relay -> desktop: { type: 'webpush-result', endpoint, clientId, ok, status?, expired?, error? }
-//
-// A desktop sends only through an association it holds for a client the
-// device store still knows: an unpaired or revoked client, or another PC's
-// association, is refused.
 import { webPushBody, webPushOptions } from './web-push.mjs';
 
 /** The set one PC may deliver to, minus clients the store no longer knows. */

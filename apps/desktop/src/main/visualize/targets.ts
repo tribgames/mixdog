@@ -1,9 +1,3 @@
-/**
- * Request parsing and target resolution for the agent `visualize` tool. A file
- * target may live anywhere; it is rooted in the session's cwd when it resolves
- * inside it, else in its own folder. Capture and export outputs must stay
- * inside the session's cwd after symlinks resolve; web targets are http(s) only.
- */
 import { lstat, mkdir, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
@@ -14,7 +8,7 @@ import {
   type VisualizePaneKind,
   visualizeKindForPath,
 } from '../../shared/visualize';
-import { parseActSteps, type VisualizeActStep } from './act-steps';
+import { isRecord, parseActSteps, type VisualizeActStep } from './act-steps';
 
 const MAX_VISUALIZE_TARGETS = 3;
 const MAX_LABEL_CHARS = 120;
@@ -135,9 +129,6 @@ export class TargetNotFoundError extends Error {
  *  file system's ENOENT from a later step such as the media stat). */
 export const isFileMissing = (error: unknown): boolean =>
   error instanceof TargetNotFoundError || (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 function text(value: unknown, name: string, max: number): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} must be a non-empty string`);

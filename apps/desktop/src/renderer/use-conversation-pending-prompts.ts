@@ -36,9 +36,6 @@ export function useConversationPendingPrompts({
     () => (transcriptPendingPromptItems.length > 0 ? [...settledItems, ...transcriptPendingPromptItems] : settledItems),
     [settledItems, transcriptPendingPromptItems]
   );
-  // Close previous-turn chrome with the optimistic row. The goal owns a
-  // separate snapshot lane, so its mask must survive transcript settlement;
-  // the island releases it only when its own goal revision changes.
   const goalSubmitScopeRef = useRef(transcriptSessionKey);
   goalSubmitScopeRef.current = transcriptSessionKey;
   const goalSubmission = useRef<{ id: string; scope: string } | null>(null);

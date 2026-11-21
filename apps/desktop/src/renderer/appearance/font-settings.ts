@@ -1,9 +1,5 @@
-// Fonts (Settings → Theme): the UI and code font families, the UI and
-// code sizes and code ligatures. Device-local like the skin, applied on the
-// root before the first paint (bootstrap.tsx). A chosen family is PREPENDED
-// to the built-in stack (desktop/01-tokens.css composes
-// var(--mx-font-ui-user,) var(--mx-font-prose-base)), so the bundled faces and
-// OS fallbacks still cover every glyph the chosen font lacks.
+import { safeLocalStorage } from '../local-storage';
+
 export type FontSettings = {
   /** UI family; '' = the built-in stack. */
   ui: string;
@@ -97,17 +93,9 @@ export function normalizeFontSettings(input: Partial<Record<keyof FontSettings, 
   };
 }
 
-function storage(): Storage | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 export function getFontSettings(): FontSettings {
   try {
-    return normalizeFontSettings(JSON.parse(storage()?.getItem(FONTS_KEY) || 'null'));
+    return normalizeFontSettings(JSON.parse(safeLocalStorage()?.getItem(FONTS_KEY) || 'null'));
   } catch {
     return { ...DEFAULT_FONT_SETTINGS };
   }
@@ -134,7 +122,7 @@ export function applyFontSettings(settings: FontSettings = getFontSettings()): v
 
 export function setFontSettings(patch: Partial<FontSettings>): FontSettings {
   const next = normalizeFontSettings({ ...getFontSettings(), ...patch });
-  storage()?.setItem(FONTS_KEY, JSON.stringify(next));
+  safeLocalStorage()?.setItem(FONTS_KEY, JSON.stringify(next));
   applyFontSettings(next);
   window.dispatchEvent(new window.Event(CHANGE_EVENT));
   return next;
@@ -149,7 +137,7 @@ export function stepUiScale(direction: -1 | 0 | 1): FontSettings {
 }
 
 export function resetFontSettings(): void {
-  storage()?.removeItem(FONTS_KEY);
+  safeLocalStorage()?.removeItem(FONTS_KEY);
   applyFontSettings({ ...DEFAULT_FONT_SETTINGS });
   window.dispatchEvent(new window.Event(CHANGE_EVENT));
 }

@@ -21,22 +21,12 @@ export function useConversationTranscriptIdentity({
   timelineMounted: { current: boolean };
   suppressDraftSubmitPaintHandoff: { current: boolean };
 }) {
-  // A pane's OWN draft -> session promotion must NOT rebuild the timeline. The
-  // virtual list AND its row keys are namespaced by this identity, which
-  // survives the promotion; only the geometry cache follows the real session
-  // key. Keying them by the session key remounted the list mid-turn, dropped
-  // every measured row, and repainted the first prompt from the flat estimate. Rebuilding the list after the first prompt made the
-  // screen jump and the prompt bubble appear in the wrong position.
   const transcriptIdentity = useRef('');
   const transcriptIdentitySource = useRef('');
   // Set on the promotion render, where the submit marker is still armed, and
   // consumed by the effect below; never cleared in render, so a repeated
   // render of the same commit cannot lose it.
   const promotedOwnDraft = useRef(false);
-  // The pending gate below belongs to a COLD session entry. Once this identity
-  // has painted its timeline, it must never be unmounted again — a promotion
-  // whose Markdown-readiness flag lags one tick would otherwise discard every
-  // measured row exactly like a remount.
   if (transcriptIdentitySource.current !== transcriptSessionKey) {
     const ownPromotion =
       transcriptIdentitySource.current === 'new-task' &&
@@ -58,11 +48,6 @@ export function useConversationTranscriptIdentity({
   }
   const showTranscriptTimeline = !transcriptPending || timelineMounted.current;
   if (showTranscriptTimeline) timelineMounted.current = true;
-  // Session ENTRY resets this visit's tool disclosures before the first row
-  // renders: tool cards must always start collapsed; remembered
-  // expansions from an earlier visit reopened them "randomly". Idempotent
-  // render-time module-map mutation; focus swaps keep the same key and do
-  // not reset.
   const disclosureVisitKey = useRef('');
   if (disclosureVisitKey.current !== transcriptSessionKey) {
     disclosureVisitKey.current = transcriptSessionKey;

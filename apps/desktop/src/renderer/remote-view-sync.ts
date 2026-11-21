@@ -1,3 +1,5 @@
+const INITIAL_RETRY_MS = 250;
+
 /** Secure transport readiness is not view readiness. One recovery request is
  * in flight per connection; changes during it coalesce into the next request.
  * A superseded connection can never complete the replacement's recovery. */
@@ -21,7 +23,7 @@ export function createRemoteViewSync(options: {
   let completed = 0;
   let running = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
-  let retryDelay = 250;
+  let retryDelay = INITIAL_RETRY_MS;
   const waiting = new Set<{ resolve(): void; reject(error: Error): void }>();
   const pump = (): void => {
     if (!active || running || retry || completed === requested) return;
@@ -34,7 +36,7 @@ export function createRemoteViewSync(options: {
       .then(() => {
         if (!active || epoch !== generation) return;
         completed = revision;
-        retryDelay = 250;
+        retryDelay = INITIAL_RETRY_MS;
         failures = 0;
         if (completed === requested) {
           options.state('connected');
@@ -74,9 +76,7 @@ export function createRemoteViewSync(options: {
       active = true;
       generation += 1;
       running = false;
-      // A new connection owes nothing to the previous one's failures: a grown
-      // backoff here made a healthy reconnect wait up to 10 s to retry.
-      retryDelay = 250;
+      retryDelay = INITIAL_RETRY_MS;
       failures = 0;
       requested += 1;
       completed = 0;

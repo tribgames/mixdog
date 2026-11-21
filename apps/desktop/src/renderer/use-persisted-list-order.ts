@@ -51,40 +51,12 @@ export function mergeNewAtDefault(known: readonly string[], ids: readonly string
   return merged;
 }
 
-/** `dropAnchor`: a selector inside the drop target whose midpoint splits
- *  before/after (e.g. a section's heading), so a tall target reorders as soon
- *  as the pointer crosses its heading instead of its whole body's middle. */
-export function usePersistedListOrder(
-  storageKey: string,
-  ids: readonly string[],
-  options: {
-    dropAnchor?: string;
-    /** Caller owns ordering and persistence: `ids` is the displayed order and a
-     *  drop reports the reordered ids here instead of writing `storageKey`. */
-    onCommit?(next: string[], sourceId: string): void;
-    /** Whether a drag of `sourceId` may drop on `targetId` (default: always). */
-    accepts?(sourceId: string, targetId: string): boolean;
-    /** An id the saved order lacks that leads `ids` (added at the head) goes
-     *  first instead of last (mergeNewAtDefault). */
-    placeNewAtDefault?: boolean;
-  } = {}
-) {
-  const { dropAnchor, onCommit, accepts, placeNewAtDefault } = options;
-  const [storedOrder, setStoredOrder] = useState<string[]>(() => (onCommit ? [] : readOrder(storageKey)));
-  const [draggingId, setDraggingId] = useState('');
-  const [dropTarget, setDropTarget] = useState<{ id: string; position: 'before' | 'after' } | null>(null);
-  const draggingIdRef = useRef('');
+/** While a row drag runs over a scroll container, scrolls it when the pointer
+ *  nears its top or bottom edge. `startEdgeScroll(null)` follows nothing. */
+function useDragEdgeScroll() {
   const scrollNodeRef = useRef<HTMLElement | null>(null);
   const dragClientYRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
-  const orderedIds = useMemo(() => {
-    if (onCommit) return [...ids];
-    const available = new Set(ids);
-    const known = storedOrder.filter((id) => available.has(id));
-    const knownSet = new Set(known);
-    if (!placeNewAtDefault) return [...known, ...ids.filter((id) => !knownSet.has(id))];
-    return mergeNewAtDefault(known, ids);
-  }, [ids, storedOrder, onCommit, placeNewAtDefault]);
 
   const runEdgeScroll = useCallback(() => {
     scrollFrameRef.current = null;
@@ -134,6 +106,49 @@ export function usePersistedListOrder(
 
   useEffect(() => stopEdgeScroll, [stopEdgeScroll]);
 
+  const startEdgeScroll = useCallback(
+    (node: HTMLElement | null) => {
+      scrollNodeRef.current = node;
+      if (node) document.addEventListener('dragover', handleDocumentDragOver);
+    },
+    [handleDocumentDragOver]
+  );
+  return { startEdgeScroll, stopEdgeScroll };
+}
+
+export function usePersistedListOrder(
+  storageKey: string,
+  ids: readonly string[],
+  options: {
+    /** A selector inside the drop target whose midpoint splits before/after
+     *  (e.g. a section's heading), so a tall target reorders as soon as the
+     *  pointer crosses its heading instead of its whole body's middle. */
+    dropAnchor?: string;
+    /** Caller owns ordering and persistence: `ids` is the displayed order and a
+     *  drop reports the reordered ids here instead of writing `storageKey`. */
+    onCommit?(next: string[], sourceId: string): void;
+    /** Whether a drag of `sourceId` may drop on `targetId` (default: always). */
+    accepts?(sourceId: string, targetId: string): boolean;
+    /** An id the saved order lacks that leads `ids` (added at the head) goes
+     *  first instead of last (mergeNewAtDefault). */
+    placeNewAtDefault?: boolean;
+  } = {}
+) {
+  const { dropAnchor, onCommit, accepts, placeNewAtDefault } = options;
+  const [storedOrder, setStoredOrder] = useState<string[]>(() => (onCommit ? [] : readOrder(storageKey)));
+  const [draggingId, setDraggingId] = useState('');
+  const [dropTarget, setDropTarget] = useState<{ id: string; position: 'before' | 'after' } | null>(null);
+  const draggingIdRef = useRef('');
+  const { startEdgeScroll, stopEdgeScroll } = useDragEdgeScroll();
+  const orderedIds = useMemo(() => {
+    if (onCommit) return [...ids];
+    const available = new Set(ids);
+    const known = storedOrder.filter((id) => available.has(id));
+    const knownSet = new Set(known);
+    if (!placeNewAtDefault) return [...known, ...ids.filter((id) => !knownSet.has(id))];
+    return mergeNewAtDefault(known, ids);
+  }, [ids, storedOrder, onCommit, placeNewAtDefault]);
+
   const finishDrag = () => {
     stopEdgeScroll();
     draggingIdRef.current = '';
@@ -149,10 +164,7 @@ export function usePersistedListOrder(
       stopEdgeScroll();
       draggingIdRef.current = id;
       setDraggingId(id);
-      scrollNodeRef.current = verticalScrollContainer(event.currentTarget);
-      if (scrollNodeRef.current) {
-        document.addEventListener('dragover', handleDocumentDragOver);
-      }
+      startEdgeScroll(verticalScrollContainer(event.currentTarget));
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('text/plain', id);
     },

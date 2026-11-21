@@ -1,12 +1,3 @@
-// Media transport shared by every phone-facing surface: the desktop's LAN
-// relay and (through the same header rules) the Electron `mixdog-media://`
-// protocol.
-//
-// Gallery bytes are files, not RPC payloads. Serving them over HTTP is what
-// buys the browser cache, parallel fetches and Range seeking that a base64
-// capability answer can never have: a tile re-paints from cache, and a video
-// starts playing from the first range instead of after a full download.
-
 const MEDIA_ROUTE = /^\/media\/([0-9a-fA-F-]{8,64})$/;
 // `download` streams a per-lease file download (one lease id, never cached).
 const ALLOWED_VARIANTS = new Set(['original', 'thumb', 'display', 'download']);
@@ -61,9 +52,6 @@ export function parseRange(header, size) {
 
 /**
  * Status + headers + byte window for one media answer.
- *
- * Pure: the relay leg ships this plan across the desktop socket while the
- * Electron media protocol uses the same cache and range rules.
  * @param {{
  *   size: number,
  *   mime: string,

@@ -1,9 +1,3 @@
-// The desktop pet: a small always-on-top window (main/desktop-pet-window.ts)
-// that is a side chat with Mixy: Mixy's mascot with a speech bubble of Mixy's
-// home chat. The app window's renderer derives that state and publishes it;
-// main relays it to the pet window. Nothing here carries session content
-// beyond the plain text of Mixy's latest reply.
-
 import type { ToolApprovalDecision } from './contract';
 
 /** The overlay's settings, shown alike in Settings → General and in the

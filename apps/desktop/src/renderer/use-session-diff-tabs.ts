@@ -42,10 +42,6 @@ export function useSessionDiffTabs({
 }) {
   const [diffTabs, setDiffTabs] = useState<readonly string[]>([]);
   const [focusPath, setFocusPath] = useState('');
-  // "Changes" closes like any tab; asking for the changes again reopens it.
-  // A pane opened by one file (a turn card's row) starts with that file's tab
-  // only; any other way in (View changes, the island, the header) starts on
-  // "Changes".
   const [changesOpen, setChangesOpen] = useState(() => !pendingSessionDiffFileRequest(sessionId)?.path);
   const showAllFiles = () => {
     setChangesOpen(true);
@@ -93,9 +89,6 @@ export function useSessionDiffTabs({
     setFocusPath('');
     setChangesOpen(!pendingSessionDiffFileRequest(sessionId)?.path);
   }, [sessionId]);
-  // Reopening a hidden pane starts fresh: on "Changes" at the top, or — when
-  // one file is what opened it — on that file's tab alone. A layout effect, so
-  // the previous visit's tabs never paint for a frame before the reset.
   const wasActive = useRef(active);
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs only when the pane is shown again; the session and the reset actions are read at that moment
   useLayoutEffect(() => {
@@ -153,9 +146,6 @@ export function sessionDiffTabView({
   const focusRow = focusPath ? (rowAt(focusPath) ?? null) : null;
   // A file tab whose file left the diff is not drawn.
   const tabRows = diffTabs.flatMap((path) => rowAt(path) ?? []);
-  // Never a blank pane: while the file that opened it is still being read
-  // the body shows the loading surface; with no file tab and nothing
-  // pending, "Changes" stands in.
   const awaitingFile = !changesOpen && tabRows.length === 0 && Boolean(fileRequest);
   const showChanges = changesOpen || (tabRows.length === 0 && !fileRequest && otherSurfaceTabs === 0);
   // The file being read already has its tab and its name in row 2; only the

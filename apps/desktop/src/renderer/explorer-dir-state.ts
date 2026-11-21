@@ -1,11 +1,6 @@
-// Folder loading and refresh for the Files pane: which directories are listed,
-// expanded or stale, and every path that talks to listProjectDir — the first
-// root listing, lazy expansion, the watcher/interval refresh and the toolbar's
-// full refresh. The pane itself owns selection, inline editing and the entry
-// mutations, and reaches this state only through the returned handles.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopApi } from '../shared/contract';
-import { explorerErrorText } from './explorer-mutations';
+import { errorMessage } from './editor-pane-session-errors';
 import {
   loadExplorerRoot,
   peekExplorerRoot,
@@ -19,6 +14,7 @@ import {
   collapseExplorerDirs,
   explorerHasExpandedDirs,
   explorerRefreshTargets,
+  explorerRevealStep,
   explorerVisibleRows,
   patchExplorerDir,
   withChangedExplorerDirEntries,
@@ -38,9 +34,7 @@ function seededExplorerDirs(projectPath: string): ExplorerDirs {
   const entries = projectPath ? peekExplorerRoot(projectPath) : undefined;
   if (entries) return new Map([['', { expanded: true, entries }]]);
   const failure = projectPath ? peekExplorerRootFailure(projectPath) : undefined;
-  return failure
-    ? new Map([['', { expanded: true, entries: [], error: explorerErrorText(failure.reason) }]])
-    : new Map();
+  return failure ? new Map([['', { expanded: true, entries: [], error: errorMessage(failure.reason) }]]) : new Map();
 }
 
 interface ExplorerDirTree {
@@ -101,7 +95,7 @@ export function useExplorerDirs(input: {
       patch(rel, { expanded: true, error: undefined });
       void listDir(rel)
         ?.then((entries) => patch(rel, { entries: entries ?? [] }))
-        .catch((reason) => patch(rel, { entries: [], error: explorerErrorText(reason) }));
+        .catch((reason) => patch(rel, { entries: [], error: errorMessage(reason) }));
     },
     [listDir, patch]
   );
@@ -115,11 +109,6 @@ export function useExplorerDirs(input: {
     },
     [listDir, patch]
   );
-  // The Dock retains every visited tab, so this effect must never rebuild the
-  // tree for a surface the user is not looking at: an inactive Files pane keeps
-  // its expansion and issues no listProjectDir. The signature defers the reset
-  // + root listing to the moment the pane becomes active again, which is also
-  // the moment a stale project would otherwise be visible.
   const loadedTreeSignature = useRef('');
   useEffect(() => {
     const signature = `${readinessKey}\u0000${projectPath}`;
@@ -157,7 +146,7 @@ export function useExplorerDirs(input: {
                 {
                   expanded: true,
                   entries: [],
-                  error: explorerErrorText(reason),
+                  error: errorMessage(reason),
                 },
               ],
             ])
@@ -251,4 +240,59 @@ export function useExplorerDirs(input: {
     refreshTree,
     collapseAll,
   };
+}
+
+/** Auto-reveal: expands the ancestors of the active editor file step by step;
+ *  each load/expand re-runs the effect until the row exists, then `onRevealed`
+ *  selects it. Never steals keyboard focus. */
+export function useExplorerReveal(input: {
+  active: boolean;
+  projectPath: string;
+  activeFileKey: string;
+  revealNonce: number;
+  /** The target is a folder: after its ancestors open, it expands too. */
+  revealDir: boolean;
+  /** True while an inline edit owns the tree (the reveal waits). */
+  editing: boolean;
+  tree: Pick<ExplorerDirTree, 'dirs' | 'load' | 'patch' | 'expandDir'>;
+  onRevealed(rel: string): void;
+  scrollToRow(rel: string): void;
+}) {
+  const { active, projectPath, activeFileKey, revealNonce, revealDir, editing, tree, onRevealed, scrollToRow } = input;
+  const { dirs, load, patch, expandDir } = tree;
+  const revealTarget = useRef('');
+  const latest = useRef({ expandDir, editing, onRevealed, scrollToRow });
+  latest.current = { expandDir, editing, onRevealed, scrollToRow };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: revealNonce is the deliberate trigger - a repeat reveal of the same file must re-arm the target.
+  useEffect(() => {
+    if (!active || !projectPath) return;
+    const prefix = `file:${projectPath}:`;
+    if (!activeFileKey.startsWith(prefix)) return;
+    const rel = activeFileKey.slice(prefix.length).replace(/\\/g, '/');
+    if (rel) revealTarget.current = rel;
+  }, [active, activeFileKey, projectPath, revealNonce]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeFileKey and revealNonce re-run the stepwise reveal for a new target.
+  useEffect(() => {
+    const rel = revealTarget.current;
+    if (!rel || !active || latest.current.editing) return;
+    // The root listing replaces the whole map when it lands, so a folder
+    // reveal waits for it instead of being wiped.
+    if (revealDir && !dirs.get('')?.entries) return;
+    const step = explorerRevealStep(dirs, rel);
+    if (step.kind === 'load') {
+      load(step.rel);
+      return;
+    }
+    if (step.kind === 'expand') {
+      patch(step.rel, { expanded: true });
+      return;
+    }
+    if (step.kind === 'pending') return;
+    // Ready or abandoned: either way this target is done steering the tree.
+    revealTarget.current = '';
+    if (step.kind === 'blocked') return;
+    latest.current.onRevealed(rel);
+    if (revealDir) latest.current.expandDir(rel);
+    window.requestAnimationFrame(() => latest.current.scrollToRow(rel));
+  }, [active, activeFileKey, dirs, load, patch, revealDir, revealNonce]);
 }

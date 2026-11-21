@@ -1,18 +1,4 @@
-/**
- * Off-screen pages, each at an origin of its own on one shared session.
- *
- * Electron never frees a session (electron/electron#28566), so a partition
- * per page kept its network context, with the pooled sockets of its load, for
- * the life of the app. A shared session with one origin shares that origin's
- * storage between pages instead. Chromium keys every origin-scoped store
- * (local storage, IndexedDB, cache storage, cookies, service workers) by
- * origin, so a never-reused `<id>.localhost` origin per page keeps it apart
- * from every other page, alongside or later, with nothing left to clear in
- * time. The session answers those origins itself (its `http` handler): no
- * name lookup and no socket group per origin. `*.localhost` is potentially
- * trustworthy, as the loopback page server is, so a page keeps its secure
- * context.
- */
+// Electron never frees a session (electron/electron#28566): one shared session, one never-reused `<id>.localhost` origin per page.
 import { randomBytes } from 'node:crypto';
 import type { Session } from 'electron';
 

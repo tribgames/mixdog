@@ -16,7 +16,7 @@ import { projectIdentity } from './project-catalog-cache';
 import { publishSidebarProjects } from './sidebar-reference-cache';
 import { usePersistedListOrder } from './use-persisted-list-order';
 import type { ProjectEditorDialogHandle } from './ProjectEditorDialog';
-import { displayProjectFolder } from './project-folder-label';
+import { displayProjectTitle } from './project-folder-label';
 import { projectEditorDialogModule } from './first-screen-deferred';
 import { useDeferredModule } from './deferred-module';
 import { useDeferredOpen } from './use-deferred-open';
@@ -33,11 +33,6 @@ export interface ProjectListSectionProps {
   onMemoryControl?(input: Record<string, unknown>): Promise<unknown>;
 }
 
-// Project list (Projects panel → Project tab): the Schedules grammar — a
-// compact list with per-row actions hosted in the session-panel area (no
-// main-pane takeover). Add project opens a small popup dialog
-// (Name + folder via the native chooser) portaled above the workspace. The
-// hosting ProjectsPane owns the surface wrapper and the section toolbar.
 export function ProjectListSection({
   active = true,
   projects,
@@ -75,10 +70,6 @@ export function ProjectListSection({
         },
       ],
     });
-  // The app shell owns project add/rename/remove and refetches its catalog
-  // once a mutation actually succeeded. Mirroring THAT list into the shared
-  // sidebar cache is the authoritative completion boundary: a failed mutation
-  // never changes the list, so it never triggers a refresh either.
   useEffect(() => {
     publishSidebarProjects(projects);
   }, [projects]);
@@ -143,7 +134,7 @@ export function ProjectListSection({
       {(projectsReady || projects.length > 0) && visible.length > 0 && (
         <div className="schedules-list projects-list">
           {visible.map((project) => {
-            const title = project.alias?.trim() || project.name?.trim() || displayProjectFolder(project.path);
+            const title = displayProjectTitle(project);
             const selected = projectIdentity(selectedProjectPath) === projectIdentity(project.path);
             return (
               <button

@@ -1,14 +1,4 @@
-// The live-view sender page's production CSP, stamped into its built document.
-//
-// The built page is a file:// document, which has no response headers for the
-// session's onHeadersReceived to rewrite, so its policy has to travel in the
-// document itself. The page only needs its own module script (WebRTC, canvas
-// and WebCodecs are not fetches), so everything else is closed: no remote
-// connection, image, style, frame or worker, and no inline or eval script.
-//
-// The dev server serves the page over http, where the main process's response
-// header carries the (looser, HMR-capable) development policy instead
-// (src/main/remote-webrtc/sender-session.ts); the placeholder is dropped there.
+// A file:// document has no response headers for onHeadersReceived to rewrite, so the production CSP is stamped into the built page.
 export const REMOTE_WEBRTC_SENDER_CSP =
   "default-src 'none'; script-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'";
 

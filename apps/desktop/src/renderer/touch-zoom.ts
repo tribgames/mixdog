@@ -93,10 +93,6 @@ export function watchTouchZoom(
       const ratio = next.spread / spread;
       const from = center;
       center = next.at;
-      // With pan, the step is a zoom about where the midpoint was, then a
-      // move by how far it went: the points under the fingers stay there.
-      // Without, the browser keeps the content still and the zoom is about
-      // the midpoint as it is now.
       if (Math.abs(ratio - 1) > 0.002) {
         spread = next.spread;
         handlers.pinch(ratio, handlers.pan ? from : next.at);

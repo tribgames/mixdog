@@ -1,14 +1,6 @@
 import { displayModelName as sharedDisplayModelName } from './model-display.mjs';
 
-// Default cap for tool-arg summaries (header parenthetical, channel tool lines).
-// Unified at 80 so every tool surface line — header arg summary and collapsed
-// detail alike — shares one width ceiling; per-call sites still clamp lower
-// (header 48, channel 50) where a tighter line is wanted.
 export const DEFAULT_SUMMARY_MAX = 80;
-// Semantic cap for collapsed tool/agent/task card one-liners — the second row
-// under the ⎿ gutter (spawn, send, response, generic/shell result summaries).
-// Kept at 80 so every collapsed detail line is truncated to the same width
-// regardless of terminal columns; ctrl+o expand still shows the full body.
 export const AGENT_SURFACE_BRIEF_MAX = 80;
 export const STATUS_SEPARATOR = ' · ';
 
@@ -64,10 +56,6 @@ export function isMcpToolName(name) {
   return Boolean(parseMcpToolName(name));
 }
 
-// The self-plugin surfaces mixdog's own builtin tools through an MCP prefix
-// (mcp__plugin_mixdog_mixdog__<tool>). Those must render as their stripped
-// builtin names, not as external "MCP" calls. Define the server id once here
-// and reuse everywhere a display path branches on MCP-ness.
 const SELF_MCP_SERVER = 'plugin_mixdog_mixdog';
 
 export function isSelfMcpToolName(name) {

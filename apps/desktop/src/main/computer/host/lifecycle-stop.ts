@@ -1,10 +1,3 @@
-/**
- * Taking the desktop away from every session at once — user takeover, Stop —
- * and the resume that hands it back. Stop is the way out of a latched cleanup
- * failure: it waits for every retired worker to actually exit, releases any
- * input the host still owns, and only that evidence clears the barrier; a
- * click alone never does.
- */
 import { HOST_WARMUP_SESSION_ID } from './action-sets';
 import type { createComputerCommandQueue } from './command-queue';
 import { cleanupAbortedInput, type SessionAbort } from './lifecycle-abort';
@@ -44,14 +37,6 @@ export function createSessionStop(
         reason === 'user_pause'
       )
     );
-    // A worker killed mid-call takes seconds to unwind, so its first cleanup
-    // frequently fails on that timing alone while the input it owned is already
-    // free — and an interruption that arrived before any input was sent has
-    // nothing to release at all. Latching there would make the user clear a
-    // barrier the host can clear itself. Run exactly the evidence Stop demands,
-    // once: worker exit, owned-input release, and target-local certainty. Only a
-    // second failure is left for the user, because only then is the uncertainty
-    // real rather than a matter of timing.
     void Promise.allSettled(aborted).then(async (results) => {
       if (!results.some((result) => result.status === 'rejected')) return;
       try {
@@ -192,18 +177,12 @@ export function createSessionStop(
     if (!coordinator.snapshot().userControlActive || coordinator.snapshot().takeoverGeneration !== generation) {
       throw new Error('computer_resume_stale: another interruption superseded the resume request');
     }
-    // Cleanup may finish before a late read/capture continuation. Discard
-    // that generation's observations again, never replay its commands.
     for (const sessionId of snapshot.pausedSessionIds ?? []) {
       host.releaseSessionState(sessionId, host.releaseCaptureSession);
     }
     coordinator.resumeAfterUserTakeover(generation);
   }
 
-  /** The user's hands have been off the input for the quiet interval: the
-   *  yielded sessions continue, and only those. Nothing was aborted, so there
-   *  is no cleanup to wait for; their observations are discarded so the next
-   *  input needs a fresh capture, and nothing is replayed. */
   async function resumeYielded(signal?: AbortSignal, recheck?: () => Promise<boolean>): Promise<void> {
     const sessionIds = coordinator.snapshot().yieldedSessionIds ?? [];
     if (recheck && !(await recheck())) throw new Error('computer_resume_stale: input changed while resuming');

@@ -1,8 +1,3 @@
-// "Open Preview to the Side": a read-only rendered view of a Markdown file in
-// the side dock. It mounts NO editor and no file session: the main tab's
-// editor and this view address the same Monaco model by path URI, so the
-// preview follows unsaved edits live. With no open model (the tab was closed)
-// it shows the file as saved on disk.
 import { useEffect, useRef, useState } from 'react';
 import { EditorMarkdownPreview } from './EditorTextViews';
 import { EditorOutline, useMarkdownOutline } from './editor-markdown-outline';

@@ -1,7 +1,3 @@
-/** Where one accepted bridge command goes: the runtime-only actions the bridge
- *  answers itself (secret binding and typing, turn settlement, session abort)
- *  and the secret-focus capture hold, before everything else is serialized
- *  onto the host. */
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { computerUseCoordinator } from '../session/coordinator';
 import { isComputerLifecycleControl, READ_ACTIONS } from './action-sets';
@@ -23,12 +19,6 @@ function applySecretFocusHold(command: ComputerCommand, sessionId: string): Erro
   return undefined;
 }
 
-/** The runtime's authoritative settlement of one agent turn: no fill of that
- *  turn (or an older one of the session) is admitted from here on, and the
- *  saved-login protection they set up retires once those still running have
- *  finished. Input cleanup (execution_end, session_abort, session_release)
- *  never retires it, and a late settlement never reaches a newer turn
- *  (secret-input.ts). */
 function settleTurn(command: ComputerCommand, sessionId: string): Promise<ComputerCommandResult> {
   const turnId = Number(command.turn_id);
   const ownerId = typeof command.runtime_id === 'string' ? command.runtime_id : '';

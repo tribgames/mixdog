@@ -1,9 +1,3 @@
-// The outside-network block of a REMOTE Visualize page. The desktop cuts a
-// page's outside network in its main process (lease-guard.ts); a paired
-// device has no such session, so the page document carries the same policy as
-// a CSP (visualize-network-policy.ts) and a small in-page script relays each
-// refusal to this side, which files it with the host as the same
-// `blocked-network` page problem the desktop records.
 import { withHeadMarkup } from '../shared/sandbox-storage-shim';
 import { BLOCKED_NETWORK_CSP, blockedResourceType, isOutsideNetworkUrl } from '../shared/visualize-network-policy';
 import { MAX_VISUALIZE_PROBLEMS } from '../shared/visualize';

@@ -30,10 +30,8 @@ export function useSlotRemeasure(
       appliedRect = slotRect();
       controller.refresh(sessionId);
     };
-    // A slot that only MOVES (the phone sheet slides in via transform) fires
-    // neither a ResizeObserver nor, until the very end, a transitionend. Poll
-    // its rect per frame through the settle window after any layout event and
-    // re-measure whenever it differs from the last applied one.
+    // A slot that only moves (a transform slide) fires no ResizeObserver and no
+    // transitionend until the end, so its rect is polled per frame while settling.
     const track = () => {
       trackFrame = 0;
       if (slotRect() !== appliedRect) refresh();
@@ -62,11 +60,6 @@ export function useSlotRemeasure(
     const workspace = observeWorkspace ? node.closest('.main-panel') : null;
     if (workspace) observer?.observe(workspace);
     window.addEventListener('resize', schedule);
-    // The phone dock SLIDES in: only the slot's position changes during the
-    // transform, so a mid-slide rect would pin the surface off-screen. Any
-    // finished transition re-measures.
-    // Only a transition on the slot, one of its ancestors or a descendant can
-    // move it; unrelated transitions elsewhere in the window are ignored.
     const related = (event: Event) => {
       const target = event.target as Node | null;
       return Boolean(target && 'nodeType' in target && (target.contains(node) || node.contains(target)));

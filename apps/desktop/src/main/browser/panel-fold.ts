@@ -1,18 +1,3 @@
-/**
- * A session whose last page went away (the agent's close_tab, a page closing
- * itself, its window destroyed, reclaim, the user's ×) folds its panel, as the
- * user's × on the last tab does, instead of leaving it on a blank page.
- *
- * The panel keeps reading frames until the hide reaches it, and a read for a
- * session with no page would make one (the blank start page a panel the user
- * opens shows). So from the loss until the shell confirms the panel closed
- * (its last pane stops reading, `panelShown(false)`), or at most
- * PANEL_FOLD_MS, a frame read makes no page: it waits, then takes a page made
- * meanwhile or fails. The person's own intent ends that hold at once: a panel
- * opening (`panelShown(true)`) or an address they navigate to (`user`) gets
- * the blank start page as before. Releasing a session (unload, deletion) and
- * host teardown are not losses: they run `quietly`.
- */
 import type { WebContents } from 'electron';
 import type { BrowserSessionRegistry } from './session-registry';
 

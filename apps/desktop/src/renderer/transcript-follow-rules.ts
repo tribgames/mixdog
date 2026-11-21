@@ -40,15 +40,8 @@ const EDITABLE_TARGET =
   'input,textarea,select,[contenteditable=""],[contenteditable="true"],[contenteditable="plaintext-only"]';
 // A finger that travels no more than this from where it landed is a tap.
 const TOUCH_MOVED_PX = 4;
-// Touch ownership cannot be a timer. A phone keeps flinging for a second or
-// more after the finger leaves, and a single slow markdown/tool frame on that
-// phone outlives the 250ms gesture window and the 180ms motion window. The
-// corrections that were being deferred then land in the middle of Chromium's
-// momentum, which re-bases the fling and shakes the transcript up and down
-// on mobile. Ownership therefore latches
-// on the touch itself, is held while the finger is down, and is closed by the
-// browser's own scrollend — this idle is only the fallback for engines that do
-// not fire it.
+// A phone's fling outlasts the 250ms gesture and 180ms motion windows, so touch ownership latches on
+// the touch and ends on scrollend; this idle is the fallback for engines without scrollend.
 const TOUCH_FLING_IDLE_MS = 700;
 /** iOS WebKit: a touch scroll's held corrections land once its scroll stream
  *  (finger or momentum) has been quiet this long. iOS fires its last touch
@@ -58,13 +51,7 @@ export const IOS_TOUCH_SETTLE_MS = 150;
 // Later events are the timeline's only when they land exactly on the value it
 // last wrote (the first event after that write).
 export const PROGRAMMATIC_WINDOW_MS = 150;
-// Jump-to-latest must BEAT the motion it interrupts. Both this hook and the
-// virtual timeline gate every end write on reader ownership, so a click that
-// landed inside a live gesture window (wheel ramp, fling tail, scrollbar drag)
-// was swallowed whole: the transcript kept coasting and the offset never moved
-// when the jump to the latest was pressed mid-scroll. The jump
-// therefore drops reader ownership first, then re-pins the tail frame by frame
-// until the residual momentum Chromium still delivers is overwritten.
+// A jump drops reader ownership, then re-pins the tail each frame until Chromium's residual momentum is overwritten.
 export const JUMP_PIN_MS = 400;
 export const JUMP_PIN_SETTLE_FRAMES = 3;
 

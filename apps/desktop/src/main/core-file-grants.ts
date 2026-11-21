@@ -1,7 +1,3 @@
-// One-file access grants held by the core. The window's main process validates what it is given, asks the core to
-// describe (and, for a picked or dropped file, mint a token for) paths and to redeem a token for the one file it names;
-// a refusal the core names by a denial code reaches the page and the file IPCs as the LocalAccessDeniedError they
-// already recognise (isLocalAccessDenied), the same as when the grants lived here.
 import type { DesktopLocalPathEntry } from '../shared/contract';
 import { requiredString } from './ipc-validation';
 import { isLocalAccessDenied, LocalAccessDeniedError } from './local-access-denied';

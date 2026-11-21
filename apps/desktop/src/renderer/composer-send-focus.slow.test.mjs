@@ -4,11 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// Cause of the phone composer "jump" on send: tapping the send disc moved focus
-// from the textarea to the button, so the soft keyboard slid away (the WebView /
-// visual viewport resized) in the same frame as the draft clearing, the field
-// shrinking and the new row landing. Sending must leave the textarea focused
-// (keyboard untouched); a closed keyboard stays closed; desktop keeps its focus.
+// On a phone, a tap that moves focus from the textarea to the send button slides
+// the soft keyboard away (the WebView's visual viewport resizes).
 const resolveDir = fileURLToPath(new URL('.', import.meta.url));
 const loader = { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' };
 

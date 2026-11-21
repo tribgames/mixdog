@@ -2,10 +2,6 @@ import { phoneAppUpdateView, useNativeAppUpdate } from '../AppUpdateBanner';
 import { t } from '../i18n';
 import { ActionButton, Group, ResourceRow } from './capability-controls';
 
-// The Android phone app's own update, in the same rows as the host updater
-// (UpdatePanel). Auto-download is always on in the shell, so there is no
-// auto-update toggle. The toast can be missed; this group is always here and
-// ignores `dismissed`.
 export function PhoneUpdatePanel() {
   const { bridge, state, apply } = useNativeAppUpdate();
   if (!bridge?.call) return null;

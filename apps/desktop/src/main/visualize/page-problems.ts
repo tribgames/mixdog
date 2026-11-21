@@ -1,8 +1,3 @@
-/**
- * Runtime problems of a visualize HTML pane, as the agent and the panel see
- * them: classified from the page's console output, localized so no host path or
- * page-server URL survives, deduped and capped per tab.
- */
 import {
   localizeLoopbackUrls,
   MAX_VISUALIZE_PROBLEMS,
@@ -73,11 +68,7 @@ export function classifyConsole(
   return { kind: report.level === 'error' ? 'console-error' : 'console-warn', message };
 }
 
-/**
- * Chromium's console line for a ResizeObserver whose callback resized what it
- * observes: the rest of its notifications are delivered on the next frame.
- * It is logged at error level, and nothing is broken.
- */
+/** Chromium logs this ResizeObserver notice at error level though nothing is broken. */
 export function isResizeObserverDeferral(message: string): boolean {
   return RESIZE_OBSERVER_DEFERRALS.has(message.trim());
 }

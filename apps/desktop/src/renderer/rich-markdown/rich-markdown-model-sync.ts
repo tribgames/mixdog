@@ -214,15 +214,6 @@ export class RichMarkdownModelSync {
     if (!this.reloadChangedBlocks(text)) this.load(text);
   }
 
-  /**
-   * Follows a change of the model (an undo or redo, an edit made elsewhere)
-   * by reparsing only the top-level blocks the changed text touches, with
-   * one unchanged neighbouring block per side; those must read back exactly
-   * as before, which proves the change did not reach past them. The
-   * reparsed run passes the same support and round-trip checks a whole
-   * document does on loading. False when the change cannot be applied this
-   * way; the caller then reloads the whole document.
-   */
   private reloadChangedBlocks(text: string): boolean {
     const old = this.blocks;
     if (!old || this.rejected !== null || richMarkdownSizeSupport(text)) return false;
@@ -369,14 +360,6 @@ export class RichMarkdownModelSync {
     return this.codec.serialize({ type: 'doc', content: nodes.map((node) => node.toJSON()) });
   }
 
-  /**
-   * The new body (LF) with only the top-level blocks that changed rewritten,
-   * and the block spans after it; null when that cannot be done (or proven)
-   * locally. Changed blocks are found by identity (an editor transaction
-   * keeps untouched blocks as the same nodes) or equality, and the written
-   * text is validated by reparsing it with one neighbouring block per side,
-   * the only blocks it can merge with.
-   */
   private spliceChangedBlocks(doc: ProseMirrorNode): { lf: string; blocks: BlockEntry[] | null } | null {
     const old = this.blocks;
     if (!old) return null;

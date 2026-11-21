@@ -1,10 +1,3 @@
-/**
- * Stopping one session's desktop work: retire its worker, wait for every
- * input worker to confirm exit, release whatever input the host still holds
- * through a fresh cleanup process, and only then give up the session's
- * targets. A cleanup that cannot confirm latches the coordinator's pause; an
- * unconfirmed release is never reported as a clean stop.
- */
 import { spawn } from 'node:child_process';
 
 import { computerNativeBinary, computerNativeEnvironment } from '../backend/native-host';

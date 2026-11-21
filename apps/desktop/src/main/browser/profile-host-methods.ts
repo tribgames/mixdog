@@ -1,8 +1,3 @@
-/**
- * The browser host's profile-import surface: importable sources, the import
- * itself with its progress, history search, stored credentials, and the
- * signed-in sites with their sign-out.
- */
 import {
   DESKTOP_IPC,
   type DesktopBrowserImportProgress,

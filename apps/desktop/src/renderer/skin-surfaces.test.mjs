@@ -1,9 +1,3 @@
-// Skin surfaces in a real Chrome against the app's own bundled stylesheets:
-// every surface whose text sits directly on a plate token (the inverted
-// buttons, pills, the island, both bubbles) keeps 4.5:1 on every skin x plate
-// x theme x transparency, with and without an imported theme; Mixy's bubbles
-// keep their own size under a skin; the pane ladder sees the pane's width in
-// a single pane and in a split.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import puppeteer from 'puppeteer-core';
@@ -14,10 +8,6 @@ import { themeStyleText } from './appearance/theme-tokens';
 import { DEFAULT_TRANSPARENCY } from './skin-color';
 import { SKIN_MANIFEST } from './skin-manifest';
 
-/* An approval card (approval-prompt.tsx markup): docked in the composer
-   island (desktop, and the phone sheet under data-mixdog-mobile-tabs) as a
-   payment, whose allow button is the normal primary (never danger), or floating /
-   held in the pane, narrow enough that its buttons stack. */
 const approval = (id) => `
   <section class="approval-prompt" data-tone="need" data-approval="payment">
     <div class="approval-prompt-top"><span class="approval-queue" id="${id}-queue">1 of 2</span><span class="approval-corner" id="${id}-corner">4:59 left</span></div>

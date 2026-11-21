@@ -1,8 +1,3 @@
-// One routine row — the agent panel's Routines tab (RoutinesPane.tsx) and the side
-// Schedules / Webhooks lists share it: an optional bot face, the status dot
-// (or the running spinner), the name with a Failed / Paused tag, one line, and the
-// ⋯ menu — run now, pause / resume, retry delivery (only after a refused
-// delivery) and delete (confirmed in place).
 import { type ReactNode, useEffect, useState } from 'react';
 
 import { t, uiFormatLocale } from './i18n';

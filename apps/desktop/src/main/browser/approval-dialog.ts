@@ -191,31 +191,20 @@ const PAYMENT_IN_RUN =
   "Browser Use step refused: payments aren't allowed in schedule/webhook runs; nothing was dispatched";
 const BLOCKED_BY_PERMISSION = "Browser Use step blocked by this bot's permission; nothing was dispatched";
 
-export async function requestBrowserApproval(
-  window: BrowserWindow,
-  request: BrowserApprovalRequest,
-  signal?: AbortSignal
-): Promise<boolean> {
-  // A standing allow is per bot (its own home chat or room seat, one grant
-  // for both) and per kind of step: a command is let through unasked only when
-  // this bot holds one for EVERY kind it contains, and never for a kind that
-  // always asks. The bot is read from the session id alone (ownBotOfSession):
-  // a failed or slow requester lookup never turns a bot's session into one
-  // that runs unasked. Nothing else (a sub-agent, a task session, a coding
-  // session) has a bot, and it runs without a card.
-  const ownBot = ownBotOfSession(request.sessionId);
-  if (!ownBot && request.unattended !== true) return !signal?.aborted;
-  const requester = await requesterOf(request.sessionId);
-  // A payment step (payment-evidence.ts) has no standing allow of any kind.
-  const actions = request.payment === true ? null : grantActions(request.kinds);
-  const bot = actions ? ownBot : '';
-  const audit = (decision: string) => {
-    if (bot && actions) auditStep(bot, actions, decision);
-  };
-  // A schedule or webhook run (and the work it started) never asks: saving the
-  // routine was the user's grant. The bot's own `block` still applies, and an
-  // operator-confirmed action (`confirm`) always asks.
-  // A payment is never done in a run, as everywhere else (human-gate/run-policy.mjs).
+interface ApprovalStanding {
+  ownBot: string;
+  bot: string;
+  actions: string[] | null;
+  life: string;
+}
+
+function auditStanding({ bot, actions }: ApprovalStanding, decision: string): void {
+  if (bot && actions) auditStep(bot, actions, decision);
+}
+
+async function allowedWithoutCard(request: BrowserApprovalRequest, standing: ApprovalStanding): Promise<boolean> {
+  const { ownBot, bot, actions, life } = standing;
+  const audit = (decision: string) => auditStanding(standing, decision);
   if (request.unattended === true && request.payment === true) throw new Error(PAYMENT_IN_RUN);
   if (request.unattended === true && !request.kinds.includes('confirm')) {
     // The run's owning bot is the one recorded for the run (never the
@@ -235,13 +224,8 @@ export async function requestBrowserApproval(
       throw new Error(BLOCKED_BY_PERMISSION);
     }
     runAudit('run-allowed');
-    return !signal?.aborted;
+    return true;
   }
-  // "Allow all actions" in a bot's own session (never a run: that keeps its
-  // rule above): the bot's submits, posts and uploads run unasked, and so does
-  // an operator `confirm`, which is never remembered. The bot's `block` still
-  // stops the step, read for every kind of it that has a store action.
-  // A payment step is a floor: not skipped here, never covered by a grant.
   if (ownBot && request.unattended !== true && request.payment !== true && (await allowsAllActions())) {
     const stepActions = kindActions(request.kinds);
     const auditAs = (decision: string) => {
@@ -252,17 +236,12 @@ export async function requestBrowserApproval(
       throw new Error(BLOCKED_BY_PERMISSION);
     }
     auditAs('dev-allow-all');
-    return !signal?.aborted;
+    return true;
   }
   if (bot && actions && (await standingAllow(bot, actions))) {
     audit('remembered');
-    return !signal?.aborted;
+    return true;
   }
-  // This session's own allowance for every kind of the step (never a run's: the
-  // unattended branch above returned already). A `block` still wins.
-  // It is bound to the session's life mark (runtime-set): a cleared or replaced
-  // session has another one, so its allowance no longer counts. No mark, no allowance.
-  const life = request.sessionLife || '';
   if (
     bot &&
     actions &&
@@ -271,11 +250,39 @@ export async function requestBrowserApproval(
     !(await blockedBy(bot, actions))
   ) {
     audit('session-remembered');
-    return !signal?.aborted;
+    return true;
   }
-  // The card waits until the person answers: no timer ends it. Deny, the
-  // command being stopped (`signal`, also while the approval is still queued
-  // behind another card) and the card's document going away settle it.
+  return false;
+}
+
+export async function requestBrowserApproval(
+  window: BrowserWindow,
+  request: BrowserApprovalRequest,
+  signal?: AbortSignal
+): Promise<boolean> {
+  const ownBot = ownBotOfSession(request.sessionId);
+  if (!ownBot && request.unattended !== true) return !signal?.aborted;
+  const requester = await requesterOf(request.sessionId);
+  const actions = request.payment === true ? null : grantActions(request.kinds);
+  const standing: ApprovalStanding = {
+    ownBot,
+    bot: actions ? ownBot : '',
+    actions,
+    life: request.sessionLife || '',
+  };
+  if (await allowedWithoutCard(request, standing)) return !signal?.aborted;
+  return askOnCard(window, request, standing, requester, signal);
+}
+
+async function askOnCard(
+  window: BrowserWindow,
+  request: BrowserApprovalRequest,
+  standing: ApprovalStanding,
+  requester: ApprovalRequester,
+  signal?: AbortSignal
+): Promise<boolean> {
+  const { ownBot, bot, actions, life } = standing;
+  const audit = (decision: string) => auditStanding(standing, decision);
   const asked = withHumanOnlyApproval(async () => {
     if (signal?.aborted || window.isDestroyed() || window.webContents.isDestroyed()) return false;
     const contents = window.webContents;
@@ -354,7 +361,6 @@ export async function requestBrowserApproval(
       }
     });
   }, signal);
-  // A command stopped while queued behind another card is a denial, not an error.
   return asked.catch((error) => {
     if (signal?.aborted) return false;
     throw error;

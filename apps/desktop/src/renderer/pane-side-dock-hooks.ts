@@ -233,12 +233,6 @@ export function useDockCellWidth(hostRef: RefObject<HTMLDivElement | null>, open
   return cellWidth;
 }
 
-/** The docks open inline in each workspace column, by claim. The column's
- *  `data-inline-dock` holds while any claim does; the frame rules key on it
- *  (pane-layout.css, pane-side-dock-bottom.css) instead of
- *  `.main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))`,
- *  which re-walked the whole column — a hidden diff panel's ~50k nodes
- *  included — on every composer keystroke (~4ms of style recalc per key). */
 const inlineDockClaims = new WeakMap<HTMLElement, Set<object>>();
 
 function claimInlineDock(column: HTMLElement, claim: object): void {
@@ -382,10 +376,6 @@ function isFixedPaneRow(child: Element, host: Element): child is HTMLElement {
   return position !== 'absolute' && position !== 'fixed';
 }
 
-/** The height the chat and a bottom dock share inside the pane cell: the
- *  cell minus its fixed rows (border boxes — the Problems panel's negative
- *  overlay margin is not space it gives back) and the dock's own margins.
- *  Computed from the siblings only, so the dock's height never feeds it. */
 function paneDockRoom(host: HTMLElement): number {
   const cell = host.parentElement;
   if (!cell) return 0;

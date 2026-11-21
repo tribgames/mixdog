@@ -353,11 +353,6 @@ export class DesktopServiceClient implements DesktopService {
     return this.invoke('abortSession', [sessionId, options]);
   }
   resolveToolApprovalForSession(sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean> {
-    // A decision is keyed by its approval id, so sending it again is safe (an
-    // already-settled id answers false). The service restarts itself when a
-    // stalled daemon times its call out; the answer the user gave must wait
-    // for that restart instead of surfacing as a failed, then cancelled, ask.
-    // A core connection answers the server request the card shows (capability-route.ts `resolveToolApproval`).
     return this.options.capabilityLane.resolveToolApproval(
       sessionId,
       id,

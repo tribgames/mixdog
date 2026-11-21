@@ -1,7 +1,3 @@
-// The phone's whole-PC screen view: fingers on the picture never open the soft
-// keyboard, and only a direct tap on the typing bar does. The picture's finger
-// layer (bindScreenTouch) and the bar are wired by useScreenInput, the same hook
-// the pane renders; the events are the ones a WebView sends.
 import assert from 'node:assert/strict';
 import test, { afterEach } from 'node:test';
 

@@ -1,12 +1,3 @@
-// Phone side of host file downloads (GitHub #40; the wire contract is
-// shared/file-downloads.ts): authorize → begin → move bytes → finish/abort,
-// into the best destination this device has. In order: the phone app's native
-// save sink (shared/native-file-save.ts) fed range by range with acks, the
-// encrypted media lane the service worker streams to a browser download (only
-// after the worker answered a probe for the lease), and last a Blob of RPC
-// range reads for small files only. Memory stays bounded:
-// the native path holds one chunk at a time, and neither browser path
-// assembles a Blob larger than BLOB_FALLBACK_MAX_BYTES.
 import {
   FileDownloadError,
   fileDownloadErrorReason,

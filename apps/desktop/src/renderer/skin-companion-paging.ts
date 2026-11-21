@@ -1,8 +1,3 @@
-// Mixy's reply in the pet's bubble: its markdown, parsed by the app's own
-// parser (markdown-ast.ts) and drawn compact (paragraphs, bold, inline code,
-// lists; headings bold; code and tables as plain text blocks), and a long
-// one read page by page: as much as fits the page's height budget
-// (desktop-pet.css .skin-companion-page), measured in the bubble itself.
 import { parseMarkdownToHast } from './markdown-ast';
 
 /** Reading pace: about fourteen characters a second, at least 2.5 s a page. */

@@ -13,6 +13,22 @@ export function fileBaseName(path: string): string {
   return slash >= 0 ? path.slice(slash + 1) : path;
 }
 
+export function byteSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** The last path segment of a URL, the name a saved link gets. */
+export function linkFileName(url: string): string {
+  try {
+    const segment = new URL(url).pathname.split('/').filter(Boolean).at(-1) || '';
+    return decodeURIComponent(segment) || 'download';
+  } catch {
+    return 'download';
+  }
+}
+
 export function displayProject(project: Project | null | undefined) {
   if (!project) return { name: '', path: '' };
   const chunks = project.replace(/[\\/]+$/, '').split(/[\\/]/);

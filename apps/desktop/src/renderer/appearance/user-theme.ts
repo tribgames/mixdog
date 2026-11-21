@@ -1,8 +1,3 @@
-// User JSON themes (Settings → Theme): imported files kept on this
-// device, one of them active. The active theme is painted as one injected
-// style sheet (theme-tokens.ts) and follows the app's light/dark setting; a
-// single-appearance theme switches the app to its own appearance while on.
-// A skin keeps its picture, plates and transparency over it.
 import { registerThemeAppearanceOverride, reapplyDesktopThemePreference } from '../desktop-theme';
 import {
   type Appearance,
@@ -17,6 +12,7 @@ import {
 } from './theme-file';
 import { syncUserThemeBootSnapshot } from '../skin-boot-snapshot';
 import { themeStyleText } from './theme-tokens';
+import { safeLocalStorage } from '../local-storage';
 
 export type StoredTheme = { id: string; name: string; source: string };
 
@@ -27,17 +23,9 @@ const STYLE_ID = 'mixdog-user-theme';
 /** Imported themes kept per device (each is a few KB of JSON). */
 const MAX_THEMES = 24;
 
-function storage(): Storage | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 export function listUserThemes(): StoredTheme[] {
   try {
-    const parsed = JSON.parse(storage()?.getItem(THEMES_KEY) || '[]') as unknown;
+    const parsed = JSON.parse(safeLocalStorage()?.getItem(THEMES_KEY) || '[]') as unknown;
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
       (entry): entry is StoredTheme =>
@@ -52,11 +40,11 @@ export function listUserThemes(): StoredTheme[] {
 }
 
 function saveThemes(themes: StoredTheme[]): void {
-  storage()?.setItem(THEMES_KEY, JSON.stringify(themes));
+  safeLocalStorage()?.setItem(THEMES_KEY, JSON.stringify(themes));
 }
 
 export function getActiveUserThemeId(): string | null {
-  const id = storage()?.getItem(ACTIVE_KEY) || null;
+  const id = safeLocalStorage()?.getItem(ACTIVE_KEY) || null;
   return id && listUserThemes().some((entry) => entry.id === id) ? id : null;
 }
 
@@ -166,7 +154,7 @@ export function importUserTheme(source: string): ImportResult {
   const id = previous?.id ?? `theme-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const next = [{ id, name: theme.name, source }, ...themes.filter((entry) => entry.id !== id)].slice(0, MAX_THEMES);
   saveThemes(next);
-  storage()?.setItem(ACTIVE_KEY, id);
+  safeLocalStorage()?.setItem(ACTIVE_KEY, id);
   changed();
   return {
     ok: true,
@@ -179,14 +167,14 @@ export function importUserTheme(source: string): ImportResult {
 
 /** Turn an imported theme on, or back to the built-in theme with null. */
 export function setActiveUserTheme(id: string | null): void {
-  if (id && listUserThemes().some((entry) => entry.id === id)) storage()?.setItem(ACTIVE_KEY, id);
-  else storage()?.removeItem(ACTIVE_KEY);
+  if (id && listUserThemes().some((entry) => entry.id === id)) safeLocalStorage()?.setItem(ACTIVE_KEY, id);
+  else safeLocalStorage()?.removeItem(ACTIVE_KEY);
   changed();
 }
 
 export function removeUserTheme(id: string): void {
   saveThemes(listUserThemes().filter((entry) => entry.id !== id));
-  if (storage()?.getItem(ACTIVE_KEY) === id) storage()?.removeItem(ACTIVE_KEY);
+  if (safeLocalStorage()?.getItem(ACTIVE_KEY) === id) safeLocalStorage()?.removeItem(ACTIVE_KEY);
   changed();
 }
 

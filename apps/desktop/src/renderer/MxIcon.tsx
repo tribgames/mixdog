@@ -53,10 +53,7 @@ const ShellPrompt = createLucideIcon('ShellPrompt', [
   ['path', { d: 'M13 19h7', key: 'underscore' }],
 ]);
 
-// Name-keyed facade over the shared lucide icon set, so call sites stay
-// declarative and every glyph picks up the global `svg.lucide` stroke tuning.
-// Built with createElement (no JSX) so every consumer toolchain (vite app
-// build, tsx test harness) agrees on the runtime without a React global.
+// Built with createElement, not JSX, so the vite build and the tsx test harness agree on the runtime without a React global.
 const GLYPHS: Record<string, ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }>> = {
   agent: Bot,
   // Goal segment state glyphs: the shape, not only the tint, names the state.
@@ -79,10 +76,6 @@ const GLYPHS: Record<string, ComponentType<SVGProps<SVGSVGElement> & { size?: nu
   edit: Pencil,
   'file-clock': FileClock,
   folder: Folder,
-  // Crosshair, not Target: the bullseye's three concentric rings collapse at
-  // the 15px chip size and read as a status dot (CircleDot already means
-  // in-progress/breakpoint here). One circle + cross keeps the aim semantics
-  // legible on the 1px pixel-snapped stroke.
   goal: Crosshair,
   history: History,
   'in-progress': CircleDot,

@@ -90,10 +90,7 @@ try {
   const surfaceIsDetached = () =>
     Math.abs(after.outerWidth - after.innerWidth) > 96 || Math.abs(after.outerHeight - after.innerHeight) > 96;
   if (repair && surfaceIsDetached()) {
-    // Chromium can retain the old 800x600 content surface even after the
-    // emulation override is gone. Nudge the REAL BrowserWindow bounds and put
-    // them straight back; Windows then emits WM_SIZE and Electron resizes the
-    // compositor without changing the user's stored geometry.
+    // Chromium keeps the old 800x600 surface after the emulation override is gone; resizing the real window by 1px and back makes Windows emit WM_SIZE.
     await client.evaluate('window.resizeBy(-1, 0)');
     await new Promise((resolve) => setTimeout(resolve, 80));
     await client.evaluate('window.resizeBy(1, 0)');

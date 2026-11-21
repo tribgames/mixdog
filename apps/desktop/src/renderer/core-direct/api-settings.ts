@@ -1,29 +1,12 @@
-// The settings group of DesktopApi (DIRECT_KEYS.settings) composed in the renderer over its own core connection: desktop
-// settings, activity rail pins, the markdown default view, notification preferences and conversation overrides, remote
-// access, and the desktop events the main process used to forward (settings changed, provider models changed, rail pins,
-// turn review, orchestration default, remote claims, remote access settings).
-//
-// Every call that was a desktop operation runs through the shared operation lane (shared/core-lanes), so the request is the one
-// the main process sent for the same IPC call. Input checks live in the core, not here. Settings > Notifications' write is the
-// one exception to the lane: the core announces changes to `notifications.devices.<id>` when it saves the preference.
-//
-// The two announcements the core sends (`ui/settings/changed`, `ui/providerModels/changed`) arrive as notifications
-// (watchAnnouncements). The other events are what the held sections show changing: the `config` subtrees (`desktop` pins,
-// `agent` orchestration default), the `reviewDiff` tell and the `remote` section (settings and claims), each compared with
-// what the listener last heard.
 import { remoteAccessInfoFromDescriptor } from '../../main/remote-access-window.ts';
-import type { ConnectionStoreChange } from '../../main/protocol/connection';
 import type { DesktopApi } from '../../shared/contract';
 import { NOTIFICATION_PC_DEVICE_ID, type NotificationPreferencesState } from '../../shared/contract-notifications';
 import type { DesktopRemoteConnectionState } from '../../shared/contract-workspace';
-import { configuredOrchestrationMode } from '../../shared/orchestration-mode';
 import { notificationPreferencesStateOf, notificationWriteMode } from '../../shared/notification-state';
 import { PROVIDER_MODELS_EVENT } from '../../shared/provider-models';
 import { SETTINGS_CHANGED_EVENT } from '../../shared/settings-changed';
 import type { DirectKey } from '../../shared/desktop-api-split';
 import { createOperationLane, watchAnnouncements } from '../../shared/core-lanes/desktop-operation-route';
-import { remotePagedMember } from '../../shared/core-lanes/remote-reads';
-import { readActivityRailPins } from '../../shared/core-lanes/section-reads';
 import {
   requiredBotHandoffLimit,
   requiredBrowserPermissionPolicy,
@@ -35,11 +18,10 @@ import { windowOfReply } from './client.ts';
 import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
 import { hostPlatform } from './host-platform.ts';
+import { record } from '../record-utils.ts';
+import { createSettingsEvents } from './settings-events.ts';
 
 type SettingsApi = Pick<DesktopApi, DirectKey<'settings'>>;
-
-const record = (value: unknown): Record<string, unknown> =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
 export function createSettingsApi(ctx: DirectContext): SettingsApi {
   const { connection } = ctx;
@@ -51,25 +33,6 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
   });
   const op = <T>(name: string, args: unknown[] = []): Promise<T> =>
     withDirectErrors(lane.invoke(name, args) as Promise<T>);
-
-  /** The held value of `(section, key)`, or undefined while the core holds none. */
-  const held = (section: string, key: string | null): unknown =>
-    connection.snapshot().entries.find((entry) => entry.section === section && entry.key === key)?.value;
-  /** True while sections a snapshot swapped in are still being announced: they are where things stand, not changes. */
-  const announcingSnapshot = (): boolean =>
-    Boolean((connection.client()?.store as { readonly owed?: unknown } | undefined)?.owed);
-  /** Calls `onChange` for every change of the held `(section, key)`, and for a whole snapshot (which only resets where
-   *  things stand); a snapshot's own announcements of the section are skipped. */
-  const followSection = (
-    section: string,
-    key: string | null,
-    onChange: (change: ConnectionStoreChange) => void
-  ): (() => void) =>
-    connection.onStoreChange((change) => {
-      if (change.type === 'appSnapshot') return onChange(change);
-      if (change.type !== 'section' || change.section !== section || (change.key ?? null) !== key) return;
-      if (!announcingSnapshot()) onChange(change);
-    });
 
   const announced = (name: string, listener: (value: never) => void): (() => void) =>
     watchAnnouncements(connection, (eventName, value) => {
@@ -94,70 +57,7 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
     });
   };
 
-  // ── events read from held sections ──
-  const subscribePins: SettingsApi['subscribeActivityRailPins'] = (listener) => {
-    let told = readActivityRailPins(connection.snapshot())?.revision ?? 0;
-    return followSection('config', 'desktop', (change) => {
-      const state = readActivityRailPins(connection.snapshot());
-      if (change.type === 'appSnapshot') told = state?.revision ?? 0;
-      else if (state && state.revision !== told) {
-        told = state.revision;
-        listener(state);
-      }
-    });
-  };
-  const subscribeTurnReview: NonNullable<SettingsApi['subscribeTurnReviewChanged']> = (listener) =>
-    connection.onStoreChange((change) => {
-      // A tell, not state: one the window was not there for (a snapshot) is not delivered.
-      if (change.type === 'section' && change.section === 'reviewDiff' && !announcingSnapshot()) listener();
-    });
-  const configuredMode = () => configuredOrchestrationMode(held('config', 'agent'));
-  const subscribeOrchestration: NonNullable<SettingsApi['subscribeOrchestrationModeChanged']> = (listener) => {
-    let told = configuredMode();
-    return followSection('config', 'agent', (change) => {
-      const mode = configuredMode();
-      if (change.type === 'appSnapshot') told = mode;
-      else if (mode !== told) {
-        told = mode;
-        listener({ mode });
-      }
-    });
-  };
-  /** Runs `read` with the `remote` member `name` on every change of the section, one at a time and in order (a section
-   *  over the inline limit is paged, remotePagedMember). The first run only records where things stand. */
-  const followRemote = (name: string, read: (value: unknown, first: boolean) => void): (() => void) => {
-    let first = true;
-    let queue: Promise<void> = Promise.resolve();
-    const check = (): void => {
-      queue = queue
-        .then(async () => {
-          read(await remotePagedMember(connection.snapshot(), name, ctx.call), first);
-          first = false;
-        })
-        // Not held yet (sectionUnavailable) or a failed page: the next change reads again.
-        .catch(() => undefined);
-    };
-    check();
-    return followSection('remote', null, check);
-  };
-  const subscribeRemoteSettings: SettingsApi['subscribeRemoteAccessSettings'] = (listener) => {
-    let told: string | null = null;
-    return followRemote('settings', (value, first) => {
-      const settings = JSON.stringify(value ?? null);
-      const changed = settings !== told;
-      told = settings;
-      if (changed && !first) listener(value as never);
-    });
-  };
-  const subscribeRemoteClaims: SettingsApi['subscribeRemoteClientClaim'] = (listener) => {
-    let known = new Set<string>();
-    return followRemote('claims', (value, first) => {
-      const claims = Array.isArray(value) ? value.map(record) : [];
-      const fresh = claims.filter((claim) => typeof claim.claimId === 'string' && !known.has(claim.claimId));
-      known = new Set(claims.map((claim) => String(claim.claimId)));
-      if (!first) for (const claim of fresh) listener(claim as never);
-    });
-  };
+  const events = createSettingsEvents(ctx);
 
   const access = async (name: string, args: unknown[] = []) => remoteAccessInfoFromDescriptor(await op(name, args));
 
@@ -172,7 +72,7 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
     subscribeSettingsChanged: (listener) => announced(SETTINGS_CHANGED_EVENT, listener),
     readActivityRailPins: () => op('readActivityRailPins'),
     updateActivityRailPins: (pins, initializeIfMissing) => op('updateActivityRailPins', [pins, initializeIfMissing]),
-    subscribeActivityRailPins: subscribePins,
+    subscribeActivityRailPins: events.activityRailPins,
     // The preload sent this and left the answer: a failed announcement is not the caller's.
     notifyProviderModelsChanged: (origin) => {
       void op('notifyProviderModelsChanged', [origin]).catch(() => undefined);
@@ -221,8 +121,8 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
       ),
     listConversationNotifications: () => op('listConversationNotifications'),
     setConversationNotification: (target, setting) => op('setConversationNotification', [target, setting]),
-    subscribeTurnReviewChanged: subscribeTurnReview,
-    subscribeOrchestrationModeChanged: subscribeOrchestration,
+    subscribeTurnReviewChanged: events.turnReview,
+    subscribeOrchestrationModeChanged: events.orchestrationMode,
     readMarkdownDefaultView: () => op('readMarkdownDefaultView'),
     // The lane's route takes the user-data directory first (the main process's own path); the core needs none.
     writeMarkdownDefaultView: (view) => op('writeMarkdownDefaultView', ['', view]),
@@ -239,9 +139,9 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
     getRemoteAccessInfo: (options) => access('remoteAccessInfo', [options?.activate !== false]),
     getRemoteConnectionState: () =>
       withDirectErrors(ctx.call('remoteAccess/state', {}) as Promise<DesktopRemoteConnectionState>),
-    subscribeRemoteClientClaim: subscribeRemoteClaims,
+    subscribeRemoteClientClaim: events.remoteClaims,
     getRemoteAccessSettings: () => op('remoteAccessSettings'),
-    subscribeRemoteAccessSettings: subscribeRemoteSettings,
+    subscribeRemoteAccessSettings: events.remoteSettings,
     listRemoteClientClaims: () => op('remoteAccessListClaims'),
   };
 }

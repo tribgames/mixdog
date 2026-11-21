@@ -22,10 +22,6 @@ export function useSourceControlRunner({
   setError: (message: string) => void;
 }) {
   const [busy, setBusy] = useState('');
-  /** The guards are also read at EXECUTION time. An open context menu holds
-   *  the `busy` / `status.operation` SNAPSHOT of the render that built it, so
-   *  an action started while it is open would otherwise slip past the
-   *  disabled-at-render check inside those item closures. */
   const busyRef = useRef('');
   const statusRef = useRef<DesktopGitStatus | null>(status);
   useEffect(() => {

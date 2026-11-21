@@ -31,9 +31,6 @@ export function useConversationOptimisticPromptRelease({
   useEffect(() => {
     if (previousTranscriptSessionKey.current === transcriptSessionKey) return;
     previousTranscriptSessionKey.current = transcriptSessionKey;
-    // A promotion is not a navigation: the in-flight prompt stays visible
-    // until its own settled row lands (released by id), instead of blinking
-    // out of the thread for the publication interval after the first submit.
     if (promotedOwnDraft.current) {
       promotedOwnDraft.current = false;
       return;
@@ -42,25 +39,12 @@ export function useConversationOptimisticPromptRelease({
     queuedMarks.current.clear();
   }, [promotedOwnDraft, setOptimisticPrompts, transcriptSessionKey]);
   useEffect(() => {
-    // Neither host acknowledgement nor queue publication is settlement: the
-    // optimistic card is dropped from state only once its own durable row is
-    // in the transcript. Until then it is the bubble — for a queued prompt
-    // through the drain's state where its queue entry has left and its row
-    // has not arrived yet (steerPromptItems' local twin) — and, for an idle
-    // submit, the working band's clock.
     const acknowledged = new Set(
       settledItems
         .map((item) => item?.id)
         .filter((id) => id !== undefined && id !== null)
         .map(String)
     );
-    // A message a running turn reads is stored under the core's own item id,
-    // not its submission id, so no id names its row. Its queue entry does:
-    // the entries a drain takes leave the queue together and their rows land
-    // one by one in that order, so an entry's row is the next user row past
-    // the rows of the entries that left ahead of it. Rows are located from
-    // the last one seen while it was queued, not counted over the transcript:
-    // the live window is bounded and drops its oldest rows.
     const twins = new Set(
       optimisticPrompts
         .filter((item) => item.queuedBehindTurn && !item.delivered && item.steer !== 'failed')
@@ -114,8 +98,6 @@ export function useConversationOptimisticPromptRelease({
         changed = true;
         return [{ ...item, queueHeld: true }];
       });
-      // A delivered message stays only to hold its row against the messages
-      // sent with it that still wait (pendingPromptTranscriptItems).
       const waits = kept.some((item) => !item.delivered && item.steer !== 'failed');
       const next = waits ? kept : kept.filter((item) => !item.delivered);
       return changed || next.length !== current.length ? next : current;

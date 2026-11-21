@@ -8,7 +8,9 @@ import { type SessionFold, sessionReducer, sessionStateOf } from '../src/session
 
 const options = JSON.parse(readFileSync(new URL('../conformance/options.json', import.meta.url), 'utf8'));
 
-test('session state joins thread updates, host shell jobs and pending approvals on the same surface', { timeout: 5000 }, async (t) => {
+test('session state joins thread updates, host shell jobs and pending approvals on the same surface', {
+  timeout: 5000,
+}, async (t) => {
   const net = new MockNetwork();
   const connecting = connect<SessionFold>({
     target: { id: 'local' },
@@ -26,7 +28,8 @@ test('session state joins thread updates, host shell jobs and pending approvals 
   const client = await connecting;
   t.after(() => client.close());
 
-  const answer = async (result: Json): Promise<void> => conn.serverSend({ id: JSON.parse(await conn.nextSent()).id, result });
+  const answer = async (result: Json): Promise<void> =>
+    conn.serverSend({ id: JSON.parse(await conn.nextSent()).id, result });
   const thread = { id: 'lead' };
   const resumed = client.resumeThread(thread.id, { lastItems: 50 });
   await answer({ thread, subscription: { id: 'sub', mode: 'snapshot', epoch: 'e1', startSeq: 1 } });
@@ -47,7 +50,11 @@ test('session state joins thread updates, host shell jobs and pending approvals 
   let seq = 0;
   const feed = (method: string, params: Record<string, Json>) => {
     const folded = nextThreadChange();
-    conn.serverSend({ method, params: { threadId: thread.id, ...params }, feed: { id: thread.id, epoch: 'e1', seq: seq++ } });
+    conn.serverSend({
+      method,
+      params: { threadId: thread.id, ...params },
+      feed: { id: thread.id, epoch: 'e1', seq: seq++ },
+    });
     return folded;
   };
   const session = () => {
@@ -104,7 +111,10 @@ test('session state joins thread updates, host shell jobs and pending approvals 
 
   const resolve = async (requestId: string, ownerThreadId: string) => {
     const leadRefreshed = nextThreadChange();
-    conn.serverSend({ method: 'serverRequest/resolved', params: { threadId: ownerThreadId, requestId, resolution: { kind: 'cancelled', at: 3 } } });
+    conn.serverSend({
+      method: 'serverRequest/resolved',
+      params: { threadId: ownerThreadId, requestId, resolution: { kind: 'cancelled', at: 3 } },
+    });
     await leadRefreshed;
   };
   await resolve('first', workerThreadId);

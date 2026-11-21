@@ -1,9 +1,3 @@
-// "대표 에이전트 먼저": a profile without Mixy sees an empty Agents pane, the
-// new-agent dialog opens in 대표 에이전트 mode — never behind another dialog —
-// with the name "Mixy" and Mixy's pup prefilled but editable (and "+" opens it
-// until Mixy exists); creating it writes agents/lead/ (name, face, persona,
-// AGENT.md), the Main route and the created flag, then it greets once with
-// the welcome guide. Every surface uses the name the user chose.
 import assert from 'node:assert/strict';
 import test, { after, mock } from 'node:test';
 import React, { act } from 'react';
@@ -357,8 +351,9 @@ test('closing leaves one 대표 에이전트 action; it and "+" both reopen the 
   assert.equal(dialog(document).querySelector('h2').textContent, 'Create representative bot');
 });
 
-test('creating a renamed representative saves its name and face, then it greets once with the welcome guide', async (t) => {
-  const { document, calls, opened, render, type, submit } = mount(t, { created: false });
+async function createRenamedRepresentative(t) {
+  const mounted = mount(t, { created: false });
+  const { document, render, type, submit } = mounted;
   await render();
   assert.ok(await openFromEmptyState(document));
   await type(dialog(document).querySelector('.agent-create-name'), 'Navi');
@@ -366,6 +361,11 @@ test('creating a renamed representative saves its name and face, then it greets 
   await type(dialog(document).querySelector('textarea[aria-label="PERSONA.md"]'), '존댓말로 짧게');
   await type(dialog(document).querySelector('textarea[aria-label="AGENT.md"]'), '# Navi\n\nHelp first.');
   await submit();
+  return mounted;
+}
+
+test('creating a renamed representative saves its name and face', async (t) => {
+  const { calls } = await createRenamedRepresentative(t);
   const saves = calls
     .filter(([call]) =>
       [
@@ -398,6 +398,10 @@ test('creating a renamed representative saves its name and face, then it greets 
     false,
     'the representative is not a custom agent'
   );
+});
+
+test('a created representative greets once with the welcome guide', async (t) => {
+  const { document, calls, opened } = await createRenamedRepresentative(t);
   const greetings = calls.filter(([call]) => call === 'submit');
   assert.equal(greetings.length, 1);
   const [, sessionId, kickoff, options] = greetings[0];
@@ -417,7 +421,10 @@ test('creating a renamed representative saves its name and face, then it greets 
     'the thread opens as Navi'
   );
   assert.equal(dialog(document), null);
-  // The list shows the chosen name and face, with the star.
+});
+
+test('after creation the list shows the chosen name and face, and reopening does not greet again', async (t) => {
+  const { document, calls, render } = await createRenamedRepresentative(t);
   const row = await waitFor(() => document.querySelector('[data-agent-contact="lead"]'));
   assert.equal(row.querySelector('.agent-chat-title').textContent, 'Navi');
   assert.ok(row.querySelector('.agent-contact-badge'));

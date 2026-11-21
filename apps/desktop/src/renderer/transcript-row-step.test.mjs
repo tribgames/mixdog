@@ -1,7 +1,3 @@
-// The spacing between rows of one turn belongs to the row below: appending a
-// tool card, the next reply part or the live band must not change the box of
-// a row that is already laid out (its new size landed a frame after the new
-// row was placed, so every tool round shook the thread by 8px).
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
@@ -124,12 +120,6 @@ test('rows appended below a reply part or tool card leave the rows above unchang
   });
 });
 
-// A bot chat renders a turn's tool rounds and its unfinished reply parts as
-// nothing while the typing bubble (the band) stands for the reply. Those rows
-// take no step, and the band and the reply that replaces it step from the row
-// above that paints: stepping from the empty rows moved the typing bubble 8px
-// per tool round (16px under the first part), and the reply then landed 16px
-// above it, so the thread jumped while the reply was generated.
 test('rows that render nothing take no step; the band and the reply step from the painted row above', async () => {
   await withList(async ({ render, marks }) => {
     const hidden = new Set(['s:tools', 's:a2']);
@@ -161,8 +151,6 @@ test('rows that render nothing take no step; the band and the reply step from th
   });
 });
 
-// A reaction-only turn (a hidden tool round, no reply) ends at the user row, so
-// it takes the same end-of-turn spacing as any user row without a reply.
 test('a user row followed only by rows that paint nothing ends its turn', async () => {
   await withList(async ({ render, marks }) => {
     const gap = { _tag: 'TurnGap', key: 's:gap', turnKey: 't2' };
@@ -176,10 +164,6 @@ test('a user row followed only by rows that paint nothing ends its turn', async 
   });
 });
 
-// At turn end the band row leaves and the reply above it takes the band's slot
-// (its completion footer) in the same commit. The reply's new size must land
-// in that commit too: left to the ResizeObserver, the total shrank by the band
-// first and the followed tail painted a frame 40px low.
 test('the reply that takes the leaving band slot is re-measured in the same commit', async () => {
   await withList(async ({ render, heights, spacerHeight }) => {
     await render([user, final, thinking]);

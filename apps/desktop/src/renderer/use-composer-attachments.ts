@@ -62,6 +62,117 @@ function useCaretTokenInsert({
   );
 }
 
+interface IngestContext {
+  attachmentsRef: RefObject<ComposerAttachment[]>;
+  attachmentSequence: RefObject<number>;
+  recoveryScope: string;
+  setAttachmentError: Dispatch<SetStateAction<string>>;
+  insertAttachment(attachment: ComposerAttachment): boolean;
+  insertAbsolutePaths(paths: string[]): void;
+  reportDroppedFiles(files: File[]): void;
+}
+
+/** Turns picked, pasted or dropped files into chips; a file that cannot be
+ *  attached falls back to inserting its path, and one the composer left
+ *  behind (`abandoned`) is reported as dropped. */
+async function ingestComposerFiles(
+  ctx: IngestContext,
+  files: File[],
+  sourcePaths: ReadonlyMap<File, string> | undefined,
+  abandoned: () => boolean
+): Promise<void> {
+  const { attachmentsRef, attachmentSequence, setAttachmentError, insertAttachment, reportDroppedFiles } = ctx;
+  if (abandoned()) {
+    reportDroppedFiles(files);
+    return;
+  }
+  setAttachmentError('');
+  const fallbackPaths: string[] = [];
+  const appendError = (message: string) =>
+    setAttachmentError((current) => [current, message].filter(Boolean).join('\n'));
+  let list = files;
+  const serverWindow = isSshConnectionWindow();
+  const serverPaths = new Map<File, string>();
+  if (serverWindow) {
+    const fromThisPc = list.filter((file) => !sourcePaths?.has(file));
+    if (fromThisPc.length) {
+      const { uploaded, errors } = await uploadFilesToServer(fromThisPc, serverUploadScope(ctx.recoveryScope));
+      if (abandoned()) {
+        reportDroppedFiles(list);
+        return;
+      }
+      for (const [file, entry] of uploaded) serverPaths.set(file, entry.absolutePath);
+      for (const message of errors) appendError(message);
+      list = list.filter((file) => sourcePaths?.has(file) || serverPaths.has(file));
+    }
+  }
+  for (const [index, file] of list.entries()) {
+    if (abandoned()) {
+      reportDroppedFiles(list.slice(index));
+      return;
+    }
+    let unsupported = false;
+    try {
+      if (attachmentsRef.current.length >= MAX_COMPOSER_ATTACHMENTS) {
+        throw new Error(`Attach up to ${MAX_COMPOSER_ATTACHMENTS} items at a time.`);
+      }
+      const inline = await attachmentFromFile(file, {
+        id: attachmentSequence.current++,
+        cancelled: abandoned,
+      });
+      if (!inline || abandoned()) {
+        reportDroppedFiles(list.slice(index));
+        return;
+      }
+      // The model sees the (possibly downscaled) inline image; the note
+      // names the uploaded original the agent can open on the server.
+      const serverPath = serverPaths.get(file);
+      const attachment =
+        serverPath && inline.kind === 'image'
+          ? {
+              ...inline,
+              metadataText: [inline.metadataText, `[Uploaded to the server: ${serverPath}]`].filter(Boolean).join('\n'),
+            }
+          : inline;
+      if (insertAttachment(attachment)) continue;
+    } catch (reason) {
+      if (abandoned()) {
+        reportDroppedFiles(list.slice(index));
+        return;
+      }
+      if (reason instanceof RejectedComposerFileError) {
+        appendError(reason.message);
+        continue;
+      }
+      if (reason instanceof UnsupportedComposerFileError) {
+        unsupported = true;
+      } else {
+        setAttachmentError(reason instanceof Error ? reason.message : String(reason));
+      }
+    }
+    const name = file.name || 'Pasted file';
+    // Native selections retain their OS path; materialized internal drops
+    // need the source path carried separately from their in-memory File.
+    const path =
+      sourcePaths?.get(file) ||
+      serverPaths.get(file) ||
+      (serverWindow ? '' : window.mixdogDesktop?.folderPathForFile?.(file));
+    if (path) {
+      fallbackPaths.push(path);
+      if (unsupported) {
+        appendError(
+          t("{{name}}: this file type can't be attached; its path was inserted so the AI can open it.", { name })
+        );
+      }
+    } else if (unsupported) {
+      appendError(t("{{name}}: this file type can't be attached.", { name }));
+    } else {
+      setAttachmentError((current) => `${current} ${name}: local file path is unavailable.`);
+    }
+  }
+  ctx.insertAbsolutePaths(fallbackPaths);
+}
+
 export function useComposerAttachments({
   draftRef,
   setDraft,
@@ -236,103 +347,21 @@ export function useComposerAttachments({
   );
 
   const ingestFiles = useCallback(
-    async (files: File[], sourcePaths: ReadonlyMap<File, string> | undefined, abandoned: () => boolean) => {
-      if (abandoned()) {
-        reportDroppedFiles(files);
-        return;
-      }
-      setAttachmentError('');
-      const fallbackPaths: string[] = [];
-      const appendError = (message: string) =>
-        setAttachmentError((current) => [current, message].filter(Boolean).join('\n'));
-      let list = files;
-      // A server window's sessions cannot reach this PC's disk: a file from
-      // this PC first uploads into the server's staging folder, and its server
-      // path then stands in wherever a local window would use the local path.
-      // Files read from the server itself (they carry a source path) stay put.
-      const serverWindow = isSshConnectionWindow();
-      const serverPaths = new Map<File, string>();
-      if (serverWindow) {
-        const fromThisPc = list.filter((file) => !sourcePaths?.has(file));
-        if (fromThisPc.length) {
-          const { uploaded, errors } = await uploadFilesToServer(fromThisPc, serverUploadScope(recoveryScope));
-          if (abandoned()) {
-            reportDroppedFiles(list);
-            return;
-          }
-          for (const [file, entry] of uploaded) serverPaths.set(file, entry.absolutePath);
-          for (const message of errors) appendError(message);
-          list = list.filter((file) => sourcePaths?.has(file) || serverPaths.has(file));
-        }
-      }
-      for (const [index, file] of list.entries()) {
-        if (abandoned()) {
-          reportDroppedFiles(list.slice(index));
-          return;
-        }
-        let unsupported = false;
-        try {
-          if (attachmentsRef.current.length >= MAX_COMPOSER_ATTACHMENTS) {
-            throw new Error(`Attach up to ${MAX_COMPOSER_ATTACHMENTS} items at a time.`);
-          }
-          const inline = await attachmentFromFile(file, {
-            id: attachmentSequence.current++,
-            cancelled: abandoned,
-          });
-          if (!inline || abandoned()) {
-            reportDroppedFiles(list.slice(index));
-            return;
-          }
-          // The model sees the (possibly downscaled) inline image; the note
-          // names the uploaded original the agent can open on the server.
-          const serverPath = serverPaths.get(file);
-          const attachment =
-            serverPath && inline.kind === 'image'
-              ? {
-                  ...inline,
-                  metadataText: [inline.metadataText, `[Uploaded to the server: ${serverPath}]`]
-                    .filter(Boolean)
-                    .join('\n'),
-                }
-              : inline;
-          if (insertAttachment(attachment)) continue;
-        } catch (reason) {
-          if (abandoned()) {
-            reportDroppedFiles(list.slice(index));
-            return;
-          }
-          if (reason instanceof RejectedComposerFileError) {
-            appendError(reason.message);
-            continue;
-          }
-          if (reason instanceof UnsupportedComposerFileError) {
-            unsupported = true;
-          } else {
-            setAttachmentError(reason instanceof Error ? reason.message : String(reason));
-          }
-        }
-        const name = file.name || 'Pasted file';
-        // Native selections retain their OS path; materialized internal drops
-        // need the source path carried separately from their in-memory File.
-        const path =
-          sourcePaths?.get(file) ||
-          serverPaths.get(file) ||
-          (serverWindow ? '' : window.mixdogDesktop?.folderPathForFile?.(file));
-        if (path) {
-          fallbackPaths.push(path);
-          if (unsupported) {
-            appendError(
-              t("{{name}}: this file type can't be attached; its path was inserted so the AI can open it.", { name })
-            );
-          }
-        } else if (unsupported) {
-          appendError(t("{{name}}: this file type can't be attached.", { name }));
-        } else {
-          setAttachmentError((current) => `${current} ${name}: local file path is unavailable.`);
-        }
-      }
-      insertAbsolutePaths(fallbackPaths);
-    },
+    (files: File[], sourcePaths: ReadonlyMap<File, string> | undefined, abandoned: () => boolean) =>
+      ingestComposerFiles(
+        {
+          attachmentsRef,
+          attachmentSequence,
+          recoveryScope,
+          setAttachmentError,
+          insertAttachment,
+          insertAbsolutePaths,
+          reportDroppedFiles,
+        },
+        files,
+        sourcePaths,
+        abandoned
+      ),
     [insertAbsolutePaths, insertAttachment, recoveryScope, reportDroppedFiles]
   );
 

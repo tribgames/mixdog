@@ -17,10 +17,6 @@ export { prewarmUtilityDockGitState } from './utility-dock-git-state';
 export type UtilityDockTab = DesktopUtilityDockTab;
 
 const MemoSourceControlDock = memo(SourceControlDock);
-/** One retained Dock layer. The provider is the bounded lifecycle signal every
- *  escaping body portal (menus, selects) and every background loader inside
- *  the pane subscribes to, so `inert` can never leave an interactive orphan
- *  attached to document.body. */
 function DockPane({ tab, active, children }: { tab: UtilityDockTab; active: boolean; children: ReactNode }) {
   return (
     <SurfaceActiveContext.Provider value={active}>
@@ -82,7 +78,6 @@ export const UtilityDock = memo(function UtilityDock({
   onRenameProjectEntry,
   sessions = [],
   sessionsReady = true,
-  activeSessionIds = [],
   selectedSessionId = '',
   unreadSessionIds,
   onPrefetchSession,
@@ -106,7 +101,6 @@ export const UtilityDock = memo(function UtilityDock({
   snapshot: Snapshot;
   sessions?: readonly DesktopSessionSummary[];
   sessionsReady?: boolean;
-  activeSessionIds?: readonly string[];
   /** The focused tab's session: the Agents pane marks its row selected. */
   selectedSessionId?: string;
   /** Recent-list unread sessions: the Agents pane shows their idle rows as
@@ -162,7 +156,7 @@ export const UtilityDock = memo(function UtilityDock({
     'source-control': `source-control:${dockProjectPath}`,
     'pull-requests': `pull-requests:${dockProjectPath}`,
   };
-  const { refreshDockGitStatus, gitSurfaceSelected, dockGitStatus, dockGitStatusReady, dockGitLoading, dockGitError } =
+  const { refreshDockGitStatus, gitSurfaceSelected, dockGitStatus, dockGitStatusReady, dockGitError } =
     useUtilityDockGit({ dockProjectPath, open, contentReady, tab });
   const [, setReadyPaneKeys] = useState<Partial<Record<UtilityDockTab, string>>>({});
   const setPaneReady = useCallback((pane: UtilityDockTab, key: string, ready: boolean) => {
@@ -195,14 +189,6 @@ export const UtilityDock = memo(function UtilityDock({
     reportBootSurfaceStage(metricSurface, tab, 'data');
   }, [contentReady, metricSurface, open, tab, selectedSurfaceDataReady]);
   const loadingLabel = utilityDockLoadingLabel(tab);
-  // Instant switching: a tab the user has
-  // actually opened keeps its layer mounted for the life of the dock, so a
-  // round trip re-presents the SAME DOM with its tree/SCM/PR expansion,
-  // scroll and draft state intact instead of rebuilding it. Layers mount
-  // lazily on first selection, so an unopened surface still allocates no DOM
-  // and starts no background reads; every retained-but-inactive layer is
-  // presentation-only (inert + aria-hidden) and passes active=false down, so
-  // no second surface polls, fetches or duplicates the active effects.
   const [committedTabs, setCommittedTabs] = useState<ReadonlySet<UtilityDockTab>>(() => new Set());
   const mountedTabs = useMemo(() => {
     if ((!open && !prewarm) || !contentReady || committedTabs.has(tab)) return committedTabs;
@@ -253,7 +239,6 @@ export const UtilityDock = memo(function UtilityDock({
                 showGroupActions={!showTitle}
                 sessions={sessions}
                 sessionsReady={sessionsReady}
-                activeSessionIds={activeSessionIds}
                 selectedSessionId={selectedSessionId}
                 headerActionSlot={showTitle && paneActive('agents') ? headerActionSlot : null}
                 unreadSessionIds={unreadSessionIds}
@@ -297,7 +282,6 @@ export const UtilityDock = memo(function UtilityDock({
                 projectSelect={null}
                 status={dockGitStatus}
                 statusReady={dockGitStatusReady}
-                loading={dockGitLoading}
                 statusError={dockGitError}
                 onRefreshStatus={refreshDockGitStatus}
                 headerSlot={null}
@@ -319,7 +303,6 @@ export const UtilityDock = memo(function UtilityDock({
                 projectPath={dockProjectPath}
                 status={dockGitStatus}
                 statusReady={dockGitStatusReady}
-                loading={dockGitLoading}
                 statusError={dockGitError}
                 onRefreshStatus={refreshDockGitStatus}
                 headerSlot={null}

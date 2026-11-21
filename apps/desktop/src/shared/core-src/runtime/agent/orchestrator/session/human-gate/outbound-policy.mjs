@@ -1,17 +1,3 @@
-// session/human-gate/outbound-policy.mjs
-// Which calls post, send or spend outside the machine and so need the user's
-// approval by default: PR comment and review, issue comment, email or message
-// send, social publish, form submit, payment or purchase, and a permanent
-// delete. Classified by name against a small explicit list, with the tool's
-// annotations: a known send name stays outbound whatever the tool declares;
-// any other tool that declares itself read-only is never outbound, and an MCP
-// tool may opt in with `outboundHint: true`. Browser form submits are
-// confirmed by the desktop browser host itself (main/browser/action-approval.ts),
-// so `browser` is not classified here.
-//
-// The category is the "action kind" a remembered grant is keyed by (agent +
-// kind). Payments and permanent deletes are never remembered.
-
 /** Every action kind, in the order the profile's permission table lists them. */
 export const ACTION_KINDS = Object.freeze([
   'comment',
@@ -23,25 +9,12 @@ export const ACTION_KINDS = Object.freeze([
   'payment',
   'delete',
   'trash',
-  // Browser Use gated actions (main/browser/action-approval.ts): a form
-  // submit / Enter, a click on a send or post control, and a file upload. They
-  // are not classified here (the desktop browser host asks); only their grants
-  // live in this store. Operator-confirmed actions
-  // (MIXDOG_BROWSER_CONFIRM_ACTIONS) have no kind: they always ask.
   'browser_submit',
   'browser_post',
   'browser_upload',
 ]);
 const UNREMEMBERED_ACTIONS = new Set(['payment', 'delete']);
 
-// A hook's own `ask` on a call that is no classified send or post (a coding
-// Lead's shell or edit, any tool a hook rule names) is remembered per TOOL, never per
-// argument: the grant key is `tool:<the tool's name as it will run>`, so one
-// answer covers that tool and nothing else — not another tool, and not a
-// payment or permanent delete (the gate never keys those, gate.mjs). What
-// asked is a PreToolUse hook the user configured (a handler or a rule file
-// entry); its decision carries only `ask` and a reason, so the hook itself
-// cannot be told apart and does not take part in the key.
 const TOOL_ACTION_PATTERN = /^tool:[A-Za-z0-9_.:-]{1,120}$/;
 const TOOL_ACTION_PREFIX = 'tool:';
 /** Tools whose approvals change what agents may do or are the user prompt

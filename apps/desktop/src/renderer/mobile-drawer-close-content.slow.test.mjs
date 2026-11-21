@@ -4,12 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// Closing the phone drawer: WorkbenchSidePanel closes semantically at once
-// (hidden/inert/aria-hidden) but, inside .sidebar-drawer-frame, stays
-// displayed (data-closing) until the frame's own transform transition ends, so
-// the content slides out with the sheet. The real component runs in headless
-// Chrome inside a frame that is re-rendered exactly as the drawer does.
-
 const ENTRY = `
   import React from 'react';
   import { flushSync } from 'react-dom';

@@ -45,11 +45,6 @@ export function useTabStripReveal({
     }
   }, [activeKey, availableWidth, stripRef, tabNodes, targetWidth]);
 
-  // The geometry reads run in the frame callback, not the commit: a layout
-  // effect forced a synchronous layout of the incoming pane inside the
-  // session-switch commit. The frame callback still precedes that frame's
-  // paint, so the revealed scroll position lands in the same frame, and its
-  // read reuses the layout the frame performs anyway.
   // biome-ignore lint/correctness/useExhaustiveDependencies: signature is the trigger that re-reveals when the tab set changes
   useLayoutEffect(() => {
     if (targetWidth === null || availableWidth <= 0) return undefined;

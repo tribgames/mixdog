@@ -717,7 +717,7 @@ export interface DesktopApi {
   listRemoteClientClaims?(): Promise<DesktopRemoteClientClaim[]>;
   resolveRemoteClientClaim?(claimId: string, approved: boolean): Promise<boolean>;
   /** A persisted transcript tail for paint only. Does not open or follow the session. */
-  previewSession?(sessionId: string): Promise<SessionSnapshot>;
+  previewSession?(sessionId: string): Promise<SessionSnapshot | null>;
   prefetchSession?(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
   /** A historical-position read (rows next to one row), outside the session's
    *  shared window: nothing is published. */
@@ -1137,8 +1137,6 @@ export interface DesktopApi {
   /** A session's shown page entered or left element fullscreen; the window is
    *  fullscreen meanwhile and the pane fills it. */
   onBrowserFullscreenChanged?(listener: (change: DesktopBrowserFullscreenChange) => void): () => void;
-  /** Local Chrome profile import into the isolated Browser Use partition.
-   *  Secrets stay in main/native processes; renderer receives metadata/counts. */
   /** A Browser Use submit/post/upload awaiting this person's one-time answer
    *  (shown as an in-app card), or `closed` once it is answered or expired. */
   onBrowserApproval?(

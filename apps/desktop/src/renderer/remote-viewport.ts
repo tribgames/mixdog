@@ -1,26 +1,3 @@
-// This device's view of a remote picture (a streamed page, or a whole PC
-// screen): pure math on the picture's size, the stage that shows it and the
-// stage's insets. Nothing here touches the DOM; callers measure, then render
-// `translate(x, y) scale(scale)` with the picture's top-left as the origin.
-//
-// Units: `picture` is in picture units (page CSS px, or host pixels), `stage`
-// and every offset in stage (CSS) px, and `scale` is stage px per picture
-// unit. A view's (x, y) is where the picture's top-left corner sits on the
-// stage.
-//
-// The rules:
-// - The first view fills one axis (the larger of the two fit ratios), so a
-//   landscape PC on a portrait phone fills the height and pans sideways.
-// - The smallest scale shows the whole picture (contain); no zoom goes below.
-// - The largest is REMOTE_VIEW_MAX_SCALE stage px per picture unit (or the
-//   fill scale, if that is larger).
-// - Offsets keep the scaled picture covering the visible area; an axis on
-//   which the picture is smaller than the stage is pinned to the centre.
-// - Insets (soft keyboard, safe areas) never change the scale: they shrink
-//   the visible area, the picture may be panned far enough to bring what lies
-//   under them into view (overpan), and once they go `relaxView` returns the
-//   view back inside the stage's own bounds.
-
 export type ViewPoint = { x: number; y: number };
 export type ViewSize = { width: number; height: number };
 export type ViewInsets = { top: number; right: number; bottom: number; left: number };

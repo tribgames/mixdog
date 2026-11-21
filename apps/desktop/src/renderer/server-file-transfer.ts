@@ -1,8 +1,3 @@
-// A server (ssh) window's file transfers, driven from the renderer so progress
-// and cancel stay with the UI: an upload streams one chunk per call into the
-// server's staging folder, a download pulls one ranged read per call into
-// this PC's download folder. Main validates and forwards each call over the
-// window's own connection.
 import type { DesktopApi, DesktopLocalPathEntry } from '../shared/contract';
 import { SERVER_UPLOAD_MAX_BYTES } from '../shared/server-files';
 import { t } from './i18n';

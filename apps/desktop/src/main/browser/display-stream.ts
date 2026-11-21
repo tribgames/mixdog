@@ -7,18 +7,71 @@ import type { BrowserScreenshotCapture } from './screenshot';
  *  enough to bridge consecutive polls, short enough to drop them promptly. */
 const STREAM_IDLE_MS = 2500;
 
+type Stream = {
+  key: string;
+  pixels?: { width: number; height: number };
+  latest?: NativeImage;
+  encoded?: BrowserScreenshotCapture;
+  waiting?: { resolve(image: NativeImage): void; reject(error: Error): void; promise: Promise<NativeImage> };
+  idle?: ReturnType<typeof setTimeout>;
+  close(): void;
+};
+
+function openStream(
+  streams: WeakMap<WebContents, Stream>,
+  guest: WebContents,
+  key: string,
+  pixels?: { width: number; height: number }
+): Stream {
+  const entry: Stream = {
+    key,
+    pixels,
+    close() {
+      clearTimeout(entry.idle);
+      guest.removeListener('paint', paint);
+      guest.removeListener('did-start-navigation', navigation);
+      guest.removeListener('destroyed', destroyed);
+      streams.delete(guest);
+      entry.latest = undefined;
+      entry.encoded = undefined;
+      entry.waiting?.reject(new Error('Browser display frame is not ready.'));
+      entry.waiting = undefined;
+    },
+  };
+  const paint = (_event: unknown, _dirty: unknown, image: NativeImage) => {
+    const size = image.getSize();
+    if (entry.pixels && (size.width !== entry.pixels.width || size.height !== entry.pixels.height)) {
+      // The compositor now paints another geometry (pane resize). A caller
+      // waiting for the old size would otherwise wait until its deadline;
+      // release it so the pane re-samples with the current geometry.
+      entry.waiting?.reject(new Error('Browser page changed during capture.'));
+      entry.waiting = undefined;
+      return;
+    }
+    entry.latest = image;
+    entry.encoded = undefined;
+    entry.waiting?.resolve(image);
+    entry.waiting = undefined;
+  };
+  const navigation = (_event: unknown, _url: string, _inPlace: boolean, main: boolean) => {
+    if (!main) return;
+    entry.key = '';
+    entry.latest = undefined;
+    entry.encoded = undefined;
+    entry.waiting?.reject(new Error('Browser page changed during capture.'));
+    entry.waiting = undefined;
+  };
+  const destroyed = () => entry.close();
+  guest.on('paint', paint);
+  guest.on('did-start-navigation', navigation);
+  guest.once('destroyed', destroyed);
+  streams.set(guest, entry);
+  return entry;
+}
+
 export function createBrowserDisplayStream(
   encode: (image: NativeImage) => BrowserScreenshotCapture | Promise<BrowserScreenshotCapture>
 ) {
-  type Stream = {
-    key: string;
-    pixels?: { width: number; height: number };
-    latest?: NativeImage;
-    encoded?: BrowserScreenshotCapture;
-    waiting?: { resolve(image: NativeImage): void; reject(error: Error): void; promise: Promise<NativeImage> };
-    idle?: ReturnType<typeof setTimeout>;
-    close(): void;
-  };
   const streams = new WeakMap<WebContents, Stream>();
   return Object.assign(sample, { release: (guest: WebContents) => streams.get(guest)?.close() });
   async function sample(
@@ -26,58 +79,11 @@ export function createBrowserDisplayStream(
     key: string,
     pixels?: { width: number; height: number }
   ): Promise<BrowserScreenshotCapture> {
-    let stream = streams.get(guest);
-    if (!stream) {
-      const entry: Stream = {
-        key,
-        pixels,
-        close() {
-          clearTimeout(entry.idle);
-          guest.removeListener('paint', paint);
-          guest.removeListener('did-start-navigation', navigation);
-          guest.removeListener('destroyed', destroyed);
-          streams.delete(guest);
-          entry.latest = undefined;
-          entry.encoded = undefined;
-          entry.waiting?.reject(new Error('Browser display frame is not ready.'));
-          entry.waiting = undefined;
-        },
-      };
-      const paint = (_event: unknown, _dirty: unknown, image: NativeImage) => {
-        const size = image.getSize();
-        if (entry.pixels && (size.width !== entry.pixels.width || size.height !== entry.pixels.height)) {
-          // The compositor now paints another geometry (pane resize). A caller
-          // waiting for the old size would otherwise wait until its deadline;
-          // release it so the pane re-samples with the current geometry.
-          entry.waiting?.reject(new Error('Browser page changed during capture.'));
-          entry.waiting = undefined;
-          return;
-        }
-        entry.latest = image;
-        entry.encoded = undefined;
-        entry.waiting?.resolve(image);
-        entry.waiting = undefined;
-      };
-      const navigation = (_event: unknown, _url: string, _inPlace: boolean, main: boolean) => {
-        if (!main) return;
-        entry.key = '';
-        entry.latest = undefined;
-        entry.encoded = undefined;
-        entry.waiting?.reject(new Error('Browser page changed during capture.'));
-        entry.waiting = undefined;
-      };
-      const destroyed = () => entry.close();
-      guest.on('paint', paint);
-      guest.on('did-start-navigation', navigation);
-      guest.once('destroyed', destroyed);
-      streams.set(guest, entry);
-      stream = entry;
-    }
+    const stream = streams.get(guest) ?? openStream(streams, guest, key, pixels);
     clearTimeout(stream.idle);
     // No pane reads means no retained pixels or display listeners. Do not
     // stop Chromium painting: independent agent observations still need it.
-    const live = stream;
-    stream.idle = setTimeout(() => live.close(), STREAM_IDLE_MS);
+    stream.idle = setTimeout(() => stream.close(), STREAM_IDLE_MS);
     stream.idle.unref();
     if (stream.key !== key) {
       stream.key = key;

@@ -158,10 +158,6 @@ const replyCache = new RendererLruCache<string, CachedReply>({
   maxChars: 2 * 1024 * 1024,
   measure: (value, key) => key.length + JSON.stringify(value).length,
 });
-// An idle drop keeps the most recently read replies. Clearing them all made
-// the first revisit of every session after an idle window wait on one
-// capability read per card on screen: an unread card marks its row pending
-// (TurnChangesCard), which holds the transcript's reveal.
 const TURN_CHANGES_IDLE_RETAINED_CHARS = 64 * 1024;
 registerIdleReclaim(() => {
   replyCache.trim(TURN_CHANGES_IDLE_RETAINED_CHARS);
@@ -223,10 +219,6 @@ export function resetTurnChangesCache() {
   epochs.clear();
 }
 
-/** The card's reply: cached when this boundary/epoch already answered, else
- *  fetched once mounted; `pending` retries with bounded backoff. `unread` is
- *  true until the first read answers (or fails, or reports `pending`): the
- *  card's final height is not known yet. */
 export function useTurnChanges({
   sessionId,
   checkpointId,
@@ -352,11 +344,6 @@ export function visibleTurnChangeRows(files: readonly TurnChangesFile[], expande
   };
 }
 
-/** A file's identity: its full path resolved against the record's root (a
- *  changed file is root-relative, a visualized target is root-relative or
- *  absolute), separators and `.`/`..` normalized, and case-folded on drive
- *  paths (Windows). Two names are one file only when these are equal, so
- *  `index.html` is never `site/index.html`. */
 export function fileIdentity(root: string, path: string): string {
   const clean = (value: string) => value.replace(/\\/g, '/');
   let full = clean(path);

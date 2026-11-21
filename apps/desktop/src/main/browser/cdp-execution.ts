@@ -39,10 +39,8 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
   /** Commands in flight per child session, settled when that session ends. */
   const inFlight = new WeakMap<WebContents, Map<string, Set<(error: Error) => void>>>();
 
-  /** A child target detached: its frame was removed or replaced, so nothing
-   *  of its document can still run. Chromium never answers a command that was
-   *  in flight on it (the reply only comes once the whole page is destroyed),
-   *  which would hold the fence on this page forever; settle those here. */
+  /** Chromium never answers a command in flight on a detached child target;
+   *  settle those here or the page fence never lifts. */
   function endSession(guest: WebContents, sessionId: string): void {
     const sessions = inFlight.get(guest);
     const pending = sessions?.get(sessionId);

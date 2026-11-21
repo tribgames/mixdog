@@ -469,9 +469,17 @@ export class ComputerUseCoordinator {
         windowIds: exactWindowIds,
       };
     }
+    return await this.queueTargetLease(sessionId, exactWindowIds, waitMs, queuePosition);
+  }
 
+  private queueTargetLease(
+    sessionId: string,
+    exactWindowIds: string[],
+    waitMs: number,
+    queuePosition: number
+  ): Promise<TargetLeaseResult> {
     const enqueuedAt = this.now();
-    return await new Promise<TargetLeaseResult>((resolve) => {
+    return new Promise<TargetLeaseResult>((resolve) => {
       const request: PendingTargetLease = {
         id: ++this.leaseSequence,
         sessionId,
@@ -677,11 +685,6 @@ export class ComputerUseCoordinator {
     return true;
   }
 
-  /**
-   * A cleanup barrier that cleared on its own was a matter of timing, not a
-   * takeover in its own right. The interruption underneath it owns the reason
-   * again, so an ordinary one can still resume the way it always could.
-   */
   restoreTakeoverReason(reason: string): void {
     if (!this.userControlActive || !reason || this.takeoverReason === reason) return;
     this.takeoverReason = reason;

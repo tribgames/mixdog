@@ -119,55 +119,11 @@ function answer(prompt: BrowserApprovalPrompt, decision: 'once' | 'session' | 'a
   void window.mixdogDesktop?.browserApprovalDecide?.(prompt.id, decision, reason || undefined);
 }
 
-/** A Browser Use submit, post or upload as the approval card: allow once,
- *  allow always (this bot, these kinds of step; undone in the bot's profile),
- *  or deny (one click, no reason). Operator-confirmed actions
- *  only ever ask once. The page and target stay on the card: a standing allow
- *  is per kind, not per site. */
-export function BrowserApprovalCard({ prompt, queueLabel }: { prompt: BrowserApprovalPrompt; queueLabel?: string }) {
-  const requester = prompt.requester || prompt.sessionId;
+/** The page, the target and what is sent: the upload's receiving site and files, or the paths touched. */
+function BrowserApprovalPreview({ prompt }: { prompt: BrowserApprovalPrompt }) {
   const files = prompt.files ?? [];
   const page = prompt.origin || prompt.url;
-  // An unconfirmed receiver or a file from outside the project: allowing takes a click.
-  const risky = (files.length > 0 && !prompt.receiverOrigin) || files.some((file) => file.outside);
-  const kind = prompt.remember?.kinds[0];
-  let title = t('Allow this action?');
-  if (prompt.payment) title = actionQuestion('payment');
-  else if (files.length) title = actionQuestion('browser_upload');
-  else if (kind && KIND_ACTION[kind]) title = actionQuestion(KIND_ACTION[kind]);
-  // The tooltips: what "Always allow" changes, and why an allow takes a click.
-  const riskNote = risky ? t('This is not confirmed, so allowing takes a click; Enter does not allow.') : '';
-  const scope = prompt.remember ? alwaysAllowNote(requester, prompt.remember.kinds) : '';
-  const buttons: ApprovalButton[] = [
-    { label: t('Deny'), deny: true },
-    ...(prompt.remember?.session
-      ? [
-          {
-            label: t('Allow for this conversation'),
-            hint: [sessionAllowNote(requester, prompt.remember.kinds), riskNote].filter(Boolean).join(' '),
-            always: true,
-            onClick: () => answer(prompt, 'session'),
-          },
-        ]
-      : []),
-    ...(prompt.remember
-      ? [
-          {
-            label: t('Always allow'),
-            hint: [scope, riskNote].filter(Boolean).join(' '),
-            onClick: () => answer(prompt, 'always'),
-          },
-        ]
-      : []),
-    {
-      label: t('Allow just once'),
-      tone: 'primary' as const,
-      hint: riskNote || undefined,
-      onClick: () => answer(prompt, 'once'),
-    },
-  ];
-  const surface = surfaceOf(prompt);
-  const preview = (
+  return (
     <>
       <div className="approval-preview-row">
         <PixelIcon name="globe" />
@@ -226,6 +182,56 @@ export function BrowserApprovalCard({ prompt, queueLabel }: { prompt: BrowserApp
       )}
     </>
   );
+}
+
+/** A Browser Use submit, post or upload as the approval card: allow once,
+ *  allow always (this bot, these kinds of step; undone in the bot's profile),
+ *  or deny (one click, no reason). Operator-confirmed actions
+ *  only ever ask once. The page and target stay on the card: a standing allow
+ *  is per kind, not per site. */
+export function BrowserApprovalCard({ prompt, queueLabel }: { prompt: BrowserApprovalPrompt; queueLabel?: string }) {
+  const requester = prompt.requester || prompt.sessionId;
+  const files = prompt.files ?? [];
+  // An unconfirmed receiver or a file from outside the project: allowing takes a click.
+  const risky = (files.length > 0 && !prompt.receiverOrigin) || files.some((file) => file.outside);
+  const kind = prompt.remember?.kinds[0];
+  let title = t('Allow this action?');
+  if (prompt.payment) title = actionQuestion('payment');
+  else if (files.length) title = actionQuestion('browser_upload');
+  else if (kind && KIND_ACTION[kind]) title = actionQuestion(KIND_ACTION[kind]);
+  // The tooltips: what "Always allow" changes, and why an allow takes a click.
+  const riskNote = risky ? t('This is not confirmed, so allowing takes a click; Enter does not allow.') : '';
+  const scope = prompt.remember ? alwaysAllowNote(requester, prompt.remember.kinds) : '';
+  const buttons: ApprovalButton[] = [
+    { label: t('Deny'), deny: true },
+    ...(prompt.remember?.session
+      ? [
+          {
+            label: t('Allow for this conversation'),
+            hint: [sessionAllowNote(requester, prompt.remember.kinds), riskNote].filter(Boolean).join(' '),
+            always: true,
+            onClick: () => answer(prompt, 'session'),
+          },
+        ]
+      : []),
+    ...(prompt.remember
+      ? [
+          {
+            label: t('Always allow'),
+            hint: [scope, riskNote].filter(Boolean).join(' '),
+            onClick: () => answer(prompt, 'always'),
+          },
+        ]
+      : []),
+    {
+      label: t('Allow just once'),
+      tone: 'primary' as const,
+      hint: riskNote || undefined,
+      onClick: () => answer(prompt, 'once'),
+    },
+  ];
+  const surface = surfaceOf(prompt);
+  const preview = <BrowserApprovalPreview prompt={prompt} />;
   return (
     <ApprovalPrompt
       title={title}

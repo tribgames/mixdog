@@ -118,55 +118,21 @@ export function BrowserPagePrompts({
           <div className="mx-dialog-body">
             {asking && !devices ? <div>{body}</div> : <p>{body}</p>}
             {devices && dialog && (
-              <>
-                {devices.length ? (
-                  <fieldset className="browser-device-list">
-                    <legend>{t('Device to connect')}</legend>
-                    {devices.map((device) => (
-                      <label key={device.id}>
-                        <input
-                          type="radio"
-                          name={`browser-device-${dialog.id}`}
-                          checked={picked === device.id}
-                          disabled={busy}
-                          onChange={() => setPick({ prompt: dialog.id, device: device.id })}
-                        />
-                        <span>{device.name || t('Unknown device')}</span>
-                      </label>
-                    ))}
-                  </fieldset>
-                ) : (
-                  <p className="browser-device-empty mx-empty-state">
-                    {t('No devices to connect. Connect a device to this PC and it appears here.')}
-                  </p>
-                )}
-                {picked && (
-                  <p className="browser-device-note">
-                    {t('Only this device is connected to this site, until the app quits.')}
-                  </p>
-                )}
-              </>
+              <DeviceChooser
+                promptId={dialog.id}
+                devices={devices}
+                picked={picked}
+                busy={busy}
+                onPick={(device) => setPick({ prompt: dialog.id, device })}
+              />
             )}
             {asking && !devices && (
-              <label className="browser-permission-remember">
-                <span>{t('Remember')}</span>
-                <select
-                  value={remember}
-                  disabled={busy}
-                  onChange={(event) => setKeep({ prompt: dialog.id, value: event.target.value as '' | 'site' | 'all' })}
-                >
-                  <option value="">{t('Until the app quits')}</option>
-                  <option value="site" disabled={siteListFull}>
-                    {t('For this site')}
-                  </option>
-                  <option value="all">{t('For all sites')}</option>
-                </select>
-                {siteListFull && (
-                  <small className="browser-permission-remember-note" role="status">
-                    {t('Site list full ({{max}}) — remove sites in Settings', { max: BROWSER_PERMISSION_MAX_SITES })}
-                  </small>
-                )}
-              </label>
+              <RememberPermission
+                value={remember}
+                siteListFull={siteListFull}
+                busy={busy}
+                onChange={(value) => setKeep({ prompt: dialog.id, value })}
+              />
             )}
             {dialog.type === 'prompt' && (
               <input
@@ -208,34 +174,112 @@ export function BrowserPagePrompts({
         </>
       ) : (
         chooser && (
-          <>
-            <header>
-              <h3>{t('Choose files')}</h3>
-            </header>
-            <footer>
-              <button type="button" disabled={busy} onClick={dismiss}>
-                {t('Cancel')}
-              </button>
-              <button
-                type="button"
-                className="primary"
-                disabled={busy}
-                onClick={() =>
-                  void answer({
-                    type: 'choose-files',
-                    requestId: chooser.id,
-                  })
-                }
-                // biome-ignore lint/a11y/noAutofocus: a file-chooser dialog must put focus on its default action
-                autoFocus
-              >
-                {t('Choose files')}
-              </button>
-            </footer>
-          </>
+          <FileChooserCard
+            busy={busy}
+            onCancel={dismiss}
+            onChoose={() => void answer({ type: 'choose-files', requestId: chooser.id })}
+          />
         )
       )}
     </section>
+  );
+}
+
+function DeviceChooser({
+  promptId,
+  devices,
+  picked,
+  busy,
+  onPick,
+}: {
+  promptId: string;
+  devices: readonly { id: string; name?: string }[];
+  picked: string | undefined;
+  busy: boolean;
+  onPick(deviceId: string): void;
+}) {
+  return (
+    <>
+      {devices.length ? (
+        <fieldset className="browser-device-list">
+          <legend>{t('Device to connect')}</legend>
+          {devices.map((device) => (
+            <label key={device.id}>
+              <input
+                type="radio"
+                name={`browser-device-${promptId}`}
+                checked={picked === device.id}
+                disabled={busy}
+                onChange={() => onPick(device.id)}
+              />
+              <span>{device.name || t('Unknown device')}</span>
+            </label>
+          ))}
+        </fieldset>
+      ) : (
+        <p className="browser-device-empty mx-empty-state">
+          {t('No devices to connect. Connect a device to this PC and it appears here.')}
+        </p>
+      )}
+      {picked && (
+        <p className="browser-device-note">{t('Only this device is connected to this site, until the app quits.')}</p>
+      )}
+    </>
+  );
+}
+
+function RememberPermission({
+  value,
+  siteListFull,
+  busy,
+  onChange,
+}: {
+  value: '' | 'site' | 'all';
+  siteListFull: boolean;
+  busy: boolean;
+  onChange(value: '' | 'site' | 'all'): void;
+}) {
+  return (
+    <label className="browser-permission-remember">
+      <span>{t('Remember')}</span>
+      <select value={value} disabled={busy} onChange={(event) => onChange(event.target.value as '' | 'site' | 'all')}>
+        <option value="">{t('Until the app quits')}</option>
+        <option value="site" disabled={siteListFull}>
+          {t('For this site')}
+        </option>
+        <option value="all">{t('For all sites')}</option>
+      </select>
+      {siteListFull && (
+        <small className="browser-permission-remember-note" role="status">
+          {t('Site list full ({{max}}) — remove sites in Settings', { max: BROWSER_PERMISSION_MAX_SITES })}
+        </small>
+      )}
+    </label>
+  );
+}
+
+function FileChooserCard({ busy, onCancel, onChoose }: { busy: boolean; onCancel(): void; onChoose(): void }) {
+  return (
+    <>
+      <header>
+        <h3>{t('Choose files')}</h3>
+      </header>
+      <footer>
+        <button type="button" disabled={busy} onClick={onCancel}>
+          {t('Cancel')}
+        </button>
+        <button
+          type="button"
+          className="primary"
+          disabled={busy}
+          onClick={onChoose}
+          // biome-ignore lint/a11y/noAutofocus: a file-chooser dialog must put focus on its default action
+          autoFocus
+        >
+          {t('Choose files')}
+        </button>
+      </footer>
+    </>
   );
 }
 

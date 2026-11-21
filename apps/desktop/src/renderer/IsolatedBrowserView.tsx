@@ -102,10 +102,6 @@ export const IsolatedBrowserView = forwardRef<
   }, [client, sessionId, canvasId]);
   const input = useBrowserPageInput(client, image, keyboard);
 
-  // The host hears when this pane starts and stops reading the session's
-  // pages, ahead of the reads below: opening asks for its page (the blank
-  // start page if it has none), and closing confirms a fold of a panel whose
-  // last page went away.
   useEffect(() => {
     if (!active) return undefined;
     const pane = String(++nextPaneActivation);
@@ -184,14 +180,8 @@ export const IsolatedBrowserView = forwardRef<
     };
   }, [active, client, presentation]);
 
-  // Native presentation follows the surface: its place in the window, the
-  // page the session currently shows, and whether the shell draws anything
-  // over it. A native page always paints above the shell, so any overlap
-  // (menus, suggestions, prompts, notices) parks it and the pixel display
-  // takes over until the surface is clear again. The check runs in the next
-  // frame after anything that can move or cover the surface — a shell DOM
-  // change, a resize, a scroll, a new page frame — never every frame, which
-  // at a 165 Hz display alone kept the shell and GPU busy on a static page.
+  // A native page always paints above the shell, so any shell overlap parks it and the pixel display takes over.
+  // The overlap check runs on change events, not every frame: at 165 Hz that alone kept the shell and GPU busy on a static page.
   useEffect(() => {
     const present = window.mixdogDesktop?.browserPresentNative;
     if (!active || !native || !present) return undefined;

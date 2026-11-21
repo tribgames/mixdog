@@ -1,8 +1,4 @@
-/**
- * The error codes of the browser engine host lane (`host/browser/*`), the
- * same numbers as `BROWSER_ENGINE_ERR_*` in mixdog-app-protocol
- * `v2/browser_engine.rs`, and the constructors of the errors that carry data.
- */
+/** The same numbers as `BROWSER_ENGINE_ERR_*` in mixdog-app-protocol `v2/browser_engine.rs`. */
 import type { PageFacts } from '../../../../../../packages/protocol/src/index.ts';
 import { HOST_COMMAND_FAILED, HostRpcError } from '../connection';
 

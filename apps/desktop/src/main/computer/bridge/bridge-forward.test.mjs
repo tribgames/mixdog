@@ -290,6 +290,29 @@ test('the saved-login owner is attached with its process and detached once when 
   assert.deepEqual(idle.calls, []);
 });
 
+test('after its connection closes the owner is detached in the core, also while ordinary requests are saturating it', async () => {
+  const owners = new Set();
+  let saturated = false;
+  const core = fakeCore(async ({ command: sent }) => {
+    if (sent.action === 'owner_detach') {
+      owners.delete(sent.runtime_id);
+      return { ok: true, value: { text: 'detached' } };
+    }
+    if (saturated) return { ok: false, status: 429, error: 'computer_capacity_exhausted: too many active requests' };
+    if (sent.action === 'owner_attach') owners.add(sent.runtime_id);
+    return { ok: true, value: { text: 'done' } };
+  });
+  const { handle } = bridge({ core });
+  const response = responseOf();
+  handle(requestOf({ url: '/owner', body: JSON.stringify({ runtime_id: 'owner-3', pid: 9 }) }), response);
+  await settle();
+  assert.deepEqual([...owners], ['owner-3']);
+  saturated = true;
+  response.emit('close');
+  await settle();
+  assert.deepEqual([...owners], []);
+});
+
 test('a connection that closes while its owner is being attached detaches at once and is never answered', async () => {
   let release;
   const gate = new Promise((resolve) => (release = resolve));

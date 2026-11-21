@@ -4,6 +4,7 @@ import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join } from 'node:path';
 import { sleep } from '../shared/common';
 import { startManagedFixture } from './reliability-fixtures';
+import { windowIdWhere } from './window-listing';
 import {
   childPid,
   directory,
@@ -169,12 +170,7 @@ export async function nativeObservationSoak(ctx: ReliabilityContext): Promise<Sc
 
 export async function winuiForegroundInvoke(ctx: ReliabilityContext): Promise<ScenarioOutcome> {
   const { command, ownedWindow, holdForeground } = ctx;
-  // Paint is a packaged WinUI 3 app that raises itself when its controls
-  // are invoked; the sentinel stands in for the window the user works in.
-  // The user's window must belong to another process: Windows lets an app
-  // raise itself over this host's own windows less readily than over the
-  // app the user actually works in, which hid the steal from an in-process
-  // sentinel.
+  // Windows lets an app raise itself over this host's own windows less readily than over another process's, so the user's window must be a separate process.
   const user = spawn(nativeFixturePath(), [], { windowsHide: false });
   const userWindow = await ownedWindow(childPid(user));
   const launched = payload(await command({ action: 'launch', app: 'mspaint.exe' }, 'winui-foreground'));
@@ -185,10 +181,9 @@ export async function winuiForegroundInvoke(ctx: ReliabilityContext): Promise<Sc
   }
   const focusedWindow = async () =>
     String(
-      (await command({ action: 'list_windows' }, 'winui-foreground')).text
-        .split(/\r?\n/)
-        .find((line) => / focused(\s|$)/.test(line))
-        ?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || ''
+      windowIdWhere((await command({ action: 'list_windows' }, 'winui-foreground')).text, (line) =>
+        / focused(\s|$)/.test(line)
+      )
     ).toLowerCase();
   try {
     await holdForeground(userWindow.id, 'winui-user');
@@ -267,10 +262,9 @@ export async function explorerRename(ctx: ReliabilityContext): Promise<void> {
   const leaf = basename(folder);
   const explorerId = await eventually(
     async () =>
-      (await command({ action: 'list_windows' }, 'explorer-rename')).text
-        .split(/\r?\n/)
-        .find((line) => line.includes(`"${leaf}`))
-        ?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '',
+      windowIdWhere((await command({ action: 'list_windows' }, 'explorer-rename')).text, (line) =>
+        line.includes(`"${leaf}`)
+      ),
     Boolean
   );
   try {

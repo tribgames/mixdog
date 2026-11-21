@@ -30,6 +30,86 @@ function markerSeverity(severity: number): monaco.MarkerSeverity {
   return monaco.MarkerSeverity.Info;
 }
 
+/** Takes the language store's server state and LSP problems for this file into
+ *  the model: the LSP state, and the `mixdog-lsp` markers when they changed. */
+function applyLanguageStoreToModel({
+  projectPath,
+  relPath,
+  model,
+  acceptLspState,
+  lspMarkerSignature,
+}: {
+  projectPath: string;
+  relPath: string;
+  model: EditorModel;
+  acceptLspState(state: DesktopLspServerState, languageId: string): void;
+  lspMarkerSignature: RefObject<string>;
+}): void {
+  const languageSnapshot = getEditorLanguageSnapshot();
+  const comparableRelPath = relPath.replace(/\\/g, '/').toLocaleLowerCase();
+  const comparableProjectPath = projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase();
+  const status =
+    languageSnapshot.statuses.find(
+      (candidate) =>
+        candidate.projectPath === projectPath &&
+        candidate.languageId === model.getLanguageId() &&
+        candidate.relPath?.replace(/\\/g, '/').toLocaleLowerCase() === comparableRelPath
+    ) ??
+    languageSnapshot.statuses.find(
+      (candidate) =>
+        candidate.projectPath === projectPath && candidate.languageId === model.getLanguageId() && !candidate.relPath
+    );
+  if (status) acceptLspState(status, model.getLanguageId());
+  const problems = languageSnapshot.problems.filter(
+    (problem) =>
+      problem.origin === 'lsp' &&
+      problem.projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase() === comparableProjectPath &&
+      problem.relPath.replace(/\\/g, '/').toLocaleLowerCase() === comparableRelPath
+  );
+  const signature = JSON.stringify(
+    problems.map((problem) => [
+      problem.severity,
+      problem.message,
+      problem.startLineNumber,
+      problem.startColumn,
+      problem.endLineNumber,
+      problem.endColumn,
+    ])
+  );
+  if (signature === lspMarkerSignature.current) return;
+  lspMarkerSignature.current = signature;
+  monaco.editor.setModelMarkers(
+    model,
+    'mixdog-lsp',
+    problems.map((problem) => ({
+      severity: markerSeverity(problem.severity),
+      message: problem.message,
+      source: problem.source,
+      code: problem.code || undefined,
+      startLineNumber: problem.startLineNumber,
+      startColumn: problem.startColumn,
+      endLineNumber: problem.endLineNumber,
+      endColumn: problem.endColumn,
+    }))
+  );
+}
+
+/** In an ANSI output file, copying a selection puts its visible text (the
+ *  escape sequences removed) on the clipboard. */
+function copyRenderedAnsiOnCopy(editor: Editor, model: EditorModel, relPath: string): Disposable {
+  const editorNode = editor.getDomNode();
+  const copyRenderedAnsi = (event: ClipboardEvent) => {
+    if (!isAnsiOutputPath(relPath) || !event.clipboardData) return;
+    const selections = editor.getSelections() ?? [];
+    const raw = selections.map((selection) => model.getValueInRange(selection)).join('\n');
+    if (!raw.includes('\x1b[')) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', visibleEditorAnsiText(raw));
+  };
+  editorNode?.addEventListener('copy', copyRenderedAnsi, true);
+  return { dispose: () => editorNode?.removeEventListener('copy', copyRenderedAnsi, true) };
+}
+
 export function useEditorModelBinding({
   projectPath,
   relPath,
@@ -94,57 +174,8 @@ export function useEditorModelBinding({
       graphContextsByModel.set(model.uri.toString(), graphContextRef);
       graphContextsByEditor.set(editor, graphContextRef);
       ensureGraphProviders(model.getLanguageId());
-      const syncLanguageState = () => {
-        const languageSnapshot = getEditorLanguageSnapshot();
-        const comparableRelPath = relPath.replace(/\\/g, '/').toLocaleLowerCase();
-        const comparableProjectPath = projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase();
-        const status =
-          languageSnapshot.statuses.find(
-            (candidate) =>
-              candidate.projectPath === projectPath &&
-              candidate.languageId === model.getLanguageId() &&
-              candidate.relPath?.replace(/\\/g, '/').toLocaleLowerCase() === comparableRelPath
-          ) ??
-          languageSnapshot.statuses.find(
-            (candidate) =>
-              candidate.projectPath === projectPath &&
-              candidate.languageId === model.getLanguageId() &&
-              !candidate.relPath
-          );
-        if (status) acceptLspState(status, model.getLanguageId());
-        const problems = languageSnapshot.problems.filter(
-          (problem) =>
-            problem.origin === 'lsp' &&
-            problem.projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase() === comparableProjectPath &&
-            problem.relPath.replace(/\\/g, '/').toLocaleLowerCase() === comparableRelPath
-        );
-        const signature = JSON.stringify(
-          problems.map((problem) => [
-            problem.severity,
-            problem.message,
-            problem.startLineNumber,
-            problem.startColumn,
-            problem.endLineNumber,
-            problem.endColumn,
-          ])
-        );
-        if (signature === lspMarkerSignature.current) return;
-        lspMarkerSignature.current = signature;
-        monaco.editor.setModelMarkers(
-          model,
-          'mixdog-lsp',
-          problems.map((problem) => ({
-            severity: markerSeverity(problem.severity),
-            message: problem.message,
-            source: problem.source,
-            code: problem.code || undefined,
-            startLineNumber: problem.startLineNumber,
-            startColumn: problem.startColumn,
-            endLineNumber: problem.endLineNumber,
-            endColumn: problem.endColumn,
-          }))
-        );
-      };
+      const syncLanguageState = () =>
+        applyLanguageStoreToModel({ projectPath, relPath, model, acceptLspState, lspMarkerSignature });
       const unsubscribeStore = subscribeEditorLanguageStore(syncLanguageState);
       languageDisposables.current.push({ dispose: unsubscribeStore });
       syncLanguageState();
@@ -221,19 +252,7 @@ export function useEditorModelBinding({
       });
       languageDisposables.current.push(model.onDidChangeOptions(syncEditorFormat));
       languageDisposables.current.push(model.onDidChangeLanguage(syncEditorFormat));
-      const editorNode = editor.getDomNode();
-      const copyRenderedAnsi = (event: ClipboardEvent) => {
-        if (!isAnsiOutputPath(relPath) || !event.clipboardData) return;
-        const selections = editor.getSelections() ?? [];
-        const raw = selections.map((selection) => model.getValueInRange(selection)).join('\n');
-        if (!raw.includes('\x1b[')) return;
-        event.preventDefault();
-        event.clipboardData.setData('text/plain', visibleEditorAnsiText(raw));
-      };
-      editorNode?.addEventListener('copy', copyRenderedAnsi, true);
-      languageDisposables.current.push({
-        dispose: () => editorNode?.removeEventListener('copy', copyRenderedAnsi, true),
-      });
+      languageDisposables.current.push(copyRenderedAnsiOnCopy(editor, model, relPath));
     },
     [
       acceptLspState,

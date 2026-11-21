@@ -35,10 +35,6 @@ export function createCaptureSources(
   /** Owned by the capture engine, which releases a session's entries with the session. */
   backendMemory: CaptureBackendMemory = createCaptureBackendMemory()
 ) {
-  /** The first backend in the plan that yields a checked surface wins, the
-   *  window's last winner leading the plan. A failure the next backend cannot
-   *  recover from, or an unconfirmed native release, ends the selection as
-   *  terminal. */
   async function select(
     input: CaptureSourceRequest
   ): Promise<{ surface?: Surface; unavailable?: PixelUnavailable; terminal: boolean }> {
@@ -59,10 +55,9 @@ export function createCaptureSources(
       if (geometryChanged && isNative(entry.backend)) continue;
       host.assertExecutionNotAborted();
       try {
-        const surface =
-          entry.backend === 'print_window' || entry.backend === 'wgc'
-            ? await entry.acquire()
-            : await attemptCapture(host, entry.backend, attempts, entry.acquire, check);
+        const surface = isNative(entry.backend)
+          ? await entry.acquire()
+          : await attemptCapture(host, entry.backend, attempts, entry.acquire, check);
         backendMemory.remember(memoryKey, entry.backend);
         return { surface, terminal: false };
       } catch (error) {
@@ -91,11 +86,6 @@ export function createCaptureSources(
             `exact ${sourceType} capture unavailable; ${entry.backend}: ${code}`
           );
         }
-        // A native surface that saw its window resize mid-capture says nothing
-        // about the compositor, which is checked against the target's geometry
-        // like any other frame. Another native backend would race the same
-        // resize, so only the compositor is tried; if it fails too, the
-        // geometry change is what is reported.
         if (
           code === 'capture_geometry_changed' &&
           entry.backend !== 'composited' &&

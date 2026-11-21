@@ -6,12 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// Settings and a confirm dialog (the scrim every `settings-confirm-layer`
-// dialog shares) on an iPhone: opened at phone viewports under an iOS user
-// agent (Chromium emulation; WebKit itself is not available here) with the
-// device's safe-area insets, each must close by its control and by a tap on
-// the scrim with NO mouse events delivered — iOS sends none for a plain div.
-// A press that starts inside the card and ends on the scrim must not close it.
 // Set MIXDOG_QA_DIR to keep the screenshots.
 
 const lazyChunkBoundary = {

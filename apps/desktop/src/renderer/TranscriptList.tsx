@@ -54,15 +54,7 @@ type TranscriptListProps = {
   surface?: TranscriptRowSurface;
 };
 
-/**
- * The virtualized transcript timeline.
- *
- * ONE instance per session (the caller keys it): entry geometry, measurement
- * cache, and scroll offset are all resolved at construction, so a session
- * paints at its final position on the first frame. Settled, live, pending, and
- * thinking rows share this list; bottom anchoring and reflow compensation are
- * owned by virtual-core.
- */
+/** The virtualized transcript timeline; one instance per session (the caller keys it). */
 export function TranscriptList({
   sessionKey,
   rows,
@@ -142,10 +134,6 @@ export function TranscriptList({
   // Where the timeline starts inside the scroll content (the thread's top
   // padding). Static CSS, read once on the first frame the pane has a box.
   const scrollInset = useRef(0);
-  // The virtual offset at the viewport's VISIBLE top: rows start `inset`
-  // below the scroll origin, so a row whose end lies within that strip is
-  // still on screen — never "above the reader" (deferred, left uncompensated
-  // as if unseen, or skipped as the reading anchor).
   const visibleTop = (instance: TranscriptVirtualizer) => logicalScrollOffset(instance) - scrollInset.current;
   const {
     pendingResizes,
@@ -246,12 +234,6 @@ export function TranscriptList({
   // The core's visible range (overscan excluded), current after the read above.
   const visible = virtualizer.range;
   useMarkdownPrefetch(rows, shown && visible ? visible.startIndex : -1, visible?.endIndex ?? -1);
-  // Each row's node, rendered once per (rows, renderRow): a row's step reads
-  // whether the rows around it paint anything. A list-internal render (the
-  // visible range moved) reuses the nodes and neighbour walks.
-  // A hidden pane keeps the spacer, measurements and scroll owner, not the
-  // nodes accumulated on the way to this range. Keep pinned live/question
-  // rows mounted: a question's unsubmitted picks live in its card.
   // biome-ignore lint/correctness/useExhaustiveDependencies: visibility starts a fresh node cache
   const rowNodes = useMemo(() => createTranscriptRowNodes(rows, renderRow), [rows, renderRow, shown]);
   // A zero-height viewport has no extracted range, even in the commit
@@ -290,11 +272,6 @@ function rowSteps(
   node: ReactNode,
   rowNodes: TranscriptRowNodes
 ) {
-  // A row that renders nothing (an agent chat's tool round or unfinished
-  // reply) takes no room and no step, and the row below it steps from the
-  // nearest row above that paints: stepping from the empty rows, every hidden
-  // tool round moved the agent's typing bubble 8px and the reply then landed
-  // 16px above it, so the thread shook while the reply was generated.
   const blank = paintsNothing(node);
   const above = rowNodes.paintedAbove(index);
   // Rows below that paint nothing (a reaction-only turn's tool round) do not
@@ -307,10 +284,6 @@ function rowSteps(
   // slot as the completion footer that replaces it (12-transcript.css): the
   // row above it takes no step, the band leads in itself.
   const leadsBand = (tag: TranscriptRowModel['_tag'] | undefined) => tag === 'AssistantPart' || tag === 'ToolActivity';
-  // The step after a reply part, tool card or error belongs to the row BELOW
-  // it. As the part's own bottom padding, appending the next row resized the
-  // settled part above it, and the new row was placed at the old size for a
-  // frame before jumping 8px (tool rounds shook the whole thread).
   const part = (tag: TranscriptRowModel['_tag'] | undefined) =>
     tag === 'AssistantPart' || tag === 'ToolActivity' || tag === 'Error';
   const bandLead = row._tag === 'Thinking' && leadsBand(previous);
@@ -341,23 +314,12 @@ function renderVirtualRow(
   // (transcript-list-estimates.ts).
   const variant = transcriptRowVariant(rows, virtualRow.index, waiting);
   return (
-    // A row binds position AND measurement to one element.
-    // Position and measurement therefore share the
-    // OUTER box here, so applyDirectStyles (elementsCache) moves exactly
-    // the element the ResizeObserver measures — in the same pre-paint
-    // transaction. The row keeps its natural content height; geometry
-    // corrections land before paint, so nothing is clipped a frame late.
     <div
       className="transcript-virtual-row"
       key={virtualRow.key}
       data-index={virtualRow.index}
       data-timeline-key={String(virtualRow.key)}
-      // Overscan and pinned rows outside the viewport hold their infinite
-      // loaders still (12-transcript.css). The core re-renders this list on
-      // every visible-range change, so the mark follows the reader's scroll
-      // without an IntersectionObserver: any observer in the document made
-      // Chromium run a main-thread frame on every vsync for as long as a
-      // compositor animation (spinner, shimmer) ran anywhere in the window.
+      // No IntersectionObserver: any observer in the document makes Chromium run a main-thread frame per vsync while a compositor animation runs.
       data-offscreen={offscreen ? 'true' : undefined}
       ref={measureRow}
     >

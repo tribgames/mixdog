@@ -1,7 +1,3 @@
-// State of the per-pane workspace tab strip (WorkspaceTabStrip.tsx): in-place
-// session rename, the tab menu's dismissal, the width the tab run may spend,
-// the close/enter motion beat, the phone's + tap feedback, and the native
-// drag gestures (reorder inside the strip; a drag below it splits or moves).
 import type React from 'react';
 import {
   type RefObject,
@@ -145,11 +141,6 @@ export function useTabRunWidth(
       width - (homeButton?.offsetWidth ?? 0) - (newButton?.offsetWidth ?? 0) - (trailingBox?.offsetWidth ?? 0);
     setStripAvailable((previous) => (previous === available ? previous : available));
   }, [shellNode]);
-  // A geometry change (window resize, a sidebar or dock moving the pane edge)
-  // re-fits the run in the frame the shell resized, without the glide: the
-  // observer's update is rendered synchronously, before that frame paints, and
-  // the strip's width transitions stay off for the beat. Left to React's
-  // scheduler the labels re-collapsed a frame or more after the pane snapped.
   const geometrySnapFrame = useRef(0);
   const observeWidths = useCallback(() => {
     const shell = shellNode.current;
@@ -173,10 +164,6 @@ export function useTabRunWidth(
     measureWidths();
     const observer = new ResizeObserver(observeWidths);
     observer.observe(shell);
-    // The trailing controls resize WITHOUT resizing the shell (a dock toggle
-    // appears, a status chip grows); observing the box itself replaces the
-    // old re-measure on every render that handed a fresh `trailing` node —
-    // which was every App render, each a forced layout inside the commit.
     const trailingBox = shell.querySelector<HTMLElement>(':scope > .workspace-tabs-trailing');
     if (trailingBox) observer.observe(trailingBox);
     return () => observer.disconnect();
@@ -190,18 +177,8 @@ export function useTabRunWidth(
   return stripAvailable;
 }
 
-/** Survivor widths follow the recalculated run immediately; the CSS width
- *  transition glides them instead of holding then jumping.
- *  A tab the strip has just lost stays mounted as a ghost for one motion beat,
- *  collapsing to nothing so its neighbours slide into the released space
- *  instead of jumping across it; a tab the strip has just gained lands whole
- *  in its own commit, the run taking its new cells at once for that beat
- *  (04-workspace-tabs.css), so it never overflows the strip and nothing
- *  slides afterwards. Both are derived during render from the previous tab list: the
- *  closing element is the very node that was open (its width transition
- *  starts from where it stands), and the entering mark is on the node when
- *  it is inserted. A same-length change (a draft promoted to its session)
- *  animates nothing — that is a replacement, not an add or a close. */
+/** The tabs to display: a closed tab stays as a ghost for one motion beat and a
+ *  gained tab is marked entering. A same-length change animates nothing. */
 export function useTabMotion(tabs: WorkspaceTab[], activeKey: string) {
   const previousTabs = useRef(tabs);
   const previousActiveKey = useRef(activeKey);
@@ -230,11 +207,8 @@ export function useTabMotion(tabs: WorkspaceTab[], activeKey: string) {
   return { displayTabs, enteringKeys };
 }
 
-/** Phone tap feedback for +: the pill names the new task on the tap itself
- *  while the navigation (a pane-wide render) commits as a transition behind
- *  it. The mark holds the tab that was active at the tap and ends when the
- *  active tab changes, or after a beat if the tap changed nothing. Returns
- *  whether the + was just tapped, and the + handler. */
+/** Whether the phone's + was just tapped (until the active tab changes or 800ms
+ *  pass), and the + handler; on the phone the navigation commits as a transition. */
 export function useNewTaskTap(mobile: boolean, activeKey: string, onNewTask: () => void): [boolean, () => void] {
   const [newTaskTappedFrom, setNewTaskTappedFrom] = useState<string | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the active tab changing is the settle trigger; the body does not read it

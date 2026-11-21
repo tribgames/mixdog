@@ -5,13 +5,9 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { usageSnapshot } from './test-support/usage-stats-fixture.mjs';
 
-// Vite gives every dynamic import its own chunk, so a surface only loads what
-// it opens. esbuild cannot code-split an `iife` bundle, so it inlines those
-// chunks instead — for this surface that dragged in the editor chunk, and with
-// it Monaco, 16MB of editor sources and Monaco's `?worker` imports, a Vite-only
-// suffix esbuild has no way to resolve. Holding the dynamic-import boundary
-// external reproduces the graph this surface really loads: token usage opens no
-// editor, and a lazy module it did need would surface as a renderer error.
+// esbuild cannot code-split an `iife` bundle and would inline the lazy chunks,
+// pulling in Monaco and its Vite-only `?worker` imports; external dynamic
+// imports match the graph Vite loads.
 const lazyChunkBoundary = {
   name: 'lazy-chunk-boundary',
   setup(pluginBuild) {
@@ -28,10 +24,8 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
       stdin: {
         resolveDir,
         loader: 'tsx',
-        // The inherit surface's model picker reaches TUI-shared modules that
-        // read \`process\` and \`import.meta.url\` at module scope. As in the
-        // renderer entries (main.tsx, bootstrap.tsx) the process shim loads
-        // first, and the URL is a chunk's, as Vite's ESM output gives it.
+        // TUI-shared modules read \`process\` and \`import.meta.url\` at module
+        // scope; the process shim loads first, as in the renderer entries.
         contents: `
           import "./process-shim";
           import React from "react";

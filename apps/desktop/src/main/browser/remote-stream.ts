@@ -99,11 +99,8 @@ export interface RemoteStream {
   /** The viewport the page is fitted to — a take-over's `fit`, or an explicit
    *  fit-client `resize-request`; null keeps the page's own geometry. */
   viewport: DesktopRemoteBrowserViewport | null;
-  /** Who decided the page's layout: nobody yet (`undecided`: the page as it
-   *  is, and a take-over's `fit` may still apply), a take-over (`takeover`:
-   *  its fit holds while any take-over subscribes, and is undone when the
-   *  last one leaves), or the person's explicit resize (`explicit`: kept for
-   *  the stream's life). */
+  /** `undecided`: the page as it is, a take-over's `fit` may still apply; `takeover`: its fit holds until the last
+   *  take-over leaves; `explicit`: the person's resize, kept for the stream's life. */
   layout: 'undecided' | 'takeover' | 'explicit';
   /** The fit the layout asked for could not be applied: the page keeps its
    *  own geometry, and frames say so (`fitFailed`) until the layout changes. */

@@ -201,10 +201,6 @@ export async function createRendererDelta({ root, baseManifest, deltaDir, manife
 
 export async function applyRendererDelta({ baseDir, deltaDir, manifest, outputDir, hardlinkBase = false }) {
   const target = validateRendererManifest(manifest);
-  // A delta reconstructs its target tree ONLY on top of the base it was built
-  // against. Without this gate a cached delta from an older release rebuilds
-  // that older renderer, and every downstream hash check — computed from the
-  // same reconstruction — happily confirms it.
   if (target.base) {
     const baseState = await buildRendererManifest(baseDir);
     if (baseState.treeHash !== target.base) {

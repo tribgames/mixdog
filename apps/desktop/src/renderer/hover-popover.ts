@@ -4,13 +4,7 @@ import type { FocusEvent, RefObject } from 'react';
 import { useMobileBack } from './mobile-back';
 import { touchPrimaryPointer } from './surface-input-focus';
 
-/** A detail card hangs a few px off the control that owns it, so a pointer on
- *  its way there leaves the control BEFORE it arrives. Closing on that first
- *  frame killed the card mid-trip — the transparent hover bridge only covers the trip that runs
- *  straight through the gap, and anything painted over the bridge, a diagonal
- *  path, or a card that flips sides all leave it. The close waits out this
- *  grace window instead, and a pointer that is back inside the slot when it
- *  expires keeps the card open. Geometry no longer decides. */
+/** Grace window before an unpinned card closes after the pointer leaves its control; a pointer back inside the slot when it expires keeps the card open. */
 export const HOVER_POPOVER_CLOSE_DELAY_MS = 220;
 
 type HoverPopover = {

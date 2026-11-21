@@ -28,10 +28,6 @@ const COLLAPSED_SEED = 8;
 
 const GLIDE_EFFECTS = new Set(['prepare', 'click', 'press', 'type', 'scroll']);
 
-/**
- * The overlay pointer travels to the action point in both delivery modes. Only
- * effects that name a place are worth travelling to; anything else stays put.
- */
 export function glideAllowed(cursor: { mode: string; effect?: string; tracking?: boolean }): boolean {
   return GLIDE_EFFECTS.has(String(cursor.effect || ''));
 }

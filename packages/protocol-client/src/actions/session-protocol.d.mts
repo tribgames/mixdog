@@ -4,7 +4,11 @@ export const SESSION_READ_ACTION_SET: ReadonlySet<string>;
 export const SESSION_CONFIGURE_ACTION_SET: ReadonlySet<string>;
 
 export interface SessionProtocolTransport {
-  call(name: string, params: Record<string, unknown>, options: Record<string, unknown>): Promise<Record<string, unknown>>;
+  call(
+    name: string,
+    params: Record<string, unknown>,
+    options: Record<string, unknown>
+  ): Promise<Record<string, unknown>>;
   close?(reason?: string): unknown;
 }
 

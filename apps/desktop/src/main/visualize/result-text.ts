@@ -1,7 +1,3 @@
-/**
- * Tool-result text for the page-reading actions: `annotate` marks and
- * `inspect` readings, one entry per HTML pane.
- */
 import { formatPageInspection, visualizePageInspection } from '../../shared/visualize-inspect';
 import type { VisualizeOverlayResult } from './overlay-script';
 

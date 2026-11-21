@@ -59,11 +59,19 @@ test('runtime details and errors keep custom words while app-authored status cop
   }
 });
 
-test('tool output and agent answers cannot be mistaken for UI summaries', async () => {
+async function inKorean(body) {
   try {
     const catalog = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
     i18n.addResourceBundle('ko', 'translation', catalog);
     await i18n.changeLanguage('ko');
+    await body(catalog);
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+}
+
+test('agent, MCP, shell and git results that look like UI summaries stay untranslated', () =>
+  inKorean(() => {
     for (const name of ['agent', 'mcp__custom__query', 'shell', 'git']) {
       for (const result of ['Image', '3 files', 'Loaded Agent', 'Settings']) {
         const presentation = desktopToolActivityItemPresentation({
@@ -76,6 +84,10 @@ test('tool output and agent answers cannot be mistaken for UI summaries', async 
         assert.equal(presentation.resultLabel, result, `${name}/${result}`);
       }
     }
+  }));
+
+test('a read result is summarised as a line count and keeps its target path', () =>
+  inKorean((catalog) => {
     const read = desktopToolActivityItemPresentation({
       kind: 'tool',
       name: 'read',
@@ -85,6 +97,10 @@ test('tool output and agent answers cannot be mistaken for UI summaries', async 
     });
     assert.equal(read.resultLabel, catalog['{{count}} lines_other'].replace('{{count}}', '2'));
     assert.equal(read.targetPath, 'Agent');
+  }));
+
+test('a failed command reads "<Failed> · <why>" with the tool text untranslated', () =>
+  inKorean((catalog) => {
     const failed = desktopToolActivityItemPresentation({
       kind: 'tool',
       name: 'shell',
@@ -93,8 +109,11 @@ test('tool output and agent answers cannot be mistaken for UI summaries', async 
       isError: true,
       completedAt: 1,
     });
-    // A failed command reads "실패 · <why>"; the tool's own text stays untranslated.
     assert.equal(failed.resultLabel, `${catalog.Failed} · Image`);
+  }));
+
+test('shell exit-code and status markers produce no result label in any language', async () => {
+  try {
     for (const language of ['en', 'ko']) {
       await i18n.changeLanguage(language);
       for (const result of ['[exit code: 0]', '[status: completed]']) {

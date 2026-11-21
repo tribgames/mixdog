@@ -1,10 +1,3 @@
-// The keyboard model the transcript's decision cards share (QuestionCard and
-// ApprovalCard): one document-level capture keydown per card, scoped to the
-// pane of the last pointer/focus interaction (several panes can each show
-// their own pending card), never while typing, an IME commit, a held
-// (repeating) key or a modifier chord. In one pane only the newest card owns
-// the keys. A card takes focus only when nothing else holds it.
-
 import { modalDialogPresented } from './surface-input-focus';
 
 const cards = new Set<HTMLElement>();
@@ -21,15 +14,7 @@ const ownerChanged = () => {
  *  card was decided: the others settle again). */
 export const cardKeysChanged = ownerChanged;
 
-// A modal dialog opening or closing takes the keys away or gives them back
-// without necessarily moving focus. Two observers (one target takes one set of
-// options): mounts and unmounts anywhere under the body (a dialog can sit in a
-// nested portal), and the attributes that make a mounted dialog modal or
-// parked. Transcript streaming inserts many nodes, so the mount callback only
-// does work for a record whose added/removed node is or contains a modal: the
-// common record is one `nodeType` / `matches` test per node, and a subtree
-// scan runs only for nodes that are not themselves a modal (the first hit ends
-// the whole callback).
+// A MutationObserver takes one set of options per target: mounts and attribute changes need two.
 let modalWatch: MutationObserver[] | null = null;
 const MODAL_ATTRIBUTES = ['aria-modal', 'aria-hidden', 'inert', 'open', 'data-surface-active'];
 const MODAL_NODE = '[aria-modal], dialog';

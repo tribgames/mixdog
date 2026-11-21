@@ -57,7 +57,7 @@ test('a refusal naming windows opens the notice; a later window call that worked
   assert.equal(desktopToolComputerReadinessNotice([refused('a'), refused('b')]).ready, false);
 });
 
-test('the chat card is the sign-in notice once per task, dismisses with OK, and flips to ready', async () => {
+function mountCards(t) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' });
   const previous = new Map(
     ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT'].map((key) => [
@@ -70,6 +70,14 @@ test('the chat card is the sign-in notice once per task, dismisses with OK, and 
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   const root = createRoot(dom.window.document.getElementById('root'));
+  t.after(async () => {
+    await act(async () => root.unmount());
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+    dom.window.close();
+  });
   const render = (...groups) =>
     act(async () =>
       root.render(
@@ -83,62 +91,65 @@ test('the chat card is the sign-in notice once per task, dismisses with OK, and 
       )
     );
   const cards = () => [...dom.window.document.querySelectorAll('[data-computer-readiness-card]')];
-  try {
-    await render({ items: [refused('r1')], turnKey: 'turn:1' }, { items: [refused('r2')], turnKey: 'turn:1' });
-    assert.equal(cards().length, 1, 'only the first refusal of a task asks');
-    const [card] = cards();
-    assert.equal(card.getAttribute('data-computer-readiness-card'), 'relogin');
-    assert.match(card.textContent, /Sign in again to turn on the window helper/);
-    assert.match(card.textContent, /Computer Use/);
-    assert.match(card.textContent, /Sign out and back in to turn it on\./);
-    assert.deepEqual(
-      [...card.querySelectorAll('button')].map((button) => button.textContent),
-      ['OK'],
-      'no Install button, one dismiss'
-    );
+  return { render, cards };
+}
 
-    await act(async () => card.querySelector('button').click());
-    assert.equal(cards().length, 0, 'OK silences the rest of the task');
+test('the sign-in notice card shows once per task and its OK button dismisses it', async (t) => {
+  const { render, cards } = mountCards(t);
+  await render({ items: [refused('r1')], turnKey: 'turn:1' }, { items: [refused('r2')], turnKey: 'turn:1' });
+  assert.equal(cards().length, 1, 'only the first refusal of a task asks');
+  const [card] = cards();
+  assert.equal(card.getAttribute('data-computer-readiness-card'), 'relogin');
+  assert.match(card.textContent, /Sign in again to turn on the window helper/);
+  assert.match(card.textContent, /Computer Use/);
+  assert.match(card.textContent, /Sign out and back in to turn it on\./);
+  assert.deepEqual(
+    [...card.querySelectorAll('button')].map((button) => button.textContent),
+    ['OK'],
+    'no Install button, one dismiss'
+  );
 
-    // A new task asks again.
-    await render({ items: [refused('r3')], turnKey: 'turn:2' });
-    assert.equal(cards().length, 1);
+  await act(async () => card.querySelector('button').click());
+  assert.equal(cards().length, 0, 'OK silences the rest of the task');
 
-    // A window call that worked later in the group flips the card to ready, without a button.
-    await render({
-      items: [refused('r4'), call('w1', { action: 'list_windows' })],
-      turnKey: 'turn:3',
-    });
-    const ready = cards()[0];
-    assert.equal(ready.getAttribute('data-computer-readiness-card'), 'ready');
-    assert.match(ready.textContent, /Ready\. Continuing\./);
-    assert.match(ready.textContent, /The window helper is on\. It will not ask again\./);
-    assert.equal(ready.querySelector('button'), null);
+  await render({ items: [refused('r3')], turnKey: 'turn:2' });
+  assert.equal(cards().length, 1, 'a new task asks again');
+});
 
-    // A window call that worked in a LATER tool group of the same turn flips it too.
-    await render(
-      { items: [refused('r5', 'windows', { action: 'list_windows' })], turnKey: 'turn:5' },
-      { items: [call('w2', { action: 'focus_window', window_id: 'w1' }, { completedAt: 2 })], turnKey: 'turn:5' }
-    );
-    assert.equal(cards().length, 1);
-    assert.equal(cards()[0].getAttribute('data-computer-readiness-card'), 'ready');
+test('a window call that worked later in the group flips the card to ready, without a button', async (t) => {
+  const { render, cards } = mountCards(t);
+  await render({
+    items: [refused('r4'), call('w1', { action: 'list_windows' })],
+    turnKey: 'turn:3',
+  });
+  const ready = cards()[0];
+  assert.equal(ready.getAttribute('data-computer-readiness-card'), 'ready');
+  assert.match(ready.textContent, /Ready\. Continuing\./);
+  assert.match(ready.textContent, /The window helper is on\. It will not ask again\./);
+  assert.equal(ready.querySelector('button'), null);
+});
 
-    // A window call that worked BEFORE the refusal does not.
-    await render(
-      { items: [call('w3', { action: 'list_windows' }, { completedAt: 1 })], turnKey: 'turn:6' },
-      { items: [refused('r6', 'windows', { action: 'list_windows' }, 5)], turnKey: 'turn:6' }
-    );
-    assert.equal(cards()[0].getAttribute('data-computer-readiness-card'), 'relogin');
+test('a window call that worked in a later tool group of the same turn flips the card to ready', async (t) => {
+  const { render, cards } = mountCards(t);
+  await render(
+    { items: [refused('r5', 'windows', { action: 'list_windows' })], turnKey: 'turn:5' },
+    { items: [call('w2', { action: 'focus_window', window_id: 'w1' }, { completedAt: 2 })], turnKey: 'turn:5' }
+  );
+  assert.equal(cards().length, 1);
+  assert.equal(cards()[0].getAttribute('data-computer-readiness-card'), 'ready');
+});
 
-    // A refusal for something else leaves no card.
-    await render({ items: [refused('p1', 'pointer', { action: 'click' })], turnKey: 'turn:4' });
-    assert.equal(cards().length, 0);
-  } finally {
-    await act(async () => root.unmount());
-    for (const [key, descriptor] of previous) {
-      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-      else delete globalThis[key];
-    }
-    dom.window.close();
-  }
+test('a window call that worked before the refusal leaves the card on sign-in', async (t) => {
+  const { render, cards } = mountCards(t);
+  await render(
+    { items: [call('w3', { action: 'list_windows' }, { completedAt: 1 })], turnKey: 'turn:6' },
+    { items: [refused('r6', 'windows', { action: 'list_windows' }, 5)], turnKey: 'turn:6' }
+  );
+  assert.equal(cards()[0].getAttribute('data-computer-readiness-card'), 'relogin');
+});
+
+test('a refusal for something other than windows leaves no card', async (t) => {
+  const { render, cards } = mountCards(t);
+  await render({ items: [refused('p1', 'pointer', { action: 'click' })], turnKey: 'turn:4' });
+  assert.equal(cards().length, 0);
 });

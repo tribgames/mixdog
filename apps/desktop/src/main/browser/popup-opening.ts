@@ -1,8 +1,3 @@
-/**
- * A page's window.open: admission (URL policy and tab admission), whether the
- * window comes forward (decided when Electron asks, from this window's gesture
- * evidence), and handing the created window to the lifecycle as a popup.
- */
 import type { BaseWindow, BrowserWindow, WebContents } from 'electron';
 
 import { type BrowserGuestStateStore, pushBounded } from './host-state';

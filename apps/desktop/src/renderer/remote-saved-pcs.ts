@@ -1,7 +1,3 @@
-// The PCs a browser or phone (a remote surface served by a relay) has
-// connected to, for the top-bar PC switcher. Names and routes only — a route
-// is a label, never a credential — kept in this origin's storage. Online state
-// comes from the relay's presence probe.
 import { DEVICE_STORAGE_KEY } from './remote-shim-state';
 
 const SAVED_PCS_KEY = 'mixdog.savedPcs';

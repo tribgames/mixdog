@@ -68,6 +68,29 @@ const LABELS: Partial<Record<GithubRequest['action'], string>> = {
   'release.edit': 'Edit release',
 };
 
+function buildRequest(request: GithubRequest, fields: Field[], values: Record<string, unknown>): GithubRequest {
+  const next = { ...request };
+  for (const field of fields) {
+    const value = values[field.key];
+    if (field.type === 'check') Object.assign(next, { [field.key]: value === true });
+    else if (field.key === 'labels' || field.key === 'assignees') {
+      const entries = Array.isArray(value)
+        ? value
+        : String(value || '')
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter(Boolean);
+      Object.assign(next, { [field.key]: entries });
+    } else if (field.key === 'inputs') {
+      const inputs = value && typeof value === 'object' ? value : JSON.parse(String(value || '{}'));
+      Object.assign(next, { inputs });
+    } else if (value !== undefined && (String(value).trim() || field.key === 'body' || field.key === 'description')) {
+      Object.assign(next, { [field.key]: String(value) });
+    }
+  }
+  return next;
+}
+
 export function GithubActionForm({
   request,
   onSubmit,
@@ -95,28 +118,7 @@ export function GithubActionForm({
         if (sending.current) return;
         let next: GithubRequest;
         try {
-          next = { ...request };
-          for (const field of fields) {
-            const value = values[field.key];
-            if (field.type === 'check') Object.assign(next, { [field.key]: value === true });
-            else if (field.key === 'labels' || field.key === 'assignees') {
-              const entries = Array.isArray(value)
-                ? value
-                : String(value || '')
-                    .split(',')
-                    .map((entry) => entry.trim())
-                    .filter(Boolean);
-              Object.assign(next, { [field.key]: entries });
-            } else if (field.key === 'inputs') {
-              const inputs = value && typeof value === 'object' ? value : JSON.parse(String(value || '{}'));
-              Object.assign(next, { inputs });
-            } else if (
-              value !== undefined &&
-              (String(value).trim() || field.key === 'body' || field.key === 'description')
-            ) {
-              Object.assign(next, { [field.key]: String(value) });
-            }
-          }
+          next = buildRequest(request, fields, values);
         } catch {
           setError(t('Workflow inputs must be a JSON object with string values.'));
           return;

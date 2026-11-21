@@ -1,23 +1,5 @@
 #!/usr/bin/env node
-// Integrity of a staged desktop package's resources (electron-builder's `<out>/win-unpacked/resources`,
-// `Mixdog.app/Contents/Resources`, `linux-unpacked/resources`): what the Rust core needs is there as real files.
-//
-//   node apps/desktop/scripts/verify-staged-package.mjs --resources=<dir> [--platform=win32] [--arch=x64] [--deletion-manifest=<file>]
-//
-//   no file of the K1 deletion list (k1-deletion-manifest.txt, or the manifest given) is packed: not in the
-//   unpacked package or a server bundle; and no runtime.asar is shipped (nothing opens one, the core refuses an
-//   archive package root)
-//
-//   core/mixdogd[.exe] and js-runtime.json     the manifest is core-layout's, the app interpreter exists
-//   native-tools/mixdog-computer.exe          a Windows package holds the Computer Use helper, built for its architecture
-//   native-tools/mixdog_main_native.node      every package holds the main-process Node-API module (the Browser Use
-//                                              URL and redaction rules), built for its architecture
-//   runtime.asar.unpacked/node_modules         package root with everything `mixdogd` reads, the extension host /
-//                                              skill launcher dependency closure, the ONNX Runtime library + siblings
-//   server-cores/                              servers.json lists exactly the server platforms; each bundle.tgz matches
-//                                              it, is unpacked, and its mixdogd matches; its payload passes
-//                                              verifyRemotePayload (the check stage-core ran before archiving it:
-//                                              js-runtime.json, interpreter, package root, closure, ONNX Runtime)
+// node apps/desktop/scripts/verify-staged-package.mjs --resources=<dir> [--platform=win32] [--arch=x64] [--deletion-manifest=<file>]
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -71,15 +53,7 @@ function packedPackageFiles({ resources, bundles }) {
   return found;
 }
 
-/** Throws unless the resources are complete for `platform`/`arch` and pack no file of `deleted` (a Set of
- *  package-root-relative paths, `parseDeletionList`). */
-export function verifyStagedResources({
-  resources,
-  platform,
-  arch,
-  hostOnly = false,
-  deleted = parseDeletionList(readFileSync(DEFAULT_DELETION_LIST, 'utf8')),
-}) {
+function verifyCoreResources({ resources, platform, arch }) {
   const exe = join(resources, 'core', platform === 'win32' ? 'mixdogd.exe' : 'mixdogd');
   if (!existsSync(exe) || !statSync(exe).isFile()) throw new Error(`the Rust core ${exe} is not in the package`);
   const askpass = join(resources, 'core', platform === 'win32' ? 'mixdog-askpass.exe' : 'mixdog-askpass');
@@ -108,7 +82,9 @@ export function verifyStagedResources({
     );
   }
   verifyCoreInstall({ manifestDir: join(resources, 'core'), kind: 'desktop', platform, arch });
+}
 
+function verifyServerBundles({ resources, hostOnly }) {
   const serversDir = join(resources, 'server-cores');
   // A host-only package (stage-core --host-only) has no server bundles: nothing of them to check or to unpack.
   const manifest = hostOnly ? { binaries: {} } : JSON.parse(readFileSync(join(serversDir, 'servers.json'), 'utf8'));
@@ -158,7 +134,21 @@ export function verifyStagedResources({
     }
   }
   if (problems.length) throw new Error(`server bundles are incomplete:\n- ${problems.join('\n- ')}`);
+  return { bundles, platforms: Object.keys(manifest.binaries) };
+}
 
+/** Throws unless the resources are complete for `platform`/`arch` and pack no file of `deleted` (a Set of
+ *  package-root-relative paths, `parseDeletionList`). */
+export function verifyStagedResources({
+  resources,
+  platform,
+  arch,
+  hostOnly = false,
+  deleted = parseDeletionList(readFileSync(DEFAULT_DELETION_LIST, 'utf8')),
+}) {
+  verifyCoreResources({ resources, platform, arch });
+  const { bundles, platforms } = verifyServerBundles({ resources, hostOnly });
+  const problems = [];
   for (const [where, files] of packedPackageFiles({ resources, bundles })) {
     const packed = files.filter((file) => deleted.has(file));
     if (packed.length)
@@ -167,7 +157,7 @@ export function verifyStagedResources({
       );
   }
   if (problems.length) throw new Error(`the package holds deleted files:\n- ${problems.join('\n- ')}`);
-  return Object.keys(manifest.binaries);
+  return platforms;
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : '';

@@ -1,9 +1,3 @@
-// "사용할 커넥터": every installed connector with an on/off switch, for one
-// agent (its profile) or one project (Project settings). A connector is on
-// unless switched off here, and one installed later shows up on; each switch
-// saves at once (setAgentConnectorEnabled / setProjectConnectorEnabled). An
-// agent's connector name also opens that connector's tools, each with the
-// bot's permission for it (connector-tool-permissions.tsx).
 import { ChevronRight, Plug } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { connectorById } from '../shared/core-src/runtime/shared/connector-catalog.mjs';
@@ -156,21 +150,7 @@ export function ConnectorSwitchList({
       if (!next.delete(id)) next.add(id);
       return next;
     });
-  // The Extensions → 커넥터 order: alphabetical by the name shown.
-  // One row per connector: its accounts (`gmail`, `gmail-2`…) are on together
-  // (every account on), and a toggle sets all of them.
-  const groups = new Map<string, { id: string; ids: string[]; enabled: boolean }>();
-  for (const row of rows ?? []) {
-    const id = baseConnectorId(row.id);
-    const group = groups.get(id);
-    if (group) {
-      group.ids.push(row.id);
-      group.enabled = group.enabled && row.enabled;
-    } else groups.set(id, { id, ids: [row.id], enabled: row.enabled });
-  }
-  const named = [...groups.values()]
-    .map((row) => ({ ...row, name: connectorById(row.id)?.name ?? row.id }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const named = connectorSwitchGroups(rows ?? []);
   return (
     <div className="connector-switches" data-connector-switches={kind}>
       {error && <ErrorNotice error={error} />}
@@ -182,57 +162,99 @@ export function ConnectorSwitchList({
           </button>
         </p>
       )}
-      {named.map((row) => {
-        // The accounts of a connector share their tool permissions (the host
-        // keeps them together), so the first account's rows speak for all.
-        const tools = agentId ? toolRows.filter((tool) => tool.connector === row.ids[0]) : NO_TOOLS;
-        const changed = tools.filter((tool) => tool.explicit).length;
-        const expanded = Boolean(agentId) && opened.has(row.id);
-        return (
-          <Fragment key={row.id}>
-            <div className="connector-switch-row" data-connector-switch={row.id}>
-              <span className="connector-switch-icon" aria-hidden="true">
-                {connectorById(row.id) ? (
-                  <ConnectorIcon id={row.id} name={row.name} />
-                ) : (
-                  <Plug size={16} aria-hidden="true" />
-                )}
-              </span>
-              {agentId ? (
-                <button
-                  type="button"
-                  className="connector-switch-name connector-switch-disclosure"
-                  aria-expanded={expanded}
-                  onClick={() => toggleOpened(row.id)}
-                >
-                  <ChevronRight className="connector-switch-chevron" size={12} strokeWidth={2.4} aria-hidden="true" />
-                  <span className="connector-switch-label">{row.name}</span>
-                  {changed > 0 && (
-                    <span className="connector-switch-badge">{t('· {{n}} changed', { n: changed })}</span>
-                  )}
-                </button>
-              ) : (
-                <span className="connector-switch-name">{row.name}</span>
-              )}
-              <CompactSwitch
-                label={row.name}
-                checked={row.enabled}
-                disabled={busy}
-                onChange={(enabled) => void toggle(row.ids, enabled)}
-              />
-            </div>
-            {expanded && (
-              <ConnectorToolPermissions
-                connector={row.id}
-                tools={tools}
-                enabled={row.enabled}
-                busy={busy}
-                onChoose={(tool, permission) => void choose(row.ids[0], tool, permission)}
-              />
-            )}
-          </Fragment>
-        );
-      })}
+      {named.map((row) => (
+        <ConnectorSwitchRow
+          key={row.id}
+          row={row}
+          // The accounts of a connector share their tool permissions (the host
+          // keeps them together), so the first account's rows speak for all.
+          tools={agentId ? toolRows.filter((tool) => tool.connector === row.ids[0]) : NO_TOOLS}
+          withTools={Boolean(agentId)}
+          expanded={Boolean(agentId) && opened.has(row.id)}
+          busy={busy}
+          onToggleOpened={() => toggleOpened(row.id)}
+          onToggle={(enabled) => void toggle(row.ids, enabled)}
+          onChoose={(tool, permission) => void choose(row.ids[0], tool, permission)}
+        />
+      ))}
     </div>
+  );
+}
+
+type ConnectorSwitchGroup = { id: string; ids: string[]; enabled: boolean; name: string };
+
+/** One row per connector, in the Extensions → 커넥터 order (alphabetical by the name shown). Its accounts
+ *  (`gmail`, `gmail-2`…) are on together, and a toggle sets all of them. */
+function connectorSwitchGroups(rows: readonly ConnectorSwitch[]): ConnectorSwitchGroup[] {
+  const groups = new Map<string, { id: string; ids: string[]; enabled: boolean }>();
+  for (const row of rows) {
+    const id = baseConnectorId(row.id);
+    const group = groups.get(id);
+    if (group) {
+      group.ids.push(row.id);
+      group.enabled = group.enabled && row.enabled;
+    } else groups.set(id, { id, ids: [row.id], enabled: row.enabled });
+  }
+  return [...groups.values()]
+    .map((row) => ({ ...row, name: connectorById(row.id)?.name ?? row.id }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function ConnectorSwitchRow({
+  row,
+  tools,
+  withTools,
+  expanded,
+  busy,
+  onToggleOpened,
+  onToggle,
+  onChoose,
+}: {
+  row: ConnectorSwitchGroup;
+  tools: ConnectorToolRow[];
+  withTools: boolean;
+  expanded: boolean;
+  busy: boolean;
+  onToggleOpened: () => void;
+  onToggle: (enabled: boolean) => void;
+  onChoose: (tool: string, permission: ConnectorToolPermission) => void;
+}) {
+  const changed = tools.filter((tool) => tool.explicit).length;
+  return (
+    <Fragment>
+      <div className="connector-switch-row" data-connector-switch={row.id}>
+        <span className="connector-switch-icon" aria-hidden="true">
+          {connectorById(row.id) ? (
+            <ConnectorIcon id={row.id} name={row.name} />
+          ) : (
+            <Plug size={16} aria-hidden="true" />
+          )}
+        </span>
+        {withTools ? (
+          <button
+            type="button"
+            className="connector-switch-name connector-switch-disclosure"
+            aria-expanded={expanded}
+            onClick={onToggleOpened}
+          >
+            <ChevronRight className="connector-switch-chevron" size={12} strokeWidth={2.4} aria-hidden="true" />
+            <span className="connector-switch-label">{row.name}</span>
+            {changed > 0 && <span className="connector-switch-badge">{t('· {{n}} changed', { n: changed })}</span>}
+          </button>
+        ) : (
+          <span className="connector-switch-name">{row.name}</span>
+        )}
+        <CompactSwitch label={row.name} checked={row.enabled} disabled={busy} onChange={onToggle} />
+      </div>
+      {expanded && (
+        <ConnectorToolPermissions
+          connector={row.id}
+          tools={tools}
+          enabled={row.enabled}
+          busy={busy}
+          onChoose={onChoose}
+        />
+      )}
+    </Fragment>
   );
 }

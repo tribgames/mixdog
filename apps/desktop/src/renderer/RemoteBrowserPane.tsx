@@ -82,11 +82,6 @@ type TouchView = {
   press(): void;
 };
 
-/** Touch on the picture, reaching the page in its CSS pixels. The phone runs
- *  the shared gesture layer (taps, long-press drags and swipes reach the
- *  page, one finger and pinches move the local view, and input that reached
- *  the page shows a sized ring); the desktop pane keeps its own controller
- *  (a dot on every touch). */
 function useRemoteTouch({
   phone,
   client,
@@ -275,11 +270,6 @@ function useRemotePageInput({
     },
     [touch, client]
   );
-  // A phone long-press holds the PC's left button until the finger lifts. A
-  // touch stream that ends unseen (the window loses focus, the page is
-  // hidden, the pointer capture is lost) must not leave it held: the
-  // gestures are cancelled, which releases it, and the release goes out at
-  // once, ahead of the queue's own teardown (declared before it).
   const dropTouch = useCallback(() => {
     touch.dispose();
     client.flush();
@@ -781,6 +771,70 @@ function RemoteKeyboardBar({
   );
 }
 
+/** Reads every contact of a touch gesture from its touch lists. */
+function useTouchContactReader(contentRef: RefObject<HTMLDivElement | null>, touch: RemoteTouch) {
+  // iOS WebKit takes a touch on the frame for its own scroll or zoom despite
+  // `touch-action: none`; React registers touch listeners passive, so they are
+  // bound here to cancel it. A touch list carries every contact, a pointer event one.
+  const touchRef = useRef(touch);
+  touchRef.current = touch;
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return undefined;
+    const hold = (event: TouchEvent) => {
+      if (event.target === content && event.cancelable) event.preventDefault();
+    };
+    const moved = (event: TouchEvent) => {
+      hold(event);
+      const points = Array.from(event.touches)
+        .filter((contact) => content.contains(contact.target as Node))
+        .map((contact) => ({ x: contact.clientX, y: contact.clientY }));
+      touchRef.current.contacts(points);
+    };
+    // touchstart too: a gesture whose touch lists arrive is known before its
+    // first move, so its motion never rides the pointer-only fallback.
+    content.addEventListener('touchstart', moved, { passive: false });
+    content.addEventListener('touchmove', moved, { passive: false });
+    return () => {
+      content.removeEventListener('touchstart', moved);
+      content.removeEventListener('touchmove', moved);
+    };
+  }, [contentRef]);
+}
+
+/** The "fit page to this device" choice, offered only where the host locks
+ *  the page geometry. */
+function useRemotePageFit(
+  webrtc: ReturnType<typeof useRemoteWebrtc>,
+  contentRef: RefObject<HTMLDivElement | null>,
+  fitView: ReturnType<typeof useRemoteBrowserStream>['fitView']
+) {
+  // The menu's choice holds only while the stream's fit is the one it was made over.
+  const [explicitFit, setExplicitFit] = useState<{ fitted: boolean; basis: typeof fitView } | null>(null);
+  const pageFitted = explicitFit?.basis === fitView ? explicitFit.fitted : fitView.asked;
+  const fitPage = webrtc.geometryLocked
+    ? {
+        fitted: pageFitted,
+        toggle: () => {
+          const box = contentRef.current?.getBoundingClientRect();
+          const viewport = pageFitted ? null : remoteBrowserDriveViewport(box, window.devicePixelRatio || 1);
+          if (!pageFitted && !viewport) return;
+          webrtc.requestResize(
+            viewport
+              ? {
+                  mode: 'fit-client',
+                  cssWidth: viewport.width,
+                  cssHeight: viewport.height,
+                  deviceScaleFactor: viewport.deviceScaleFactor,
+                }
+              : { mode: 'page' }
+          );
+          setExplicitFit({ fitted: !pageFitted, basis: fitView });
+        },
+      }
+    : null;
+  return fitPage;
+}
 /** The streamed frame: mouse input goes to the page as is, touch through the
  *  touch controller; connection and action failures show over it. */
 function RemoteBrowserContent({
@@ -829,38 +883,7 @@ function RemoteBrowserContent({
   zoomPill: boolean;
 }) {
   const zoomBarVisible = useZoomBarVisible();
-  // `touch-action: none` alone does not keep iOS WebKit from taking a touch
-  // on the frame for its own scroll, zoom, selection or callout, and that
-  // cancels the pointer stream the touch controller reads. React registers
-  // touchstart/touchmove passive, so the frame cancels them itself; touches
-  // on controls over it (zoom pill, notices) keep their native tap.
-  // Two-finger motion is read from the touch list, which carries every
-  // contact's position in one event (a pointer event carries one finger);
-  // without touch events, pointer reports scroll (remote-browser-touch.ts).
-  const touchRef = useRef(touch);
-  touchRef.current = touch;
-  useEffect(() => {
-    const content = contentRef.current;
-    if (!content) return undefined;
-    const hold = (event: TouchEvent) => {
-      if (event.target === content && event.cancelable) event.preventDefault();
-    };
-    const moved = (event: TouchEvent) => {
-      hold(event);
-      const points = Array.from(event.touches)
-        .filter((contact) => content.contains(contact.target as Node))
-        .map((contact) => ({ x: contact.clientX, y: contact.clientY }));
-      touchRef.current.contacts(points);
-    };
-    // touchstart too: a gesture whose touch lists arrive is known before its
-    // first move, so its motion never rides the pointer-only fallback.
-    content.addEventListener('touchstart', moved, { passive: false });
-    content.addEventListener('touchmove', moved, { passive: false });
-    return () => {
-      content.removeEventListener('touchstart', moved);
-      content.removeEventListener('touchmove', moved);
-    };
-  }, [contentRef]);
+  useTouchContactReader(contentRef, touch);
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'touch') {
       finishComposition();
@@ -1075,10 +1098,6 @@ export default function RemoteBrowserPane({
     setStreamId(sessionId);
   }, [sessionId]);
 
-  // The user is finishing a takeover on this page: a tap on it raises the soft
-  // keyboard (the picture cannot ask for it), inside the tap's own gesture.
-  // The textarea sends what is typed to the page only (use-browser-page-input).
-  // Only for the page the takeover is about, not another tab of the session.
   const tapRef = useRef(() => {});
   tapRef.current = () => {
     const field = keyboardRef.current;
@@ -1167,30 +1186,7 @@ export default function RemoteBrowserPane({
     setActionFailure,
     setAddress,
   });
-  // The menu's choice holds only while the stream's fit is the one it was made over.
-  const [explicitFit, setExplicitFit] = useState<{ fitted: boolean; basis: typeof fitView } | null>(null);
-  const pageFitted = explicitFit?.basis === fitView ? explicitFit.fitted : fitView.asked;
-  const fitPage = webrtc.geometryLocked
-    ? {
-        fitted: pageFitted,
-        toggle: () => {
-          const box = contentRef.current?.getBoundingClientRect();
-          const viewport = pageFitted ? null : remoteBrowserDriveViewport(box, window.devicePixelRatio || 1);
-          if (!pageFitted && !viewport) return;
-          webrtc.requestResize(
-            viewport
-              ? {
-                  mode: 'fit-client',
-                  cssWidth: viewport.width,
-                  cssHeight: viewport.height,
-                  deviceScaleFactor: viewport.deviceScaleFactor,
-                }
-              : { mode: 'page' }
-          );
-          setExplicitFit({ fitted: !pageFitted, basis: fitView });
-        },
-      }
-    : null;
+  const fitPage = useRemotePageFit(webrtc, contentRef, fitView);
   // A promoted video carries the picture (no JPEG image comes): its frame of
   // the fitted page uncovers a take-over too. Checked as the viewer changes.
   useEffect(() => {

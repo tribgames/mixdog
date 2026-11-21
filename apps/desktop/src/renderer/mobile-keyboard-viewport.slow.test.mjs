@@ -4,10 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// The phone composer must stay above the soft keyboard in both delivery modes:
-// the Android shell resizes the WebView (layout AND visual viewport shrink),
-// while iOS WKWebView keeps the layout viewport and only shrinks/pans the
-// visual one. Exactly one of the two applies, so neither may double the offset.
+// Android's shell resizes the WebView (layout and visual viewport shrink); iOS
+// WKWebView keeps the layout viewport and only shrinks/pans the visual one.
 const resolveDir = fileURLToPath(new URL('.', import.meta.url));
 const loader = { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' };
 const WIDTH = 412;

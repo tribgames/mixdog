@@ -1,10 +1,3 @@
-/**
- * How a command's outcome becomes the reply the agent reads. One place
- * decides whether a blocking dialog pre-empts the answer, waits for the page
- * to settle and for any postcondition, formats the fresh snapshot, binds an
- * optional screenshot to it, and prefixes the ref-recovery notes. Actions
- * produce facts; this module turns them into text.
- */
 import type { WebContents } from 'electron';
 
 import {
@@ -76,9 +69,20 @@ export function createBrowserReply(host: BrowserReplyHost) {
 
   /** Format the page report, folding in downloads the session has not yet
    *  mentioned and marking them reported. */
-  function reportSnapshot(guest: WebContents, payload: SnapshotPayload, briefAgainst?: BrowserRefSet): string {
+  function reportSnapshotWithDownloads(
+    guest: WebContents,
+    payload: SnapshotPayload,
+    briefAgainst?: BrowserRefSet
+  ): { text: string; downloadsReported: boolean } {
     const downloads = takeDownloads(guest);
-    return state.redactText(guest, formatSnapshot(payload, state.for(guest), { downloads, briefAgainst }));
+    return {
+      text: state.redactText(guest, formatSnapshot(payload, state.for(guest), { downloads, briefAgainst })),
+      downloadsReported: downloads.length > 0,
+    };
+  }
+
+  function reportSnapshot(guest: WebContents, payload: SnapshotPayload, briefAgainst?: BrowserRefSet): string {
+    return reportSnapshotWithDownloads(guest, payload, briefAgainst).text;
   }
 
   /** The same page report without a snapshot, for a reply that keeps the
@@ -142,7 +146,7 @@ export function createBrowserReply(host: BrowserReplyHost) {
     payload: SnapshotPayload,
     options: BrowserSnapshotResultOptions,
     wait: ReplyWait,
-    snapshot: string
+    downloadsReported: boolean
   ) {
     const { settleMs, expected, postconditionElapsed } = wait;
     const baseline = options.baseline;
@@ -163,7 +167,7 @@ export function createBrowserReply(host: BrowserReplyHost) {
     // page reacting. Calling that "no observable change" would contradict the
     // same reply and send the caller hunting for an overlay that is not there.
     const proven = Boolean(expected) && wait.postconditionMatched === true && !options.preexistingPostcondition;
-    const sideEffect = openedPages.length > 0 || snapshot.includes('Downloads since last report:');
+    const sideEffect = openedPages.length > 0 || downloadsReported;
     const unchanged = reacted === false && baseline?.url === payload.url && !sideEffect && !proven;
     return [
       settleMs && `Explicit settle completed after ${settleMs}ms.`,
@@ -188,14 +192,9 @@ export function createBrowserReply(host: BrowserReplyHost) {
     const dialog = dialogResult(guest);
     if (dialog) return dialog;
     const wait = await awaitReplyReady(host, guest, command, options, signal);
-    // Deliberately NOT deduplicated against the previous snapshot. Identical
-    // page text is common precisely when a gesture reproduces the same result
-    // ("Mouse dragged" twice), and that text is the only evidence the gesture
-    // landed. Trading it for tokens would break the verify-after-dispatch
-    // contract, so repetition stays.
     const payload = await captureSnapshotPayload(guest, command, signal);
     const action = normalizeBrowserAction(command);
-    const snapshot = reportSnapshot(
+    const { text: snapshot, downloadsReported } = reportSnapshotWithDownloads(
       guest,
       payload,
       command.brief === true ? (options.reportBaseline ?? options.baseline) : undefined
@@ -207,7 +206,7 @@ export function createBrowserReply(host: BrowserReplyHost) {
           `Expected ${describeBrowserPostcondition(wait.expected)}.\n\n${snapshot}`
       );
     }
-    const notes = effectNotes(guest, action, payload, options, wait, snapshot);
+    const notes = effectNotes(guest, action, payload, options, wait, downloadsReported);
     const result: BrowserCommandResult = {
       outcome: wait.expected && options.preexistingPostcondition ? 'inconclusive' : 'completed',
       text: notes.length ? `${notes.join(' ')}\n\n${snapshot}` : snapshot,

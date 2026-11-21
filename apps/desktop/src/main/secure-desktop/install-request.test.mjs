@@ -18,11 +18,6 @@ import {
 } from './client.ts';
 import { createSecureDesktopInstaller, installOfferFor } from './install-request.ts';
 
-/** A fake bridge: `check` answers from `states` in order (the last repeats);
- *  `verifyImage` answers `image`; `startService` answers from `starts`;
- *  `runKeyOp` records every op it was given and answers an `install` from
- *  `elevations` and an enroll/revoke from `keyOps` (an Error is thrown, a
- *  promise is adopted as the still-running child). */
 function fakePort({ states, elevations = [], starts = [], image = { ok: true }, keyOps = [] }) {
   const calls = { check: 0, verify: 0, elevate: 0, start: 0, keyOp: 0, checkKeys: [], elevateKeys: [], ops: [] };
   return {

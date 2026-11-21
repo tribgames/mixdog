@@ -347,7 +347,7 @@ test('runtime unload keeps the remembered browser dock while deletion forgets it
 });
 
 test('open policy: agent work never opens the panel, a takeover does, and the "보기" press always does', async () => {
-  const { usePaneSideDocks } = await import('./pane-side-dock.tsx');
+  const { usePaneSideDocks } = await import('./pane-side-dock-state.ts');
   const { revealBrowserPane } = await import('./browser-page-request.ts');
   let receive, surfaces, docks;
   window.mixdogDesktop = {

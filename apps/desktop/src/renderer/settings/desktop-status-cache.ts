@@ -1,9 +1,3 @@
-// Settings pages: last known desktop-side values (settings file, quota
-// auto-resume, Git / LibreOffice status) so a page paints its complete groups
-// on entry instead of inserting them after an IPC round trip and shoving the
-// rows below. Stale-while-revalidate:
-// every read refreshes the snapshot, and writes publish their results here
-// (see `Held` for how confirmed values and pending writes are kept apart).
 import type { DesktopApi, DesktopGitCliStatus, DesktopLibreOfficeStatus, DesktopSettings } from '../../shared/contract';
 
 export type StatusApi = Partial<

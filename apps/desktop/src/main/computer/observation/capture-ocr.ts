@@ -10,12 +10,6 @@ import type { CaptureEngineHost } from './capture';
 type CaptureFrame = NonNullable<ScreenshotCapture['frame']>;
 type OcrResponse = Awaited<ReturnType<CaptureEngineHost['callPowerShell']>>;
 
-/** Recognition results by frame digest. OCR is a function of the pixels, the
- *  language and the word limit alone, so an unchanged frame (the common case
- *  between two reads of an idle window) is recognized once. Only successful
- *  recognitions are kept, and the oldest entries go first. The cached value is
- *  the worker's raw reply: projection into frame pixels and query narrowing
- *  stay per read. */
 export function createOcrResultCache(maxEntries = 32) {
   const replies = new Map<string, OcrResponse>();
   return {
@@ -237,21 +231,59 @@ export async function mergeCaptureOcr(
     });
     return { ocrPayload, ocrElements, returnedAccessibilityElements };
   }
-  let ocrPayload: Record<string, unknown> | undefined;
-  if (ocrFallbackEnabled) {
-    ocrPayload = {
-      ok: true,
-      mode: 'fallback',
-      automatic: command.include_ocr !== true,
-      skipped: true,
-      reason: ocrSkipReason(remainingElementBudget, semanticAccessibilityAvailable, screenshot),
-      lines: [],
-      words: [],
-      total_words: 0,
-      truncated_words: 0,
-    };
-  }
+  const ocrPayload = ocrFallbackEnabled
+    ? {
+        ok: true,
+        mode: 'fallback',
+        automatic: command.include_ocr !== true,
+        skipped: true,
+        reason: ocrSkipReason(remainingElementBudget, semanticAccessibilityAvailable, screenshot),
+        lines: [],
+        words: [],
+        total_words: 0,
+        truncated_words: 0,
+      }
+    : undefined;
   return { ocrPayload, ocrElements: [] as ComputerElementRecord[], returnedAccessibilityElements };
+}
+
+async function readOcrReply(
+  host: Pick<CaptureEngineHost, 'callPowerShell' | 'sessionIdFor'>,
+  command: ComputerCommand,
+  imageData: string,
+  ocrLimit: number,
+  ocrCache: OcrResultCache | undefined
+): Promise<OcrResponse> {
+  const sessionId = host.sessionIdFor(command);
+  const language = command.ocr_language ?? null;
+  const cacheKey = ocrCache?.key(sessionId, imageData, language, ocrLimit);
+  const cached = cacheKey === undefined ? undefined : ocrCache?.get(cacheKey);
+  if (cached) return cached;
+  const ocr = await host.callPowerShell(
+    {
+      action: 'ocr_image',
+      image_base64: imageData,
+      ocr_language: language,
+      max_ocr_words: ocrLimit,
+      session_id: sessionId,
+      read_only: true,
+    },
+    5_000
+  );
+  if (!ocr.ok) throw new Error(ocr.error || 'OCR failed');
+  if (cacheKey !== undefined) ocrCache?.set(cacheKey, ocr);
+  return ocr;
+}
+
+function requestMatcher(command: ComputerCommand): (text: unknown) => boolean {
+  const queryText = String(command.query || '').toLocaleLowerCase();
+  const requestedRole = String(command.role || '').toLocaleLowerCase();
+  return (text) =>
+    (!requestedRole || requestedRole === 'text') &&
+    (!queryText ||
+      String(text || '')
+        .toLocaleLowerCase()
+        .includes(queryText));
 }
 
 /** One OCR pass over the captured frame: recognize, project into frame pixels,
@@ -293,26 +325,7 @@ async function recognizeCaptureOcr(
   let ocrPayload: Record<string, unknown>;
   const ocrStartedAt = performance.now();
   try {
-    const sessionId = host.sessionIdFor(command);
-    const imageData = screenshot.ocrImage?.data || image.data;
-    const language = command.ocr_language ?? null;
-    const cacheKey = ocrCache?.key(sessionId, imageData, language, ocrLimit);
-    let ocr = cacheKey === undefined ? undefined : ocrCache?.get(cacheKey);
-    if (!ocr) {
-      ocr = await host.callPowerShell(
-        {
-          action: 'ocr_image',
-          image_base64: imageData,
-          ocr_language: language,
-          max_ocr_words: ocrLimit,
-          session_id: sessionId,
-          read_only: true,
-        },
-        5_000
-      );
-      if (!ocr.ok) throw new Error(ocr.error || 'OCR failed');
-      if (cacheKey !== undefined) ocrCache?.set(cacheKey, ocr);
-    }
+    const ocr = await readOcrReply(host, command, screenshot.ocrImage?.data || image.data, ocrLimit, ocrCache);
     const { frameBounds, ocrWords: recognizedWords } = projectOcrWords(
       ocr,
       screenshot,
@@ -323,14 +336,7 @@ async function recognizeCaptureOcr(
     // The accessibility snapshot applies query/role itself; recognized words
     // never passed through it, so the same narrowing is applied here. A role
     // other than static text cannot be answered from pixels at all.
-    const queryText = String(command.query || '').toLocaleLowerCase();
-    const requestedRole = String(command.role || '').toLocaleLowerCase();
-    const matchesRequest = (text: unknown) =>
-      (!requestedRole || requestedRole === 'text') &&
-      (!queryText ||
-        String(text || '')
-          .toLocaleLowerCase()
-          .includes(queryText));
+    const matchesRequest = requestMatcher(command);
     const ocrWords = recognizedWords.filter((word) => matchesRequest(word.text));
     if (marksOcr) {
       ocrElements = appendOcrElements({

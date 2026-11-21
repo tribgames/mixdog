@@ -1,11 +1,3 @@
-/**
- * The fixed guard order every command passes before it is routed: action and
- * platform, session id, the observation-only gate, safety, the execution
- * policy (a zoom is judged by the window its frame came from), exact target,
- * and the mutation / capture_after classification. Control actions that end
- * here — execution_end, session_release, diagnose, sequence — return their
- * reply instead of an admitted command.
- */
 import { assertSafeComputerInput, assertSafeComputerSessionId, assertSafeComputerTargetTokens } from '../input/guards';
 import { assertExactWindowCommandTarget } from '../input/targeting';
 import { assertCaptureAfterOptions } from '../observation/analysis';

@@ -1,9 +1,3 @@
-/**
- * The virtual pointer the user sees while an agent drives the desktop: one
- * cursor surface per active session, kept in step with the presence's
- * snapshot. Sessions that leave the snapshot lose their window; a session
- * whose cursor is hidden keeps its surface warm for the next event.
- */
 import { screen } from 'electron';
 
 import type { ComputerPresenceSource } from '../presence/mirror';
@@ -19,12 +13,9 @@ import {
   newCursorSurface,
   stopGlide,
 } from './cursor-surface';
+import { createHeldPointerWatch } from './cursor-pointer-watch';
 import { createCursorTail } from './cursor-tail';
 import { computerUseCursorPresentations } from './model';
-
-const POINTER_WATCH_MS = 100;
-/** DIP of drift that is still the pointer the agent left behind. */
-const POINTER_MOVE_TOLERANCE = 2;
 
 export interface ComputerUseCursorOverlay {
   dispose(): void;
@@ -68,36 +59,16 @@ export function createComputerUseCursorOverlay(
     arrivals.delete(sessionId);
   };
 
-  // While a foreground session thinks, its arrow stands in for the hidden real
-  // pointer. The real pointer moving means the user took the mouse.
-  const heldPointers = new Map<string, Electron.Point>();
-  let pointerWatch: ReturnType<typeof setInterval> | undefined;
+  const pointerWatch = createHeldPointerWatch((sessionId) => source.releasePointer(sessionId));
   const watchHeldPointers = (cursors: Array<{ sessionId: string; mode: string }>): void => {
     const phases = new Map(latestSnapshot.activities.map((activity) => [activity.sessionId, activity.phase]));
-    const thinking = new Set(
-      cursors
-        .filter((cursor) => cursor.mode === 'foreground' && phases.get(cursor.sessionId) === 'thinking')
-        .map((cursor) => cursor.sessionId)
+    pointerWatch.hold(
+      new Set(
+        cursors
+          .filter((cursor) => cursor.mode === 'foreground' && phases.get(cursor.sessionId) === 'thinking')
+          .map((cursor) => cursor.sessionId)
+      )
     );
-    for (const sessionId of [...heldPointers.keys()]) if (!thinking.has(sessionId)) heldPointers.delete(sessionId);
-    for (const sessionId of thinking) {
-      if (!heldPointers.has(sessionId)) heldPointers.set(sessionId, screen.getCursorScreenPoint());
-    }
-    if (heldPointers.size === 0) {
-      if (pointerWatch) clearInterval(pointerWatch);
-      pointerWatch = undefined;
-      return;
-    }
-    if (pointerWatch) return;
-    pointerWatch = setInterval(() => {
-      const point = screen.getCursorScreenPoint();
-      for (const [sessionId, held] of [...heldPointers]) {
-        if (Math.abs(point.x - held.x) + Math.abs(point.y - held.y) <= POINTER_MOVE_TOLERANCE) continue;
-        heldPointers.delete(sessionId);
-        source.releasePointer(sessionId);
-      }
-    }, POINTER_WATCH_MS);
-    pointerWatch.unref?.();
   };
 
   /** Bring every surface in step with the snapshot: sessions that left lose
@@ -180,8 +151,7 @@ export function createComputerUseCursorOverlay(
     dispose(): void {
       if (disposed) return;
       disposed = true;
-      if (pointerWatch) clearInterval(pointerWatch);
-      heldPointers.clear();
+      pointerWatch.dispose();
       tail.dispose();
       unsubscribe();
       unbindPreparation();

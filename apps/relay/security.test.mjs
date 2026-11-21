@@ -114,6 +114,17 @@ const jsonOf = (raw) => {
   }
 };
 
+/** Polls `ready` until it is truthy or `timeoutMs` passes; returns whether it became ready. The
+ *  caller's assertions report a timeout. */
+const eventually = async (ready, timeoutMs) => {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await ready())) {
+    if (Date.now() >= deadline) return false;
+    await delay(25);
+  }
+  return true;
+};
+
 /** Tear down every socket a test opened, whatever state it is in. */
 const terminateAll = (sockets) => {
   for (const socket of sockets) {
@@ -819,10 +830,10 @@ test('an approval mints the credential; the relay only routes the request', asyn
     assert.equal((await (await fetch(`${origin}/claim/${claimId}`)).json()).status, 'pending');
     desktop.send(JSON.stringify({ type: 'claim-approve', claimId, sealed: { box: 'opaque' } }));
     let answer = { status: 'pending' };
-    for (let attempt = 0; attempt < 40 && answer.status === 'pending'; attempt += 1) {
-      await delay(25);
+    await eventually(async () => {
       answer = await (await fetch(`${origin}/claim/${claimId}`)).json();
-    }
+      return answer.status !== 'pending';
+    }, 1000);
     assert.equal(answer.status, 'approved');
     assert.match(answer.token, /^[0-9a-f]{64}$/);
     // The relay forwards the sealed material without a key to open it.
@@ -881,6 +892,7 @@ test('a reopened request resumes instead of prompting the desktop again', async 
     // A different container is a different request and does get its own.
     const other = await claim('m'.repeat(87));
     assert.notEqual(other.claimId, first.claimId);
+    await eventually(() => prompts >= 2, 2000);
     await delay(120);
     assert.equal(prompts, 2);
   } finally {
@@ -1128,7 +1140,7 @@ test('the PC-offline close is its own code and never a pairing-revoking one', ()
   assert.equal(DESKTOP_HANDSHAKE_STALL_MS + DESKTOP_LIVENESS_PROBE_MS, 6_000);
 });
 
-test('PC-offline answers are rate-limited and their closing sockets are bounded', async () => {
+test('PC-offline answers are rate-limited per device', async () => {
   const dir = tempDir(join(tmpdir(), 'mixdog-relay-offline-limits-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data') });
   try {
@@ -1154,10 +1166,11 @@ test('PC-offline answers are rate-limited and their closing sockets are bounded'
   } finally {
     await relay.close();
   }
+});
 
-  // Peers that never acknowledge the close hold a slot each, up to the
-  // per-device phone capacity; past it the relay refuses the upgrade.
-  const second = await startRelay({ port: 0, dataDir: join(dir, 'data-2') });
+test('PC-offline answers whose peers never acknowledge the close are bounded per device', async () => {
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-offline-closing-'));
+  const second = await startRelay({ port: 0, dataDir: join(dir, 'data') });
   const raw = [];
   try {
     second.store.authenticate(DEVICE_ID, '0123456789abcdef');
@@ -1238,6 +1251,22 @@ const openWebSocket = (url, options) =>
     ws.once('error', reject);
   });
 
+const openDesktopLeg = async (relay, deviceId, sockets) => {
+  const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
+    headers: { Authorization: basicAuth(deviceId) },
+  });
+  sockets.push(desktop);
+  return desktop;
+};
+
+const openPhoneSocket = async (relay, token, sockets) => {
+  const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${token}`, {
+    headers: { Origin: `http://127.0.0.1:${relay.port}` },
+  });
+  sockets.push(phone);
+  return phone;
+};
+
 /** The phone shim's dispatch for a CLEARTEXT frame, in its own order
  *  (apps/desktop/src/renderer/remote-shim.ts:1195-1246). Only `pong` and
  *  `resync` are handled before decryption; everything else is fed to
@@ -1261,14 +1290,8 @@ test('an oversize frame is a payload error both phone kinds surface', async () =
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     let forwarded = 0;
     desktop.on('message', (raw) => {
       const value = jsonOf(raw);
@@ -1288,10 +1311,6 @@ test('an oversize frame is a payload error both phone kinds surface', async () =
     const error = await refusal;
     assert.ok(error.bytes > error.limit);
     assert.equal(error.limit, 1024);
-    // The refusal has to reach a phone that is ENCRYPTED as well as a raw one:
-    // it rides the one cleartext key the shim already understands, so an older
-    // build recovers with a resync instead of closing the socket, and a build
-    // that reads `error` fails the oversize call with a payload error.
     assert.equal(error.resync, 1);
     assert.equal(shimCleartextBranch(error), 'resync');
     // The leg survives: cutting the socket would surface as "relay
@@ -1317,10 +1336,7 @@ test('an oversize desktop frame is answered on that leg and names the client', a
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     const notices = [];
     let clientId = '';
     desktop.on('message', (raw) => {
@@ -1329,22 +1345,19 @@ test('an oversize desktop frame is answered on that leg and names the client', a
       if (value.type === 'client-open') clientId = value.clientId;
       if (value.type === 'frame-too-large') notices.push(value);
     });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     let delivered = 0;
     phone.on('message', () => {
       delivered += 1;
     });
-    for (let attempt = 0; attempt < 40 && !clientId; attempt += 1) await delay(25);
+    await eventually(() => clientId, 1000);
     assert.match(clientId, /^[0-9a-f-]{8,64}$/);
 
     // The phone that made this call is still waiting for an answer, so the
     // refusal has to name the leg it belongs to: only the desktop can produce
     // an answer that phone is able to decrypt.
     desktop.send(JSON.stringify({ type: 'frame', clientId, data: 'y'.repeat(8192) }));
-    for (let attempt = 0; attempt < 40 && notices.length < 1; attempt += 1) await delay(25);
+    await eventually(() => notices.length >= 1, 1000);
     assert.equal(notices[0].clientId, clientId);
     assert.ok(notices[0].bytes > notices[0].limit);
     assert.equal(notices[0].limit, 4096);
@@ -1352,7 +1365,7 @@ test('an oversize desktop frame is answered on that leg and names the client', a
     // Binary envelopes carry the id in a 6-byte header, so it is readable
     // without decoding an oversize payload.
     desktop.send(encodeRelayBinaryFrame({ clientId, data: Buffer.alloc(8192, 1) }));
-    for (let attempt = 0; attempt < 40 && notices.length < 2; attempt += 1) await delay(25);
+    await eventually(() => notices.length >= 2, 1000);
     assert.equal(notices[1].clientId, clientId);
 
     // Neither leg is dropped, and nothing oversize reached the phone.
@@ -1381,20 +1394,14 @@ test('a frame past the ceiling is refused while it is still arriving, once', asy
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     let forwarded = 0;
     desktop.on('message', (raw) => {
       const value = jsonOf(raw);
       if (value === undefined) return;
       if (value.type === 'frame') forwarded += 1;
     });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     const refusals = [];
     phone.on('message', (raw) => {
       const value = jsonOf(raw);
@@ -1408,15 +1415,10 @@ test('a frame past the ceiling is refused while it is still arriving, once', asy
     // This leg states what its receiver takes, so the ceiling below is this
     // relay's own policy rather than the floor an undeclared leg is held to.
     await declareDesktopLanes(desktop, { maxPayloadBytes: 1024 * 1024 });
-    // Half a frame proves the timing. The meter reads the payload length
-    // DECLARED in the WebSocket header, so a message the transport can never
-    // carry is answered while most of it is still on the wire. That is the only
-    // moment anything can be said about it: ws destroys such a socket with
-    // 1009, and the user is told nothing but "relay disconnected".
     const oversize = 4 * 1024 * 1024;
     const { header, masked } = maskedTextFrame('x'.repeat(oversize));
     phone._socket.write(Buffer.concat([header, masked.subarray(0, 64 * 1024)]));
-    for (let attempt = 0; attempt < 80 && refusals.length < 1; attempt += 1) await delay(25);
+    await eventually(() => refusals.length >= 1, 2000);
     assert.equal(refusals.length, 1);
     // Like for like: application payload bytes against the application limit,
     // and the size declared for this message rather than the part that landed.
@@ -1424,7 +1426,7 @@ test('a frame past the ceiling is refused while it is still arriving, once', asy
     assert.equal(refusals[0].limit, 64 * 1024);
     // Nothing was delivered, and nothing ever will be.
     assert.equal(forwarded, 0);
-    for (let attempt = 0; attempt < 80 && closeCode === null; attempt += 1) await delay(25);
+    await eventually(() => closeCode !== null, 2000);
     // The refusal precedes the transport's own answer, and is not repeated.
     assert.equal(closeCode, 1009);
     assert.equal(refusals.length, 1);
@@ -1443,20 +1445,14 @@ test('a frame at exactly the ceiling is forwarded, never warned about', async ()
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     const arrived = [];
     desktop.on('message', (raw) => {
       const value = jsonOf(raw);
       if (value === undefined) return;
       if (value.type === 'frame') arrived.push(value.data);
     });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     const refusals = [];
     phone.on('message', (raw) => {
       const value = jsonOf(raw);
@@ -1471,7 +1467,7 @@ test('a frame at exactly the ceiling is forwarded, never warned about', async ()
     // desktop about a payload that was never oversize, and forwards it anyway.
     const exact = 'e'.repeat(limit);
     phone.send(exact);
-    for (let attempt = 0; attempt < 40 && arrived.length < 1; attempt += 1) await delay(25);
+    await eventually(() => arrived.length >= 1, 1000);
     assert.equal(arrived.length, 1);
     assert.equal(arrived[0], exact);
     assert.deepEqual(refusals, []);
@@ -1479,7 +1475,7 @@ test('a frame at exactly the ceiling is forwarded, never warned about', async ()
     // One byte over is refused, once, with numbers the desktop can compare
     // against the size it recorded for the call.
     phone.send('e'.repeat(limit + 1));
-    for (let attempt = 0; attempt < 40 && refusals.length < 1; attempt += 1) await delay(25);
+    await eventually(() => refusals.length >= 1, 1000);
     await delay(200);
     assert.equal(refusals.length, 1);
     assert.equal(refusals[0].bytes, limit + 1);
@@ -1500,10 +1496,7 @@ test('a nested clientId in the payload never attributes a refusal', async () => 
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     const notices = [];
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
@@ -1513,10 +1506,7 @@ test('a nested clientId in the payload never attributes a refusal', async () => 
         if (value.type === 'frame-too-large') notices.push(value);
       });
     });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     const clientId = await opened;
     // A payload is attacker-shaped bytes. This one carries a `clientId` field
     // of its own, which a prefix SEARCH would report as the route.
@@ -1524,16 +1514,12 @@ test('a nested clientId in the payload never attributes a refusal', async () => 
 
     // Envelope field first: the top-level id is the route, and it wins.
     desktop.send(`{"type":"frame","clientId":"${clientId}","data":"${nested}${'y'.repeat(8192)}"}`);
-    for (let attempt = 0; attempt < 40 && notices.length < 1; attempt += 1) await delay(25);
+    await eventually(() => notices.length >= 1, 1000);
     assert.equal(notices[0].clientId, clientId);
 
-    // Payload first: the envelope's own id sits behind a payload no prefix
-    // could hold, and the walk reaches it anyway because it does not stop until
-    // the object closes. The id planted INSIDE the payload is never a
-    // candidate — it is a nested string, not a top-level key.
     const hostile = `{"type":"frame","data":"${nested}${'y'.repeat(8192)}","clientId":"${clientId}"}`;
     desktop.send(hostile);
-    for (let attempt = 0; attempt < 40 && notices.length < 2; attempt += 1) await delay(25);
+    await eventually(() => notices.length >= 2, 1000);
     assert.equal(notices[1].clientId, JSON.parse(hostile).clientId);
     assert.equal(notices[1].clientId, clientId);
     assert.notEqual(notices[1].clientId, 'aaaaaaaa');
@@ -1564,20 +1550,14 @@ test('a burst of control frames pins no ingress reservation', async () => {
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     const arrived = [];
     desktop.on('message', (raw) => {
       const value = jsonOf(raw);
       if (value === undefined) return;
       if (value.type === 'frame') arrived.push(value.data);
     });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     await delay(100);
     resetRelayIngressStats();
 
@@ -1585,7 +1565,7 @@ test('a burst of control frames pins no ingress reservation', async () => {
     // The stream is ordered, so this frame landing means every ping ahead of
     // it has been metered.
     phone.send('after-the-burst');
-    for (let attempt = 0; attempt < 400 && arrived.length < 1; attempt += 1) await delay(25);
+    await eventually(() => arrived.length >= 1, 10000);
     assert.deepEqual(arrived, ['after-the-burst']);
 
     const stats = relayIngressStats();
@@ -1638,10 +1618,7 @@ test('a message that cannot be enveloped for the desktop is refused, not deliver
       if (value === undefined) return;
       if (value.type === 'frame') forwarded += 1;
     });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     const refusals = [];
     phone.on('message', (raw) => {
       const value = jsonOf(raw);
@@ -1651,14 +1628,14 @@ test('a message that cannot be enveloped for the desktop is refused, not deliver
 
     // Comfortably inside the desktop's cap even after enveloping: unchanged.
     phone.send(Buffer.alloc(32 * 1024, 7));
-    for (let attempt = 0; attempt < 40 && forwarded < 1; attempt += 1) await delay(25);
+    await eventually(() => forwarded >= 1, 1000);
     assert.equal(forwarded, 1);
 
     // Exactly at this relay's ceiling. The routing header rides on top, so the
     // frame the relay would SEND is past the desktop receiver, which answers by
     // destroying the socket every phone on this desktop shares.
     phone.send(Buffer.alloc(limit, 9));
-    for (let attempt = 0; attempt < 40 && refusals.length < 1; attempt += 1) await delay(25);
+    await eventually(() => refusals.length >= 1, 1000);
     assert.equal(refusals.length, 1);
     assert.equal(refusals[0].bytes, limit);
     // The limit quoted is what would have fitted through that envelope.
@@ -1673,7 +1650,7 @@ test('a message that cannot be enveloped for the desktop is refused, not deliver
     // is measured too, not assumed away.
     const quotes = '"'.repeat(48 * 1024);
     phone.send(quotes);
-    for (let attempt = 0; attempt < 40 && refusals.length < 2; attempt += 1) await delay(25);
+    await eventually(() => refusals.length >= 2, 1000);
     assert.equal(refusals.length, 2);
     assert.equal(refusals[1].bytes, Buffer.byteLength(quotes));
     assert.ok(refusals[1].limit < Buffer.byteLength(quotes));
@@ -1695,10 +1672,7 @@ test('messages coalesced into one read are refused at most once each', async () 
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     const notices = [];
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
@@ -1708,25 +1682,18 @@ test('messages coalesced into one read are refused at most once each', async () 
         if (value.type === 'frame-too-large') notices.push(value);
       });
     });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     const received = [];
     phone.on('message', (raw) => received.push(String(raw)));
     const clientId = await opened;
 
-    // TCP hands over whatever has arrived, so two messages routinely land in
-    // one read. Refusal state that lives on the LEG is overwritten by the
-    // second message's header before the first one is delivered, and the first
-    // is then refused twice.
     const oversize = `{"type":"frame","clientId":"${clientId}","data":"${'y'.repeat(5000)}"}`;
     const ordinary = `{"type":"frame","clientId":"${clientId}","data":"ok"}`;
     const first = maskedTextFrame(oversize);
     const second = maskedTextFrame(ordinary);
     desktop._socket.write(Buffer.concat([first.header, first.masked, second.header, second.masked]));
 
-    for (let attempt = 0; attempt < 40 && received.length < 1; attempt += 1) await delay(25);
+    await eventually(() => received.length >= 1, 1000);
     // The ordinary message rode through untouched...
     assert.deepEqual(received, ['ok']);
     await delay(200);
@@ -1755,10 +1722,7 @@ test('a fragmented message past transport capacity is refused before the close',
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     let closeCode = null;
     desktop.on('close', (code) => {
       closeCode = code;
@@ -1772,10 +1736,7 @@ test('a fragmented message past transport capacity is refused before the close',
         if (value.type === 'frame-too-large') notices.push(value);
       });
     });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     const clientId = await opened;
 
     // A message split across frames only overruns the transport on a LATER
@@ -1791,21 +1752,15 @@ test('a fragmented message past transport capacity is refused before the close',
     assert.deepEqual(notices, []);
 
     desktop._socket.write(Buffer.concat([second.header, second.masked]));
-    for (let attempt = 0; attempt < 80 && notices.length < 1; attempt += 1) await delay(25);
+    await eventually(() => notices.length >= 1, 2000);
     assert.equal(notices.length, 1);
     // Everything the sender declared for this message, against the application
     // ceiling it broke.
     assert.equal(notices[0].bytes, fragment * 2);
     assert.equal(notices[0].limit, 64 * 1024);
-    // This message is refused while it is still arriving, and the transport
-    // destroys the socket before the rest of it can land — so the only evidence
-    // is the head, which cannot prove that no later top-level `clientId`
-    // follows. The notice therefore names NOBODY rather than the first id it
-    // saw: the desktop reads an unattributed refusal as "not mine to fail",
-    // while a wrong name fails another client's call outright.
     assert.equal(notices[0].clientId, undefined);
     assert.notEqual(notices[0].clientId, clientId);
-    for (let attempt = 0; attempt < 80 && closeCode === null; attempt += 1) await delay(25);
+    await eventually(() => closeCode !== null, 2000);
     assert.equal(closeCode, 1009);
     assert.equal(notices.length, 1);
   } finally {
@@ -1822,20 +1777,14 @@ test('a declared frame that never completes is not described as a message', asyn
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     let forwarded = 0;
     desktop.on('message', (raw) => {
       const value = jsonOf(raw);
       if (value === undefined) return;
       if (value.type === 'frame') forwarded += 1;
     });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     const refusals = [];
     phone.on('message', (raw) => {
       const value = jsonOf(raw);
@@ -1857,7 +1806,7 @@ test('a declared frame that never completes is not described as a message', asyn
     // Completing it makes the message real, and it is refused once, at the size
     // that actually arrived.
     phone._socket.write(masked.subarray(512));
-    for (let attempt = 0; attempt < 40 && refusals.length < 1; attempt += 1) await delay(25);
+    await eventually(() => refusals.length >= 1, 1000);
     await delay(150);
     assert.equal(refusals.length, 1);
     assert.equal(refusals[0].bytes, declared);
@@ -1877,16 +1826,15 @@ const declareDesktopLanes = async (desktop, lanes) => {
   await delay(120);
 };
 
-test('a desktop leg is held to the capacity it declares, not to configuration', async () => {
-  // Configuration may only LOWER what a leg said about itself, and a leg that
-  // has declared nothing on this connection is held to the conservative floor,
-  // never to the roomiest receiver this project happens to ship.
+test('configuration may only lower a declared capacity; an undeclared leg gets the floor', () => {
   assert.equal(uplinkCapacityFor(64 * 1024, 128 * 1024), 64 * 1024);
   assert.equal(uplinkCapacityFor(256 * 1024, 128 * 1024), 128 * 1024);
   assert.equal(uplinkCapacityFor(undefined, 128 * 1024), UNDECLARED_CAPACITY_BYTES);
   assert.equal(uplinkCapacityFor(undefined, MAX_UPLINK_CAPACITY_BYTES), UNDECLARED_CAPACITY_BYTES);
   assert.equal(uplinkCapacityFor(0, 128 * 1024), UNDECLARED_CAPACITY_BYTES);
+});
 
+test('a desktop leg is held to the capacity it declares, not to configuration', async () => {
   const dir = tempDir(join(tmpdir(), 'mixdog-relay-capacity-skew-'));
   const relay = await startRelay({
     port: 0,
@@ -1916,10 +1864,7 @@ test('a desktop leg is held to the capacity it declares, not to configuration', 
       if (isBinary) arrived.push(decodeRelayBinaryFrame(raw).data.length);
     });
     await declareDesktopLanes(desktop, { maxPayloadBytes: 64 * 1024 });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     const refusals = [];
     phone.on('message', (raw) => {
       const value = jsonOf(raw);
@@ -1930,7 +1875,7 @@ test('a desktop leg is held to the capacity it declares, not to configuration', 
     // At the configured capacity but past the DECLARED one: forwarding this is
     // a 1006 for every phone on that desktop, so it is a payload error here.
     phone.send(Buffer.alloc(64 * 1024, 9));
-    for (let attempt = 0; attempt < 40 && refusals.length < 1; attempt += 1) await delay(25);
+    await eventually(() => refusals.length >= 1, 1000);
     assert.equal(refusals.length, 1);
     assert.equal(refusals[0].bytes, 64 * 1024);
     // The ceiling is the declared capacity minus the fixed routing header.
@@ -1943,7 +1888,7 @@ test('a desktop leg is held to the capacity it declares, not to configuration', 
 
     // What the leg CAN take still flows, untouched.
     phone.send(Buffer.alloc(60 * 1024, 3));
-    for (let attempt = 0; attempt < 40 && arrived.length < 1; attempt += 1) await delay(25);
+    await eventually(() => arrived.length >= 1, 1000);
     assert.deepEqual(arrived, [60 * 1024]);
     assert.equal(refusals.length, 1);
     assert.equal(closeCode, null);
@@ -1966,10 +1911,7 @@ test('the refused limit is a stable property of the path, and is honoured', asyn
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     const arrived = [];
     desktop.on('message', (raw) => {
       const value = jsonOf(raw);
@@ -1977,10 +1919,7 @@ test('the refused limit is a stable property of the path, and is honoured', asyn
       if (value.type === 'frame') arrived.push(value.data);
     });
     await declareDesktopLanes(desktop, { maxPayloadBytes: 64 * 1024 });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     const refusals = [];
     phone.on('message', (raw) => {
       const value = jsonOf(raw);
@@ -1988,13 +1927,11 @@ test('the refused limit is a stable property of the path, and is honoured', asyn
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
-    // Same size, wildly different escaping: a browser LEARNS the limit it is
-    // told, so it must not depend on whatever payload happened to be refused.
     const size = 48 * 1024;
     phone.send('"'.repeat(size));
-    for (let attempt = 0; attempt < 40 && refusals.length < 1; attempt += 1) await delay(25);
+    await eventually(() => refusals.length >= 1, 1000);
     phone.send('a'.repeat(size));
-    for (let attempt = 0; attempt < 40 && refusals.length < 2; attempt += 1) await delay(25);
+    await eventually(() => refusals.length >= 2, 1000);
     assert.equal(refusals.length, 2);
     assert.equal(refusals[0].bytes, size);
     assert.equal(refusals[1].bytes, size);
@@ -2005,7 +1942,7 @@ test('the refused limit is a stable property of the path, and is honoured', asyn
     // path can be handed, at exactly that size, is carried...
     const worst = '"'.repeat(learned);
     phone.send(worst);
-    for (let attempt = 0; attempt < 40 && arrived.length < 1; attempt += 1) await delay(25);
+    await eventually(() => arrived.length >= 1, 1000);
     assert.equal(arrived.length, 1);
     assert.equal(arrived[0], worst);
     assert.equal(refusals.length, 2);
@@ -2014,7 +1951,7 @@ test('the refused limit is a stable property of the path, and is honoured', asyn
     // stops at the learned limit therefore never withholds traffic this relay
     // would have accepted, and never sends any it would refuse.
     phone.send('a'.repeat(learned + 1));
-    for (let attempt = 0; attempt < 40 && refusals.length < 3; attempt += 1) await delay(25);
+    await eventually(() => refusals.length >= 3, 1000);
     assert.equal(refusals.length, 3);
     assert.equal(refusals[2].bytes, learned + 1);
     assert.equal(refusals[2].limit, learned);
@@ -2028,11 +1965,7 @@ test('the refused limit is a stable property of the path, and is honoured', asyn
   }
 });
 
-test('a declared text-frame leg carries text in the envelope that cannot inflate', async () => {
-  // The arithmetic behind the handoff: 64 MiB of quotes is 128 MiB of JSON and
-  // 64 MiB of NULs approaches 384 MiB, so NO fixed receiver headroom carries a
-  // 64 MiB policy through a JSON envelope. The envelope with a fixed header
-  // does, which is why the policy rides that one.
+test('uplink text ceiling reaches the binary ceiling only on a text-frame leg', () => {
   const uuid = randomUUID();
   const jsonPath = uplinkCeilings({ capacity: MAX_WS_PAYLOAD_BYTES, clientId: uuid });
   assert.equal(jsonPath.binary, MAX_FRAME_BYTES);
@@ -2043,7 +1976,9 @@ test('a declared text-frame leg carries text in the envelope that cannot inflate
     textFrames: true,
   });
   assert.equal(framedPath.text, MAX_FRAME_BYTES);
+});
 
+test('a declared text-frame leg carries text in the envelope that cannot inflate', async () => {
   const dir = tempDir(join(tmpdir(), 'mixdog-relay-text-frames-'));
   const capacity = 256 * 1024;
   const relay = await startRelay({
@@ -2057,10 +1992,7 @@ test('a declared text-frame leg carries text in the envelope that cannot inflate
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     const received = [];
     desktop.on('message', (raw, isBinary) => {
       if (isBinary) {
@@ -2077,10 +2009,7 @@ test('a declared text-frame leg carries text in the envelope that cannot inflate
       if (value.type === 'frame') received.push({ form: 'json', data: value.data });
     });
     await declareDesktopLanes(desktop, { maxPayloadBytes: capacity, textFrames: 1 });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     const refusals = [];
     phone.on('message', (raw) => {
       const value = jsonOf(raw);
@@ -2088,12 +2017,9 @@ test('a declared text-frame leg carries text in the envelope that cannot inflate
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
-    // 100 KiB of quotes: 200 KiB as JSON — past what that envelope can promise
-    // on this leg — and a flat 42 bytes of header in the one that cannot
-    // inflate. It arrives whole, as text, on the leg that declared it.
     const payload = '"'.repeat(100 * 1024);
     phone.send(payload);
-    for (let attempt = 0; attempt < 40 && received.length < 1; attempt += 1) await delay(25);
+    await eventually(() => received.length >= 1, 1000);
     assert.equal(received.length, 1);
     assert.equal(received[0].form, 'text-binary');
     assert.equal(received[0].data, payload);
@@ -2102,7 +2028,7 @@ test('a declared text-frame leg carries text in the envelope that cannot inflate
     // The text ceiling on that leg IS the binary one now, and past it the
     // refusal is still exactly one.
     phone.send('a'.repeat(capacity));
-    for (let attempt = 0; attempt < 40 && refusals.length < 1; attempt += 1) await delay(25);
+    await eventually(() => refusals.length >= 1, 1000);
     await delay(150);
     assert.equal(refusals.length, 1);
     assert.equal(refusals[0].bytes, capacity);
@@ -2167,10 +2093,7 @@ test('a claim is trusted on the connection that made it, and on no other', async
     first.on('close', (code) => {
       firstClosed = code;
     });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     let phoneClosed = null;
     phone.on('close', (code) => {
       phoneClosed = code;
@@ -2185,23 +2108,12 @@ test('a claim is trusted on the connection that made it, and on no other', async
 
     // Inside the claim, past the real receiver.
     phone.send(Buffer.alloc(64 * 1024, 1));
-    for (let attempt = 0; attempt < 80 && firstClosed === null; attempt += 1) await delay(25);
-    // The leg dies once — a claim cannot be checked before it is used — and NO
-    // client is accused for it: the relay cannot know which frame the receiver
-    // refused, so it names nobody. The phone keeps the socket its session runs
-    // on and its path is untouched.
+    await eventually(() => firstClosed !== null, 2000);
     assert.ok(firstClosed !== null);
     assert.deepEqual(refusals, []);
     assert.equal(phoneClosed, null);
     assert.equal(phone.readyState, WebSocket.OPEN);
 
-    // A claim cannot be checked before it is used, and the close that follows
-    // names neither a frame nor a client — so nothing is kept from it. The
-    // desktop redials and repeats the same claim: it is believed again, and it
-    // dies of it again. That is the honest cost of trusting declarations only.
-    // What must never happen is the verdict OUTLIVING the connection that
-    // earned it: not on a leg that has declared nothing (which runs at the
-    // floor), and not on the phone beside this one.
     const second = await openDesktop();
     let secondClosed = null;
     second.on('close', (code) => {
@@ -2209,7 +2121,7 @@ test('a claim is trusted on the connection that made it, and on no other', async
     });
     await delay(200);
     phone.send(Buffer.alloc(64 * 1024, 2));
-    for (let attempt = 0; attempt < 80 && secondClosed === null; attempt += 1) await delay(25);
+    await eventually(() => secondClosed !== null, 2000);
     assert.ok(secondClosed !== null);
     assert.deepEqual(refusals, []);
     assert.equal(phoneClosed, null);
@@ -2225,7 +2137,7 @@ test('a claim is trusted on the connection that made it, and on no other', async
     });
     await delay(200);
     phone.send(Buffer.alloc(64 * 1024, 3));
-    for (let attempt = 0; attempt < 80 && recovered.length < 1; attempt += 1) await delay(25);
+    await eventually(() => recovered.length >= 1, 2000);
     assert.deepEqual(recovered, [64 * 1024]);
     assert.deepEqual(refusals, []);
     assert.equal(third.readyState, WebSocket.OPEN);
@@ -2280,10 +2192,7 @@ test('the text envelope is acknowledged per connection, never inferred', async (
   };
   const openPhone = async (deviceId) => {
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     const refusals = [];
     phone.on('message', (raw) => {
       const value = jsonOf(raw);
@@ -2309,9 +2218,7 @@ test('the text envelope is acknowledged per connection, never inferred', async (
 
     const legacyPhone = await openPhone(legacyId);
     legacyPhone.phone.send('t'.repeat(3050));
-    for (let attempt = 0; attempt < 40 && legacyPhone.refusals.length < 1; attempt += 1) {
-      await delay(25);
-    }
+    await eventually(() => legacyPhone.refusals.length >= 1, 1000);
     // Published equals enforced: the frame a fixed-wrapper guess would have
     // passed is refused at exactly the advertised ceiling, and never forwarded.
     assert.equal(legacyPhone.refusals.length, 1);
@@ -2333,15 +2240,13 @@ test('the text envelope is acknowledged per connection, never inferred', async (
     const modernPhone = await openPhone(modernId);
     const payload = 't'.repeat(3050);
     modernPhone.phone.send(payload);
-    for (let attempt = 0; attempt < 40 && modern.arrived.length < 1; attempt += 1) await delay(25);
+    await eventually(() => modern.arrived.length >= 1, 1000);
     assert.deepEqual(modern.arrived, [{ form: 'text-binary', data: payload }]);
     assert.deepEqual(modernPhone.refusals, []);
 
     // ...and the acknowledged ceiling is what that leg enforces, too.
     modernPhone.phone.send('t'.repeat(capacity));
-    for (let attempt = 0; attempt < 40 && modernPhone.refusals.length < 1; attempt += 1) {
-      await delay(25);
-    }
+    await eventually(() => modernPhone.refusals.length >= 1, 1000);
     assert.equal(modernPhone.refusals.length, 1);
     assert.equal(modernPhone.refusals[0].limit, ack.uplinkTextCeilingBytes);
     assert.equal(modern.arrived.length, 1);
@@ -2406,7 +2311,7 @@ test('a close the relay cannot attribute accuses no client', async () => {
     victim.phone.send(Buffer.alloc(100 * 1024, 2));
     await delay(200);
     desktop.resume();
-    for (let attempt = 0; attempt < 80 && desktopClosed === null; attempt += 1) await delay(25);
+    await eventually(() => desktopClosed !== null, 2000);
     assert.ok(desktopClosed !== null);
     await delay(300);
 
@@ -2435,10 +2340,7 @@ test('a critical fan-out defers what the box cannot carry and closes no healthy 
   try {
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     const origin = `http://127.0.0.1:${relay.port}`;
     const legs = [];
     for (let index = 0; index < MAX_PHONE_CLIENTS_PER_DEVICE; index += 1) {
@@ -2493,9 +2395,7 @@ test('a critical fan-out defers what the box cannot carry and closes no healthy 
   }
 });
 
-test('ingress admission bounds arriving frames to the box, not to leg count', async () => {
-  // ws assembles a whole message before any handler runs, so the reservation
-  // has to cover a leg's WORST case for reserved bytes to bound real memory.
+test('ingress admission decides read, reserve or wait from the pool state', () => {
   assert.equal(INGRESS_RESERVATION_BYTES, MAX_WS_PAYLOAD_BYTES);
   assert.equal(MAX_INGRESS_BYTES, 2 * MAX_WS_PAYLOAD_BYTES);
   assert.equal(admitIngress({ pending: 1024 }), 'read');
@@ -2505,10 +2405,10 @@ test('ingress admission bounds arriving frames to the box, not to leg count', as
     'reserve'
   );
   assert.equal(admitIngress({ pending: 512 * 1024, reserved: MAX_INGRESS_BYTES }), 'wait');
-  // A leg that already holds its reservation reads to the end regardless: that
-  // is what keeps the pool free of half-received frames waiting on each other.
   assert.equal(admitIngress({ pending: 64 * 1024 * 1024, holding: true, reserved: MAX_INGRESS_BYTES }), 'read');
+});
 
+test('ingress admission bounds arriving frames to the box, not to leg count', async () => {
   const dir = tempDir(join(tmpdir(), 'mixdog-relay-ingress-'));
   const ceiling = 512 * 1024;
   const relay = await startRelay({
@@ -2522,10 +2422,7 @@ test('ingress admission bounds arriving frames to the box, not to leg count', as
   try {
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     const payload = 'z'.repeat(1024 * 1024);
     const legCount = 8;
     const arrived = [];
@@ -2552,16 +2449,11 @@ test('ingress admission bounds arriving frames to the box, not to leg count', as
     // Every leg pushes a supported frame at the same moment. Without a gate
     // this is legCount × maxPayload of heap before a single handler runs.
     for (const phone of phones) phone.send(payload);
-    for (let attempt = 0; attempt < 200 && arrived.length < legCount; attempt += 1) {
-      await delay(25);
-    }
+    await eventually(() => arrived.length >= legCount, 5000);
     const stats = relayIngressStats();
     assert.equal(arrived.length, legCount);
     // Byte-for-byte: bounding memory must not cost payload fidelity.
     for (const data of arrived) assert.equal(data, payload);
-    // The gate engaged — every one of these frames is far past the free
-    // window, so each one had to be charged to the pool — and it never handed
-    // out more than the box budget however many legs arrived together.
     assert.ok(stats.peak >= 256 * 1024);
     assert.ok(stats.peak <= ceiling);
     assert.equal(stats.reserved, 0);
@@ -2622,10 +2514,7 @@ test('a leg parked for ingress admission waits instead of losing its frame', asy
   try {
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     const arrived = [];
     desktop.on('message', (raw) => {
       const value = jsonOf(raw);
@@ -2667,7 +2556,7 @@ test('a leg parked for ingress admission waits instead of losing its frame', asy
     // The stalled frame completes, the parked leg is admitted next, and both
     // payloads arrive whole.
     stalled._socket.write(masked.subarray(64 * 1024));
-    for (let attempt = 0; attempt < 200 && arrived.length < 2; attempt += 1) await delay(25);
+    await eventually(() => arrived.length >= 2, 5000);
     assert.equal(arrived.length, 2);
     for (const data of arrived) assert.equal(data, payload);
     const stats = relayIngressStats();
@@ -2701,11 +2590,6 @@ test('webhook ingress caps bodies that are still arriving, not just landed ones'
     });
     const path = `/hook/${deviceId}/webhook/test`;
     const url = `http://127.0.0.1:${relay.port}${path}`;
-    // A body that STARTS and never ends. This is the case a cap counting only
-    // landed `pending` entries misses entirely: the request already holds a
-    // slot, a socket and a growing buffer, and it has not reached the agent at
-    // all. The write callback is the handshake — head and first chunk are on
-    // the wire before the probe runs.
     const startSlowUpload = () =>
       new Promise((resolve) => {
         const upload = httpRequest({
@@ -2742,7 +2626,7 @@ test('webhook ingress caps bodies that are still arriving, not just landed ones'
     for (const upload of uploads) upload.destroy();
     await delay(100);
     const accepted = fetch(url, { method: 'POST', body: '{}', signal: AbortSignal.timeout(2_000) }).catch(() => null);
-    for (let attempt = 0; attempt < 40 && forwarded < 1; attempt += 1) await delay(25);
+    await eventually(() => forwarded >= 1, 1000);
     assert.equal(forwarded, 1);
     await Promise.allSettled([accepted]);
   } finally {
@@ -2841,14 +2725,8 @@ test('a leg revocation that cannot persist keeps both the pairing and the phone'
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     const answerOf = (type) =>
       new Promise((resolve) => {
         const onMessage = (raw) => {
@@ -2948,16 +2826,6 @@ test('a proxied media answer is neutralized at the relay origin', async () => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// Capacity is a DECLARATION made on ONE connection, never something the relay
-// infers from a failure and remembers. The repros below are the five ways the
-// old inference-and-memory mechanism moved a limit nobody declared: a redial
-// that restored a roomy default, an unrelated close that poisoned a later leg,
-// one phone's traffic shrinking another's path, a refusal that named a client
-// the router would not have used, and a raw configured value that was published
-// but never enforced.
-// ---------------------------------------------------------------------------
-
 // What a leg that has declared nothing on the CURRENT connection is held to
 // (server.mjs UNDECLARED_CAPACITY_BYTES), and the fixed routing header one
 // client id costs in the binary envelope.
@@ -2967,10 +2835,7 @@ const ROUTING_HEADER = 42;
 /** A phone leg plus the refusals it was sent, for the device fixtures below. */
 const openPhoneLeg = async (relay, deviceId, clientId, sockets) => {
   const registered = relay.store.registerClient(deviceId, clientId, {});
-  const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-    headers: { Origin: `http://127.0.0.1:${relay.port}` },
-  });
-  sockets.push(phone);
+  const phone = await openPhoneSocket(relay, registered.token, sockets);
   const refusals = [];
   phone.on('message', (raw) => {
     const value = jsonOf(raw);
@@ -3021,17 +2886,13 @@ test('a redialed leg carries nothing it has not declared on that connection', as
     // The claim is trusted on the connection that made it, so the frame goes
     // out and the leg dies of its own declaration. No client is accused.
     phone.send(Buffer.alloc(64 * 1024, 1));
-    for (let attempt = 0; attempt < 80 && firstClosed === null; attempt += 1) await delay(25);
+    await eventually(() => firstClosed !== null, 2000);
     assert.ok(firstClosed !== null);
     assert.deepEqual(refusals, []);
 
-    // The replacement leg has declared NOTHING yet. Handing it the previous
-    // leg's roomy default is what killed a second connection with the very same
-    // frame; an undeclared connection is held to the floor instead, so the
-    // phone is answered and the leg survives.
     const second = await openDesktop({ receives: 64 * 1024 });
     phone.send(Buffer.alloc(64 * 1024, 2));
-    for (let attempt = 0; attempt < 80 && refusals.length < 1; attempt += 1) await delay(25);
+    await eventually(() => refusals.length >= 1, 2000);
     await delay(200);
     assert.equal(refusals.length, 1);
     assert.equal(refusals[0].bytes, 64 * 1024);
@@ -3040,13 +2901,9 @@ test('a redialed leg carries nothing it has not declared on that connection', as
     assert.equal(second.ws.readyState, WebSocket.OPEN);
     assert.equal(phone.readyState, WebSocket.OPEN);
 
-    // The floor is where every connection starts — a fresh dial, a redial and a
-    // relay restart alike — so losing state can never upgrade a peer's trust.
-    // Nothing is held against this device either: the next leg to declare an
-    // honest number is believed on the spot.
     const third = await openDesktop({ receives: 256 * 1024, declares: 256 * 1024 });
     phone.send(Buffer.alloc(64 * 1024, 3));
-    for (let attempt = 0; attempt < 80 && third.arrived.length < 1; attempt += 1) await delay(25);
+    await eventually(() => third.arrived.length >= 1, 2000);
     assert.deepEqual(third.arrived, [64 * 1024]);
     assert.equal(refusals.length, 1);
   } finally {
@@ -3094,18 +2951,14 @@ test('an unrelated 1009 leaves the next leg its full declared capacity', async (
     // A large, entirely successful delivery: well past the conservative floor
     // and well inside what this leg declared.
     phone.send(Buffer.alloc(100 * 1024, 1));
-    for (let attempt = 0; attempt < 80 && first.arrived.length < 1; attempt += 1) await delay(25);
+    await eventually(() => first.arrived.length >= 1, 2000);
     assert.deepEqual(first.arrived, [100 * 1024]);
 
-    // ...then this connection closes with 1009 for a reason of its own. A close
-    // carries no evidence of which frame a receiver refused, so remembering a
-    // historical above-floor send and charging it to the NEXT connection is an
-    // accusation the relay cannot make.
     first.ws.close(1009, 'unrelated');
     await delay(250);
     const second = await openDesktop();
     phone.send(Buffer.alloc(100 * 1024, 2));
-    for (let attempt = 0; attempt < 80 && second.arrived.length < 1; attempt += 1) await delay(25);
+    await eventually(() => second.arrived.length >= 1, 2000);
     assert.deepEqual(second.arrived, [100 * 1024]);
     assert.deepEqual(refusals, []);
     assert.equal(phone.readyState, WebSocket.OPEN);
@@ -3159,24 +3012,21 @@ test('one phone cannot shrink the path of the phone beside it', async () => {
     // One phone sends inside the claim and past the real receiver, and the
     // shared leg dies for it.
     attacker.phone.send(Buffer.alloc(110 * 1024, 1));
-    for (let attempt = 0; attempt < 80 && firstClosed === null; attempt += 1) await delay(25);
+    await eventually(() => firstClosed !== null, 2000);
     assert.ok(firstClosed !== null);
     assert.deepEqual(attacker.refusals, []);
     assert.deepEqual(victim.refusals, []);
 
-    // The desktop comes back with the same declaration. A frame that fits the
-    // REAL path must still cross it: distrust derived from one phone's traffic
-    // and applied to every phone on the device is one client degrading another.
     const second = await openDesktop();
     victim.phone.send(Buffer.alloc(80 * 1024, 2));
-    for (let attempt = 0; attempt < 80 && second.arrived.length < 1; attempt += 1) await delay(25);
+    await eventually(() => second.arrived.length >= 1, 2000);
     assert.deepEqual(second.arrived, [80 * 1024]);
     assert.deepEqual(victim.refusals, []);
 
     // ...and the phone that caused the close keeps its own path too: no client
     // was named, so no client was punished.
     attacker.phone.send(Buffer.alloc(60 * 1024, 3));
-    for (let attempt = 0; attempt < 80 && second.arrived.length < 2; attempt += 1) await delay(25);
+    await eventually(() => second.arrived.length >= 2, 2000);
     assert.deepEqual(second.arrived, [80 * 1024, 60 * 1024]);
     assert.deepEqual(attacker.refusals, []);
     assert.equal(victim.phone.readyState, WebSocket.OPEN);
@@ -3195,10 +3045,7 @@ test('a refusal names the client the router itself would have used', async () =>
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     const notices = [];
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
@@ -3208,10 +3055,7 @@ test('a refusal names the client the router itself would have used', async () =>
         if (value.type === 'frame-too-large') notices.push(value);
       });
     });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     const delivered = [];
     phone.on('message', (raw) => delivered.push(String(raw)));
     const clientId = await opened;
@@ -3223,7 +3067,7 @@ test('a refusal names the client the router itself would have used', async () =>
     assert.equal(JSON.parse(hostile).clientId, clientId);
 
     desktop.send(hostile);
-    for (let attempt = 0; attempt < 40 && notices.length < 1; attempt += 1) await delay(25);
+    await eventually(() => notices.length >= 1, 1000);
     assert.equal(notices.length, 1);
     // The notice and the parser agree, byte for byte.
     assert.equal(notices[0].clientId, JSON.parse(hostile).clientId);
@@ -3235,7 +3079,7 @@ test('a refusal names the client the router itself would have used', async () =>
     // scanner and router are one answer, not two.
     const deliverable = `{"type":"frame","clientId":"${decoy}","clientId":"${clientId}","data":"ok"}`;
     desktop.send(deliverable);
-    for (let attempt = 0; attempt < 40 && delivered.length < 1; attempt += 1) await delay(25);
+    await eventually(() => delivered.length >= 1, 1000);
     assert.deepEqual(delivered, ['ok']);
     assert.equal(notices.length, 1);
     assert.equal(desktop.readyState, WebSocket.OPEN);
@@ -3301,14 +3145,14 @@ test('a nonsense configured capacity is normalised once, and published equals en
     await delay(100);
     // A frame at exactly the published ceiling is carried...
     phone.send(Buffer.alloc(published.uplinkBinaryCeilingBytes, 7));
-    for (let attempt = 0; attempt < 80 && arrived.length < 1; attempt += 1) await delay(25);
+    await eventually(() => arrived.length >= 1, 2000);
     assert.deepEqual(arrived, [published.uplinkBinaryCeilingBytes]);
     assert.deepEqual(refusals, []);
 
     // ...and one byte more is refused at that same number, never at a limit the
     // client cannot even read.
     phone.send(Buffer.alloc(published.uplinkBinaryCeilingBytes + 1, 8));
-    for (let attempt = 0; attempt < 80 && refusals.length < 1; attempt += 1) await delay(25);
+    await eventually(() => refusals.length >= 1, 2000);
     await delay(150);
     assert.equal(refusals.length, 1);
     assert.equal(refusals[0].limit, published.uplinkBinaryCeilingBytes);
@@ -3351,30 +3195,25 @@ test('an enveloped uplink message measures the same fragmented or whole', async 
     const { phone, refusals } = await openPhoneLeg(relay, deviceId, 'bbbbbbbb', sockets);
     await delay(100);
 
-    // The admission arithmetic in one number: a 5000-byte message is 5076 bytes
-    // through the JSON envelope (76 bytes of wrapper around one client id) and
-    // 5042 through the binary one (a 42-byte routing header). Both ceilings are
-    // derived from these bases, so the bytes the relay SENDS have to match them
-    // exactly — including when the phone fragments the message on the wire.
     const payload = 'y'.repeat(5000);
     phone.send(payload);
-    for (let attempt = 0; attempt < 40 && wire.length < 1; attempt += 1) await delay(25);
+    await eventually(() => wire.length >= 1, 1000);
     assert.deepEqual(wire, [{ form: 'json', bytes: 5076 }]);
 
     const textHead = maskedTextFrame(payload.slice(0, 2500), { fin: false });
     const textTail = maskedTextFrame(payload.slice(2500), { opcode: 0x0, fin: true });
     phone._socket.write(Buffer.concat([textHead.header, textHead.masked, textTail.header, textTail.masked]));
-    for (let attempt = 0; attempt < 40 && wire.length < 2; attempt += 1) await delay(25);
+    await eventually(() => wire.length >= 2, 1000);
     assert.deepEqual(wire[1], { form: 'json', bytes: 5076 });
 
     phone.send(Buffer.from(payload, 'utf8'));
-    for (let attempt = 0; attempt < 40 && wire.length < 3; attempt += 1) await delay(25);
+    await eventually(() => wire.length >= 3, 1000);
     assert.deepEqual(wire[2], { form: 'binary', bytes: 5042 });
 
     const binaryHead = maskedTextFrame(payload.slice(0, 2500), { opcode: 0x2, fin: false });
     const binaryTail = maskedTextFrame(payload.slice(2500), { opcode: 0x0, fin: true });
     phone._socket.write(Buffer.concat([binaryHead.header, binaryHead.masked, binaryTail.header, binaryTail.masked]));
-    for (let attempt = 0; attempt < 40 && wire.length < 4; attempt += 1) await delay(25);
+    await eventually(() => wire.length >= 4, 1000);
     assert.deepEqual(wire[3], { form: 'binary', bytes: 5042 });
     assert.deepEqual(refusals, []);
     assert.equal(desktop.readyState, WebSocket.OPEN);
@@ -3393,10 +3232,7 @@ test('no padding length lets a decoy id outrank the id that routes', async () =>
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
     const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    const desktop = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-      headers: { Authorization: basicAuth(deviceId) },
-    });
-    sockets.push(desktop);
+    const desktop = await openDesktopLeg(relay, deviceId, sockets);
     const notices = [];
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
@@ -3406,10 +3242,7 @@ test('no padding length lets a decoy id outrank the id that routes', async () =>
         if (value.type === 'frame-too-large') notices.push(value);
       });
     });
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
+    const phone = await openPhoneSocket(relay, registered.token, sockets);
     let delivered = 0;
     phone.on('message', () => {
       delivered += 1;
@@ -3418,16 +3251,11 @@ test('no padding length lets a decoy id outrank the id that routes', async () =>
     const decoy = randomUUID();
     const nextNotice = async () => {
       const wanted = notices.length + 1;
-      for (let attempt = 0; attempt < 200 && notices.length < wanted; attempt += 1) await delay(25);
+      await eventually(() => notices.length >= wanted, 5000);
       assert.equal(notices.length, wanted);
       return notices[wanted - 1];
     };
 
-    // The reviewer's shape: a decoy id first, padding that pushes the real key
-    // past any window a scan might keep, then the id the router would use.
-    // Every padding length gives the same answer, because the walk answers only
-    // once it has reached the end of the object — there is no window to outrun,
-    // so there is no length that changes the outcome.
     for (const padding of [0, 600, 4 * 1024, 64 * 1024, 512 * 1024]) {
       const frame =
         `{"type":"frame","clientId":"${decoy}","pad":"${'p'.repeat(padding)}",` +
@@ -3455,10 +3283,6 @@ test('no padding length lets a decoy id outrank the id that routes', async () =>
     desktop.send(unroutable);
     assert.equal((await nextNotice()).clientId, undefined);
 
-    // An escape JSON does not define makes the parser reject the WHOLE frame,
-    // so it routes nowhere — and a walk that merely stepped over `\q` would
-    // have answered with the valid id further along the object, failing an
-    // innocent client's call for a frame nobody was ever going to receive.
     const badEscape = `{"type":"frame","pad":"\\q","clientId":"${clientId}",` + `"data":"${'y'.repeat(8192)}"}`;
     assert.throws(() => JSON.parse(badEscape));
     desktop.send(badEscape);
@@ -3498,12 +3322,6 @@ test('no padding length lets a decoy id outrank the id that routes', async () =>
 });
 
 test('attribution costs one pass over the frame, whatever shape it is', () => {
-  // Attribution reads a frame the relay has already received; what it must
-  // never do is let the SHAPE of that frame buy more CPU than the bytes did.
-  // A search-based walk (`indexOf` per string) is quick on one long payload and
-  // quadratic on a frame made of millions of short keys — 8 MiB of them stalled
-  // this single-threaded process for over a minute, which is every other
-  // connection on the box waiting behind one refused frame.
   const size = 8 * 1024 * 1024;
   const clientId = randomUUID();
   const decoy = randomUUID();

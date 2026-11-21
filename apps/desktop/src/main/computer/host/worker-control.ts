@@ -1,8 +1,3 @@
-/**
- * The host's direct operations on resident session workers, outside the
- * command path: releasing a sequence's held input, retiring every worker when
- * the bridge stops, and killing them on dispose.
- */
 import type { PowerShellResponse } from '../shared/types';
 import { sequenceHoldReleaseError } from './sequence-runner';
 

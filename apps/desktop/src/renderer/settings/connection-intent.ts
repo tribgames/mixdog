@@ -1,7 +1,3 @@
-// A request from outside Settings → Connection (the title-bar PC menu, the
-// "device is asking to connect" notice) to land on the page with one of its
-// dialogs open. The panel may not be mounted yet, so the request waits here
-// until it is.
 export type ConnectionDialogRequest = 'connect' | 'open-pc' | 'ssh' | 'ssh-host';
 
 /** The saved SSH server a 'ssh-host' request connects to. */

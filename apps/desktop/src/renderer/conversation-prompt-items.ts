@@ -97,21 +97,8 @@ export function pendingPromptTranscriptItems(
     if (!String(item.text || '').trim() && !hasImages(item)) continue;
     byId.set(String(item.id), item);
   }
-  // Host acknowledgement is NOT settlement. Releasing on the RPC result took
-  // the bubble back out of the thread for the whole ack -> publication window
-  // (measured 77ms to 4s on the daemon-hosted session runtime): the bottom-pinned
-  // timeline lost the prompt's height, snapped back, then snapped forward
-  // again when the durable row arrived — the double kick the reader sees as
-  // one big jerk.
-  // The optimistic row is therefore held until its OWN durable row lands.
   const rows: PendingPromptItem[] = [];
   const ordered = [...byId.values()].sort((left, right) => left.submittedAt - right.submittedAt);
-  // The last durable user row (by ordinal) an earlier optimistic prompt
-  // claimed. This prompt's own row is the next one past both that claim and
-  // its submit-time baseline — not their sum: a prompt sent after the
-  // previous one settled already counts that row in its baseline, and adding
-  // the claim again kept every later renamed prompt (a group room's) standing
-  // as a second bubble under its own row.
   let claimedThrough = 0;
   for (const item of ordered) {
     // A message that could not be sent has no durable row to wait for: it

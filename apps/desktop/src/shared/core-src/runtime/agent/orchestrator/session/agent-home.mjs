@@ -1,9 +1,3 @@
-// session/agent-home.mjs
-// An agent's home thread: the ONE user conversation each agent contact owns.
-// Its session id is a fixed key derived from the agent id, never a stored
-// pointer, so every surface (PC, phone, a restarted host) resolves the same
-// session, and two concurrent first opens can only ever name the same id.
-
 /** The primary assistant's contact: the Lead configuration itself. */
 export const MIXY_AGENT_ID = 'lead';
 

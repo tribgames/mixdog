@@ -72,11 +72,6 @@ export function rememberAgentReviews(
 ): void {
   drop(scopeKey);
   let chars = JSON.stringify([scopeKey, reviews, leadPatch, files, snapshotKind, checkpointId]).length;
-  // An oversized review keeps only what decides and draws the collapsed bar
-  // (files, kind, checkpoint); its patch text is re-read on entry. Caching
-  // nothing held every entry into such a session behind that read before its
-  // transcript could reveal.
-  // No tag: a patch-less entry must never be answered `unchanged`.
   const light = chars > AGENT_REVIEW_SCOPE_MAX_CHARS;
   if (light) {
     chars = JSON.stringify([scopeKey, files, snapshotKind, checkpointId]).length;

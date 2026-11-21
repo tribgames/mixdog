@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { connect } from '../src/client.ts';
-import { MockConn, MockNetwork } from '../src/mock.ts';
+import { type MockConn, MockNetwork } from '../src/mock.ts';
 
 const options = JSON.parse(readFileSync(new URL('../conformance/options.json', import.meta.url), 'utf8'));
 const attached = { subscription: { epoch: 'e1', startSeq: 1 } };
@@ -19,7 +19,8 @@ async function rig(sink?: (event: string, fields: Record<string, unknown>) => vo
     sink?.(event, fields);
   };
   /** Resolves when the next line of `event` is written. */
-  const line = (event: string): Promise<void> => new Promise((resolve) => waiting.set(event, [...(waiting.get(event) ?? []), resolve]));
+  const line = (event: string): Promise<void> =>
+    new Promise((resolve) => waiting.set(event, [...(waiting.get(event) ?? []), resolve]));
   const connecting = connect({
     target: { id: 'local' },
     connector: net,
@@ -38,12 +39,22 @@ async function rig(sink?: (event: string, fields: Record<string, unknown>) => vo
     return conn;
   };
   const conn = await handshake();
-  return { client: await connecting, conn, handshake, lines, line, of: (event: string) => lines.filter((l) => l.event === event) };
+  return {
+    client: await connecting,
+    conn,
+    handshake,
+    lines,
+    line,
+    of: (event: string) => lines.filter((l) => l.event === event),
+  };
 }
 
 test('a dropped link is logged with what it held, and the reconnect with how many subscriptions it restored', async () => {
   const { client, conn: first, handshake, lines, line, of } = await rig();
-  assert.deepEqual(lines.map((l) => l.event), ['link-open']);
+  assert.deepEqual(
+    lines.map((l) => l.event),
+    ['link-open']
+  );
 
   const resumed = client.resumeThread('t1', { lastItems: 5 });
   const resume = JSON.parse(await first.nextSent());
@@ -86,7 +97,11 @@ test('a restore that settles after the link dropped again names the connection t
   second.serverClose(1006); // the link drops under it, and the ladder opens the next connection
   await handshake();
   await settled;
-  assert.equal(of('link-restore-settled')[0]!.fields.linkSeq, of('link-reconnected')[0]!.fields.linkSeq, 'the restore belongs to the connection that was reconnected');
+  assert.equal(
+    of('link-restore-settled')[0]!.fields.linkSeq,
+    of('link-reconnected')[0]!.fields.linkSeq,
+    'the restore belongs to the connection that was reconnected'
+  );
   assert.equal(of('link-restore-settled')[0]!.fields.threadsFailed, 1);
   await client.close();
 });
@@ -98,20 +113,31 @@ test('a protocol violation is logged under a fixed category, never with the feed
   conn.serverSend({ id: resume.id, result: attached });
   await resumed;
   const violation = line('link-violation');
-  conn.serverSend({ method: 'thread/runtime/updated', params: {}, feed: { id: 'secret-feed-id', epoch: 'e1', seq: 9 } });
+  conn.serverSend({
+    method: 'thread/runtime/updated',
+    params: {},
+    feed: { id: 'secret-feed-id', epoch: 'e1', seq: 9 },
+  });
   await violation;
   assert.equal(of('link-violation')[0]!.fields.category, 'feed gap');
   const { feedKind, method, hadPosition, epochChanged, expectedSeq, receivedSeq } = of('link-violation')[0]!.fields;
   assert.deepEqual(
     { feedKind, method, hadPosition, epochChanged, expectedSeq, receivedSeq },
-    { feedKind: 'thread', method: 'thread/runtime/updated', hadPosition: true, epochChanged: false, expectedSeq: 1, receivedSeq: 9 },
+    {
+      feedKind: 'thread',
+      method: 'thread/runtime/updated',
+      hadPosition: true,
+      epochChanged: false,
+      expectedSeq: 1,
+      receivedSeq: 9,
+    },
     'what identifies the gap: the kind of feed, the notification, the positions'
   );
   assert.equal(JSON.stringify(of('link-violation')).includes('secret-feed-id'), false);
   await client.close();
 });
 
-test('a gap on a notification the method table does not list logs the method as unknown, never the peer\'s text', async () => {
+test("a gap on a notification the method table does not list logs the method as unknown, never the peer's text", async () => {
   const { client, conn, line, of } = await rig();
   const resumed = client.resumeThread('t1', { lastItems: 5 });
   conn.serverSend({ id: JSON.parse(await conn.nextSent()).id, result: attached });
@@ -126,7 +152,11 @@ test('a gap on a notification the method table does not list logs the method as 
 
 test('a diagnostics sink that throws changes nothing the link does', async () => {
   let armed = false;
-  const { client, conn: first, handshake } = await rig(() => {
+  const {
+    client,
+    conn: first,
+    handshake,
+  } = await rig(() => {
     if (armed) throw new Error('the sink failed');
   });
   armed = true;
@@ -136,7 +166,10 @@ test('a diagnostics sink that throws changes nothing the link does', async () =>
   await resumed;
   const up = new Promise<void>((resolve) => {
     const off = client.on((event) => {
-      if (event.type === 'status' && event.status.state === 'ready') (off(), resolve());
+      if (event.type === 'status' && event.status.state === 'ready') {
+        off();
+        resolve();
+      }
     });
   });
   first.serverClose(1006);

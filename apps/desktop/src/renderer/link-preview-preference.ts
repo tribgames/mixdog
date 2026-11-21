@@ -1,7 +1,3 @@
-// "Link preview" (Settings → General): a renderer-side UI preference. ON, a
-// file opened from a chat link lands in a preview tab that the next link
-// replaces; OFF, every link opens a normal tab. Stored locally and announced
-// to open panes so a change applies without a restart.
 const LINK_PREVIEW_KEY = 'mixdog.desktop.link-preview.v1';
 const CHANGE_EVENT = 'mixdog:link-preview-changed';
 let fallbackEnabled = true;

@@ -7,11 +7,6 @@ import {
   MARKDOWN_AST_CACHE_MAX_CHARACTERS as AST_CACHE_MAX_CHARACTERS,
 } from './markdown-ast-weight';
 
-// Sized for a scrolled transcript, not one screen: a highlighted reply's AST
-// weighs tens of thousands of chars, so the old 1M/64 bound held barely the
-// mounted rows plus overscan, and every row scrolled out and back re-parsed
-// (~18 ms per row on a 4x-throttled phone). One entry stays capped at the
-// per-AST weight limit; the shared renderer budget still trims this cache.
 const AST_CACHE_MAX_ENTRIES = 512;
 const AST_CACHE_TOTAL_CHARACTERS = 8 * AST_CACHE_MAX_CHARACTERS;
 const AST_CACHE_MAX_ENTRY_CHARACTERS = 128 * 1024;
@@ -115,10 +110,6 @@ export function syncMarkdownParser(): ((text: string) => MarkdownAstRoot) | null
  *  while 8192 take ~10 ms (p95 15-20 ms), already most of a 16.7 ms frame. */
 export const SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS = 4096;
 
-/** Settled blocks share ONE frame's worth of main-thread parsing: this many
- *  UTF-16 code units, i.e. one maximum-size reply. Several replies mounting in
- *  one commit would otherwise each parse synchronously and stall the frame for
- *  the sum; the ones past the allowance go to the worker. */
 const SETTLED_PARSE_FRAME_UTF16_UNITS = SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS;
 let settledParseSpent = 0;
 let settledParseResetQueued = false;
@@ -135,12 +126,8 @@ function renewSettledParseAllowanceNextFrame(): void {
   });
 }
 
-/** A settled block's AST in the render that mounts it: the cached tree, or a
- *  main-thread parse once the parser is loaded and this frame's allowance
- *  covers it. Waiting for the worker painted the block as raw source (or
- *  nothing) first, then swapped in tables, links and code cards at another
- *  height, moving the transcript. The result is cached so a remount or another
- *  pane reuses it. A null return means "ask the worker". */
+/** A settled block's AST: the cached tree, or a main-thread parse within this
+ *  frame's allowance. Null means "ask the worker". */
 export function parseSettledMarkdownAstNow(text: string, maxUtf16Units: number): MarkdownAstRoot | null {
   const value = String(text ?? '');
   const cached = readCachedStreamingMarkdownAst(value);

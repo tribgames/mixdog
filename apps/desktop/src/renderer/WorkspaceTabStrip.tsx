@@ -1,7 +1,3 @@
-// Per-pane workspace tab strip: every pane group mounts one, so the
-// Chrome-parity layout/animation model and the drag gestures (reorder inside
-// the strip, drag below it to split/move) all live here. Class names are
-// contract for the strip-contract dom tests and the shared CSS.
 import React, { type KeyboardEvent, memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useStableEvent } from './use-stable-event';
 import { confirmSessionOpen, prepareSessionOpen, useSessionOpenIntent } from './session-open-intent';
@@ -164,11 +160,6 @@ function workspaceTabHomeButton() {
   );
 }
 
-/** Phone title pill: the run of tabs
- *  has no room on a phone, so ONE label names the active tab — sessions live
- *  in the left drawer. Tapping re-selects the active tab (on an agent's home
- *  thread that opens its profile); long-press keeps the tab menu for
- *  closing. The + and the dock toggles beside it are the desktop's. */
 function workspaceMobileTabPill({
   tabs,
   activeKey,

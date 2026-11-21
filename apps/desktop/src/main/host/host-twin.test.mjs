@@ -1,9 +1,3 @@
-/**
- * The visualize and file methods through two routes: each step runs through
- * the loopback bridge over HTTP (and the window-process request handlers'
- * direct calls) and through the `host/*` handler, and the results
- * must be equal; the outcome of each step (admitted or refused) is also stated here.
- */
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

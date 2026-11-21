@@ -1,7 +1,3 @@
-// The visualize panel's session list ("All visuals"), per-tab source toggle
-// and export menu, kept out of VisualizePane so the pane stays the layout:
-// one hook returns the toolbar actions and the "All visuals" list drawn under
-// the header. Outcomes and errors go to the app toasts, never a strip.
 import { Code, Download, ExternalLink, History, LayoutList, Save, Undo2 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 

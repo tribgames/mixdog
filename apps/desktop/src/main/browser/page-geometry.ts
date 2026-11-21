@@ -1,7 +1,3 @@
-/**
- * Resizing a page's own window and reading its current geometry, for the
- * page surface's display capture.
- */
 import { screen, type WebContents } from 'electron';
 import { browserFramePixels } from './frame-pixels';
 import { browserPageWindow } from './page-window';

@@ -1,7 +1,3 @@
-// A paired device's visualize snapshot leaves inline sources out
-// (`inline.deferred`, see withDeferredInline): a pane reads its source from
-// the host when it is shown. One read per tab revision and pane; a newer
-// revision's push carries the source again or is read anew.
 import { useEffect, useState } from 'react';
 
 import type { VisualizeInlineContent, VisualizePaneView } from '../shared/visualize';

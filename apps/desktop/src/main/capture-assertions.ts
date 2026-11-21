@@ -10,6 +10,14 @@ export const COLLAPSED_SESSIONS_TOGGLE = '.app-shell.sidebar-collapsed .activity
 /** The active rail destination, which re-inks to full text in every theme. */
 export const ACTIVE_RAIL_ICON = '.activity-rail .workbench-side-icon-bar.is-vertical > button.active';
 
+/** In-page `visible(element)` helper shared by the measurement scripts below. */
+const VISIBLE_HELPER = `const visible = (element) => {
+      const style = getComputedStyle(element);
+      const box = element.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden'
+        && Number(style.opacity) !== 0 && box.width > 0 && box.height > 0;
+    };`;
+
 /** In-page `rect(element)` helper shared by every measurement script below. */
 const RECT_HELPER = `const rect = (element) => {
       const value = element.getBoundingClientRect();
@@ -232,12 +240,7 @@ export async function readDesktopAssertions(window: BrowserWindow): Promise<Live
       return element;
     };
     ${RECT_HELPER}
-    const visible = (element) => {
-      const style = getComputedStyle(element);
-      const box = element.getBoundingClientRect();
-      return style.display !== 'none' && style.visibility !== 'hidden'
-        && Number(style.opacity) !== 0 && box.width > 0 && box.height > 0;
-    };
+    ${VISIBLE_HELPER}
     const sidebar = required('.sidebar');
     const main = required('.workspace');
     const composer = required('.composer');
@@ -384,12 +387,7 @@ export async function readPhoneSettingsAssertions(window: BrowserWindow): Promis
       throw new Error('Phone settings surface is missing from the capture renderer.');
     }
     ${RECT_HELPER}
-    const visible = (element) => {
-      const style = getComputedStyle(element);
-      const value = element.getBoundingClientRect();
-      return style.display !== 'none' && style.visibility !== 'hidden'
-        && Number(style.opacity) !== 0 && value.width > 0 && value.height > 0;
-    };
+    ${VISIBLE_HELPER}
     const overflowFree = (element) => element.scrollWidth <= element.clientWidth + 1;
     const buttons = Array.from(rail.querySelectorAll('button'));
     const controlLefts = [];
@@ -635,12 +633,7 @@ export async function readMobileClosedAssertions(
       return element;
     };
     ${RECT_HELPER}
-    const visible = (element) => {
-      const style = getComputedStyle(element);
-      const box = element.getBoundingClientRect();
-      return style.display !== 'none' && style.visibility !== 'hidden'
-        && Number(style.opacity) !== 0 && box.width > 0 && box.height > 0;
-    };
+    ${VISIBLE_HELPER}
     const sidebar = required('.sidebar');
     const main = required('.main-panel');
     const rail = required('.activity-rail');

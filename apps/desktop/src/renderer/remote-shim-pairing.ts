@@ -122,10 +122,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
     return ctx.registrationInFlight;
   };
 
-  // The pre-credential surface (remote-pairing-screen.ts) owns the entry screen
-  // and the approval loop; the shim keeps what is connection state. Created
-  // here so the install offer, which fires once and early, is still captured
-  // before anything else can run.
+  // Created here: the browser's install offer fires once and early.
   const showPairingScreen = createRemotePairingScreen({
     deviceId: ctx.deviceId,
     claimStorageKey: ctx.pairingKeys.claim,
@@ -149,9 +146,6 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
     if (ctx.deviceId) localStorage.setItem(DEVICE_STORAGE_KEY, ctx.deviceId);
   };
 
-  /** Set while the durable copy holds a credential this container dropped
-   *  (revoked, incomplete, or an approval rolled back) and its delete has not
-   *  committed yet: boot must never adopt that copy. A flag, never a token. */
   const durableRevokedKey = (): string => `${ctx.pairingKeys.token}.revoked`;
   const markDurableRevoked = (): void => {
     try {
@@ -246,10 +240,6 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
     window.dispatchEvent(new Event(REMOTE_CREDENTIAL_READY_EVENT));
   };
 
-  /** Resolves once the E2EE channel to the PC is up — not after the view
-   *  sync, which a busy PC can take seconds over and which the app retries
-   *  on its own — or `false` after `ms`. Rejects only on a pairing the PC
-   *  refused. */
   const waitForSecureChannel = (ms: number): Promise<boolean> => {
     if (ctx.connectionReady) return Promise.resolve(true);
     return new Promise((resolve, reject) => {
@@ -301,14 +291,6 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
     await ctx.invoke<boolean>(REMOTE_CONTROLLER_KEY_METHOD, [key.publicKey]);
   };
 
-  /** Dial with the fresh credential and answer once THIS connection is secure.
-   *  A connection problem is never a failure here: an attempt that is not
-   *  secure within APPROVED_CONNECTION_ATTEMPT_MS is dropped and the reconnect
-   *  loop redials with the stored credential (jittered backoff, capped at
-   *  10 s) while "Allowed. Connecting…" stays up — never a new claim. Only a
-   *  pairing the PC refused ends it. The in-flight flag is the shim's: it
-   *  keeps a completing handshake from removing the entry screen while its
-   *  own verification is still running. */
   const verifyApprovedConnection = async (): Promise<void> => {
     ctx.approvalVerificationInFlight = true;
     try {

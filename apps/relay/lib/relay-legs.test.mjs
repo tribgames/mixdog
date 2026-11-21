@@ -127,11 +127,8 @@ test('a phone the PC rejected never holds the PC to a handshake turn, even if it
   assert.equal(replacement.closed, null);
 });
 
-test('a missed handshake turn closes the PC leg only when the leg is also silent through a probe', (t) => {
+function handshakeTurnHarness(t) {
   const sendJson = (target, payload) => target.send(JSON.stringify(payload));
-  // Deterministic time: the relay's turn timers are mocked, and so is the
-  // monotonic clock it compares "heard since" against. Time passes in 5 ms
-  // steps; `each` is what happens on the wire after every step.
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let clock = 1_000;
   t.mock.method(performance, 'now', () => clock);
@@ -142,41 +139,40 @@ test('a missed handshake turn closes the PC leg only when the leg is also silent
       each?.();
     }
   };
-  // Live PC: busy with other traffic while one phone's challenge is late.
-  {
-    const desktop = fakeSocket();
-    const entry = { socket: desktop, clients: new Map(), media: new Map(), mediaLane: false };
-    desktopLeg(entry, desktop);
-    runClientLeg(entry, sendJson, fakeSocket(), 'browser-1', { maxFrameBytes: 1024 });
-    pass(150, () => {
-      desktop.emit('message', Buffer.from(JSON.stringify({ type: 'desktop-name', name: 'PC' })), false);
-    });
-    assert.equal(desktop.closed, null, 'a slow handshake on a responsive PC never costs the shared leg');
-  }
-  // Quiet but alive PC: it answers the probe.
-  {
-    const desktop = fakeSocket();
-    const entry = { socket: desktop, clients: new Map(), media: new Map(), mediaLane: false };
-    desktopLeg(entry, desktop);
-    desktop.ping = () => {
-      desktop.pings = (desktop.pings || 0) + 1;
-      setTimeout(() => desktop.emit('pong'), 5);
-    };
-    runClientLeg(entry, sendJson, fakeSocket(), 'browser-1', { maxFrameBytes: 1024 });
-    pass(150);
-    assert.equal(desktop.pings, 1, 'the silent leg is probed once');
-    assert.equal(desktop.closed, null, 'a leg that answers its probe stays up');
-  }
-  // Dead PC: silent through the turn and the probe.
-  {
-    const desktop = fakeSocket();
-    const entry = { socket: desktop, clients: new Map(), media: new Map(), mediaLane: false };
-    desktopLeg(entry, desktop);
-    runClientLeg(entry, sendJson, fakeSocket(), 'browser-1', { maxFrameBytes: 1024 });
-    pass(150);
-    assert.equal(desktop.pings, 1);
-    assert.equal(desktop.closed?.code, DESKTOP_HANDSHAKE_STALLED_CLOSE);
-  }
+  const desktop = fakeSocket();
+  const entry = { socket: desktop, clients: new Map(), media: new Map(), mediaLane: false };
+  desktopLeg(entry, desktop);
+  const joinPhone = () => runClientLeg(entry, sendJson, fakeSocket(), 'browser-1', { maxFrameBytes: 1024 });
+  return { desktop, pass, joinPhone };
+}
+
+test('a slow handshake on a responsive PC never costs the shared leg', (t) => {
+  const { desktop, pass, joinPhone } = handshakeTurnHarness(t);
+  joinPhone();
+  pass(150, () => {
+    desktop.emit('message', Buffer.from(JSON.stringify({ type: 'desktop-name', name: 'PC' })), false);
+  });
+  assert.equal(desktop.closed, null);
+});
+
+test('a quiet PC that answers the handshake probe stays up', (t) => {
+  const { desktop, pass, joinPhone } = handshakeTurnHarness(t);
+  desktop.ping = () => {
+    desktop.pings = (desktop.pings || 0) + 1;
+    setTimeout(() => desktop.emit('pong'), 5);
+  };
+  joinPhone();
+  pass(150);
+  assert.equal(desktop.pings, 1, 'the silent leg is probed once');
+  assert.equal(desktop.closed, null, 'a leg that answers its probe stays up');
+});
+
+test('a PC silent through the missed handshake turn and the probe has its leg closed', (t) => {
+  const { desktop, pass, joinPhone } = handshakeTurnHarness(t);
+  joinPhone();
+  pass(150);
+  assert.equal(desktop.pings, 1);
+  assert.equal(desktop.closed?.code, DESKTOP_HANDSHAKE_STALLED_CLOSE);
 });
 
 test('parked phones are told once when the PC leg closes, then once a second per phone while calls go nowhere', (t) => {

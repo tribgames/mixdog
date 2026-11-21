@@ -1,15 +1,3 @@
-// The few problems the desktop app tells the user as a toast (sign-in expired,
-// secure storage failing, a conversation not saved), raised wherever they are
-// detected — the runtime, MCP, the keychain, the session store — and handed to
-// the desktop service (or the Electron main process) that reaches the window.
-// A notice is raised once per key until clearDesktopNotice(key) re-arms it, so
-// a retry or a poll never repeats it. A notice no sink delivered (no window or
-// client attached) waits, one per key, for the next delivery chance.
-//
-// Deliberately dependency-free: the desktop service bundle imports this file
-// too, and every copy (and keychain-cjs.cjs, through `raise`) shares one
-// registry through a global symbol.
-
 const KEY = Symbol.for('mixdog.desktopNoticeHost.v1');
 /** Undelivered notices kept; the oldest go first. */
 const PENDING_LIMIT = 20;

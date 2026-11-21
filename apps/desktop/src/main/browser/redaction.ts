@@ -1,11 +1,3 @@
-/**
- * Secret detection and redaction for every string that leaves the browser
- * host: page text, URLs, network bodies, dialog messages, and errors. The rules
- * are Rust (native/core/crates/mixdog-browser-rules), served synchronously
- * through the Node-API module mixdog_main_native.node (native/mixdog-main-native,
- * every platform), loaded at the first call by native-module.ts; this file holds
- * the types and the exports, no rule. url-policy.ts shares the loaded module.
- */
 import { cargoLibraryFile, loadNativeModule, type NativeModuleSpec } from '../native-module';
 
 export interface BrowserUrlPolicy {

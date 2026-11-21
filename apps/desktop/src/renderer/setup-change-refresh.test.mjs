@@ -5,18 +5,17 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { subscribeSetupChanges, useSetupChangeAnnouncer } from './setup-change-refresh.ts';
 
-test('each new setup change announces once, from the App snapshot or a session lane', async () => {
-  const { dom } = installTestDom(null, {
+async function mountAnnouncer(t) {
+  const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body><div id="root"></div></body></html>',
     jsdom: { url: 'about:blank' },
     expose: ['navigator', 'HTMLElement', 'Event', 'CustomEvent'],
     actEnvironment: false,
   });
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
-  let announced = 0;
+  const counter = { announced: 0 };
   const unsubscribe = subscribeSetupChanges(() => {
-    announced += 1;
+    counter.announced += 1;
   });
   let laneListener = null;
   const subscribeSessionLanes = (listener) => {
@@ -29,37 +28,56 @@ test('each new setup change announces once, from the App snapshot or a session l
     return null;
   }
   const root = createRoot(dom.window.document.getElementById('root'));
-  const render = async (next) => {
-    change = next;
-    await act(async () => root.render(React.createElement(Harness)));
-  };
-
-  await render(null);
-  assert.equal(announced, 0);
-  await render({ action: 'save_project', seq: 1, at: Date.now() });
-  assert.equal(announced, 1);
-  await render({ action: 'save_project', seq: 1, at: Date.now() });
-  assert.equal(announced, 1, 'a re-render of the same change does not announce again');
-  await render({ action: 'save_project', seq: 2, at: Date.now() });
-  assert.equal(announced, 2);
-
-  laneListener({ sessionId: 's1', snapshot: { setupChanged: { action: 'save_project', seq: 2, at: Date.now() } } });
-  assert.equal(announced, 2, 'the same change arriving on the lane is already announced');
-  laneListener({ sessionId: 's2', snapshot: { setupChanged: { action: 'set_route', seq: 1, at: Date.now() } } });
-  assert.equal(announced, 3);
-  laneListener({
-    sessionId: 's3',
-    snapshot: { setupChanged: { action: 'set_route', seq: 1, at: Date.now() - 60_000 } },
+  t.after(async () => {
+    unsubscribe();
+    await act(async () => root.unmount());
+    restore();
   });
-  assert.equal(announced, 3, 'a replayed change older than the TTL is history');
-  // A runtime's applied settings change arrives once through the host's
-  // settings-changed event, never once per open lane.
-  laneListener({ sessionId: 's4', snapshot: { setupChanged: { action: 'settings_changed', seq: 1, at: Date.now() } } });
-  await render({ action: 'settings_changed', seq: 3, at: Date.now() });
-  assert.equal(announced, 3);
+  return {
+    counter,
+    render: async (next) => {
+      change = next;
+      await act(async () => root.render(React.createElement(Harness)));
+    },
+    lane: (sessionId, setupChanged) => laneListener({ sessionId, snapshot: { setupChanged } }),
+  };
+}
 
-  unsubscribe();
-  await act(async () => root.unmount());
+test('each new App-snapshot setup change announces once', async (t) => {
+  const { counter, render } = await mountAnnouncer(t);
+  await render(null);
+  assert.equal(counter.announced, 0);
+  await render({ action: 'save_project', seq: 1, at: Date.now() });
+  assert.equal(counter.announced, 1);
+  await render({ action: 'save_project', seq: 1, at: Date.now() });
+  assert.equal(counter.announced, 1, 'a re-render of the same change does not announce again');
+  await render({ action: 'save_project', seq: 2, at: Date.now() });
+  assert.equal(counter.announced, 2);
+});
+
+test('a change arriving on a session lane announces once, per session', async (t) => {
+  const { counter, render, lane } = await mountAnnouncer(t);
+  await render({ action: 'save_project', seq: 2, at: Date.now() });
+  assert.equal(counter.announced, 1);
+  lane('s1', { action: 'save_project', seq: 2, at: Date.now() });
+  assert.equal(counter.announced, 1, 'the same change arriving on the lane is already announced');
+  lane('s2', { action: 'set_route', seq: 1, at: Date.now() });
+  assert.equal(counter.announced, 2);
+});
+
+test('a replayed change older than the TTL is history', async (t) => {
+  const { counter, render, lane } = await mountAnnouncer(t);
+  await render(null);
+  lane('s3', { action: 'set_route', seq: 1, at: Date.now() - 60_000 });
+  assert.equal(counter.announced, 0);
+});
+
+test("a runtime's settings-changed announcement is left to the host event, never once per lane", async (t) => {
+  const { counter, render, lane } = await mountAnnouncer(t);
+  await render(null);
+  lane('s4', { action: 'settings_changed', seq: 1, at: Date.now() });
+  await render({ action: 'settings_changed', seq: 3, at: Date.now() });
+  assert.equal(counter.announced, 0);
 });
 
 test('a permissions scope is a valid settings-changed broadcast', async () => {

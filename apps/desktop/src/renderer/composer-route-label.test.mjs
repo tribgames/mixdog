@@ -1,8 +1,3 @@
-// Display → Composer style "Detailed": the label under the composer is
-// opt-in, names the workflow only when there is one to choose, and opens the
-// model trigger's menu. The composer card takes over from the one-line bar
-// once the bar cannot show every item, and the line under the card follows
-// the style.
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React, { act } from 'react';
@@ -154,10 +149,9 @@ test('card layout: the card takes over past the items, and gives the line back w
   assert.equal(wantsCard(500, 500 + CARD_RETURN_ROOM, true), false);
 });
 
-// A one-line bar whose items are laid out by hand: jsdom has no layout, so the
-// widths are what the browser would report for a 200 readout (data-full-width),
-// a 120 route label, and a 150 model pill whose 130 label an ellipsis cut to
-// 100: 200 + 120 + 5 + 150 + 30 = 505.
+// jsdom has no layout: widths are what a browser reports for a 200 readout
+// (data-full-width), a 120 route label and a 150 model pill whose 130 label an
+// ellipsis cuts to 100: 200 + 120 + 5 + 150 + 30 = 505.
 const ONE_LINE_ITEMS = 505;
 // `readout` false is the "simple" style (no usage readout); `lineShown` false is
 // its card, which has no line under it, so the form's own width is measured.

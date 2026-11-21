@@ -1,10 +1,3 @@
-// Starts the core the Computer Use harnesses run against: a real mixdogd on an isolated profile (a temp data dir under a temp
-// root, Computer Use on), started with the test hooks (MIXDOGD_TEST_HOOKS=1, which serves `dev/computer/run`) and stopped
-// when the work ends. The Electron harness entry is started by the caller inside `withComputerCore`, with the env this hands it.
-//
-// The binary is a test-hooks build: MIXDOGD_TEST_BIN (else MIXDOGD_BIN, as scripts/dev-core-install.mjs lays out). The hook env is
-// set only on the core this module starts; a packaged core never gets it. The helper the core runs is found the way the core
-// finds it; MIXDOG_COMPUTER_BIN of this environment is handed on when set (the isolated profile drops every other MIXDOG_*).
 import { existsSync, mkdtempSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

@@ -1,12 +1,3 @@
-// The composer island's branch segment, first of the pill's git group: shown
-// for every session whose workspace is a git checkout. In the project folder
-// it names the branch (or the short commit of a detached HEAD); in a managed
-// worktree the worktree branch with its prefix and base muted. Pressing it
-// expands the island into its branch tab, the same menu as the New Task chip
-// (branch-menu) in the island's panel grammar; in a worktree the tab's footer
-// holds View changes · Merge into <base> · Remove worktree, whose runs and
-// refusals go through the shared confirm popup. While work runs the tab still
-// opens, but nothing in it can switch.
 import { FileDiff, GitBranch, GitFork, GitMerge, Trash2, TriangleAlert } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
@@ -162,10 +153,6 @@ export function BranchIslandSegment({
   const [query, setQuery] = useState('');
   const trigger = useRef<HTMLButtonElement>(null);
   const panelId = useId();
-  // A session that never left its project folder publishes no workspace in
-  // its snapshot: its branch menu's workspace stands in, re-read whenever
-  // the session's work settles.
-  // The island owns the open tab (one at a time).
   const [open, setOpen] = useComposerIslandTab('branch');
   const { menu, loading, notice, setNotice, load } = useBranchMenuData({
     draft: false,
@@ -173,19 +160,8 @@ export function BranchIslandSegment({
     sessionId,
     intentKey: sessionId,
     refreshKey: String(locked),
-    // The menu is large (a phone pulls it over the relay), so a snapshot that
-    // already names the branch reads it only when it is used: on hover or
-    // focus of the segment, or when the tab opens, and then it follows the
-    // session's work (refreshKey) while the tab stays open. Only a stub
-    // snapshot needs it at once, for the workspace the segment is drawn from.
     eager: Boolean(sessionId) && (open || !(live && showsBranch(live))),
   });
-  // While a move is pending or refused, the snapshot's workspace and the menu
-  // re-read can both be momentarily absent (and so can they right after a
-  // session switch): the segment keeps the session's last shown branch
-  // instead of leaving a gap in the pill.
-  // A stub snapshot workspace (no branch, repository or worktree) stands aside
-  // for the menu's.
   const current = live && showsBranch(live) ? live : (menu?.workspace ?? live ?? null);
   const presentation = useMemo(() => branchPresentation(current), [current]);
   const workspace = presentation ?? lastShownBranches.peek(sessionId) ?? null;

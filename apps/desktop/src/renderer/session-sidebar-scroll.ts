@@ -9,16 +9,6 @@ import { sessionRowPitch } from './session-sidebar-virtual-rows';
 
 export const RECENT_SESSION_INITIAL_ROWS = 24;
 export const RECENT_SESSION_PAGE_ROWS = 32;
-/** Scroller viewport heights below the viewport a session list keeps its rows
- *  revealed, so the rows are there when the reader arrives. A fling never
- *  depends on it: the paging sentinel stands in for the unrevealed rows at
- *  their height (VirtualSessionRows), so the scroll extent always reaches the
- *  end of the whole list. While the extent ended at the revealed rows, a fast
- *  phone fling (run by the compositor) outran the page commits (main thread)
- *  on a busy phone whatever the lead: the momentum died at the end of the
- *  revealed rows and the rows appeared under a list at rest (the phone list
- *  stalled and juddered mid-fling). Rows outside the viewport are spacers
- *  (session-sidebar-virtual-rows), so the lead costs little. */
 const RECENT_SENTINEL_REVEAL_LEAD_VIEWPORTS = 4;
 /** The lead's floor, for a scroller without a box yet. */
 const RECENT_SENTINEL_REVEAL_MIN_PX = 240;
@@ -40,15 +30,9 @@ export function nextSessionRowLimit(current: number, wanted: number, total: numb
 const USER_SCROLL_IDLE_MS = 200;
 
 /** `value` as it stood when the reader started scrolling the list, until that
- *  scroll is over; the newest value then lands in one commit.
- *
- *  A live catalog update re-sorts the lists by activity. Landing under a
- *  moving finger, it moved rows the reader was about to tap, and its anchor
- *  compensation wrote scrollTop mid-fling: iOS WebKit stops a momentum scroll
- *  on that write and resolves it against a scroll position its web process
- *  has not caught up with yet, so the list jumped back (phone: 세션 사이드패널
- *  리스트 스크롤할 때도 모바일에서 엄청 튐). Held until the scroll ends, the
- *  update re-sorts a list at rest, where one compensation write is exact. */
+ *  scroll is over; the newest value then lands in one commit. iOS WebKit stops
+ *  a momentum scroll on a scrollTop write, so anchor compensation must not run
+ *  mid-fling. */
 export function useHeldDuringUserScroll<T>(scrollerRef: React.RefObject<HTMLDivElement | null>, value: T): T {
   const held = useRef({ active: false, value });
   const latest = useRef(value);
@@ -146,13 +130,8 @@ function useSessionListPaging(
     if (reach < 0) return;
     revealMore(Math.ceil(reach / sessionRowPitch()));
   }, [enabled, scrollerRef, sentinelRef, revealMore]);
-  // Scrolling pages through the scroller's own scroll handler. No
-  // IntersectionObserver: while one exists, Chromium runs a main-thread frame
-  // on every vsync for as long as any compositor animation (a running
-  // session's spinner, a shimmer) plays anywhere in the window. A
-  // ResizeObserver reports once per observe and on every resize, so each
-  // revealed page (visibleCount) and a taller sidebar re-check whether the
-  // viewport still shows the sentinel, after layout.
+  // No IntersectionObserver: while one exists, Chromium runs a main-thread
+  // frame on every vsync during any compositor animation in the window.
   // biome-ignore lint/correctness/useExhaustiveDependencies: visibleCount re-checks after each revealed page
   useEffect(() => {
     const scroller = scrollerRef.current;
@@ -210,10 +189,6 @@ export function useSidebarListScroll({
   projectsOpen,
   sectionOrder,
 }: SidebarListScrollInput) {
-  // Pagination has NO control of its own (no "Show more"):
-  // an invisible end sentinel inside the Recent list reveals the next page as
-  // the reader approaches it. The full list is still never rendered up front —
-  // that is what keeps tab switches cheap on large session catalogs.
   const recentSentinelRef = useRef<HTMLDivElement | null>(null);
   const recentScrollAnchorRef = useRef<{ rows: AnchorRow[]; scrollTop: number } | null>(null);
   const recentRowIdsRef = useRef<string[]>([]);
@@ -301,14 +276,10 @@ export function useSidebarListScroll({
       const reader = kept ?? inList[0];
       if (reader) {
         const { row } = reader;
-        // The anchor dates from the last scroll event, and a commit can land
-        // after the reader's scroll moved the list but before that move's
-        // scroll event (WebKit applies an async/momentum scroll position, then
-        // reports it at its next rendering update). That move is the reader's
-        // own: the row stays where it carried it, or the list snapped back to
-        // the previous event's position on every live catalog update. Only a
-        // clamp (content shrank under a list at its end) lowers scrollTop
-        // without the reader; that keeps the captured position.
+        // WebKit applies an async/momentum scroll position before reporting it
+        // in a scroll event, so scrollTop may already be past the anchor: that
+        // move is the reader's. Only a clamp (content shrank under a list at
+        // its end) lowers scrollTop without the reader.
         const moved = scroller.scrollTop - anchor.scrollTop;
         const clamped = moved < 0 && scroller.scrollTop >= scroller.scrollHeight - scroller.clientHeight - 1;
         const expectedOffset = reader.offset - (clamped ? 0 : moved);

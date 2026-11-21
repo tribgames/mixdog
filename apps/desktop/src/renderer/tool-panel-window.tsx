@@ -1,22 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
-// An expanded tool result mounts only the rows near its panel's viewport. The
-// panel is a scroll box of capped height, so most of a long result is never on
-// screen, yet mounting every row would keep it all in the DOM while the call
-// stays open (34 opened calls held 3,900 rows, 21k nodes and ~90 MB).
-//
-// Each code of the result is cut into windows of at most TOOL_WINDOW_ROWS
-// rows; section headers stay, so every file link is there to tab to. A window
-// away from the viewport is one empty box: of its measured height once it has
-// been shown, until then of its rows at one line each (13-tool-cards.css).
-// The windows that start within the first TOOL_WINDOW_ROWS rows are always
-// mounted: they are taller than the panel's cap, so the panel opens at its
-// real height with its real first rows.
-//
-// The panel's scroll extent is therefore exact for rows that do not wrap and
-// an estimate for wrapped rows not shown yet, as in every list that mounts by
-// position; the rows on screen are always the real ones, in order.
-
 /** Rows in one window. At one line each they are taller than a panel. */
 export const TOOL_WINDOW_ROWS = 40;
 

@@ -18,7 +18,7 @@ import { browserSessionId, type BrowserSessionRegistry } from '../../browser/ses
 import type { createBrowserGuestLifecycle } from '../../browser/guest-lifecycle';
 import type { createBrowserTabs } from '../../browser/tabs';
 import type { createBrowserTaskLifecycle } from '../../browser/task-lifecycle';
-import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
+import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError, isPlainObject } from '../connection';
 import type { EngineContext } from './context';
 import { ENGINE_ERROR } from './errors';
 import { admitUrl, loadUrl, type PageHost } from './page';
@@ -63,10 +63,6 @@ export interface PagesHost {
   leases: PageLeases;
   /** The navigation half shared with `page/navigate` (an `open` with a url loads it the same way). */
   page: Pick<PageHost, 'urls' | 'downloadsForSession' | 'sessionIdOf'>;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function sessionOf(params: Record<string, unknown>): string {
@@ -120,9 +116,9 @@ function describe(
 async function resolve(host: PagesHost, ctx: EngineContext, params: Record<string, unknown>, signal: AbortSignal) {
   const sessionId = sessionOf(params);
   const { lifecycle, sessions } = host;
-  const open = isObject(params.open) ? params.open : undefined;
-  const tab = isObject(params.tab) ? params.tab : undefined;
-  const lease = isObject(params.lease) ? params.lease : undefined;
+  const open = isPlainObject(params.open) ? params.open : undefined;
+  const tab = isPlainObject(params.tab) ? params.tab : undefined;
+  const lease = isPlainObject(params.lease) ? params.lease : undefined;
   if (lease && (typeof lease.commandId !== 'string' || typeof lease.ttlMs !== 'number')) {
     throw new HostRpcError(HOST_INVALID_PARAMS, 'lease needs commandId and ttlMs.');
   }

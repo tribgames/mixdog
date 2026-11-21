@@ -1,24 +1,6 @@
-// Bounded assertion failures for the DOM test suites.
-//
-// node:assert renders a failed comparison with
-// util.inspect(value, { customInspect: false, depth: 1000, maxArrayLength: Infinity })
-// inside the AssertionError constructor, and node:test inspects
-// `error.actual` / `error.expected` again for its report. With a JSDOM node as
-// an operand both walks reach the document, its window and every attached React
-// fiber, so one failed `assert.equal(element, null)` allocates hundreds of
-// megabytes synchronously.
-//
-// Design: when both operands are small enough for node to render safely, the
-// call is delegated to node itself, so class, code, operator, generatedMessage
-// and message text are node's own, byte for byte. Only when an operand cannot
-// be rendered within a fixed budget does this wrapper build the failure, and
-// then every own object/function field of the error is replaced by a bounded
-// summary before it is thrown, so no DOM/window reference escapes.
-//
-// Wrapped: exactly the comparisons the DOM suites use — equal, notEqual,
-// deepEqual, match, doesNotMatch and their strict aliases. `ok` and the
-// callable `assert(value)` form are not wrapped: a failing `ok` only inspects a
-// falsy value, which is always a primitive.
+// node:assert renders a failed comparison with util.inspect at depth 1000 and node:test inspects
+// `error.actual` / `error.expected` again, so a JSDOM operand walks the document and every React fiber
+// (hundreds of MB). `ok` and `assert(value)` are not wrapped: a failing `ok` only inspects a falsy primitive.
 import strictAssert, { AssertionError } from 'node:assert/strict';
 import { inspect, isDeepStrictEqual } from 'node:util';
 
@@ -226,7 +208,6 @@ const define = (target, name, value, enumerable = true) =>
     configurable: true,
   });
 
-// Installing twice would capture the wrappers as "natives" and recurse.
 const INSTALLED = Symbol.for('mixdog.bounded-assert.installed');
 
 /** Replace the comparison helpers on a `node:assert/strict` namespace object in

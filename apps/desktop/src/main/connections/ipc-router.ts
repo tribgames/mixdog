@@ -1,7 +1,3 @@
-// One ipcMain registration per channel, many windows behind it. Each window's
-// handlers (registered through its own scope, bound to its connection) live
-// in a table keyed by webContents id; every call first resolves the sender's
-// connection and is answered only by that window's table.
 import { ConnectionError } from './errors';
 
 interface RoutedSender {

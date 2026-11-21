@@ -322,6 +322,45 @@ function textResponse(status: number, body: string): Response {
   return new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 }
 
+/** The stat of the preview's current file, regenerating a converted document the server's cache evicted; null when no
+ *  servable file is left. The size, the validator and the bytes of one answer belong to one generation: a stat is used only if
+ *  no regeneration re-pointed the preview while it was in flight, else it is asked again of the current file. */
+async function statCurrentPreviewFile(preview: ServerPreview, invoke: ServerInvoke): Promise<{ stat: unknown } | null> {
+  // A moved generation is progress and is followed; only this reader's own regeneration that leaves no servable file is a failure.
+  let regeneratedByThisRead = false;
+  for (;;) {
+    const seen = preview.generation;
+    try {
+      const stat = await invoke<unknown>('statProjectFileIn', [preview.root, preview.rel]);
+      if (preview.generation === seen) return { stat };
+    } catch {
+      const regenerate = preview.regenerate;
+      if (!regenerate) return null;
+      // A miss recorded against a file an earlier regeneration already replaced is retried on the current one, not converted
+      // again. Otherwise one conversion however many reads miss together; a failed one answers like a missing file.
+      if (preview.generation === seen) {
+        if (regeneratedByThisRead) return null;
+        regeneratedByThisRead = true;
+        preview.regenerating ??= (async () => {
+          const fresh = await regenerate();
+          if (`${fresh.mtimeMs}:${fresh.size}` !== preview.version)
+            throw new Error('The source changed since this preview.');
+          preview.root = posix.dirname(fresh.path);
+          preview.rel = posix.basename(fresh.path);
+          preview.generation += 1;
+        })().finally(() => {
+          preview.regenerating = undefined;
+        });
+      }
+      try {
+        await preview.regenerating;
+      } catch {
+        return null;
+      }
+    }
+  }
+}
+
 /** Tokenized `mixdog-media://preview/<token>/<name>` URLs for server files,
  *  answered on the window's own partition by ranged daemon reads. */
 export function createServerFilePreviews({ session, invoke }: { session: ProtocolSession; invoke: ServerInvoke }) {
@@ -340,46 +379,11 @@ export function createServerFilePreviews({ session, invoke }: { session: Protoco
     const token = url.hostname === 'preview' ? url.pathname.replace(/^\/+/, '').split('/', 1)[0] || '' : '';
     const preview = previews.get(token);
     if (!preview) return textResponse(404, 'Not found.');
-    // The size, the validator and the bytes of one answer belong to one generation: whatever the stat says is used only if no
-    // regeneration re-pointed the preview while it was in flight, else it is asked again of the current file. Nothing awaits
-    // between the last stat and the response below.
-    let stat: unknown;
-    // A moved generation is progress and is followed; only this reader's own regeneration that leaves no servable file is a failure.
-    let regeneratedByThisRead = false;
-    for (;;) {
-      const seen = preview.generation;
-      try {
-        stat = await invoke<unknown>('statProjectFileIn', [preview.root, preview.rel]);
-        if (preview.generation === seen) break;
-      } catch {
-        const regenerate = preview.regenerate;
-        if (!regenerate) return textResponse(404, 'Not found.');
-        // A miss recorded against a file an earlier regeneration already replaced is retried on the current one, not converted
-        // again. Otherwise one conversion however many reads miss together; a failed one answers like a missing file.
-        if (preview.generation === seen) {
-          if (regeneratedByThisRead) return textResponse(404, 'Not found.');
-          regeneratedByThisRead = true;
-          preview.regenerating ??= (async () => {
-            const fresh = await regenerate();
-            if (`${fresh.mtimeMs}:${fresh.size}` !== preview.version)
-              throw new Error('The source changed since this preview.');
-            preview.root = posix.dirname(fresh.path);
-            preview.rel = posix.basename(fresh.path);
-            preview.generation += 1;
-          })().finally(() => {
-            preview.regenerating = undefined;
-          });
-        }
-        try {
-          await preview.regenerating;
-        } catch {
-          return textResponse(404, 'Not found.');
-        }
-      }
-    }
+    const current = await statCurrentPreviewFile(preview, invoke);
+    if (!current) return textResponse(404, 'Not found.');
     let size: number;
     try {
-      ({ size } = serverFileStat(stat));
+      ({ size } = serverFileStat(current.stat));
     } catch (error) {
       return textResponse(502, (error as Error).message);
     }

@@ -22,6 +22,7 @@ import { base64Bytes } from './studio-pane-support';
 import { openMediaAssetFromWindow, openMediaFolderFromWindow } from './studio-pane-media-actions';
 import { isSshConnectionWindow } from './desktop-connection';
 import { transcriptArtifacts, type TranscriptArtifact } from './transcript-artifacts';
+import { byteSize } from './text-format';
 
 /** file:// href for a local artifact path; a Windows drive segment stays unencoded. */
 function artifactHref(path: string): string {
@@ -365,22 +366,7 @@ async function documentThumb(match: ResolvedLocalLink, name: string, session: st
   return { phase: 'page', src, pageCount: reply.pageCount, owned: true };
 }
 
-function byteSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** A written document as a horizontal card: its first page (or a table drawn
- *  from a CSV), name, type · pages · size and an Open affordance. Until the
- *  page arrives, when it cannot be made, or when the file is gone, the drawn
- *  document sheet stands in. Office outputs are often removed after the turn
- *  (smoke tests, cleanups): a card whose file is gone reads as deleted instead
- *  of offering an open that fails. */
-function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
-  const project = useContext(MarkdownProjectContext);
-  const session = useContext(MarkdownSessionContext);
-  const href = artifactHref(artifact.path);
+function useDocumentThumb(project: string, session: string, href: string, name: string) {
   const [thumb, setThumb] = useState<DocumentThumb>({ phase: 'loading' });
   const [size, setSize] = useState<number | null>(null);
   useEffect(() => {
@@ -402,7 +388,7 @@ function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
           },
           () => undefined
         );
-        documentThumb(match, artifact.name, session).then(
+        documentThumb(match, name, session).then(
           (next) => {
             const url = next.phase === 'page' && next.owned ? next.src : '';
             if (!active) {
@@ -426,16 +412,18 @@ function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
       if (owned) URL.revokeObjectURL(owned);
       owned = '';
     };
-  }, [project, href, artifact.name, session]);
+  }, [project, href, name, session]);
+  return { thumb, size };
+}
+
+function documentFacts(name: string, thumb: DocumentThumb, size: number | null): string[] {
   const missing = thumb.phase === 'missing';
-  const format = formatLabel(artifact.name);
-  const tone = fileTone(artifact.name);
   const facts: string[] = [];
   if (missing) facts.push(t('Deleted'));
   else if (thumb.phase === 'loading') facts.push(t('Preparing preview…'));
   else if (thumb.phase === 'page' && thumb.pageCount > 0) {
     facts.push(
-      SLIDES.test(artifact.name)
+      SLIDES.test(name)
         ? t('{{count}} slides', { count: thumb.pageCount })
         : t('{{count}} pages', { count: thumb.pageCount })
     );
@@ -443,6 +431,18 @@ function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
     facts.push(t('{{count}} rows', { count: thumb.rowCount }), t('{{count}} columns', { count: thumb.columnCount }));
   }
   if (!missing && size !== null) facts.push(byteSize(size));
+  return facts;
+}
+
+function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
+  const project = useContext(MarkdownProjectContext);
+  const session = useContext(MarkdownSessionContext);
+  const href = artifactHref(artifact.path);
+  const { thumb, size } = useDocumentThumb(project, session, href, artifact.name);
+  const missing = thumb.phase === 'missing';
+  const format = formatLabel(artifact.name);
+  const tone = fileTone(artifact.name);
+  const facts = documentFacts(artifact.name, thumb, size);
   let picture: ReactNode = <DocSheet tone={tone} />;
   if (thumb.phase === 'page') picture = <img className="file-page" src={thumb.src} alt="" />;
   else if (thumb.phase === 'table') picture = <TableThumbnail rows={thumb.rows} />;

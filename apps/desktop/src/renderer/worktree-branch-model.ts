@@ -318,6 +318,45 @@ const RECENT_BRANCH_DAYS = 14;
 export const RECENT_BRANCH_LIMIT = 10;
 const GROUP_ORDER: BranchGroup[] = ['current', 'worktree', 'recent', 'other', 'external'];
 
+function branchRow(
+  branch: DesktopGitBranch,
+  held: DesktopBranchOccupancy | undefined,
+  menu: DesktopBranchMenu,
+  ownSessionId: string
+): BranchRow {
+  const committedAt = branch.lastCommitAt ? Date.parse(branch.lastCommitAt) : Number.NaN;
+  const row: BranchRow = { name: branch.name, mark: '', retained: false, disabled: false, group: 'other' };
+  if (Number.isFinite(committedAt)) row.committedAt = committedAt;
+  if (branch.name === menu.workspace.branch) row.mark = 'current';
+  else if (held?.kind === 'current' && menu.workspace.worktreeId) row.mark = 'project';
+  else if (held?.kind === 'session' && held.sessionId && held.sessionId !== ownSessionId) {
+    row.mark = 'inUse';
+    row.sessionId = held.sessionId;
+  } else if (held?.kind === 'session') {
+    row.retained = true;
+    if (held.sessionId) row.sessionId = held.sessionId;
+  } else if (held?.kind === 'external') {
+    row.mark = 'external';
+    row.path = held.path;
+    row.disabled = true;
+  }
+  if (row.mark === 'current' || row.mark === 'project') row.group = 'current';
+  else if (row.mark === 'external') row.group = 'external';
+  else if (held?.kind === 'session') row.group = 'worktree';
+  return row;
+}
+
+function promoteRecentBranches(rows: BranchRow[], now: number): void {
+  const since = now - RECENT_BRANCH_DAYS * 86_400_000;
+  rows
+    .filter((row) => row.group === 'other' && row.committedAt !== undefined && row.committedAt >= since)
+    .sort((a, b) => (b.committedAt ?? 0) - (a.committedAt ?? 0))
+    .slice(0, RECENT_BRANCH_LIMIT)
+    .forEach((row) => {
+      row.group = 'recent';
+    });
+}
+
 export function branchRows(
   menu: DesktopBranchMenu,
   ownSessionId: string,
@@ -331,43 +370,11 @@ export function branchRows(
   for (const branch of menu.branches as DesktopGitBranch[]) {
     if (branch.remote || seen.has(branch.name)) continue;
     seen.add(branch.name);
-    const held = occupancy.get(branch.name);
-    const committedAt = branch.lastCommitAt ? Date.parse(branch.lastCommitAt) : Number.NaN;
-    const row: BranchRow = { name: branch.name, mark: '', retained: false, disabled: false, group: 'other' };
-    if (Number.isFinite(committedAt)) row.committedAt = committedAt;
-    if (branch.name === menu.workspace.branch) row.mark = 'current';
-    else if (held?.kind === 'current' && menu.workspace.worktreeId) row.mark = 'project';
-    else if (held?.kind === 'session' && held.sessionId && held.sessionId !== ownSessionId) {
-      row.mark = 'inUse';
-      row.sessionId = held.sessionId;
-    } else if (held?.kind === 'session') {
-      row.retained = true;
-      if (held.sessionId) row.sessionId = held.sessionId;
-    } else if (held?.kind === 'external') {
-      // Checked out in a worktree Mixdog does not manage: a pick is refused
-      // (the branch is occupied), so the row only shows where it is.
-      row.mark = 'external';
-      row.path = held.path;
-      row.disabled = true;
-    }
-    if (row.mark === 'current' || row.mark === 'project') row.group = 'current';
-    else if (row.mark === 'external') row.group = 'external';
-    else if (held?.kind === 'session') row.group = 'worktree';
-    rows.push(row);
+    rows.push(branchRow(branch, occupancy.get(branch.name), menu, ownSessionId));
   }
-  // Recent is decided over the whole list, so a search never promotes an old
-  // branch into it.
-  const since = now - RECENT_BRANCH_DAYS * 86_400_000;
-  rows
-    .filter((row) => row.group === 'other' && row.committedAt !== undefined && row.committedAt >= since)
-    .sort((a, b) => (b.committedAt ?? 0) - (a.committedAt ?? 0))
-    .slice(0, RECENT_BRANCH_LIMIT)
-    .forEach((row) => {
-      row.group = 'recent';
-    });
+  promoteRecentBranches(rows, now);
   const recentFirst = (a: BranchRow, b: BranchRow) =>
     a.group === 'recent' ? (b.committedAt ?? 0) - (a.committedAt ?? 0) : 0;
-  // The session's branch leads its group; the rest keep the runtime's order.
   const currentFirst = (a: BranchRow, b: BranchRow) => Number(b.mark === 'current') - Number(a.mark === 'current');
   return rows
     .filter((row) => !needle || row.name.toLocaleLowerCase().includes(needle))

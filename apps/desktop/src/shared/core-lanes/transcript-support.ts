@@ -6,10 +6,7 @@ export {
   normalizedProviderModels,
 } from '../desktop-transcript-limits';
 
-/** First-open tail for a session only remote (relay) views show: a phone's
- *  ~700px transcript paints about 12 rows plus overscan, so 20 items cover its
- *  first screen and older rows page in as it scrolls up. Fewer bytes cross the
- *  relay and fewer rows mount before the first paint. */
+/** A phone's ~700px transcript paints about 12 rows plus overscan. */
 export const REMOTE_TRANSCRIPT_TAIL_ITEMS = 20;
 export const DESKTOP_TRANSCRIPT_TAIL_BYTES = 1_000_000;
 /** Serialized bytes of the older rows one history page reveals (the page adds

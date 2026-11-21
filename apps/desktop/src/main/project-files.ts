@@ -421,41 +421,49 @@ export async function writeProjectTextFilesThrough(
           const journal = recoveryDataPath
             ? await beginProjectRecovery(recoveryDataPath, root, await openedRecoveryFiles(root, opened))
             : undefined;
-          const written: typeof opened = [];
           const restored = new Set<string>();
-          let failed = false;
-          let failure: unknown;
-          try {
-            for (const file of opened) {
-              // Recorded before the write: a failure part-way through this file
-              // leaves it modified, and it is restored with the earlier ones.
-              written.push(file);
-              await rewriteFileThrough(file.handle, file.after);
-            }
-          } catch (error) {
-            failed = true;
-            failure = error;
-            const unrestored: string[] = [];
-            for (const file of written.reverse()) {
-              await rewriteFileThrough(file.handle, file.before).then(
-                () => restored.add(file.relPath),
-                () => unrestored.push(file.relPath)
-              );
-            }
-            if (unrestored.length) {
-              failure = new Error(
-                `Workspace edit failed: ${writeFailureMessage(error)}. Not restored: ${JSON.stringify(unrestored)}.`,
-                { cause: error }
-              );
-            }
-          }
-          await settleRecoveryJournal(journal, failed, failure, restored);
+          const outcome = await rewriteAllOrRestore(opened, restored);
+          await settleRecoveryJournal(journal, outcome.failed, outcome.failure, restored);
         });
       } finally {
         await Promise.all(handles.map((handle) => handle.close().catch(() => undefined)));
       }
     }
   );
+}
+
+type OpenedWrite = { handle: FileHandle; relPath: string; before: Buffer; after: Buffer };
+
+/** Rewrites each file in order; on a failure puts back every file already
+ *  touched (newest first), recording the restored paths. */
+async function rewriteAllOrRestore(
+  opened: readonly OpenedWrite[],
+  restored: Set<string>
+): Promise<{ failed: boolean; failure?: unknown }> {
+  const written: OpenedWrite[] = [];
+  try {
+    for (const file of opened) {
+      written.push(file);
+      await rewriteFileThrough(file.handle, file.after);
+    }
+    return { failed: false };
+  } catch (error) {
+    const unrestored: string[] = [];
+    for (const file of written.reverse()) {
+      await rewriteFileThrough(file.handle, file.before).then(
+        () => restored.add(file.relPath),
+        () => unrestored.push(file.relPath)
+      );
+    }
+    if (!unrestored.length) return { failed: true, failure: error };
+    return {
+      failed: true,
+      failure: new Error(
+        `Workspace edit failed: ${writeFailureMessage(error)}. Not restored: ${JSON.stringify(unrestored)}.`,
+        { cause: error }
+      ),
+    };
+  }
 }
 
 /** Recovery entries for files opened through authorized handles: each one's
@@ -686,63 +694,8 @@ export async function writeProjectTextFilesIn(
       const destinations = new Map(
         normalized.map(({ relPath }) => [relPath, replacementDestination(projectEntryPathIn(root, relPath))])
       );
-      const parents = recoveryDataPath
-        ? new Map([...destinations].map(([rel, destination]) => [rel, recoveryIdentity(dirname(destination))]))
-        : null;
-      const prepared: RecoveryPreparedFile[] = [];
-      let recoveryBytes = 0;
-      for (const write of normalized) {
-        if (
-          !write.relPath ||
-          typeof write.content !== 'string' ||
-          typeof write.expectedContent !== 'string' ||
-          write.content.length > 4_194_304 ||
-          write.expectedContent.length > 4_194_304
-        ) {
-          throw new TypeError('Workspace edit file content is invalid.');
-        }
-        if (toUSVString(write.content) !== write.content) {
-          throw new TypeError('File content contains unpaired Unicode surrogates.');
-        }
-        const file = projectEntryPathIn(root, write.relPath);
-        const before = recoveryDataPath
-          ? await recoveryReadBytes(file, RECOVERY_MAX_BYTES - recoveryBytes).catch((error) => {
-              if (error instanceof RecoveryReadLimitError)
-                throw new ProjectRecoveryError(
-                  'RECOVERY_BATCH_LIMIT',
-                  'Workspace edit exceeds the 16 MiB recovery budget. Split the edit.',
-                  { cause: error }
-                );
-              throw error;
-            })
-          : await readFile(file);
-        const current = decodeProjectText(before);
-        requireLosslessText(current);
-        if (current.binary || current.content !== write.expectedContent) {
-          throw new Error(`File changed on disk: ${write.relPath}`);
-        }
-        if (recoveryDataPath) {
-          validateRoot();
-          const destination = destinations.get(write.relPath)!;
-          if (replacementDestination(file) !== destination)
-            throw new Error('Project path changed during recovery preparation.');
-          const parent = parents!.get(write.relPath)!;
-          if (!sameRecoveryIdentity(recoveryIdentity(dirname(destination)), parent)) {
-            throw new Error('Project directory changed during recovery preparation.');
-          }
-          const after = encodeProjectText(write.content, current.encoding, current.hasBom);
-          recoveryBytes += before.length + after.length;
-          if (recoveryBytes > RECOVERY_MAX_BYTES)
-            throw new ProjectRecoveryError(
-              'RECOVERY_BATCH_LIMIT',
-              'Workspace edit exceeds the 16 MiB recovery budget. Split the edit.'
-            );
-          const info = await lstat(file);
-          if (!info.isFile() || info.isSymbolicLink())
-            throw new Error('Journaled workspace edits require regular files.');
-          prepared.push({ relPath: write.relPath, destination, parent, mode: info.mode, before, after });
-        }
-      }
+      const journaled = recoveryDataPath !== undefined;
+      const prepared = await preflightBatch(root, normalized, destinations, journaled, validateRoot);
       validateRoot();
       const journal = recoveryDataPath ? await beginProjectRecovery(recoveryDataPath, root, prepared) : undefined;
       const committed: Array<ProjectFileReplacement & { relPath: string }> = [];
@@ -800,6 +753,74 @@ export async function writeProjectTextFilesIn(
       await settleRecoveryJournal(journal, failed, failure, restored);
     }
   );
+}
+
+/** Validates every write against the disk before the first mutation; when the
+ *  batch is journaled, also returns the recovery entries (else empty). */
+async function preflightBatch(
+  root: string,
+  normalized: ReadonlyArray<{ relPath: string; content: string; expectedContent: string }>,
+  destinations: ReadonlyMap<string, string>,
+  journaled: boolean,
+  validateRoot: () => void
+): Promise<RecoveryPreparedFile[]> {
+  const parents = journaled
+    ? new Map([...destinations].map(([rel, destination]) => [rel, recoveryIdentity(dirname(destination))]))
+    : null;
+  const prepared: RecoveryPreparedFile[] = [];
+  let recoveryBytes = 0;
+  for (const write of normalized) {
+    if (
+      !write.relPath ||
+      typeof write.content !== 'string' ||
+      typeof write.expectedContent !== 'string' ||
+      write.content.length > 4_194_304 ||
+      write.expectedContent.length > 4_194_304
+    ) {
+      throw new TypeError('Workspace edit file content is invalid.');
+    }
+    if (toUSVString(write.content) !== write.content) {
+      throw new TypeError('File content contains unpaired Unicode surrogates.');
+    }
+    const file = projectEntryPathIn(root, write.relPath);
+    const before = journaled
+      ? await recoveryReadBytes(file, RECOVERY_MAX_BYTES - recoveryBytes).catch((error) => {
+          if (error instanceof RecoveryReadLimitError)
+            throw new ProjectRecoveryError(
+              'RECOVERY_BATCH_LIMIT',
+              'Workspace edit exceeds the 16 MiB recovery budget. Split the edit.',
+              { cause: error }
+            );
+          throw error;
+        })
+      : await readFile(file);
+    const current = decodeProjectText(before);
+    requireLosslessText(current);
+    if (current.binary || current.content !== write.expectedContent) {
+      throw new Error(`File changed on disk: ${write.relPath}`);
+    }
+    if (journaled) {
+      validateRoot();
+      const destination = destinations.get(write.relPath)!;
+      if (replacementDestination(file) !== destination)
+        throw new Error('Project path changed during recovery preparation.');
+      const parent = parents!.get(write.relPath)!;
+      if (!sameRecoveryIdentity(recoveryIdentity(dirname(destination)), parent)) {
+        throw new Error('Project directory changed during recovery preparation.');
+      }
+      const after = encodeProjectText(write.content, current.encoding, current.hasBom);
+      recoveryBytes += before.length + after.length;
+      if (recoveryBytes > RECOVERY_MAX_BYTES)
+        throw new ProjectRecoveryError(
+          'RECOVERY_BATCH_LIMIT',
+          'Workspace edit exceeds the 16 MiB recovery budget. Split the edit.'
+        );
+      const info = await lstat(file);
+      if (!info.isFile() || info.isSymbolicLink()) throw new Error('Journaled workspace edits require regular files.');
+      prepared.push({ relPath: write.relPath, destination, parent, mode: info.mode, before, after });
+    }
+  }
+  return prepared;
 }
 
 /** Restores committed replacements newest-first, recording each restored path

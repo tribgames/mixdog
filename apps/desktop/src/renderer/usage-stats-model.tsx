@@ -82,10 +82,7 @@ export function StatsValue({ value, loading = false }: { value: string; loading?
   return loading ? <span className="usage-skeleton stats-value-skeleton" aria-hidden="true" /> : value;
 }
 
-/** Input as sent: fresh input plus the prompt written to cache. Cached providers
- *  file most of a turn's new content as a cache write, so the fresh figure alone
- *  made them look idle beside an uncached provider doing the same work.
- *  input + output + cache hits then adds up to the token total. */
+/** Input as sent: fresh input plus the prompt written to cache. */
 export function promptTokens(row: Row): number {
   return statsNumber(row.input) + statsNumber(row.cacheWrite);
 }
@@ -180,12 +177,6 @@ function addTrendTotals(target: TrendTotals, row: Row) {
   target.costUnpricedTurns += unpricedTurns(row);
 }
 
-// The 24-hour view is a ROLLING window, and the server keys its buckets by
-// absolute start time (19:48, 20:48 …). A background refresh lands seconds
-// after every streamed turn, so all 24 buckets arrived under brand-new keys:
-// React rebuilt every bar and the hovered bucket was no longer in the series,
-// which closed the detail card mid-hover. A rolling slot is identified by its POSITION, padded so the
-// key sort stays positional.
 function trendBucketIdentity(
   entry: Row,
   index: number,

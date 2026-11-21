@@ -1,7 +1,3 @@
-// An agent's face controls, shared by the new-agent dialog and the agent
-// profile: the 마스코트 / 내 이미지 segmented control, then either the mascot
-// picker or one upload row per motion state. An upload is prepared here
-// (agent-avatar-image.ts); the caller keeps the draft.
 import { useRef, useState } from 'react';
 import {
   AGENT_AVATAR_STATES,
@@ -204,8 +200,6 @@ function AvatarStateRow({
   );
 }
 
-/** 내 이미지: one row per motion state (idle required, the rest fall back to
- *  it), the states still to come, the format help and the starter kit. */
 function AvatarStatesEditor({
   draft,
   saved,

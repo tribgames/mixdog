@@ -1,14 +1,3 @@
-// session/human-gate/session-grants.mjs
-// "Allow for this session": an action kind a person allowed from a card for the
-// rest of ONE session, the middle choice between "just once" and "always". A
-// grant is kept in memory only (a restart asks again) and is keyed by session +
-// action kind (+ the acting agent) — never by site, target or payload — so it
-// covers every site and target of that kind and nothing of any other kind.
-// It ends when its session ends or is reset (the owner passes a `mark` that
-// names the session's current life; a grant made under another mark is gone),
-// or SESSION_GRANT_TTL_MS after it was made, whichever comes first, so a
-// long-lived home conversation never turns it into a permanent allow. A kind
-// that can never be remembered (a payment, a permanent delete) is never granted.
 import { isRememberableAction } from './outbound-policy.mjs';
 
 export const SESSION_GRANT_TTL_MS = 12 * 60 * 60 * 1000;

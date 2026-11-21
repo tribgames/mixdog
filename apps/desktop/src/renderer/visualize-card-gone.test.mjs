@@ -1,7 +1,3 @@
-// A turn's preview card follows the host's turn-end record (`goneOpens` on the
-// session's visualize state): an open whose tab had nothing left to show when
-// its turn ended draws no tile. The card holds no decision of its own, so a
-// remount, a fresh renderer and a remote client all agree.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';

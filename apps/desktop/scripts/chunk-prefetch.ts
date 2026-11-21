@@ -5,12 +5,8 @@ import type { Plugin } from 'vite';
 export const CHUNK_PREFETCH_MODULE = 'virtual:mixdog-chunk-prefetch';
 const RESOLVED = `\0${CHUNK_PREFETCH_MODULE}`;
 const PLACEHOLDER = '__MIXDOG_CHUNK_PREFETCH__';
-/** Reserved length of the lists' string literal. The lists are only known in
- *  generateBundle, after the chunk's sourcemap was made: written into a slot
- *  of the same length (padded with JSON whitespace), no generated position
- *  moves and the map stays exact. Gzip folds the padding away. Not a platform
- *  limit: only padding in one chunk, sized for headroom (the six lists were
- *  ~7.5k chars at 49c2f4fee and 8.3k two commits later, as shared chunks split). */
+/** Reserved length of the lists' string literal: they are known only in generateBundle, after the sourcemap,
+ *  so they are written into a slot of the same length and no generated position moves. */
 export const CHUNK_PREFETCH_SLOT = 16384;
 const SLOT = PLACEHOLDER + '_'.repeat(CHUNK_PREFETCH_SLOT - PLACEHOLDER.length);
 // The literal survives minification as a plain string. The dev server has no
@@ -61,10 +57,7 @@ export function chunkPrefetchPlugin(targets: Record<string, string>): Plugin {
     name: 'mixdog-chunk-prefetch',
     resolveId: (id) => (id === CHUNK_PREFETCH_MODULE ? RESOLVED : null),
     load: (id) => (id === RESOLVED ? CHUNK_PREFETCH_SOURCE : null),
-    // After Vite's own generateBundle hooks: vite:css-post deletes the JS
-    // chunks of CSS-only modules (font-faces, bootstrap-styles) there, and a
-    // list naming one sent the phone a 404, which the boot script answers with
-    // a reload.
+    // vite:css-post deletes the JS chunks of CSS-only modules in its generateBundle; this must run after it.
     enforce: 'post',
     generateBundle: {
       order: 'post',

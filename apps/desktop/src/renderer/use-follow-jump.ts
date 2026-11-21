@@ -8,11 +8,6 @@ import {
   transcriptScrollGeometryRegistered,
 } from './transcript-follow-rules';
 
-/** Jump-to-latest re-pin loop: frame handle, deadline, settled-frame count.
- *  Chromium's wheel/fling animation keeps writing scrollTop after the click,
- *  and it cannot be cancelled from JS — so the tail is simply re-taken every
- *  frame until the offset holds still or the short deadline expires. A new
- *  reader gesture cancels the loop, so the reader always wins. */
 export function useJumpPin({
   viewport,
   followingRef,

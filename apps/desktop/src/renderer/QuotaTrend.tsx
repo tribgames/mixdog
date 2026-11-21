@@ -1,11 +1,3 @@
-/**
- * The subscription meter as a line over the selected period: what it read,
- * each model's share stacked as a coloured area under it, the stretches
- * nobody measured, the forecast to run-out and an even-pace diagonal, the
- * time still to come shaded, with one hover card per time slot.
- * The plot is a stretched viewBox with non-scaling strokes; every label is
- * HTML laid over it, so text never stretches with the plot.
- */
 import { curveMonotoneX, line as pathLine } from 'd3-shape';
 import { useId, type CSSProperties } from 'react';
 import { t, uiFormatLocale } from './i18n';
@@ -201,22 +193,15 @@ function axisTicks(from: number, to: number): { unit: AxisUnit; times: number[] 
   return { unit: widest.unit, times: stepTicks(from, to, widest) };
 }
 
-export function QuotaTrend({
-  data,
-  provider,
-  windowView,
-  seriesInk,
-  loading,
-}: {
-  data: Row;
-  provider: string;
-  windowView: boolean;
-  /** A model's chart ink: its rank in the period, shared with the mix. */
-  seriesInk: (model: string) => string;
-  loading: boolean;
-}) {
-  const detail = useTrendDetail([data]);
-  const areaFill = useId();
+/** What the chart draws for one reading: scales, paths, stacked model layers, the
+ *  hovered slot's figures and the time axis. */
+function quotaTrendModel(
+  data: Row,
+  provider: string,
+  windowView: boolean,
+  seriesInk: (model: string) => string,
+  activeKey: string | null
+) {
   const domain = record(data.domain);
   const from = statsNumber(domain.fromMs);
   const to = Math.max(from + 1, statsNumber(domain.toMs));
@@ -226,7 +211,7 @@ export function QuotaTrend({
   const focus = record(data.focus);
   const forecast = record(data.forecast);
   const slots = rows(data.slots);
-  const active = slots.find((slot) => String(slot.fromMs) === detail.activeKey);
+  const active = slots.find((slot) => String(slot.fromMs) === activeKey);
   // Codex meters can pass 100 %; the scale follows them instead of clipping.
   const top = Math.ceil(points.reduce((max, point) => Math.max(max, point[1]), 100) / 10) * 10;
   const x = (time: number) => ((time - from) / span) * WIDTH;
@@ -278,9 +263,6 @@ export function QuotaTrend({
     : rows(data.peaks).filter(
         (row) => statsNumber(row.peak) > 0 && statsNumber(row.peakAt) >= from && statsNumber(row.peakAt) <= to
       );
-  // Each model's share is stacked on the ones before it, so the layers fill
-  // the area under the meter by model and their top edge is the meter itself
-  // Every model's line runs up to now, and so do the layers.
   const models = rows(data.modelSeries).map((entry) => {
     const key = entry.key ? usageModelKey(entry) : '';
     return {
@@ -351,6 +333,86 @@ export function QuotaTrend({
   const rate = statsNumber(forecast.ratePerHour);
   const slotModels = rows(active?.models).filter((row) => statsNumber(row.consumed) > 0 || statsNumber(row.tokens) > 0);
   const slotOutside = statsNumber(active?.outside);
+  return {
+    span,
+    now,
+    slots,
+    active,
+    x,
+    y,
+    left,
+    paths,
+    runsOutAt,
+    runsOutLabel,
+    forecastPath,
+    pacePath,
+    marker,
+    activeEnd,
+    activeRunning,
+    activeForecast,
+    activeUsed,
+    nowX,
+    peaks,
+    stacks,
+    stacked,
+    legend,
+    axisFormat,
+    ticks,
+    clockRange,
+    slotTitle,
+    rate,
+    slotModels,
+    slotOutside,
+  };
+}
+
+export function QuotaTrend({
+  data,
+  provider,
+  windowView,
+  seriesInk,
+  loading,
+}: {
+  data: Row;
+  provider: string;
+  windowView: boolean;
+  /** A model's chart ink: its rank in the period, shared with the mix. */
+  seriesInk: (model: string) => string;
+  loading: boolean;
+}) {
+  const detail = useTrendDetail([data]);
+  const areaFill = useId();
+  const {
+    span,
+    now,
+    slots,
+    active,
+    x,
+    y,
+    left,
+    paths,
+    runsOutAt,
+    runsOutLabel,
+    forecastPath,
+    pacePath,
+    marker,
+    activeEnd,
+    activeRunning,
+    activeForecast,
+    activeUsed,
+    nowX,
+    peaks,
+    stacks,
+    stacked,
+    legend,
+    axisFormat,
+    ticks,
+    clockRange,
+    slotTitle,
+    rate,
+    slotModels,
+    slotOutside,
+  } = quotaTrendModel(data, provider, windowView, seriesInk, detail.activeKey);
   // Chart space with no slot to read ends a hover card; a pinned one stays.
   const idle = {
     onMouseEnter: () => {

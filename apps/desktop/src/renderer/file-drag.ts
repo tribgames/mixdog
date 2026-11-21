@@ -33,11 +33,8 @@ export function dataTransferHasLocalFiles(transfer: DataTransfer): boolean {
   return transferTypes(transfer).includes('Files') || dataTransferHasPathPayload(transfer);
 }
 
-/** Everything a composer can accept as an attachment drop. Desktop shells
- *  announce a file drag with the "Files" marker, but a mobile browser handing
- *  over an image from another app announces its MIME type instead and exposes
- *  the payload only as a file ITEM. Gating on the marker alone left those
- *  drops to the browser's own navigation. */
+/** A mobile browser handing over an image from another app announces its MIME
+ *  type instead of the "Files" marker and exposes the payload only as a file item. */
 export function dataTransferHasDroppableFiles(transfer: DataTransfer): boolean {
   if (dataTransferHasLocalFiles(transfer)) return true;
   for (const item of Array.from(transfer.items ?? [])) {

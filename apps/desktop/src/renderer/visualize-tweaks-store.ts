@@ -1,7 +1,3 @@
-// The visualize panel's tweaks, per session view: the controls each HTML pane
-// declared (parsed from its `mx-tweaks` block as the page reported it) and the
-// values the user set, per tab, pane and version. Values are view state only:
-// the file never changes, and a reload of the page re-applies them.
 import { useSyncExternalStore } from 'react';
 
 import type { VisualizePaneView, VisualizeTabView } from '../shared/visualize';

@@ -703,7 +703,7 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .remote-pc-card > .remote-
   padding: 6px;
   overflow-y: auto;
   border-radius: var(--mx-radius-lg);
-  background: var(--mx-bg-elevated, var(--mx-bg-base));
+  background: var(--mx-bg-base);
   box-shadow:
     var(--mx-card-outline),
     0 16px 40px rgba(0, 0, 0, 0.45);

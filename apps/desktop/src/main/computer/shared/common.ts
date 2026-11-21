@@ -1,10 +1,3 @@
-/**
- * Constants and small helpers the Computer Use host modules share: capture
- * budgets, the pixel-usability thresholds, the data directory, and the two
- * timing utilities. They live here so the capture engine never has to import
- * the host back, and nothing here touches Electron: pure observation code can
- * import these constants inside a plain Node test.
- */
 import { mixdogDataDirectory } from '../../data-directory';
 import { DEFAULT_CAPTURE_AFTER_DELAY_MS } from '../../computer-helper-binary';
 
@@ -93,6 +86,4 @@ export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, l
   }
 }
 
-export function errorMessage(error: unknown): string {
-  return String((error as Error)?.message || error);
-}
+export { errorMessage } from '../../error-message';

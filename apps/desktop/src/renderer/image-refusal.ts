@@ -1,7 +1,5 @@
-// A refused image send as the failed turn carries it (`errorKind.imageRefusal`, built by the core's `refusal_json`), and the
-// local fixes the person can choose: leave the images out, replace one with a picture they pick, continue in a new branch
-// without the earlier context. Each fix is one `imageRecovery` capability call (the `thread/imageRecovery` method); none of
-// them calls a model or changes the conversation's history.
+// A refused image send as the failed turn carries it (`errorKind.imageRefusal`, built by the core's `refusal_json`).
+// Each local fix is one `imageRecovery` capability call (the `thread/imageRecovery` method).
 
 export interface ImageRefusalBlocker {
   messageId: string;

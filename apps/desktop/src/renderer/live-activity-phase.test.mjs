@@ -1,8 +1,3 @@
-/**
- * live-activity-phase.test.mjs — the coding transcript's working band keeps
- * the last phase through a short gap instead of switching or blanking, and
- * plays its entrance once per turn, not again on a remount.
- */
 import assert from 'node:assert/strict';
 import test, { after, mock } from 'node:test';
 import React, { act } from 'react';

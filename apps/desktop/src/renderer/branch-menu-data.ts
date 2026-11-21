@@ -17,10 +17,6 @@ const MENU_RETRY_MAX_MS = 6000;
 
 type MenuRead = { menu: DesktopBranchMenu | null; recovery: boolean };
 
-/** The last menu read per session (or Project, for a draft). Module-level, so
- *  a host that remounts — the island per session switch, the chip per route —
- *  opens with the last known branch, workspace and branch list at once while
- *  the fresh read lands in the background. */
 const lastMenuReads = new Map<string, MenuRead>();
 
 const menuReadKey = (draft: boolean, projectPath: string, sessionId: string) =>
@@ -138,9 +134,23 @@ export function useBranchMenuData({
     return true;
   }, [draft, projectMenu, projectPath, readKey, sessionId, setRead]);
 
-  // The read follows the key and the refresh trigger, not `load`'s identity:
-  // a session's Project path landing with the catalog changes `load` but not
-  // what the session's menu read returns.
+  useEagerMenuRead({ eager, readKey, refreshKey, load });
+  useDefaultWorktreeIntent(draft && Boolean(menu?.workspace.repoCommonDir), intentKey);
+
+  return { menu, recovery, loading: shown === null, notice, setNotice, load };
+}
+
+function useEagerMenuRead({
+  eager,
+  readKey,
+  refreshKey,
+  load,
+}: {
+  eager: boolean;
+  readKey: string;
+  refreshKey: string;
+  load: () => Promise<boolean>;
+}): void {
   const loadRef = useRef(load);
   loadRef.current = load;
   const readFor = useRef('');
@@ -149,8 +159,6 @@ export function useBranchMenuData({
     if (!eager) return undefined;
     const mountRead = readFor.current !== readKey;
     readFor.current = readKey;
-    // Another host answered this key a moment ago (both mount with the
-    // session): its read is already shown from the shared cache.
     const answeredAt = menuReadAnsweredAt.get(readKey);
     if (
       mountRead &&
@@ -159,7 +167,6 @@ export function useBranchMenuData({
       Date.now() - answeredAt < MENU_MOUNT_REUSE_MS
     )
       return undefined;
-    // A failed read (the runtime busy or not yet up) retries with backoff.
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const attempt = async (delay: number) => {
@@ -173,23 +180,16 @@ export function useBranchMenuData({
       clearTimeout(timer);
     };
   }, [eager, readKey, refreshKey]);
-  // A New Task starts in the user's configured default; an explicit choice
-  // later wins because the default applies once per draft. It waits for a
-  // menu read showing a git repository: no project or a non-git folder has
-  // no worktree to default to.
-  const repository = Boolean(menu?.workspace.repoCommonDir);
+}
+
+function useDefaultWorktreeIntent(draftInRepository: boolean, intentKey: string): void {
   useEffect(() => {
-    if (!draft || !repository || defaultApplied.has(intentKey)) return;
+    if (!draftInRepository || defaultApplied.has(intentKey)) return;
     defaultApplied.add(intentKey);
     void invokeWorktree<{ newTaskDefault?: string }>('getWorktreeSettings')
       .then((settings) => {
         if (settings?.newTaskDefault === 'worktree') applyDefaultWorktreeIntent(intentKey);
       })
-      .catch(() => {
-        // Settings are optional chrome: the branch default stays.
-      });
-  }, [draft, intentKey, repository]);
-
-  // Nothing read or cached for this key yet: the menu is still loading.
-  return { menu, recovery, loading: shown === null, notice, setNotice, load };
+      .catch(() => {});
+  }, [draftInRepository, intentKey]);
 }

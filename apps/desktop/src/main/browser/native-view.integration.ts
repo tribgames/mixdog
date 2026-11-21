@@ -1,9 +1,3 @@
-// Real-Electron checks for native Browser pane presentation
-// (MIXDOG_BROWSER_NATIVE_VIEW): the production BrowserPane adopts the page's own
-// view over its surface, agent input leaves the shell composer untouched, native
-// human input takes over from the agent, overlaps fall back to pixels, and a
-// hidden pane keeps its page rendering. Run through
-// `node apps/desktop/scripts/run-browser-input-isolation.mjs --native`.
 import assert from 'node:assert/strict';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';

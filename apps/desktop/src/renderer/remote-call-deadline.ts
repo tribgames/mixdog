@@ -5,11 +5,7 @@ const STALLED_DEADLINE_MS = 1_000;
 // The blocked thread may be all that holds an answer the socket already
 // delivered (it still has to be decrypted, in order, behind other frames).
 const STALL_GRACE_MS = 5_000;
-// How long an overdue call waits for the liveness probe it triggered. A dead
-// leg is recycled well inside it (the wake probe allows 2.5 s for its pong),
-// and that close fails the call as interrupted: a brief drop, retried on the
-// next connection, never an error. Only a leg that proved alive and still
-// owes the answer reaches the timeout.
+// Longer than the wake probe's 2.5 s pong allowance: a dead leg closes first and fails the call as interrupted.
 const PROBE_SETTLE_MS = 5_000;
 const REMOTE_CALL_TIMEOUT_MESSAGE = 'mixdog remote call timed out.';
 
@@ -19,14 +15,7 @@ export function isRemoteCallTimeoutError(error: unknown): boolean {
   return (error as { message?: unknown } | null)?.message === REMOTE_CALL_TIMEOUT_MESSAGE;
 }
 
-/** A method deadline belongs to that call alone. Transport liveness is
- *  checked independently, so a slow operation cannot fail healthy siblings.
- *  Arm it once the request is on the wire: time spent in this page's ordered
- *  send queue is not the peer's latency. A deadline that comes due while the
- *  page is frozen (a phone evaluating Monaco, laying out a large file) waits
- *  a short grace instead of failing a call whose answer is already queued.
- *  An overdue call first probes the leg (PROBE_SETTLE_MS) and times out only
- *  when the leg survived the probe. Returns the cancel for a settled call. */
+/** Per-call deadline, armed once the request is on the wire. A deadline that falls due while the page is frozen waits STALL_GRACE_MS; an overdue call probes the leg first and times out only if the leg survives PROBE_SETTLE_MS. Returns the cancel for a settled call. */
 export function armRemoteCallDeadline(
   pending: Pick<Map<number, unknown>, 'has' | 'delete'>,
   id: number,

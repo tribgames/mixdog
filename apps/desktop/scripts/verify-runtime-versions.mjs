@@ -1,10 +1,5 @@
 #!/usr/bin/env node
-// Verifies that the dependency versions the desktop ships match the lockfile: every package.json of the
-// prepared real-file runtime (.runtime/native-modules, which electron-builder maps to
-// resources/runtime.asar.unpacked/node_modules) against the root package-lock.json. A stale install or a reused
-// prepared-runtime cache otherwise ships old versions unnoticed.
-//
-//   node apps/desktop/scripts/verify-runtime-versions.mjs [<native-modules dir>]
+// node apps/desktop/scripts/verify-runtime-versions.mjs [<native-modules dir>]
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';

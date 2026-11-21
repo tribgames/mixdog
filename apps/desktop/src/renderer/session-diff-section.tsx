@@ -10,6 +10,7 @@ import {
   useState,
 } from 'react';
 import type { DiffViewState } from './diff-header-controls';
+import { DiffStats } from './diff-stats';
 import { t } from './i18n';
 import { FileDiffBody } from './inline-diff';
 import { sessionDiffRowPlainText, sessionDiffRowTooLarge, type SessionDiffRow } from './session-diff-model';
@@ -20,26 +21,6 @@ import { fileBaseName } from './text-format';
 import { toolActivityCodeLanguage } from './transcript-tool-format';
 import { middleTruncatedDirectory } from './turn-changes-model';
 
-/** Added/removed counts; a zero half is left out, as in the turn card. */
-export function DiffStats({ additions, deletions }: { additions: number; deletions: number }) {
-  return (
-    <span className="diff-stats">
-      {additions > 0 && <i>+{additions}</i>}
-      {deletions > 0 && (
-        <em>
-          {'\u2212'}
-          {deletions}
-        </em>
-      )}
-    </span>
-  );
-}
-
-/** A file's diff under its header: nothing while folded, a note when no diff
- *  was recorded, Codex's "too large" note with Open in editor past the
- *  per-file limits, otherwise the diff itself (plain text past 2,000 changed
- *  lines). A plain render helper (not a component), so the section's element
- *  tree stays as it was. */
 function sectionBody(
   row: SessionDiffRow,
   mode: DiffViewState['viewMode'],
@@ -109,9 +90,6 @@ export function sessionDiffSectionEstimate(row: SessionDiffRow): number {
 }
 
 const openEstimates = new WeakMap<SessionDiffRow, number>();
-/** A listed row's unfolded height before it is measured, once per row object:
- *  its patch lines, else (patch not read yet) one line per changed line, and
- *  one line for a note in place of a diff. */
 function openSectionEstimate(row: SessionDiffRow): number {
   let estimate = openEstimates.get(row);
   if (estimate === undefined) {
@@ -123,10 +101,6 @@ function openSectionEstimate(row: SessionDiffRow): number {
   return estimate;
 }
 
-/** One changed file: a sticky header (icon, muted middle-truncated directory,
- *  name that opens the file, the collapse chevron right after it, counts, open
- *  and undo) over its diff. Memoized on its row: a stack of hundreds of files
- *  redraws only the files whose row (or patch) moved. */
 const SessionDiffSection = memo(function SessionDiffSection({
   index,
   setSize,
@@ -231,15 +205,55 @@ const heightKey = (mode: string, width: number, whole: boolean) => `${mode}\0${M
 
 const NAVIGATION_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End']);
 
-/** Every visible file is one section of a single scroll; the selected file
- *  tab draws its one file whole and never folded. Only the sections in or
- *  near the viewport are mounted (any file count). The layout is the list's
- *  uniform header row, plus the few open sections — the selected file of a
- *  capped set, or the files of a set within the file limit — at their
- *  measured (else estimated) heights; spacers stand in for every unmounted
- *  file, so the scroll extent is the whole list's. Nothing here walks the
- *  list: positions come from the open sections, rows from the list's index.
- *  Sections stay in normal flow, so their sticky headers hold. */
+function useStableHandlers({
+  onToggle,
+  onRevert,
+  onOpenFile,
+}: {
+  onToggle(id: string): void;
+  onRevert(path: string): void;
+  onOpenFile?(path: string): void;
+}) {
+  const latest = useRef({ onToggle, onRevert, onOpenFile });
+  latest.current = { onToggle, onRevert, onOpenFile };
+  return useMemo(
+    () => ({
+      toggle: (id: string) => latest.current.onToggle(id),
+      revert: (path: string) => latest.current.onRevert(path),
+      openFile: (path: string) => latest.current.onOpenFile?.(path),
+    }),
+    []
+  );
+}
+
+function useSectionResize(stackRef: RefObject<HTMLDivElement | null>, onResize: () => void) {
+  const observer = useRef<{ observer: ResizeObserver; observed: WeakSet<Element> } | null>(null);
+  const resized = useRef(onResize);
+  resized.current = onResize;
+  useLayoutEffect(() => {
+    const Observer = typeof window.ResizeObserver === 'function' ? window.ResizeObserver : null;
+    if (!Observer) return undefined;
+    observer.current = {
+      observer: new Observer(() => resized.current()),
+      observed: new WeakSet(),
+    };
+    return () => {
+      observer.current?.observer.disconnect();
+      observer.current = null;
+    };
+  }, []);
+  useLayoutEffect(() => {
+    const held = observer.current;
+    const stack = stackRef.current;
+    if (!held || !stack) return;
+    for (const section of stack.querySelectorAll(':scope > .session-diff-section')) {
+      if (held.observed.has(section)) continue;
+      held.observed.add(section);
+      held.observer.observe(section);
+    }
+  });
+}
+
 export function SessionDiffStack({
   stackRef,
   rows,
@@ -302,22 +316,7 @@ export function SessionDiffStack({
       .sort((left, right) => left.index - right.index);
   const extents = extentsOf();
   const rowWindow = useRowWindow(stackRef, headHeight, rows.length, true, '', extents);
-  // The pane rebuilds its callbacks every render; the sections get stable
-  // ones that call the latest, so an unchanged section skips its redraw.
-  const latest = useRef({ onToggle, onRevert, onOpenFile });
-  latest.current = { onToggle, onRevert, onOpenFile };
-  const handlers = useMemo(
-    () => ({
-      toggle: (id: string) => latest.current.onToggle(id),
-      revert: (path: string) => latest.current.onRevert(path),
-      openFile: (path: string) => latest.current.onOpenFile?.(path),
-    }),
-    []
-  );
-  // The file at the viewport's top, and how far into it the viewport starts,
-  // read against the layout last committed to the DOM: whatever moves the
-  // files above it afterwards (a measurement, a refresh turning a measured
-  // height back into an estimate), it stays where it was.
+  const handlers = useStableHandlers({ onToggle, onRevert, onOpenFile });
   type Snapshot = { layout: ReturnType<typeof rowWindowLayout>; rows: readonly SessionDiffRow[] };
   const committed = useRef<Snapshot | null>(null);
   const anchor = useRef<{ id: string; within: number } | null>(null);
@@ -398,31 +397,7 @@ export function SessionDiffStack({
     shown.current = { view, top: stack.scrollTop };
     anchorAt(committed.current, stack.scrollTop);
   });
-  // A section that changes size after its commit (fonts, highlighting) is
-  // measured again; each drawn section is observed once.
-  const observer = useRef<{ observer: ResizeObserver; observed: WeakSet<Element> } | null>(null);
-  useLayoutEffect(() => {
-    const Observer = typeof window.ResizeObserver === 'function' ? window.ResizeObserver : null;
-    if (!Observer) return undefined;
-    observer.current = {
-      observer: new Observer(() => setLayoutVersion((version) => version + 1)),
-      observed: new WeakSet(),
-    };
-    return () => {
-      observer.current?.observer.disconnect();
-      observer.current = null;
-    };
-  }, []);
-  useLayoutEffect(() => {
-    const held = observer.current;
-    const stack = stackRef.current;
-    if (!held || !stack) return;
-    for (const section of stack.querySelectorAll(':scope > .session-diff-section')) {
-      if (held.observed.has(section)) continue;
-      held.observed.add(section);
-      held.observer.observe(section);
-    }
-  });
+  useSectionResize(stackRef, () => setLayoutVersion((version) => version + 1));
   // The requested header is in this commit (the request pins it): focus it.
   useLayoutEffect(() => {
     if (!focusRequest) return;

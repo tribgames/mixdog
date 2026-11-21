@@ -1,7 +1,3 @@
-/**
- * Condition-based waiting. Sequence dispatch lives separately so waiting
- * never needs to know how the next gesture will address the page.
- */
 import { boundedInteger } from '../host-types';
 import { browserPostconditionMatches, describeBrowserPostcondition } from '../postcondition';
 import { throwIfBrowserCancelled } from '../settle';

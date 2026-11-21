@@ -12,7 +12,7 @@ import { assertPublicComputerRequest, type BridgeCommand } from './request-polic
 type Respond = (response: ServerResponse, status: number, body: Record<string, unknown>) => void;
 
 export interface BridgeRequestContext {
-  host: Pick<BridgeServerHost, 'callCore'>;
+  host: Pick<BridgeServerHost, 'callCore' | 'attachOwner'>;
   state: BridgeServerState;
   respond: Respond;
 }
@@ -128,12 +128,8 @@ async function readOwnerClaim(request: IncomingMessage): Promise<{ ownerId: stri
   }
 }
 
-/** A runtime's saved-login owner connection: the core binds the owner to its process by id and OS creation time
- *  (`owner_attach`), then the connection is answered and held open. Its close, whichever side ended it, only
- *  detaches (`owner_detach`); an owner's protection retires early only when the OS proves its process ended, which
- *  the core checks. */
 async function handleOwner(
-  host: Pick<BridgeServerHost, 'callCore'>,
+  host: Pick<BridgeServerHost, 'callCore' | 'attachOwner'>,
   request: IncomingMessage,
   response: ServerResponse,
   respond: Respond
@@ -156,16 +152,22 @@ async function handleOwner(
     Number.isSafeInteger(pid) && pid > 0
       ? await runCommand(host, { action: 'owner_attach', runtime_id: ownerId, pid }, new AbortController().signal)
       : null;
+  // The desktop's own host, where it runs the commands, holds the owner too, on its own proof of the process.
+  const local = attached?.ok ? ((await host.attachOwner?.(ownerId, pid).catch(() => null)) ?? null) : null;
   if (closed) {
     // Attached for a connection that is already gone: it ends at once.
     if (attached?.ok) detachOwner(ownerId);
+    local?.();
     return;
   }
   if (!attached?.ok) {
     respond(response, 400, { ok: false, error: 'invalid request: unknown or ended runtime owner' });
     return;
   }
-  detach = () => detachOwner(ownerId);
+  detach = () => {
+    detachOwner(ownerId);
+    local?.();
+  };
   response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   response.write('{"ok":true}\n');
 }

@@ -1,9 +1,3 @@
-/**
- * Invoking page functions against the refs a snapshot minted: each ref is
- * bound to the CDP node and target session that produced it, so the call
- * resolves the node in that session and releases it afterwards. Pages whose
- * accessibility tree was unavailable fall back to the DOM-side ref lookup.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';

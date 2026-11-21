@@ -1,8 +1,3 @@
-// An agent's face: the Mixdog mascot as layered pixel SVG (design/mockups/
-// mixy-art), or the user's own images per motion state. No disc or frame;
-// the colours are the agent's content, not icon ink, so they stay as picked.
-// A face asked to move (`state`) moves only while it holds the stage
-// (avatar-motion.ts); every other face shows its still frame.
 import { type CSSProperties, memo, type Ref, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AGENT_AVATAR_COLORS,

@@ -1,9 +1,3 @@
-/**
- * Saved-login owners (Windows only, like saved logins): the OS's answer about
- * one runtime process, read by the host's own worker. The bridge asks as
- * owners attach and detach; a capture a detached owner's saved-login guard
- * would withhold asks too.
- */
 import type { PowerShellResponse } from '../shared/types';
 import type { ProcessFate } from './bridge-server-contract';
 import { HOST_WARMUP_SESSION_ID } from './action-sets';

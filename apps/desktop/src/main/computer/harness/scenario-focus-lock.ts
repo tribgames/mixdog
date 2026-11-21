@@ -1,16 +1,9 @@
-/**
- * The live check that background semantic input keeps the user's window in
- * front, or puts it back within a bound: a sentinel window this process owns stands in for the user's window,
- * a separate Electron app that activates itself on every semantic input is the
- * target, and a helper process samples the foreground window and the keyboard
- * focus while typing into the sentinel through the system input queue.
- */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BrowserWindow } from 'electron';
 import { sleep } from '../shared/common';
-import { FOCUS_LOCK_TARGET_TITLE, focusLockTargetProgram } from './scenario-fixture-html';
+import { focusLockTargetProgram } from './scenario-fixture-html';
 import { foregroundHwnd, nativeHwnd } from './scenario-fixtures';
 import { controlTookForeground, type FocusWatch, type FrontSample } from './scenario-focus-input';
 import { eventually, profile, progress } from './scenario-runtime';
@@ -101,10 +94,6 @@ export async function waitForFocusLockTarget(statePath: string): Promise<void> {
   if (phase === 'error') throw new Error(`focus lock target failed: ${readFocusLockTarget(statePath).error}`);
 }
 
-/** Has the target activate itself once with no agent action running, and
- *  returns whether the OS watch saw it take the foreground, with what it saw.
- *  Nothing brings the sentinel back meanwhile, so a target that got the
- *  foreground still holds it while this waits. */
 export async function targetControlActivation(
   statePath: string,
   watch: { fronts: () => readonly FrontSample[]; front: () => { foreground: number; focus: number } },
@@ -130,10 +119,6 @@ export async function targetControlActivation(
       `the fixture reported focused ${String(controls.at(-1)?.focused)}; OS samples since the request ` +
       `${JSON.stringify(samples)}; last sample ${JSON.stringify(watch.front())}`,
   };
-}
-
-export function focusLockTargetLine(listing: string): string {
-  return listing.split(/\r?\n/).find((line) => line.includes(`"${FOCUS_LOCK_TARGET_TITLE}"`)) || '';
 }
 
 /** The window standing in for the user's, shown without taking the
@@ -216,10 +201,6 @@ export async function sentinelText(sentinel: BrowserWindow): Promise<string> {
   return String(await sentinel.webContents.executeJavaScript(`document.querySelector('#sink').value`));
 }
 
-// Sampling in a loop of its own, at about a millisecond, so a steal that a
-// restore undoes again is still seen. Keys go in only while the sentinel holds
-// both the foreground and the focus, so a failure never types into a window
-// this run does not own.
 const FOCUS_WATCH_SOURCE = String.raw`
 using System;
 using System.Collections.Generic;
@@ -432,10 +413,6 @@ public static class MixdogFocusWatch {
         IntPtr focus = FocusRoot(foreground);
         samples++;
         bool onSentinel = foreground == own && focus == own;
-        // The watch is compiled and running before the sentinel is brought
-        // forward. It counts, and types, only once told to start, and from the
-        // moment the sentinel then holds both: a key typed while focus_window
-        // settles would count as the user's input against it.
         if (!started && File.Exists(startPath)) {
           started = true;
           nextKey = clock.ElapsedMilliseconds;
@@ -489,12 +466,7 @@ ${FOCUS_WATCH_SOURCE}
 
 let watchCount = 0;
 
-/** Starts the helper; resolves once it is sampling and its input hooks are in.
- *  `front` is the foreground window and focus root it sampled last, `fronts`
- *  every change of them it sampled, `quiet`
- *  waits until no keyboard or mouse input arrived for `quietMs`, `start`
- *  begins counting and typing, `stop` ends it and returns what it saw (safe to
- *  call twice). */
+/** Starts the helper; resolves once it is sampling and its input hooks are in. `stop` is safe to call twice. */
 export async function watchSentinel(
   sentinel: BrowserWindow,
   keyIntervalMs = 20

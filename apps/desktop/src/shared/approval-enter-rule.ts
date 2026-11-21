@@ -1,26 +1,7 @@
-// Which approvals a bare Enter allows: the one rule the approval card
-// (renderer/ApprovalCard.tsx, approval-prompt.tsx) and a notification's Allow
-// (main/push-notifier.ts, the phone's action, remote-session-methods.ts
-// answerApprovalNotification) share. The card's Enter presses its primary; it
-// allows once only where that primary is "Allow just once" (한 번만 허용): a
-// tool or outbound approval, an Office commit, a permission request with a
-// once option. Never a payment, a permanent delete, an Office rollback or
-// recovery discard (allowing those takes a pointer), a permission whose only
-// allow is "always" (Enter never grants a standing approval), a sign-in,
-// takeover or secret (Enter does that step, it allows nothing), a question,
-// or a kind this rule does not know.
-
 import type { ToolApprovalDecision } from './contract';
 
 export type PermissionScope = { id: string; kind: string; label: string };
 
-// A permission request's options are mapped to buttons by their KIND (never by
-// label text); a scope without a `kind` is read by its id. Rule:
-//  - 항상 허용 ← the first allow_always / always option;
-//  - 한 번만 허용 ← the narrowest once-type option: allow_once / once first,
-//    else the first session-scoped one (allow_session / session / allow_scoped);
-//  - reject / cancel kinds and unknown kinds get no button (거절 is the card's own).
-// Ties go to the option listed first. With no always option there is no always button.
 const ALWAYS_KINDS = ['allow_always', 'always'];
 const ONCE_KINDS = ['allow_once', 'once', 'allow_session', 'session', 'allow_scoped'];
 

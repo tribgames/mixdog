@@ -13,10 +13,8 @@ interface PendingMarkdownRequest {
   reject(error: Error): void;
 }
 
-/** Owns only worker lifetime and delivery. Cache/fallback policy stays in the
- * client. The parser stays resident (~8 MB heap): retiring it when idle made
- * the next session open pay a ~100ms bootstrap, during which fenced messages
- * showed their source projection and were then swapped for the AST. */
+/** Owns only worker lifetime and delivery; cache/fallback policy stays in the
+ * client. The parser stays resident. */
 export class MarkdownWorkerHost {
   private worker: Worker | null = null;
   private failure: Error | null = null;

@@ -51,6 +51,119 @@ function trackPointerDrag(move: (pointer: PointerEvent) => void): void {
   window.addEventListener('pointerup', stop, { once: true });
 }
 
+type PeekZone = {
+  id: string;
+  zone: {
+    afterLineNumber: number;
+    heightInLines: number;
+    domNode: HTMLElement;
+    suppressMouseDown: boolean;
+  };
+};
+
+/** The peek's persisted size (zone height, tree/preview split) and the drag handles that change it. */
+function useCallHierarchyLayout(editorRef: RefObject<EditorInstance | null>, zoneRef: RefObject<PeekZone | null>) {
+  const [layout, setLayout] = useState(readCallHierarchyLayout);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CALL_HIERARCHY_LAYOUT_KEY, JSON.stringify(layout));
+    } catch {
+      // Peek layout persistence is best-effort.
+    }
+    const editor = editorRef.current;
+    const current = zoneRef.current;
+    if (!editor || !current) return;
+    current.zone.heightInLines = layout.height;
+    editor.changeViewZones((accessor) => accessor.layoutZone(current.id));
+  }, [editorRef, layout]);
+  const beginSplitResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const container = event.currentTarget.parentElement;
+    if (!container) return;
+    const move = (pointer: PointerEvent) => {
+      const rect = container.getBoundingClientRect();
+      if (!rect.width) return;
+      const ratio = (pointer.clientX - rect.left) / rect.width;
+      setLayout((current) => ({
+        ...current,
+        ratio: Math.max(0.35, Math.min(0.85, ratio)),
+      }));
+    };
+    trackPointerDrag(move);
+  }, []);
+
+  const beginHeightResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const startY = event.clientY;
+      const startHeight = layout.height;
+      const move = (pointer: PointerEvent) => {
+        const lineDelta = Math.round((pointer.clientY - startY) / 21);
+        setLayout((current) => ({
+          ...current,
+          height: Math.max(8, Math.min(40, startHeight + lineDelta)),
+        }));
+      };
+      trackPointerDrag(move);
+    },
+    [layout.height]
+  );
+  return { layout, beginSplitResize, beginHeightResize };
+}
+
+/** The selected row's source excerpt: from its open model, else read from the project. */
+function useCallHierarchyPreview(
+  selected: CallHierarchyState['rows'][number] | null,
+  projectPath: string,
+  accessToken?: string
+) {
+  const api = window.mixdogDesktop;
+  const [preview, setPreview] = useState<CallHierarchyPreview | null>(null);
+  const previewGeneration = useRef(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selected?.key is the intended trigger (same item = same preview); api is read for its stable methods.
+  useEffect(() => {
+    const item = selected;
+    const generation = ++previewGeneration.current;
+    if (!item) {
+      setPreview(null);
+      return;
+    }
+    const target = callHierarchyPreviewTarget(item, projectPath);
+    if (!target) {
+      setPreview(null);
+      return;
+    }
+    if (target.model) {
+      setPreview(
+        callHierarchyPreview(item, target, {
+          content: target.model.getValue(),
+          languageId: target.model.getLanguageId(),
+        })
+      );
+      return;
+    }
+    if (!api?.readProjectFile) {
+      setPreview(null);
+      return;
+    }
+    setPreview(callHierarchyPreview(item, target, { loading: true }));
+    void api
+      .readProjectFile(projectPath, target.relPath, accessToken)
+      .then((result) => {
+        if (generation !== previewGeneration.current) return;
+        if (result.binary || result.tooLarge) {
+          throw new Error(t('Preview is unavailable for this file.'));
+        }
+        setPreview(callHierarchyPreview(item, target, { content: result.content }));
+      })
+      .catch((reason) => {
+        if (generation !== previewGeneration.current) return;
+        setPreview(callHierarchyPreview(item, target, { ranges: [], error: errorMessage(reason) }));
+      });
+  }, [accessToken, api, projectPath, selected?.key]);
+  return [preview, setPreview] as const;
+}
+
 export function useEditorCallHierarchy({
   editorRef,
   graphContextRef,
@@ -70,24 +183,13 @@ export function useEditorCallHierarchy({
   onOpenAt?(relPath: string, line: number): void;
   contextKey: RefObject<import('monaco-editor').editor.IContextKey<boolean> | null>;
 }) {
-  const api = window.mixdogDesktop;
   const [state, setState] = useState<CallHierarchyState | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
   const [target, setTarget] = useState<HTMLElement | null>(null);
-  const [layout, setLayout] = useState(readCallHierarchyLayout);
-  const [preview, setPreview] = useState<CallHierarchyPreview | null>(null);
-  const previewGeneration = useRef(0);
   const treeRef = useRef<HTMLDivElement | null>(null);
-  const zoneRef = useRef<{
-    id: string;
-    zone: {
-      afterLineNumber: number;
-      heightInLines: number;
-      domNode: HTMLElement;
-      suppressMouseDown: boolean;
-    };
-  } | null>(null);
+  const zoneRef = useRef<PeekZone | null>(null);
+
   const removeZone = useCallback(() => {
     const editor = editorRef.current;
     const current = zoneRef.current;
@@ -109,6 +211,8 @@ export function useEditorCallHierarchy({
     editorRef.current?.focus();
   }, [editorRef, removeZone]);
   useMobileBack(Boolean(state), close);
+
+  const { layout, beginSplitResize, beginHeightResize } = useCallHierarchyLayout(editorRef, zoneRef);
 
   const showZone = useCallback(
     (position: import('monaco-editor').Position) => {
@@ -136,19 +240,6 @@ export function useEditorCallHierarchy({
     },
     [editorRef, layout.height, removeZone]
   );
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(CALL_HIERARCHY_LAYOUT_KEY, JSON.stringify(layout));
-    } catch {
-      // Peek layout persistence is best-effort.
-    }
-    const editor = editorRef.current;
-    const current = zoneRef.current;
-    if (!editor || !current) return;
-    current.zone.heightInLines = layout.height;
-    editor.changeViewZones((accessor) => accessor.layoutZone(current.id));
-  }, [editorRef, layout]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: contextKey is a ref prop whose .current is read at unmount; removeZone alone defines the lifetime.
   useEffect(
@@ -223,87 +314,13 @@ export function useEditorCallHierarchy({
   );
 
   const selected = state?.rows[Math.max(0, Math.min(state.selectedIndex, state.rows.length - 1))] ?? null;
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: selected?.key is the intended trigger (same item = same preview); api is read for its stable methods.
-  useEffect(() => {
-    const item = selected;
-    const generation = ++previewGeneration.current;
-    if (!item) {
-      setPreview(null);
-      return;
-    }
-    const target = callHierarchyPreviewTarget(item, projectPath);
-    if (!target) {
-      setPreview(null);
-      return;
-    }
-    if (target.model) {
-      setPreview(
-        callHierarchyPreview(item, target, {
-          content: target.model.getValue(),
-          languageId: target.model.getLanguageId(),
-        })
-      );
-      return;
-    }
-    if (!api?.readProjectFile) {
-      setPreview(null);
-      return;
-    }
-    setPreview(callHierarchyPreview(item, target, { loading: true }));
-    void api
-      .readProjectFile(projectPath, target.relPath, accessToken)
-      .then((result) => {
-        if (generation !== previewGeneration.current) return;
-        if (result.binary || result.tooLarge) {
-          throw new Error(t('Preview is unavailable for this file.'));
-        }
-        setPreview(callHierarchyPreview(item, target, { content: result.content }));
-      })
-      .catch((reason) => {
-        if (generation !== previewGeneration.current) return;
-        setPreview(callHierarchyPreview(item, target, { ranges: [], error: errorMessage(reason) }));
-      });
-  }, [accessToken, api, projectPath, selected?.key]);
+  const [preview, setPreview] = useCallHierarchyPreview(selected, projectPath, accessToken);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: focus only when the loaded root, loading or error status changes, not on selection changes in state.
   useEffect(() => {
     if (!state || state.loading || state.error) return;
     window.requestAnimationFrame(() => treeRef.current?.focus({ preventScroll: true }));
   }, [state?.error, state?.loading, state?.root?.key]);
-
-  const beginSplitResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const container = event.currentTarget.parentElement;
-    if (!container) return;
-    const move = (pointer: PointerEvent) => {
-      const rect = container.getBoundingClientRect();
-      if (!rect.width) return;
-      const ratio = (pointer.clientX - rect.left) / rect.width;
-      setLayout((current) => ({
-        ...current,
-        ratio: Math.max(0.35, Math.min(0.85, ratio)),
-      }));
-    };
-    trackPointerDrag(move);
-  }, []);
-
-  const beginHeightResize = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      const startY = event.clientY;
-      const startHeight = layout.height;
-      const move = (pointer: PointerEvent) => {
-        const lineDelta = Math.round((pointer.clientY - startY) / 21);
-        setLayout((current) => ({
-          ...current,
-          height: Math.max(8, Math.min(40, startHeight + lineDelta)),
-        }));
-      };
-      trackPointerDrag(move);
-    },
-    [layout.height]
-  );
 
   const portal =
     state &&

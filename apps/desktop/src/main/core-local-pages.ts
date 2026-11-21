@@ -76,10 +76,7 @@ export function createCoreLocalPages(invoke: Invoke, core?: Pick<ProtocolConnect
     },
     async virtual(files, access = {}) {
       const ownerId = ownerFor(access);
-      // The page is always one virtual lease. A request over the core's inbound frame closes the connection, so the files
-      // that do not fit (a chart's ECharts, a diagram's Mermaid, an export's images) are uploaded with `blob/put` and named
-      // by `{$blobRef, as:'base64'}`, which the core expands to the file's bytes before the lease is made; the lease owns
-      // what it received.
+      // A request over the core's inbound frame closes the connection: files that do not fit go up with `blob/put` as `{$blobRef, as:'base64'}`.
       let inline = 0;
       const list = [];
       for (const [path, file] of Object.entries(files)) {

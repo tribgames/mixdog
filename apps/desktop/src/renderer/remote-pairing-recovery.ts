@@ -9,10 +9,6 @@ export const REMOTE_PAIRING_STORAGE_KEYS = {
   // credential: the installed app launches at /d/<deviceId>/ and needs it to
   // know whom to ask for approval.
   device: 'mixdog.remote-device',
-  // An approval already waiting on the desktop, with the throwaway key it will
-  // be sealed to. A phone OS discards a backgrounded web app freely; without
-  // this the reloaded app would ask again and the user would face prompt after
-  // prompt for one connection.
   claim: 'mixdog.remote-claim',
   // When an approval last succeeded here. A credential rejected right after one
   // is a real failure, not something to paper over by asking again in a loop.
@@ -166,15 +162,10 @@ export function normalizeRemoteExternalUrl(value: string): string {
 }
 
 export function isInvalidRemotePairingClose(event: Pick<CloseEvent, 'code' | 'reason'>): boolean {
-  // 4003: pairing/device revoked. 4005: relay v2 refused a stale or legacy
-  // shared token — only pairing again recovers either, by a fresh QR scan or
-  // a new six-digit code.
+  // 4003: pairing/device revoked. 4005: relay v2 refused a stale or legacy shared token.
   if (event.code === 4003 || event.code === 4005) return true;
   if (event.code !== 4004) return false;
-  // 4004 is a generic desktop rejection; only real authentication failures
-  // drop the pairing. A handshake TIMEOUT is transient (busy desktop), and so
-  // is "handshake required": an older PC sends it for ciphertext a phone had
-  // in flight while that PC redialed.
+  // 4004 is a generic desktop rejection: a handshake timeout or "handshake required" is transient.
   return /relay encryption authentication failed|invalid encrypted relay frame/iu.test(event.reason);
 }
 

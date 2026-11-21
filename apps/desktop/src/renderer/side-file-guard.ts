@@ -1,11 +1,5 @@
-// A transcript link's file lives in a pane's side dock, outside the main tab
-// list, so the tab-close path never sees its unsaved edits. This guard puts
-// every way a side file tab can go away — close, replacement of the preview
-// tab by another link, a main tab taking the same file — behind the
-// unsaved-changes confirmation the main tabs use (per tab), and keeps one
-// file from being mounted in two editors at once (two sessions on one Monaco
-// model each keep their own saved baseline, so the second save would be
-// stale).
+// One file must never be mounted in two editors: two sessions on one Monaco
+// model each keep their own saved baseline, so the second save would be stale.
 import {
   planSideFileOpen,
   sideFileDirtyKey,
@@ -17,8 +11,6 @@ import {
 export { sideFileDirtyKey };
 
 export type SideFileTarget = { project: string; rel: string; accessToken?: string };
-
-const sideFileTargetKey = sideFileKey;
 
 export type SideFileDockRequest = { preview?: boolean; from?: string; sidePreview?: boolean };
 
@@ -109,9 +101,8 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
    *  editor closes first (confirming unsaved edits), so one model never has
    *  two editors. This is also what "Open in main tab" does. */
   const openFileTab: OpenFileTab = (project, rel, line, accessToken, preview, mode) => {
-    const key = sideFileTargetKey({ project, rel, accessToken });
-    // A side preview holds no editor, so it never takes the file over.
-    const holder = deps.sideFiles().find((entry) => sideFileTargetKey(entry.file) === key && !entry.file.sidePreview);
+    const key = sideFileKey({ project, rel, accessToken });
+    const holder = deps.sideFiles().find((entry) => sideFileKey(entry.file) === key && !entry.file.sidePreview);
     if (!holder) {
       deps.openMainTab(project, rel, line, accessToken, preview, mode);
       return;
@@ -141,8 +132,8 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
     const preview = !pinned && (deps.linkPreview?.() ?? true);
     const request: SideFileDockRequest = { preview, ...(from ? { from } : {}) };
     const dockOpen = () => deps.dockOpenFile(leafId, project, rel, line, accessToken, column || undefined, request);
-    const key = sideFileTargetKey({ project, rel, accessToken });
-    const holder = deps.sideFiles().find((entry) => sideFileTargetKey(entry.file) === key);
+    const key = sideFileKey({ project, rel, accessToken });
+    const holder = deps.sideFiles().find((entry) => sideFileKey(entry.file) === key);
     if (holder?.leafId === leafId) {
       dockOpen();
       return;
@@ -183,9 +174,7 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
   };
 
   /** "Open Preview to the Side": the file a main tab edits, as a read-only
-   *  rendered tab in the pane's dock. It never mounts a second editor (it
-   *  follows the tab's Monaco model), so the one-editor-per-file rule above
-   *  holds. */
+   *  rendered tab in the pane's dock; it mounts no editor of its own. */
   const openPreviewToSide = (leafId: string, project: string, rel: string, accessToken?: string) => {
     deps.dockOpenFile(leafId, project, rel, undefined, accessToken, undefined, { preview: false, sidePreview: true });
   };

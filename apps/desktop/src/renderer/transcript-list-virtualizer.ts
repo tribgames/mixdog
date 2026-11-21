@@ -19,9 +19,6 @@ import { TRANSCRIPT_BOTTOM_SPACER, TRANSCRIPT_VIRTUAL_OVERSCAN } from './transcr
 
 type TranscriptVirtualizerOptions = VirtualizerOptions<HTMLDivElement, HTMLDivElement>;
 
-/** The live row's index, and any row holding a question that waits for its
- *  answer (its card keeps its picks), stay in the
- *  rendered range however far the reader scrolls away (see rangeExtractor). */
 export function useActiveRowIndexes(rows: readonly TranscriptRowModel[]) {
   const activeIndexesRef = useRef<number[]>([]);
   const activeIndexes = useMemo(() => {
@@ -115,34 +112,15 @@ export function useTranscriptVirtualizer({
     // The one tail gap: the dock is a layout sibling below the viewport, so
     // no chrome clearance belongs to the scroll content.
     paddingEnd: TRANSCRIPT_BOTTOM_SPACER,
-    // The virtual core commits its state to the DOM in the same task as every
-    // notify. React's default async rerender let the core
-    // move scrollTop pre-paint while rows still painted at their previous
-    // translateY — the width-drag shake/ghosting. Direct DOM updates restore
-    // that commit timing: row transforms and the container height are
-    // written inside the core transaction, and React reconciles on range
-    // changes only. Every React commit (including a web snapshot that mounts
-    // new rows) re-applies positions in a layout effect, so no row paints
-    // unpositioned. The web browser renderer uses this path too: React-owned
-    // positions there moved scrollTop synchronously while rows kept their
-    // stale top until the async rerender, so every row measurement painted
-    // one shifted frame in the web app.
+    // React's async rerender lets the core move scrollTop pre-paint while rows
+    // still paint at their previous position; direct DOM updates write row
+    // positions inside the core transaction.
     directDomUpdates: true,
-    // A range change seen in a scroll event re-renders the list, but never
-    // synchronously inside that event: react-virtual's default flushSync ran
-    // the whole TranscriptList reconcile in the scroll event, ahead of the
-    // frame the scroll belongs to — the largest script cost of every scroll on
-    // a phone. Scroll-only updates never needed React at all (row positions
-    // and the spacer are written directly), and the overscan keeps rows ready
-    // beyond each edge, so the range render lands right after the frame as one
-    // batched update while the compositor keeps scrolling.
+    // react-virtual's default flushSync reconciles the whole list inside the
+    // scroll event.
     useFlushSync: false,
-    // Keep every row in the transcript's ONE paint layer. Transform mode
-    // promotes each row independently; when a deferred measurement and the
-    // final native wheel frame land together at the bottom, Chromium can
-    // present those compositor layers from different scroll phases and draw
-    // the visible horizontal tear. Top-position writes still land in the same
-    // direct pre-paint transaction, without per-row compositor surfaces.
+    // Transform mode gives each row its own compositor layer, which Chromium can
+    // present from different scroll phases (a horizontal tear).
     directDomUpdatesMode: 'position',
     // The viewport and the rows share one geometry owner. Request the pin
     // AFTER the core accepts the new height, including its first observation;
@@ -169,22 +147,12 @@ export function useTranscriptVirtualizer({
 
 const handedOver = new WeakSet<TranscriptVirtualizer>();
 
-/** On iOS WebKit virtual-core keeps every correction it makes while scrolling
- *  (a measured size above the reader, a prepend's anchor sync) in its own
- *  deferral account and writes the sum once the scroll settles. The rows
- *  above move meanwhile, so the reader's content shifts by the correction and
- *  back again at the write. This list owns that hold (scrollToFn →
- *  transcript-list-touch-deviation, a row offset that keeps the reader's rows
- *  still), so every correction reaches the list's scroll writer at once, as
- *  the core writes it off iOS:
- *  - a measured size takes the core's off-iOS adjustment (its target and the
- *    core offset both move by the delta);
- *  - a prepend already moved the core offset by its anchor delta when the
- *    page rendered, so its sync writes that offset, never the delta again.
- *    The delta goes as the write's adjustment, so a touch fling holds it like
- *    any other correction.
- *  Both names are virtual-core 3.17.4 internals (pinned in package.json;
- *  transcript-ios-touch-hold.test.mjs fails if the core stops using them). */
+/** On iOS WebKit virtual-core defers scroll corrections into its own account
+ *  and writes the sum once scrolling settles. This hands every correction to the
+ *  list's scroll writer at once, as the core does off iOS. `applyScrollAdjustment`
+ *  and `_iosDeferredAdjustment` are virtual-core 3.17.4 internals (pinned in
+ *  package.json; transcript-ios-touch-hold.test.mjs fails if the core stops
+ *  using them). */
 export function handOverIOSDeferral(instance: TranscriptVirtualizer): void {
   handedOver.add(instance);
   const core = coreScrollState(instance) as ReturnType<typeof coreScrollState> & {
@@ -212,14 +180,9 @@ export function handOverIOSDeferral(instance: TranscriptVirtualizer): void {
   });
 }
 
-/** virtual-core's own offset observer reports, once scrolling idles, the
- *  offset its LAST scroll event read (a debounced callback over a captured
- *  value). A write this list made in between — a landing's anchor restore,
- *  an end pin — was overwritten by that stale offset, and every later
- *  correction started from it: a page landing within ~150 ms of the last
- *  wheel event jumped the reader by the page a frame later, and a phone
- *  reader at scrollTop 0 was put back at 0 plus the page. The idle report
- *  carries the offset as last observed OR written. */
+/** virtual-core's own offset observer reports the offset its last scroll event
+ *  read once scrolling idles, overwriting writes made in between; this idle
+ *  report carries the offset as last observed or written. */
 function observeTranscriptOffset(
   noteScrollOffset: MutableRefObject<(top: number) => void>,
   domTop: MutableRefObject<number | null>,
@@ -290,10 +253,6 @@ function transcriptScrollTo({
       return;
     }
     deviation.drop();
-    // Reading scrollTop right after the spacer write — and again after the
-    // core write — forces a synchronous layout of the whole virtual list on
-    // every programmatic scroll. Resolve those reads only when diagnostics
-    // are on, so the probe keeps its "free while off" contract.
     const diagnose = transcriptScrollDiagnosticsEnabled();
     const beforeCoreWrite = diagnose ? (viewport.current?.scrollTop ?? 0) : 0;
     elementScroll(offset, options, instance);
@@ -305,9 +264,6 @@ function transcriptScrollTo({
         to: viewport.current?.scrollTop ?? 0,
       });
     }
-    // Report the offset that actually landed (and the requested one, which a
-    // smooth write only reaches later) so the follow hook can tell this
-    // write apart from a reader scroll.
     const element = viewport.current;
     // The write above already laid out; this read is free.
     const landed = element ? element.scrollTop : intended;

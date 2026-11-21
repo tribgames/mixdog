@@ -136,10 +136,6 @@ interface StateFieldsPatch {
   lists?: unknown;
 }
 
-/** State fields that grow at their head. `promptHistoryList` is newest-first
- *  and capped, so a submit puts one prompt in front of the held entries and
- *  may push the oldest off the end — yet the field used to travel whole, at
- *  up to 50 full prompts, on every submit. */
 const HEAD_PATCH_FIELDS = ['promptHistoryList'] as const;
 
 interface HeadListPatch {
@@ -280,15 +276,6 @@ function restoreStreamingTailEpoch(source: Record<string, unknown>, target: Reco
   }
 }
 
-/** Whether a state field still carries the value the receiver already holds.
- *  Reference equality is the fast path, not the answer: a snapshot rebuilt on
- *  every publish hands back equal-but-new objects, and `agentWorkers`,
- *  `agentJobs`, `shellJobs` and friends are exactly the fields that get rebuilt
- *  while an agent runs. Treating those as changed re-sent whole arrays on every
- *  streamed frame — the most expensive lane on the relay was mostly repeats.
- *  Compared as JSON values (a key holding `undefined` is absent), walked so that
- *  a shared member (a tool result's text) costs a reference check, not its
- *  serialization: a rebuilt row is compared on every frame. */
 function sameSnapshotField(before: unknown, after: unknown): boolean {
   if (Object.is(before, after)) return true;
   if (!before || !after || typeof before !== 'object' || typeof after !== 'object') return false;
@@ -470,10 +457,6 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
     wireEpoch: number | null;
   };
   const history = new Map<number, Baseline>();
-  /** Frames after the current revision were emitted and then abandoned by a
-   *  rewind. A receiver may still apply them (they were in flight), so the
-   *  next frame must travel even when it carries nothing: its base is what
-   *  returns that receiver to the claimed state. */
   let rewound = false;
   /** The baseline a receiver holds once it applied `revision`. */
   const remember = (): void => {
@@ -572,11 +555,6 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
         // something it does not already hold sets this.
         let carriesNews = itemsChanged;
         if (compact) {
-          // `r` alone orders the stream: base is always the previous revision,
-          // so the receiver derives it rather than reading it. Item movement
-          // does not happen while tokens stream into the tail, so `ip` appears
-          // only when the list really moved. The frame version is carried by
-          // the envelope, not repeated in every payload.
           wire.r = revision;
           if (itemsChanged) {
             wire.ip = head > 0 ? { h: prepend, p: prefix, a: append } : { p: prefix, a: append };
@@ -627,11 +605,6 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
         if (previousTail !== streamingTail) {
           const previousText = typeof previousTail?.text === 'string' ? previousTail.text : '';
           const nextText = typeof streamingTail?.text === 'string' ? streamingTail.text : '';
-          // The epoch marker proves an append without reading the text, but it
-          // is non-enumerable and every desktop hop rebuilds the snapshot, so
-          // it survives only in-process. Where it does not, one prefix compare
-          // proves the same thing; refusing to prove it ships the entire
-          // streamed text again on every frame of the turn.
           const appendProven =
             streamingTailEpoch !== null
               ? streamingTailEpoch === sentStreamingTailEpoch

@@ -1,7 +1,3 @@
-/**
- * The host's authorization reads: the window list the authorization settings
- * offer, and the gate every capture passes before any pixels are read.
- */
 import type { ComputerAuthorizationWindow } from '../../../shared/computer-settings';
 import type { ComputerCommand } from '../shared/types';
 import type { ComputerWindowRecord } from '../shared/window-transition';
@@ -40,11 +36,6 @@ export function createCaptureAuthorizer(host: {
 }): (command: ComputerCommand, windowId: string) => Promise<void> {
   const { policy, readComputerWindows, sessionIdFor, processFate } = host;
   return async (command, windowId) => {
-    // Before any policy decision, for every session: no pixels of a browser a
-    // saved-login password was filled into leave the host until the filling
-    // turn ends, however the capture was reached (explicit read,
-    // capture-after, zoom). The target's process is read live; unreadable
-    // refuses.
     await assertSavedLoginPixelsAllowed(
       command,
       windowId,

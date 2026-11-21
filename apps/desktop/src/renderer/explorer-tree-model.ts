@@ -1,7 +1,3 @@
-// Explorer tree shape: the lazily listed directory map behind the Files pane,
-// its project-relative path grammar, and every pure transition that loading,
-// refresh and auto-reveal apply to that map. No React and no IPC here, so
-// explorer-tree-model.test.mjs pins the ordering rules directly.
 import type { DesktopDirEntry, DesktopGitStatus } from '../shared/contract';
 import { sortExplorerEntries } from './explorer-logic';
 
@@ -165,12 +161,6 @@ export function explorerVisibleRows(dirs: ExplorerDirs): ExplorerRow[] {
   return out;
 }
 
-/** One step of the auto-reveal walk toward `rel`:
- *  - `load`/`expand`: the ancestor that has to be listed or opened next; each
- *    step re-runs the walk once the tree state lands.
- *  - `pending`: an ancestor listing is already in flight, so nothing to do.
- *  - `blocked`: an ancestor failed to list, so the reveal is abandoned.
- *  - `ready`: every ancestor is open and the row itself can be revealed. */
 type ExplorerRevealStep = { kind: 'load' | 'expand'; rel: string } | { kind: 'pending' | 'blocked' | 'ready' };
 
 export function explorerRevealStep(dirs: ExplorerDirs, rel: string): ExplorerRevealStep {

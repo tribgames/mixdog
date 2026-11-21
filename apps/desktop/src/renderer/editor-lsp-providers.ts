@@ -1,8 +1,3 @@
-// One Monaco provider per capability the language server declared, plus the
-// commands the payloads those providers hand back invoke. Registration is
-// claimed per language and per feature, so a server that re-announces the same
-// capability never installs a second provider — and nothing here is disposed,
-// because a provider outlives every editor that uses it.
 import { monaco } from './monaco-setup';
 import type { DesktopLspCapabilities } from '../shared/contract';
 import {
@@ -16,7 +11,7 @@ import {
   monacoRange,
   recordOf,
 } from './editor-lsp-conversion';
-import { graphContextsByModel, preparePeekModels } from './editor-graph-context';
+import { graphContextsByModel, preparePeekModels, type EditorGraphContext } from './editor-graph-context';
 import { t } from './i18n';
 
 const lspProviderFeaturesByLanguage = new Map<string, Set<string>>();
@@ -135,6 +130,18 @@ function claimLspProviderFeature(languageId: string, feature: string): boolean {
   return true;
 }
 
+type LspRequestContext = EditorGraphContext & Required<Pick<EditorGraphContext, 'requestLsp' | 'lspCapabilities'>>;
+
+function lspContextFor(
+  modelUri: string,
+  feature: keyof DesktopLspCapabilities,
+  token?: { isCancellationRequested: boolean }
+): LspRequestContext | undefined {
+  const context = graphContextsByModel.get(modelUri)?.current;
+  if (!context?.requestLsp || !context.lspCapabilities?.[feature] || token?.isCancellationRequested) return undefined;
+  return context as LspRequestContext;
+}
+
 /** Whether the LSP path has installed a Monaco provider for this language feature. */
 export function hasLspProviderFeature(languageId: string, feature: string): boolean {
   return lspProviderFeaturesByLanguage.get(languageId)?.has(feature) ?? false;
@@ -158,8 +165,8 @@ function registerLspNavigationProviders(languageId: string, capabilities: LspCap
   if (capabilities?.typeDefinition && claimLspProviderFeature(languageId, 'typeDefinition')) {
     monaco.languages.registerTypeDefinitionProvider(languageId, {
       async provideTypeDefinition(model, position) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.typeDefinition) return [];
+        const context = lspContextFor(model.uri.toString(), 'typeDefinition');
+        if (!context) return [];
         return preparePeekModels(
           context,
           model,
@@ -174,8 +181,8 @@ function registerLspNavigationProviders(languageId: string, capabilities: LspCap
   if (capabilities?.declaration && claimLspProviderFeature(languageId, 'declaration')) {
     monaco.languages.registerDeclarationProvider(languageId, {
       async provideDeclaration(model, position) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.declaration) return [];
+        const context = lspContextFor(model.uri.toString(), 'declaration');
+        if (!context) return [];
         return preparePeekModels(
           context,
           model,
@@ -190,8 +197,8 @@ function registerLspNavigationProviders(languageId: string, capabilities: LspCap
   if (capabilities?.implementation && claimLspProviderFeature(languageId, 'implementation')) {
     monaco.languages.registerImplementationProvider(languageId, {
       async provideImplementation(model, position) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.implementation) return [];
+        const context = lspContextFor(model.uri.toString(), 'implementation');
+        if (!context) return [];
         return preparePeekModels(
           context,
           model,
@@ -219,8 +226,8 @@ function registerLspCursorProviders(languageId: string, capabilities: LspCapabil
     monaco.languages.registerCompletionItemProvider(languageId, {
       triggerCharacters: capabilities.completionTriggerCharacters,
       async provideCompletionItems(model, position) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.completion) return { suggestions: [] };
+        const context = lspContextFor(model.uri.toString(), 'completion');
+        if (!context) return { suggestions: [] };
         const result = await context.requestLsp('textDocument/completion', {
           position: lspPosition(position),
           context: { triggerKind: 1 },
@@ -278,10 +285,8 @@ function registerLspCursorProviders(languageId: string, capabilities: LspCapabil
       },
       async resolveCompletionItem(item) {
         const payload = completionPayloads.get(item);
-        const context = payload ? graphContextsByModel.get(payload.modelUri)?.current : undefined;
-        if (!payload || !context?.requestLsp || !context.lspCapabilities?.completionResolve) {
-          return item;
-        }
+        const context = payload ? lspContextFor(payload.modelUri, 'completionResolve') : undefined;
+        if (!payload || !context) return item;
         const resolved = recordOf(await context.requestLsp('completionItem/resolve', payload.raw));
         if (!resolved) return item;
         return {
@@ -297,9 +302,8 @@ function registerLspCursorProviders(languageId: string, capabilities: LspCapabil
       signatureHelpTriggerCharacters: capabilities.signatureHelpTriggerCharacters,
       signatureHelpRetriggerCharacters: capabilities.signatureHelpRetriggerCharacters,
       async provideSignatureHelp(model, position, token, helpContext) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.signatureHelp || token.isCancellationRequested)
-          return null;
+        const context = lspContextFor(model.uri.toString(), 'signatureHelp', token);
+        if (!context) return null;
         const result = signatureHelpFromLsp(
           await context.requestLsp('textDocument/signatureHelp', {
             position: lspPosition(position),
@@ -318,8 +322,8 @@ function registerLspCursorProviders(languageId: string, capabilities: LspCapabil
   if (capabilities?.hover && claimLspProviderFeature(languageId, 'hover')) {
     monaco.languages.registerHoverProvider(languageId, {
       async provideHover(model, position) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.hover) return null;
+        const context = lspContextFor(model.uri.toString(), 'hover');
+        if (!context) return null;
         const result = recordOf(await context.requestLsp('textDocument/hover', { position: lspPosition(position) }));
         const contents = markupText(result?.contents);
         if (!contents) return null;
@@ -337,9 +341,8 @@ function registerLspAnnotationProviders(languageId: string, capabilities: LspCap
   if (capabilities?.documentHighlight && claimLspProviderFeature(languageId, 'documentHighlight')) {
     monaco.languages.registerDocumentHighlightProvider(languageId, {
       async provideDocumentHighlights(model, position, token) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.documentHighlight || token.isCancellationRequested)
-          return [];
+        const context = lspContextFor(model.uri.toString(), 'documentHighlight', token);
+        if (!context) return [];
         const result = await context.requestLsp('textDocument/documentHighlight', {
           position: lspPosition(position),
         });
@@ -361,9 +364,8 @@ function registerLspAnnotationProviders(languageId: string, capabilities: LspCap
   if (capabilities?.linkedEditingRange && claimLspProviderFeature(languageId, 'linkedEditingRange')) {
     monaco.languages.registerLinkedEditingRangeProvider(languageId, {
       async provideLinkedEditingRanges(model, position, token) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.linkedEditingRange || token.isCancellationRequested)
-          return null;
+        const context = lspContextFor(model.uri.toString(), 'linkedEditingRange', token);
+        if (!context) return null;
         const result = recordOf(
           await context.requestLsp('textDocument/linkedEditingRange', { position: lspPosition(position) })
         );
@@ -397,9 +399,8 @@ function registerLspAnnotationProviders(languageId: string, capabilities: LspCap
     };
     monaco.languages.registerCodeLensProvider(languageId, {
       async provideCodeLenses(model, token) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.codeLens || token.isCancellationRequested)
-          return { lenses: [], dispose() {} };
+        const context = lspContextFor(model.uri.toString(), 'codeLens', token);
+        if (!context) return { lenses: [], dispose() {} };
         const result = await context.requestLsp('textDocument/codeLens');
         return {
           lenses: (Array.isArray(result) ? result : []).flatMap((item) => {
@@ -412,10 +413,8 @@ function registerLspAnnotationProviders(languageId: string, capabilities: LspCap
       },
       async resolveCodeLens(_model, lens) {
         const payload = codeLensPayloads.get(lens);
-        const context = payload ? graphContextsByModel.get(payload.modelUri)?.current : undefined;
-        if (!payload || !context?.requestLsp || !context.lspCapabilities?.codeLensResolve) {
-          return lens;
-        }
+        const context = payload ? lspContextFor(payload.modelUri, 'codeLensResolve') : undefined;
+        if (!payload || !context) return lens;
         const resolved = recordOf(await context.requestLsp('codeLens/resolve', payload.raw));
         return resolved ? (toCodeLens(payload.modelUri, resolved) ?? lens) : lens;
       },
@@ -486,10 +485,8 @@ function registerLspEditProviders(languageId: string, capabilities: LspCapabilit
       languageId,
       {
         async provideCodeActions(model, range, actionContext) {
-          const context = graphContextsByModel.get(model.uri.toString())?.current;
-          if (!context?.requestLsp || !context.lspCapabilities?.codeAction) {
-            return { actions: [], dispose() {} };
-          }
+          const context = lspContextFor(model.uri.toString(), 'codeAction');
+          if (!context) return { actions: [], dispose() {} };
           const diagnostics = actionContext.markers.map((marker) => {
             const code = typeof marker.code === 'object' ? marker.code.value : marker.code;
             return {
@@ -521,8 +518,8 @@ function registerLspEditProviders(languageId: string, capabilities: LspCapabilit
         },
         async resolveCodeAction(action) {
           const payload = actionPayloads.get(action);
-          const context = payload ? graphContextsByModel.get(payload.modelUri)?.current : undefined;
-          if (!payload || !context?.requestLsp || !context.lspCapabilities?.codeActionResolve) return action;
+          const context = payload ? lspContextFor(payload.modelUri, 'codeActionResolve') : undefined;
+          if (!payload || !context) return action;
           const resolved = recordOf(await context.requestLsp('codeAction/resolve', payload.raw));
           return resolved ? (toCodeAction(payload.modelUri, resolved) ?? action) : action;
         },
@@ -537,8 +534,8 @@ function registerLspEditProviders(languageId: string, capabilities: LspCapabilit
   if (capabilities?.formatting && claimLspProviderFeature(languageId, 'formatting')) {
     monaco.languages.registerDocumentFormattingEditProvider(languageId, {
       async provideDocumentFormattingEdits(model, options) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.formatting) return [];
+        const context = lspContextFor(model.uri.toString(), 'formatting');
+        if (!context) return [];
         const result = await context.requestLsp('textDocument/formatting', { options });
         return (Array.isArray(result) ? result : []).flatMap((item) => {
           const row = recordOf(item);
@@ -551,8 +548,8 @@ function registerLspEditProviders(languageId: string, capabilities: LspCapabilit
   if (capabilities?.rangeFormatting && claimLspProviderFeature(languageId, 'rangeFormatting')) {
     monaco.languages.registerDocumentRangeFormattingEditProvider(languageId, {
       async provideDocumentRangeFormattingEdits(model, range, options) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.rangeFormatting) return [];
+        const context = lspContextFor(model.uri.toString(), 'rangeFormatting');
+        if (!context) return [];
         const result = await context.requestLsp('textDocument/rangeFormatting', {
           range: lspRange(range),
           options,
@@ -569,9 +566,8 @@ function registerLspEditProviders(languageId: string, capabilities: LspCapabilit
     monaco.languages.registerOnTypeFormattingEditProvider(languageId, {
       autoFormatTriggerCharacters: capabilities.onTypeFormattingTriggerCharacters,
       async provideOnTypeFormattingEdits(model, position, ch, options, token) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.onTypeFormatting || token.isCancellationRequested)
-          return [];
+        const context = lspContextFor(model.uri.toString(), 'onTypeFormatting', token);
+        if (!context) return [];
         return lspTextEdits(
           await context.requestLsp('textDocument/onTypeFormatting', { position: lspPosition(position), ch, options })
         );
@@ -597,9 +593,8 @@ function registerLspDocumentProviders(languageId: string, capabilities: LspCapab
     };
     monaco.languages.registerLinkProvider(languageId, {
       async provideLinks(model, token) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.documentLink || token.isCancellationRequested)
-          return { links: [], dispose() {} };
+        const context = lspContextFor(model.uri.toString(), 'documentLink', token);
+        if (!context) return { links: [], dispose() {} };
         const result = await context.requestLsp('textDocument/documentLink');
         return {
           links: (Array.isArray(result) ? result : []).flatMap((item) => {
@@ -612,10 +607,8 @@ function registerLspDocumentProviders(languageId: string, capabilities: LspCapab
       },
       async resolveLink(link) {
         const payload = linkPayloads.get(link);
-        const context = payload ? graphContextsByModel.get(payload.modelUri)?.current : undefined;
-        if (!payload || !context?.requestLsp || !context.lspCapabilities?.documentLinkResolve) {
-          return link;
-        }
+        const context = payload ? lspContextFor(payload.modelUri, 'documentLinkResolve') : undefined;
+        if (!payload || !context) return link;
         const resolved = recordOf(await context.requestLsp('documentLink/resolve', payload.raw));
         return resolved ? (toLink(payload.modelUri, resolved) ?? link) : link;
       },
@@ -624,8 +617,8 @@ function registerLspDocumentProviders(languageId: string, capabilities: LspCapab
   if (capabilities?.documentColor && claimLspProviderFeature(languageId, 'documentColor')) {
     monaco.languages.registerColorProvider(languageId, {
       async provideDocumentColors(model, token) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.documentColor || token.isCancellationRequested) return [];
+        const context = lspContextFor(model.uri.toString(), 'documentColor', token);
+        if (!context) return [];
         const result = await context.requestLsp('textDocument/documentColor');
         return (Array.isArray(result) ? result : []).flatMap((item) => {
           const row = recordOf(item);
@@ -647,8 +640,8 @@ function registerLspDocumentProviders(languageId: string, capabilities: LspCapab
         });
       },
       async provideColorPresentations(model, colorInfo, token) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.documentColor || token.isCancellationRequested) return [];
+        const context = lspContextFor(model.uri.toString(), 'documentColor', token);
+        if (!context) return [];
         const result = await context.requestLsp('textDocument/colorPresentation', {
           color: colorInfo.color,
           range: lspRange(colorInfo.range),
@@ -672,8 +665,8 @@ function registerLspDocumentProviders(languageId: string, capabilities: LspCapab
   if (capabilities?.foldingRange && claimLspProviderFeature(languageId, 'foldingRange')) {
     monaco.languages.registerFoldingRangeProvider(languageId, {
       async provideFoldingRanges(model, _foldingContext, token) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.foldingRange || token.isCancellationRequested) return [];
+        const context = lspContextFor(model.uri.toString(), 'foldingRange', token);
+        if (!context) return [];
         const result = await context.requestLsp('textDocument/foldingRange');
         return (Array.isArray(result) ? result : []).flatMap((item) => {
           const row = recordOf(item);
@@ -690,9 +683,8 @@ function registerLspDocumentProviders(languageId: string, capabilities: LspCapab
   if (capabilities?.selectionRange && claimLspProviderFeature(languageId, 'selectionRange')) {
     monaco.languages.registerSelectionRangeProvider(languageId, {
       async provideSelectionRanges(model, positions, token) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.selectionRange || token.isCancellationRequested)
-          return [];
+        const context = lspContextFor(model.uri.toString(), 'selectionRange', token);
+        if (!context) return [];
         const result = await context.requestLsp('textDocument/selectionRange', {
           positions: positions.map(lspPosition),
         });
@@ -725,9 +717,8 @@ function registerLspOverlayProviders(languageId: string, capabilities: LspCapabi
     monaco.languages.registerDocumentSemanticTokensProvider(languageId, {
       getLegend: () => legend,
       async provideDocumentSemanticTokens(model, lastResultId, token) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.semanticTokens || token.isCancellationRequested)
-          return { data: new Uint32Array() };
+        const context = lspContextFor(model.uri.toString(), 'semanticTokens', token);
+        if (!context) return { data: new Uint32Array() };
         const delta = Boolean(lastResultId && context.lspCapabilities.semanticTokensDelta);
         const result = recordOf(
           await context.requestLsp(
@@ -768,9 +759,8 @@ function registerLspOverlayProviders(languageId: string, capabilities: LspCapabi
     monaco.languages.registerDocumentRangeSemanticTokensProvider(languageId, {
       getLegend: () => legend,
       async provideDocumentRangeSemanticTokens(model, range, token) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.semanticTokensRange || token.isCancellationRequested)
-          return { data: new Uint32Array() };
+        const context = lspContextFor(model.uri.toString(), 'semanticTokensRange', token);
+        if (!context) return { data: new Uint32Array() };
         const result = recordOf(
           await context.requestLsp('textDocument/semanticTokens/range', { range: lspRange(range) })
         );
@@ -805,9 +795,8 @@ function registerLspOverlayProviders(languageId: string, capabilities: LspCapabi
     };
     monaco.languages.registerInlayHintsProvider(languageId, {
       async provideInlayHints(model, range, token) {
-        const context = graphContextsByModel.get(model.uri.toString())?.current;
-        if (!context?.requestLsp || !context.lspCapabilities?.inlayHint || token.isCancellationRequested)
-          return { hints: [], dispose() {} };
+        const context = lspContextFor(model.uri.toString(), 'inlayHint', token);
+        if (!context) return { hints: [], dispose() {} };
         const result = await context.requestLsp('textDocument/inlayHint', { range: lspRange(range) });
         return {
           hints: (Array.isArray(result) ? result : []).flatMap((item) => {
@@ -820,10 +809,8 @@ function registerLspOverlayProviders(languageId: string, capabilities: LspCapabi
       },
       async resolveInlayHint(hint) {
         const payload = hintPayloads.get(hint);
-        const context = payload ? graphContextsByModel.get(payload.modelUri)?.current : undefined;
-        if (!payload || !context?.requestLsp || !context.lspCapabilities?.inlayHintResolve) {
-          return hint;
-        }
+        const context = payload ? lspContextFor(payload.modelUri, 'inlayHintResolve') : undefined;
+        if (!payload || !context) return hint;
         const resolved = recordOf(await context.requestLsp('inlayHint/resolve', payload.raw));
         return resolved ? (toHint(payload.modelUri, resolved) ?? hint) : hint;
       },

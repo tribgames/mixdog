@@ -1,8 +1,3 @@
-// "Chat text size" (Settings → Theme): a per-device renderer preference that
-// scales ONLY the conversation (transcript) and the composer's typed text.
-// Stored locally, never synced to the host. The scale lands on the root as
-// --mx-chat-scale; 01-tokens.css re-declares the type tokens from it inside
-// the conversation scope only, so app chrome keeps its size.
 export type ChatTextSize = 'small' | 'default' | 'large' | 'extra-large';
 
 const CHAT_TEXT_SIZE_KEY = 'mixdog.desktop.chat-text-size.v1';

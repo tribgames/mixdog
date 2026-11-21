@@ -1,8 +1,3 @@
-// Session-scoped zoom level for the Browser Use surfaces. 1 is the surface's
-// own baseline: the auto-fit factor on the desktop pane, the fitted frame on
-// the phone. The level multiplies that baseline, so the same "120%" reads
-// alike on every surface. Persisted per session beside the viewport preset.
-
 export const BROWSER_ZOOM_MIN = 0.5;
 export const BROWSER_ZOOM_MAX = 2;
 export const BROWSER_ZOOM_STEP = 0.1;

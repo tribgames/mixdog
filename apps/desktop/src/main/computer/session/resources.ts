@@ -1,8 +1,3 @@
-/**
- * Electron-free session resource policy shared by the host and its behavioral
- * tests. Stale recapture drops only action-bound targets; terminal lifecycle
- * cleanup drops every capture-owned resource and its session preference.
- */
 /** Pixels: a frame point names whatever sits there now, so it ages fast. */
 export const MAX_COMPUTER_OBSERVATION_AGE_MS = 60_000;
 /** Semantic refs are re-resolved against the live element at dispatch, so the

@@ -1,7 +1,3 @@
-/**
- * Per-session execution bookkeeping shared by the lifecycle, router, and
- * bridge: what is running, what was aborted, and the input state to restore.
- */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ComputerWorkProgress } from './pending-work';
 import type { ComputerObservationGuard, ObservedWindowScope } from '../shared/types';

@@ -81,7 +81,7 @@ test('the selector row summarizes attachment tokens instead of showing them', ()
   assert.equal(attachmentSummary('plain message'), '');
 });
 
-test('editing a message replaces the draft text and its chips', () => {
+function composerHandoff() {
   const oldChip = {
     id: 1,
     name: 'old.txt',
@@ -121,6 +121,11 @@ test('editing a message replaces the draft text and its chips', () => {
       composer.draft = value;
     },
   };
+  return { composer, deps };
+}
+
+test('editing a message replaces the draft text and its chips', () => {
+  const { composer, deps } = composerHandoff();
   const message = {
     text: 'edit [Pasted text #1 +2 lines]',
     pastedTexts: { 1: { id: 1, text: 'a\nb', source: 'paste' } },
@@ -131,14 +136,17 @@ test('editing a message replaces the draft text and its chips', () => {
     composer.attachments.map((attachment) => attachment.data),
     ['a\nb']
   );
-  // A plain message replaces the chips too: only its text remains.
-  composer.draft = 'half typed';
-  composer.attachments = [oldChip];
+});
+
+test('editing a plain message drops the old chips and keeps only its text', () => {
+  const { composer, deps } = composerHandoff();
   assert.equal(restoreDraftHandoff(deps, { text: 'plain edit' }, { replace: true }), true);
   assert.equal(composer.draft, 'plain edit');
   assert.deepEqual(composer.attachments, []);
-  composer.attachments = [oldChip];
-  // Steering keeps merging: the new message goes before the live draft.
+});
+
+test('taking a message back while steering merges it before the live draft', () => {
+  const { composer, deps } = composerHandoff();
   composer.draft = 'typing';
   assert.equal(restoreDraftHandoff(deps, { text: 'taken back' }, {}), true);
   assert.equal(composer.draft, 'taken back\ntyping');

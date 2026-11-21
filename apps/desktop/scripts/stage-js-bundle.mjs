@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// The JavaScript runtime a server install carries (skill launchers, the extension host):
-//   payload/js-runtime.json                       what `mixdogd`'s js_runtime resolver reads
-//   payload/js/node                               the pinned Node (scripts/node-pin.json), nothing else of its tree
-//   payload/js/LICENSE-node                       Node's license, which travels with its binary
-//   payload/js/pkg/node_modules/mixdog/           the package root: src/ and package.json (as the desktop's runtime.asar)
-//   payload/js/pkg/node_modules/<dependencies>    the root lockfile's production tree for that platform
-//   payload/js/pkg/node_modules/onnxruntime-node  only that platform's binary directory (the ONNX Runtime
-//                                                 library js-runtime.json's `ortLibrary` names, with its siblings)
-// What stays JavaScript beside the interpreter is only what user and plugin scripts need: the skill launcher
-// entry with the small files it imports (`launcherRuntimeFiles`, no npm package) and the pptxgenjs bundle as
-// data files (`copyPptxgenjsData`) for the model-written authoring scripts.
-// The layout itself is core-layout.mjs. The desktop ships the same package root and lockfile pins inside runtime.asar; only the interpreter
-// differs (there: the app in node mode, here: this Node), which js-runtime.json says.
-// Network and npm steps are injected so the layout is testable offline; the defaults are the release ones.
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -175,10 +161,6 @@ export async function installProductionModules(pkgDir, key, { packageRootDir = r
       throw new Error(`${name} is reached from the remote entry points but was not installed`);
   }
   verifyInstalledTree(pkgDir, inapplicable);
-  // The package carries every platform's binaries; this payload keeps the target's directory (the library,
-  // its binding and siblings), which js-runtime.json names.
-  // A target with no ONNX Runtime still gets the package when something in the closure depends on it: without
-  // its binaries.
   if (withOrt) trimOrtBinaries(join(pkgDir, 'node_modules', ORT_PACKAGE), platform, arch);
   else await rm(join(pkgDir, 'node_modules', ORT_PACKAGE, 'bin'), { recursive: true, force: true });
   await rm(join(pkgDir, 'node_modules', '.bin'), { recursive: true, force: true });

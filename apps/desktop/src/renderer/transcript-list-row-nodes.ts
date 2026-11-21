@@ -6,10 +6,7 @@ type RenderRow = (row: TranscriptRowModel, index: number, rows: readonly Transcr
 export const paintsNothing = (node: ReactNode) => node === null || node === undefined || node === false;
 
 /** Each row's node and its nearest painted neighbours, computed lazily once
- *  per (`rows`, `renderRow`) identity. A row's node is a pure function of
- *  those two, so list-internal renders (a scroll moving the visible range)
- *  reuse the nodes and neighbour walks instead of rendering every mounted row
- *  and re-walking past the blank rows around it. */
+ *  per (`rows`, `renderRow`) identity. */
 export interface TranscriptRowNodes {
   nodeAt(index: number): ReactNode;
   /** The nearest row above `index` that paints, or -1. */
@@ -29,42 +26,25 @@ export function createTranscriptRowNodes(
     if (!nodes.has(index)) nodes.set(index, renderRow(rows[index] as TranscriptRowModel, index, rows));
     return nodes.get(index);
   };
-  const paintedAbove = (index: number): number => {
-    const known = above.get(index);
+  const paintedFrom = (cache: Map<number, number>, index: number, step: 1 | -1): number => {
+    const known = cache.get(index);
     if (known !== undefined) return known;
-    let at = index - 1;
-    // A run of blank rows resolves once: every row in it shares the answer.
+    let at = index + step;
     const run: number[] = [];
-    while (at >= 0 && paintsNothing(nodeAt(at))) {
-      const cached = above.get(at);
+    while (at >= 0 && at < rows.length && paintsNothing(nodeAt(at))) {
+      const cached = cache.get(at);
       if (cached !== undefined) {
         at = cached;
         break;
       }
       run.push(at);
-      at -= 1;
+      at += step;
     }
-    above.set(index, at);
-    for (const blank of run) above.set(blank, at);
+    cache.set(index, at);
+    for (const blank of run) cache.set(blank, at);
     return at;
   };
-  const paintedBelow = (index: number): number => {
-    const known = below.get(index);
-    if (known !== undefined) return known;
-    let at = index + 1;
-    const run: number[] = [];
-    while (at < rows.length && paintsNothing(nodeAt(at))) {
-      const cached = below.get(at);
-      if (cached !== undefined) {
-        at = cached;
-        break;
-      }
-      run.push(at);
-      at += 1;
-    }
-    below.set(index, at);
-    for (const blank of run) below.set(blank, at);
-    return at;
-  };
+  const paintedAbove = (index: number): number => paintedFrom(above, index, -1);
+  const paintedBelow = (index: number): number => paintedFrom(below, index, 1);
   return { nodeAt, paintedAbove, paintedBelow };
 }

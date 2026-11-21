@@ -1,9 +1,3 @@
-/**
- * Keyboard input the way a page expects it from a real keyboard: a named key
- * or shortcut becomes rawKeyDown / char / keyUp with the physical key code
- * behind it, and typed text is one key event per character so a search box
- * that reacts on keydown sees every keystroke.
- */
 import type { WebContents } from 'electron';
 
 import {

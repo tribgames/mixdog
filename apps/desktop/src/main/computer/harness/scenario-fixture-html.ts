@@ -109,13 +109,6 @@ button{height:44px;border:1px solid #93c5fd;border-radius:5px;background:#eff6ff
 
 export const FOCUS_LOCK_TARGET_TITLE = 'Mixdog Focus Lock Target';
 
-/**
- * A separate Electron app that takes the foreground on every semantic input it
- * receives: each button click, value write or toggle makes its main process
- * call `focus()`, the same SetForegroundWindow a Chromium host issues when it
- * activates itself. It records every attempt and whether it got the
- * foreground, its window's focus events, and any key that reached it.
- */
 export function focusLockTargetProgram(statePath: string, userDataPath: string): string {
   const html = `<!doctype html><meta charset="utf-8"><title>${FOCUS_LOCK_TARGET_TITLE}</title>
   <body style="font:18px Arial;padding:24px;display:grid;gap:16px;justify-items:start">

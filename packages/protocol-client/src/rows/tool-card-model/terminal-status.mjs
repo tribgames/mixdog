@@ -1,7 +1,3 @@
-/**
- * terminal-status.mjs — terminal status words, their outcome tone, status
- * marker stripping and the ` · <time>` detail conventions.
- */
 import {
   leadingResultBlock,
   normalizeToolTerminalStatus,
@@ -22,10 +18,6 @@ export function normalizeTerminalStatus(value) {
   return normalizeToolTerminalStatus(value);
 }
 
-// Semantic outcome shared by TUI and desktop. A returned command/task failure
-// means the tool transport worked, so it is warning-yellow; red is reserved
-// for a failed invocation. A failed mutation that still committed a diff is
-// likewise partial success, not a total failure.
 export function deriveToolOutcomeTone({
   pending = false,
   groupCount = 1,

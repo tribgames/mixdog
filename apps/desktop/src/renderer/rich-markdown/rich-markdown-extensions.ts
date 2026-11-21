@@ -194,13 +194,6 @@ const TableCellLineBreak = Extension.create({
 const TASK_ITEM_LINE = /^(\s*)([-+*])\s+\[([ xX])\]\s+(.*)$/;
 const taskListTokenizer = TaskList.config.markdownTokenizer!;
 
-/** The task list tokenizer runs at every block and splits the whole rest of
- *  the document into lines (and re-slices it at every blank line), which
- *  made lexing quadratic. It is skipped when its own first-line test (the
- *  first non-blank line must be a task item) already fails; otherwise it
- *  runs on the source up to and including the first unindented line that
- *  is not a task item: it always stops at that line, and looks no further
- *  than it, so the result is the same. */
 const RichTaskList = TaskList.extend({
   markdownTokenizer: {
     ...taskListTokenizer,
@@ -248,11 +241,6 @@ const RichParagraph = Paragraph.extend({
     node.content?.length ? escapeParagraphLines(helpers.renderChildren(node.content)) : '',
 });
 
-/** A paragraph's rendered lines with whatever would start a block escaped:
- *  headings, quotes, list markers, setext and thematic breaks, table
- *  delimiter rows; leading whitespace (indented code) is dropped, as
- *  Markdown drops it anyway. Inline markup never begins with these
- *  characters, so only literal text is escaped. */
 function escapeParagraphLines(markdown: string): string {
   return markdown
     .split('\n')

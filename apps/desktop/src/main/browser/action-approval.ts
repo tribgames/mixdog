@@ -131,6 +131,32 @@ function browserCommandSubmits(command: BrowserCommand): boolean {
   return stepSubmits(command) || (command.steps || []).some((step) => stepSubmits(step as ApprovalStep));
 }
 
+type UploadFileSnapshot = { path: string; size: number; mtimeMs: number };
+
+async function snapshotUploadFiles(command: BrowserCommand): Promise<UploadFileSnapshot[]> {
+  if (!command.paths?.length || command.paths.length > 10)
+    throw new Error('upload requires 1–10 approved absolute file paths');
+  const files: UploadFileSnapshot[] = [];
+  for (const path of command.paths) {
+    if (!isAbsolute(path)) throw new Error('upload approval requires absolute file paths');
+    const canonical = await realpath(path);
+    const info = await stat(canonical);
+    if (!info.isFile()) throw new Error('upload approval requires regular files');
+    files.push({ path: canonical, size: info.size, mtimeMs: info.mtimeMs });
+  }
+  command.paths = files.map((file) => file.path);
+  return files;
+}
+
+async function assertUploadFilesUnchanged(files: UploadFileSnapshot[]): Promise<void> {
+  for (const file of files) {
+    const info = await stat(file.path);
+    if (!info.isFile() || info.size !== file.size || info.mtimeMs !== file.mtimeMs) {
+      throw new Error('approved upload file changed; nothing was dispatched');
+    }
+  }
+}
+
 export function createBrowserActionApproval(host: {
   ask(request: BrowserApprovalRequest, signal?: AbortSignal): Promise<boolean>;
   confirmActions?: string;
@@ -178,19 +204,7 @@ export function createBrowserActionApproval(host: {
     const kinds: BrowserApprovalKind[] = submits ? submitKinds(command) : [];
     if (uploads) kinds.push('upload');
     if (confirmed) kinds.push('confirm');
-    const files: Array<{ path: string; size: number; mtimeMs: number }> = [];
-    if (isUpload) {
-      if (!command.paths?.length || command.paths.length > 10)
-        throw new Error('upload requires 1–10 approved absolute file paths');
-      for (const path of command.paths) {
-        if (!isAbsolute(path)) throw new Error('upload approval requires absolute file paths');
-        const canonical = await realpath(path);
-        const info = await stat(canonical);
-        if (!info.isFile()) throw new Error('upload approval requires regular files');
-        files.push({ path: canonical, size: info.size, mtimeMs: info.mtimeMs });
-      }
-      command.paths = files.map((file) => file.path);
-    }
+    const files = isUpload ? await snapshotUploadFiles(command) : [];
     const receiver = isUpload ? await uploadReceiver?.() : undefined;
     const payment = submits && paymentEvidence ? await paymentEvidence() : false;
     const original = target();
@@ -234,19 +248,12 @@ export function createBrowserActionApproval(host: {
     ) {
       throw new Error(TARGET_CHANGED);
     }
-    for (const file of files) {
-      const info = await stat(file.path);
-      if (!info.isFile() || info.size !== file.size || info.mtimeMs !== file.mtimeMs) {
-        throw new Error('approved upload file changed; nothing was dispatched');
-      }
-    }
+    await assertUploadFilesUnchanged(files);
     if (signal?.aborted || target().identity !== original.identity || target().url !== original.url)
       throw new Error('approval target changed before dispatch');
     if (receiver && (await uploadReceiver?.())?.key !== receiver.key) {
       throw new Error(TARGET_CHANGED);
     }
-    // A grant exists only on this stack: it cannot be reused by another call.
-    // The upload handler checks `receiver` once more right before the files move.
     return { receiver: receiver?.key };
   }
   return { approve };

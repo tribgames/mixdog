@@ -63,7 +63,7 @@ function webrtcHostApi({ fit = false } = {}) {
   return state;
 }
 
-test('a browserWebrtc host keeps its geometry: no viewport on start or resize, and taps stream without waits', async () => {
+async function withWebrtcPane(run) {
   const state = webrtcHostApi();
   const original = window.HTMLElement.prototype.getBoundingClientRect;
   window.HTMLElement.prototype.getBoundingClientRect = function boundingRect() {
@@ -96,13 +96,26 @@ test('a browserWebrtc host keeps its geometry: no viewport on start or resize, a
       })
     );
     await flush();
+    await run(state);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    window.HTMLElement.prototype.getBoundingClientRect = original;
+  }
+}
+
+test('a browserWebrtc host keeps its geometry: no viewport on start or resize', () =>
+  withWebrtcPane(async (state) => {
     await act(async () => window.dispatchEvent(new window.Event('resize')));
     await act(async () => wait(200));
     const viewports = [...state.plain, ...state.ordered.map(({ input }) => input)].filter(
       (input) => input.type === 'viewport'
     );
     assert.deepEqual(viewports, [], 'the page is not re-laid out to the phone');
+  }));
 
+test('a browserWebrtc host streams taps without waiting for replies', () =>
+  withWebrtcPane(async (state) => {
     const content = document.querySelector('.browser-remote-content');
     content.setPointerCapture = () => {};
     const touch = (type) => {
@@ -125,13 +138,7 @@ test('a browserWebrtc host keeps its geometry: no viewport on start or resize, a
       'all three sent though no reply came'
     );
     assert.ok(tap.every(({ order }) => order.run === 1 && order.stream === tap[0].order.stream));
-  } finally {
-    await act(async () => root.unmount());
-    host.remove();
-    window.HTMLElement.prototype.getBoundingClientRect = original;
-  }
-});
-
+  }));
 /** A pane on a browserWebrtc host whose content box is `box.current` CSS px at DPR 2. */
 async function fitPane({ fit = true } = {}) {
   const state = webrtcHostApi({ fit });

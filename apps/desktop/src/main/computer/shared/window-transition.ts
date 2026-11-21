@@ -205,12 +205,7 @@ function launchedSuccessor(
       normalizedAppName(window.app) === contextApp
   );
   if (focusedApp) return { window: focusedApp, reason: 'launched_app_focused' };
-  // A shell broker can host the launched app in another process under another
-  // name (packaged apps, shell folders), so neither pid nor app name matches.
-  // A window that both appeared during this launch and took focus is still
-  // that launch's window; discarding it costs the caller a whole round trip.
-  // Naming it is not proving it: this successor is offered as the window to
-  // observe next, while the launch itself stays unconfirmed.
+  // A shell broker can host the launched app in another process under another name (packaged apps, shell folders).
   const focusedOpened = allOpened.find((window) => window.focused && window.id !== focusedBefore);
   if (focusedOpened) return { window: focusedOpened, reason: 'launched_window_focused' };
   const existingApp = uniquePreferred(
@@ -299,12 +294,7 @@ export function computeComputerWindowTransition(
     successor = launchedSuccessor(opened, allOpened, after, transition.focused_before, { targetPid, contextApp });
   }
   if (!targetWindowId && launch && !successor) {
-    // A URI or shell verb ("ms-settings:") names no process and no app, and a
-    // folder or document path names only itself while an already running
-    // shell or app opens the window; such windows often return from a cloaked
-    // frame without focus. A single unowned window that appeared during the
-    // launch is offered to observe next; like a focus match, it does not
-    // confirm the launch.
+    // Windows opened by a URI or shell verb often return from a cloaked frame without focus.
     const appeared = allOpened.filter((window) => !window.ownerId);
     if (appeared.length === 1) successor = { window: appeared[0], reason: 'launched_single_window' };
   } else if (targetWindowId && opened.length === 0) {

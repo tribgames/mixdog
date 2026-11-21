@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
+import { type Dispatch, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Sparkles, X } from 'lucide-react';
 import { t } from './i18n';
@@ -101,6 +101,140 @@ export function useErrorToast(error: string, scope: string) {
   }, [error, scope]);
 }
 
+type ToastRecords = ReturnType<typeof reduceToasts>;
+type ToastDispatch = Dispatch<Parameters<typeof reduceToasts>[1]>;
+type LanePlacement = { right: number; top: number; width: number; maxHeight: number };
+
+const TOAST_LIFETIME_MS = 5000;
+const TOAST_ERROR_LIFETIME_MS = 10000;
+
+function useToastExpiry(records: ToastRecords, dispatch: ToastDispatch) {
+  const timers = useRef(new Map<string, { record: ToastRecords[number]; timer: number }>());
+  useEffect(() => {
+    const pendingTimers = timers.current;
+    const activeIds = new Set(records.filter((record) => !record.dismissed).map((record) => record.id));
+    for (const [id, pending] of pendingTimers) {
+      if (!activeIds.has(id)) {
+        window.clearTimeout(pending.timer);
+        pendingTimers.delete(id);
+      }
+    }
+    for (const record of records) {
+      if (record.dismissed) continue;
+      const pending = pendingTimers.get(record.id);
+      if (pending?.record === record) continue;
+      if (pending) window.clearTimeout(pending.timer);
+      const timer = window.setTimeout(
+        () => {
+          pendingTimers.delete(record.id);
+          dispatch({ type: 'dismiss', ids: [record.id] });
+        },
+        record.tone === 'error' ? TOAST_ERROR_LIFETIME_MS : TOAST_LIFETIME_MS
+      );
+      pendingTimers.set(record.id, { record, timer });
+    }
+  }, [records, dispatch]);
+  useEffect(() => {
+    const pendingTimers = timers.current;
+    return () => {
+      for (const pending of pendingTimers.values()) window.clearTimeout(pending.timer);
+      pendingTimers.clear();
+    };
+  }, []);
+}
+
+/** One toast per standing `notice` section entry (key = notice key), shown again only after the key left and came back; a withdrawn notice leaves with its toast. */
+function useStandingNoticeToasts() {
+  const noticeEntries = useSectionEntries('notice');
+  const shownNotices = useRef(new Map<string, string | undefined>());
+  useEffect(() => {
+    const shown = shownNotices.current;
+    const standing = new Set<string>();
+    for (const entry of noticeEntries) {
+      const notice = readDesktopNotice(entry.value);
+      if (!notice) continue;
+      standing.add(notice.key);
+      if (shown.has(notice.key)) continue;
+      const { text, tone } = desktopNoticeToast(notice);
+      shown.set(notice.key, showDesktopToast(text, tone, { groupKey: notice.key }));
+    }
+    for (const [key, toastId] of shown) {
+      if (standing.has(key)) continue;
+      dismissDesktopToast(toastId);
+      shown.delete(key);
+    }
+  }, [noticeEntries]);
+}
+
+/** The lane's place beside the single main panel, below its tab strip, clear of a presented modal's header and the phone update banner; null while the panel has no size. */
+function measureToastLane(): LanePlacement | null {
+  const panel = document.querySelector('.main-panel');
+  const sheet = panel?.getBoundingClientRect();
+  if (!sheet?.width || !sheet.height) return null;
+  const strip = panel?.querySelector('.workspace-tabs-shell')?.getBoundingClientRect();
+  const right = Math.max(16, window.innerWidth - sheet.right + 16);
+  const width = Math.min(320, Math.max(0, sheet.width - 32));
+  let top = Math.max(16, (strip?.height ? strip.bottom : sheet.top) + 16);
+  const header = presentedModalDialog()
+    ?.querySelector(':scope > header, .mixdog-settings__header')
+    ?.getBoundingClientRect();
+  const banner = document.querySelector('.app-update-banner')?.getBoundingClientRect();
+  if (banner?.height) top = Math.max(top, Math.round(banner.bottom + 8));
+  const region = document.querySelector('.mx-toast-region');
+  const first = region?.firstElementChild?.getBoundingClientRect();
+  const last = region?.lastElementChild?.getBoundingClientRect();
+  const laneHeight = first && last ? last.bottom - first.top : 0;
+  const laneRight = window.innerWidth - right;
+  if (
+    header?.height &&
+    header.left < laneRight &&
+    header.right > laneRight - width &&
+    header.top < top + laneHeight &&
+    header.bottom > top
+  ) {
+    top = Math.round(header.bottom + 8);
+  }
+  return { right, top, width, maxHeight: Math.max(0, sheet.bottom - top - 16) };
+}
+
+function useToastLanePlacement(hasEntries: boolean, entryCount: number): LanePlacement {
+  const [placement, setPlacement] = useState<LanePlacement>({ right: 16, top: 54, width: 320, maxHeight: 400 });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hasEntries/entryCount re-measure the lane when toasts appear or disappear; measure reads the DOM, not these values.
+  useLayoutEffect(() => {
+    if (!hasEntries) return undefined;
+    const measure = () => {
+      const next = measureToastLane();
+      if (!next) return;
+      setPlacement((current) =>
+        (Object.keys(next) as Array<keyof LanePlacement>).every((key) => current[key] === next[key]) ? current : next
+      );
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    const panel = document.querySelector('.main-panel');
+    if (observer && panel) observer.observe(panel);
+    else window.addEventListener('resize', measure);
+    let settle = 0;
+    const remeasure = () => {
+      measure();
+      window.clearTimeout(settle);
+      settle = window.setTimeout(measure, 220);
+    };
+    const mounts = new MutationObserver(remeasure);
+    mounts.observe(document.body, { childList: true });
+    const modality = new MutationObserver(remeasure);
+    modality.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-modal'] });
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+      mounts.disconnect();
+      modality.disconnect();
+      window.clearTimeout(settle);
+    };
+  }, [hasEntries, entryCount]);
+  return placement;
+}
+
 export function DesktopToastRegion({
   bridgeError,
   toasts,
@@ -111,8 +245,6 @@ export function DesktopToastRegion({
   onDismissBridgeError(): void;
 }) {
   const [records, dispatch] = useReducer(reduceToasts, []);
-  const expiryTimers = useRef(new Map<string, { record: (typeof records)[number]; timer: number }>());
-  const [placement, setPlacement] = useState({ right: 16, top: 54, width: 320, maxHeight: 400 });
   const hostToasts = [
     // The main process owns the lasting-outage toast and sends its English key.
     ...toasts.map((toast) => {
@@ -163,60 +295,9 @@ export function DesktopToastRegion({
       unsubscribeNotices?.();
     };
   }, []);
-  // The core raises a desktop notice as an entry of the `notice` section (key = notice key) and removes it
-  // when its condition is over: one toast per standing key, shown again only after the key left and came back.
-  const noticeEntries = useSectionEntries('notice');
-  const shownNotices = useRef(new Map<string, string | undefined>());
-  useEffect(() => {
-    const shown = shownNotices.current;
-    const standing = new Set<string>();
-    for (const entry of noticeEntries) {
-      const notice = readDesktopNotice(entry.value);
-      if (!notice) continue;
-      standing.add(notice.key);
-      if (shown.has(notice.key)) continue;
-      const { text, tone } = desktopNoticeToast(notice);
-      shown.set(notice.key, showDesktopToast(text, tone, { groupKey: notice.key }));
-    }
-    // A notice the core withdrew leaves with its toast.
-    for (const [key, toastId] of shown) {
-      if (standing.has(key)) continue;
-      dismissDesktopToast(toastId);
-      shown.delete(key);
-    }
-  }, [noticeEntries]);
+  useStandingNoticeToasts();
   const entries = groupToasts(records);
-  useEffect(() => {
-    const timers = expiryTimers.current;
-    const activeIds = new Set(records.filter((record) => !record.dismissed).map((record) => record.id));
-    for (const [id, pending] of timers) {
-      if (!activeIds.has(id)) {
-        window.clearTimeout(pending.timer);
-        timers.delete(id);
-      }
-    }
-    for (const record of records) {
-      if (record.dismissed) continue;
-      const pending = timers.get(record.id);
-      if (pending?.record === record) continue;
-      if (pending) window.clearTimeout(pending.timer);
-      const timer = window.setTimeout(
-        () => {
-          timers.delete(record.id);
-          dispatch({ type: 'dismiss', ids: [record.id] });
-        },
-        record.tone === 'error' ? 10000 : 5000
-      );
-      timers.set(record.id, { record, timer });
-    }
-  }, [records]);
-  useEffect(() => {
-    const timers = expiryTimers.current;
-    return () => {
-      for (const pending of timers.values()) window.clearTimeout(pending.timer);
-      timers.clear();
-    };
-  }, []);
+  useToastExpiry(records, dispatch);
   const shownErrors = entries
     .filter((entry) => entry.tone === 'error')
     .map((entry) => entry.text)
@@ -226,79 +307,7 @@ export function DesktopToastRegion({
   }, [shownErrors]);
   const entryCount = entries.length;
   const hasEntries = entryCount > 0;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: hasEntries/entryCount re-measure the lane when toasts appear or disappear; measure reads the DOM, not these values.
-  useLayoutEffect(() => {
-    // No lane, nothing to place: an idle lane watching every resize step and
-    // body mutation forced a layout per frame of a window drag.
-    if (!hasEntries) return undefined;
-    // Anchor to the single main panel, below its tab strip. Every open tab
-    // keeps its own `.workspace` sheet mounted (parked ones included), so the
-    // first sheet in the document is not the visible one.
-    const measure = () => {
-      const panel = document.querySelector('.main-panel');
-      const sheet = panel?.getBoundingClientRect();
-      if (!sheet?.width || !sheet.height) return;
-      const strip = panel?.querySelector('.workspace-tabs-shell')?.getBoundingClientRect();
-      const right = Math.max(16, window.innerWidth - sheet.right + 16);
-      const width = Math.min(320, Math.max(0, sheet.width - 32));
-      let top = Math.max(16, (strip?.height ? strip.bottom : sheet.top) + 16);
-      // A presented modal keeps its header (title, close) reachable: a lane
-      // whose toasts would cover that header starts just below it instead.
-      const header = presentedModalDialog()
-        ?.querySelector(':scope > header, .mixdog-settings__header')
-        ?.getBoundingClientRect();
-      // The phone app-update banner floats in the same lane: sit below it.
-      const banner = document.querySelector('.app-update-banner')?.getBoundingClientRect();
-      if (banner?.height) top = Math.max(top, Math.round(banner.bottom + 8));
-      const region = document.querySelector('.mx-toast-region');
-      const first = region?.firstElementChild?.getBoundingClientRect();
-      const last = region?.lastElementChild?.getBoundingClientRect();
-      const laneHeight = first && last ? last.bottom - first.top : 0;
-      const laneRight = window.innerWidth - right;
-      if (
-        header?.height &&
-        header.left < laneRight &&
-        header.right > laneRight - width &&
-        header.top < top + laneHeight &&
-        header.bottom > top
-      ) {
-        top = Math.round(header.bottom + 8);
-      }
-      const next = { right, top, width, maxHeight: Math.max(0, sheet.bottom - top - 16) };
-      setPlacement((current) =>
-        Object.keys(next).every((key) => current[key as keyof typeof next] === next[key as keyof typeof next])
-          ? current
-          : next
-      );
-    };
-    measure();
-    // The panel's observer reports every window resize after that frame's
-    // layout, where these reads are free; a resize-event read forced a second
-    // layout per step of a window drag.
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    const panel = document.querySelector('.main-panel');
-    if (observer && panel) observer.observe(panel);
-    else window.addEventListener('resize', measure);
-    // Dialogs portal in as body children or flip their modal state in place;
-    // a second pass lands after their entrance motion settles.
-    let settle = 0;
-    const remeasure = () => {
-      measure();
-      window.clearTimeout(settle);
-      settle = window.setTimeout(measure, 220);
-    };
-    const mounts = new MutationObserver(remeasure);
-    mounts.observe(document.body, { childList: true });
-    const modality = new MutationObserver(remeasure);
-    modality.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-modal'] });
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener('resize', measure);
-      mounts.disconnect();
-      modality.disconnect();
-      window.clearTimeout(settle);
-    };
-  }, [hasEntries, entryCount]);
+  const placement = useToastLanePlacement(hasEntries, entryCount);
   if (!hasEntries) return null;
   return createPortal(
     <section

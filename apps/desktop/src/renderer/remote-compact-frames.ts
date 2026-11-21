@@ -17,10 +17,7 @@ interface CompactTranscriptExpander {
   reset(): void;
 }
 
-// Compact transcript envelope. The desktop addresses a session by handle
-// and sends its name once, so a live frame no longer repeats the nested
-// event/payload/sessionId trio around ~30 bytes of new text. Expanding it
-// here keeps ONE downstream code path for both shapes.
+// Wire envelope: the desktop addresses a session by handle and sends its name once.
 export const createCompactTranscriptExpander = (): CompactTranscriptExpander => {
   const sessionNames = new Map<number, string>();
   return {

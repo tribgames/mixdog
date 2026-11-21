@@ -4,10 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// A group room's typing band has one footprint whatever it states: a one-line name, a name too long for one line, and the
-// hand-off (nobody named) all paint the band at the same height, so a named speaker -> deciding -> named speaker never
-// shrinks and grows the followed thread. The real chat row, band and stylesheet run in real Chrome, on the desktop's width
-// and on the phone's (the mobile-tabs chat).
 const resolveDir = fileURLToPath(new URL('.', import.meta.url));
 const loader = { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' };
 

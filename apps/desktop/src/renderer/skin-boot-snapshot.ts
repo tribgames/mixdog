@@ -1,12 +1,5 @@
-// First-paint snapshot of the skin and the user JSON theme. The bundle paints
-// both only after it has run, so a launch, reload or window re-creation showed
-// the default theme (and the picture without its plates) first. Whenever
-// desktop-skin.ts / appearance/user-theme.ts finish painting they record
-// exactly what they set on <html> here; public/boot.js (generated from
-// scripts/i18n/boot.template.js) replays it synchronously before the first
-// paint, so the bundle's later paint writes identical values.
-//
-// One localStorage record: { v, sig, inputs, themeId, skin, userTheme }.
+// One localStorage record, replayed by public/boot.js (generated from scripts/i18n/boot.template.js):
+// { v, sig, inputs, themeId, skin, userTheme }.
 //  - sig: window.mixdogBootSig, a hash of this build's chunk list; another
 //    build (an update changes the picture URL) ignores the record.
 //  - inputs: window.mixdogThemeInputs(), what boot resolves the light/dark
@@ -16,6 +9,8 @@
 //    and the picture (a built-in's URL, or the key the custom picture is
 //    already stored under; it is never copied here).
 //  - userTheme: the active theme's id and the injected style sheet's text.
+import { safeLocalStorage } from './local-storage';
+
 const SKIN_BOOT_KEY = 'mixdog.desktop.skin-boot.v1';
 /** desktop-skin.ts's key of the custom picture (a data URL, too large to copy). */
 const SKIN_BOOT_CUSTOM_IMAGE_KEY = 'mixdog.desktop.skin-custom-image.v1';
@@ -40,17 +35,9 @@ type SkinBootSnapshot = {
 
 type BootHost = Window & { mixdogBootSig?: string; mixdogThemeInputs?: () => string };
 
-function storage(): Storage | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 function read(): SkinBootSnapshot | null {
   try {
-    const parsed = JSON.parse(storage()?.getItem(SKIN_BOOT_KEY) || 'null') as Partial<SkinBootSnapshot> | null;
+    const parsed = JSON.parse(safeLocalStorage()?.getItem(SKIN_BOOT_KEY) || 'null') as Partial<SkinBootSnapshot> | null;
     return parsed && parsed.v === 1 ? (parsed as SkinBootSnapshot) : null;
   } catch {
     return null;
@@ -78,7 +65,7 @@ function skinSection(root: HTMLElement): BootSkin | null {
 }
 
 function write(update: (current: SkinBootSnapshot) => SkinBootSnapshot): void {
-  const store = storage();
+  const store = safeLocalStorage();
   if (!store) return;
   const host = window as BootHost;
   const themeId = document.documentElement.dataset.mixdogTheme;

@@ -27,11 +27,6 @@ export const ComposerIslandContext = createContext<{
 export type IslandReservedSegment = 'branch' | 'files' | 'git';
 export type IslandSegmentReserves = Record<IslandReservedSegment, number>;
 
-/** A segment that has not decided yet. Inside an island that knows the
- *  segment's last advance it keeps that room in the pill: a first entry
- *  otherwise opened the pill without the segment and widened it once the
- *  read answered, sliding every segment sideways. `holdEntry` also holds the
- *  conversation's entry reveal (`data-entry-pending`, use-transcript-reveal). */
 export function IslandSegmentPending({
   kind,
   holdEntry = false,

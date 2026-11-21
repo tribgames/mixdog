@@ -1,18 +1,9 @@
-// The thread fold: `thread/snapshot` plus the thread feed notifications folded into the view model that reproduces today's
-// `DesktopSessionState` (apps/desktop/src/shared/contract-session.ts), protocol.md §2.5 and §5.1.
-//
-// Two layers, so that each input has exactly one owner:
-//  - `sessionReducer` is the pure `ThreadReducer`: it keeps the transcript rows, the section-owned fields and the live
-//    assistant text of one thread feed.
-//  - `desktopSessionState` projects that fold, the pending server requests and the `hostShellJobs` section into the
-//    `DesktopSessionState` the UI reads. `toolApproval`/`toolApprovalsWaiting` come from server requests (protocol.md §8.5) and
-//    `hostShellJobs` from the app feed, which are not part of the thread feed, so they are joined here and nowhere else.
+// Folds `thread/snapshot` and thread feed notifications into `DesktopSessionState` (apps/desktop/src/shared/contract-session.ts, protocol.md §2.5, §5.1, §8.5).
 import type { Json, JsonRpcNotification, ProtocolClient, ServerRequest, StreamPosition, ThreadReducer } from './api.ts';
 import { streamPositionReached } from './api.ts';
 import { asObj, isObj } from './obj.ts';
 import type { Obj } from './obj.ts';
 import { itemRows, mergeToolRows, mergeToolRowsSteps, rowOf, rowsOf } from './rows.ts';
-
 
 /** The projection the UI reads: a flat record of `DesktopSessionState` fields. */
 export type DesktopSessionState = Readonly<Record<string, Json>>;
@@ -71,15 +62,65 @@ export interface SessionFold {
 
 /** `fields`: an object section that owns several fields, replaced as a whole (a field the value omits is removed).
  * `field`: a section that owns one field; JSON `null` removes it. */
-type SectionDef = { readonly stateKey: string; readonly fields: readonly string[] } | { readonly stateKey: string; readonly field: string };
+type SectionDef =
+  | { readonly stateKey: string; readonly fields: readonly string[] }
+  | { readonly stateKey: string; readonly field: string };
 
 const SECTIONS: Readonly<Record<string, SectionDef>> = {
-  'thread/runtime/updated': { stateKey: 'runtime', fields: ['busy', 'commandBusy', 'thinking', 'spinner', 'commandStatus', 'progressHint', 'activeTools', 'clientHostPid', 'toasts', 'activeToolSummary', 'toolMode', 'setupChanged'] },
+  'thread/runtime/updated': {
+    stateKey: 'runtime',
+    fields: [
+      'busy',
+      'commandBusy',
+      'thinking',
+      'spinner',
+      'commandStatus',
+      'progressHint',
+      'activeTools',
+      'clientHostPid',
+      'toasts',
+      'activeToolSummary',
+      'toolMode',
+      'setupChanged',
+    ],
+  },
   'thread/route/updated': {
     stateKey: 'route',
-    fields: ['sessionProvider', 'sessionModel', 'fast', 'fastCapable', 'autoEffort', 'modelParameters', 'selectedContextWindow', 'effort', 'provider', 'model', 'turnEffort', 'effortOptions', 'cwd', 'sessionForkedFrom', 'systemShell', 'webSearchRoute', 'autoClear'],
+    fields: [
+      'sessionProvider',
+      'sessionModel',
+      'fast',
+      'fastCapable',
+      'autoEffort',
+      'modelParameters',
+      'selectedContextWindow',
+      'effort',
+      'provider',
+      'model',
+      'turnEffort',
+      'effortOptions',
+      'cwd',
+      'sessionForkedFrom',
+      'systemShell',
+      'webSearchRoute',
+      'autoClear',
+    ],
   },
-  'thread/context/updated': { stateKey: 'context', fields: ['contextPercent', 'contextTokens', 'contextDefaultPercent', 'contextWindow', 'displayContextWindow', 'autoCompactTokenLimit', 'stats', 'rawContextWindow', 'effectiveContextWindowPercent', 'compactBoundaryTokens'] },
+  'thread/context/updated': {
+    stateKey: 'context',
+    fields: [
+      'contextPercent',
+      'contextTokens',
+      'contextDefaultPercent',
+      'contextWindow',
+      'displayContextWindow',
+      'autoCompactTokenLimit',
+      'stats',
+      'rawContextWindow',
+      'effectiveContextWindowPercent',
+      'compactBoundaryTokens',
+    ],
+  },
   'thread/agents/updated': { stateKey: 'agents', fields: ['agentWorkers', 'agentJobs', 'agentScope'] },
   'thread/workflow/updated': {
     stateKey: 'workflow',
@@ -94,8 +135,6 @@ const SECTIONS: Readonly<Record<string, SectionDef>> = {
   'thread/promptRestore': { stateKey: 'promptRestore', field: 'promptRestore' },
   'thread/providerAccount/changed': { stateKey: 'providerAccountChange', field: 'providerAccountChange' },
   'thread/remote/updated': { stateKey: 'remoteEnabled', field: 'remoteEnabled' },
-  // The setup tool's desktop request (`{ id, at }`, Node's session store `setupUiRequest`), held by the thread until a window
-  // claims it or its claim window ends; a snapshot carries it as a replay does.
   'thread/setupUiRequest/updated': { stateKey: 'setupUiRequest', field: 'setupUiRequest' },
   // A group room log's view while the room runs (`{ busy, toolApproval?, typing?, deciding?, handoffQuestions? }`, Node's
   // `decorateRoomSnapshot`): not a field of its own, laid over the log's fields by `desktopSessionState`. The core sends it
@@ -118,7 +157,9 @@ function promptHistoryOf(held: unknown, change: Obj): Json[] {
   if (change.kind === 'replaced') return Array.isArray(change.prompts) ? change.prompts : [];
   if (change.kind !== 'added' || typeof change.prompt !== 'string') return Array.isArray(held) ? (held as Json[]) : [];
   const key = collapse(change.prompt);
-  const rest = (Array.isArray(held) ? (held as Json[]) : []).filter((p) => typeof p !== 'string' || collapse(p) !== key);
+  const rest = (Array.isArray(held) ? (held as Json[]) : []).filter(
+    (p) => typeof p !== 'string' || collapse(p) !== key
+  );
   return [change.prompt, ...rest].slice(0, PROMPT_HISTORY_LIMIT);
 }
 
@@ -205,7 +246,11 @@ function fieldsOfState(state: Obj, hasOlder: boolean): Obj {
 /** The live text of an `agentMessage` item: the row it settles as, without its text. */
 function liveOf(item: Obj, row: Obj): Live {
   const { text, ...identity } = row;
-  return { id: String(item.id), identity: { ...identity, kind: 'assistant', streaming: true }, ...splitLive(typeof text === 'string' ? text : '') };
+  return {
+    id: String(item.id),
+    identity: { ...identity, kind: 'assistant', streaming: true },
+    ...splitLive(typeof text === 'string' ? text : ''),
+  };
 }
 
 const withLive = (s: SessionFold, live: Live | null): SessionFold => ({
@@ -241,7 +286,16 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
   // Node's store begins at 0 (initial-state.mjs:18) and a snapshot's rows enter it as one structure change (transcript-store.mjs:74,
   // a restore's `replaceItems`; a new task's first row is a push, frame-batched-store.mjs:37): a snapshot with rows is revision 1.
   // `origin` is a fresh object for each snapshot and is never replaced by a later step (`SessionFold.origin`).
-  const fold: SessionFold = { sessionId: String(asObj(p.thread).id ?? ''), items, fields: fieldsOfState(asObj(p.state), p.hasOlder === true), live: null, structureRevision: items.length ? 1 : 0, frames: 0, framedRevision: items.length ? 1 : 0, origin: {} };
+  const fold: SessionFold = {
+    sessionId: String(asObj(p.thread).id ?? ''),
+    items,
+    fields: fieldsOfState(asObj(p.state), p.hasOlder === true),
+    live: null,
+    structureRevision: items.length ? 1 : 0,
+    frames: 0,
+    framedRevision: items.length ? 1 : 0,
+    origin: {},
+  };
   return live ? withLive(fold, live) : fold;
 }
 
@@ -269,7 +323,11 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
       case 'thread/goal/cleared':
         return withField(s, 'goal', undefined);
       case 'thread/frame':
-        return { ...s, frames: (s.frames ?? 0) + 1, framedRevision: (s.framedRevision ?? 0) + (p.structureChanged === true ? 1 : 0) };
+        return {
+          ...s,
+          frames: (s.frames ?? 0) + 1,
+          framedRevision: (s.framedRevision ?? 0) + (p.structureChanged === true ? 1 : 0),
+        };
       case 'turn/started':
       case 'turn/completed':
         return withLive(s, null);
@@ -286,17 +344,22 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
         const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
         // A room log's row and the view that landed with it are one revision: the view rides on the row's notification
         // (`roomView`), so both are folded here, before any subscriber is told.
-        const viewed = p.roomView === undefined ? s.fields : withSection(s.fields, SECTIONS['thread/roomView/updated']!, p.roomView);
+        const viewed =
+          p.roomView === undefined ? s.fields : withSection(s.fields, SECTIONS['thread/roomView/updated']!, p.roomView);
         const upserted = batched.reduce(upsert, upsert(s.items, row));
         const drop = upserted.length - FOLD_MAX_ITEMS;
         const items = drop > 0 ? upserted.slice(drop) : upserted;
-        const fields = drop > 0 && viewed.transcriptHasOlder !== true ? { ...viewed, transcriptHasOlder: true } : viewed;
+        const fields =
+          drop > 0 && viewed.transcriptHasOlder !== true ? { ...viewed, transcriptHasOlder: true } : viewed;
         return { ...s, items, live, fields, structureRevision: s.structureRevision + 1 };
       }
       case 'item/agentMessage/delta': {
         const id = String(p.itemId);
         const delta = typeof p.delta === 'string' ? p.delta : '';
-        const live = s.live?.id === id ? appendLive(s.live, delta) : { id, identity: { id, kind: 'assistant', streaming: true }, ...splitLive(delta) };
+        const live =
+          s.live?.id === id
+            ? appendLive(s.live, delta)
+            : { id, identity: { id, kind: 'assistant', streaming: true }, ...splitLive(delta) };
         return withLive(s, live);
       }
       case 'thread/historyReset': {
@@ -335,10 +398,27 @@ function approvalCard(r: ServerRequest): Obj {
   // (room_approval.rs `card_id`; `approvalRequestOf` finds the request back from it).
   const card = asObj(r.params).card;
   if (card && typeof card === 'object' && !Array.isArray(card)) return { ...(card as Obj) };
-  const { threadId: _t, turnId: _u, itemId: _i, surfaceThreadId: _s, chain: _c, requestedAt: _r, expiresAt: _e, order: _o, request, kind: _k, ...rest } = asObj(r.params);
+  const {
+    threadId: _t,
+    turnId: _u,
+    itemId: _i,
+    surfaceThreadId: _s,
+    chain: _c,
+    requestedAt: _r,
+    expiresAt: _e,
+    order: _o,
+    request,
+    kind: _k,
+    ...rest
+  } = asObj(r.params);
   // An `ask_user` question carries no kind on the wire (its method says it); Node's card said `kind: 'question'` (the push notifier
   // and the card's Allow rules tell a question from an approval by it).
-  return { ...rest, ...asObj(request), ...(r.method === 'item/tool/requestUserInput' ? { kind: 'question' } : {}), id: String(r.id) };
+  return {
+    ...rest,
+    ...asObj(request),
+    ...(r.method === 'item/tool/requestUserInput' ? { kind: 'question' } : {}),
+    id: String(r.id),
+  };
 }
 
 const surfaceOf = (r: ServerRequest): string => {
@@ -355,15 +435,13 @@ export const approvalSurface = surfaceOf;
  *    Both start from the engine's initial state (`null`, 0: initial-state.mjs); the counter is the queue length
  *    (tool-approval.mjs `presentNextToolApproval`) whether or not a `toolApprovalResult` is shown.
  */
-export function desktopSessionState(fold: SessionFold, requests: readonly ServerRequest[], hostShellJobs?: Json): DesktopSessionState {
-  // The transcript window is the TUI store's (`createInitialSessionState`): the core keeps the whole log (no spill, no paged view, no
-  // archive range: decisions.md, the `transcriptArchive` row), so these hold the store's idle values; `lastTurn` is only ever cleared and
-  // `themeEpoch` is the TUI process's theme counter. The store's first draft has no `streamingPartial` (turn-stream.mjs sets it while
-  // a line streams) and no `transcriptSpilled`: transcript-store.mjs publishes it with the first row pushed or swapped in, as the
-  // unspilled `{ epoch: 0, rows: 0 }` here, since the core never spills.
-  // The one-field sections the store always holds, null while unset: `promptRestore` and `agentScope` (initial-state.mjs), `workspace`,
-  // `goal`, `quotaResume` and `todo` (context-state.mjs `baseRouteState`, republished whole by every pass), and the session's own route,
-  // `sessionProvider` / `sessionModel` (`runtime.sessionProvider ?? null`), null before the thread has a session.
+export function desktopSessionState(
+  fold: SessionFold,
+  requests: readonly ServerRequest[],
+  hostShellJobs?: Json
+): DesktopSessionState {
+  // Idle values of the TUI store's state (`createInitialSessionState`, context-state.mjs `baseRouteState`): the core keeps the whole log,
+  // so the transcript window never spills or pages (decisions.md, the `transcriptArchive` row).
   const out: Obj = {
     sessionProvider: null,
     sessionModel: null,
@@ -387,9 +465,7 @@ export function desktopSessionState(fold: SessionFold, requests: readonly Server
     transcriptArchive: null,
     lastTurn: null,
     themeEpoch: 0,
-    // The host's fields Node's session state always carries, empty while it has none; a section the core removed (`withSection`: JSON
-    // null removes) reads as that value, not as an absent key: the remote fields (session-host-publication.ts:281-288) and shell-job
-    // status (session-host.ts:485-495, the poller's empty status).
+    // Host fields Node's session state always carries (session-host-publication.ts:281-288, session-host.ts:485-495).
     remoteEnabled: false,
     remoteSessionId: null,
     shellJobs: emptyShellJobs(),
@@ -401,16 +477,21 @@ export function desktopSessionState(fold: SessionFold, requests: readonly Server
   if (fold.items.length) out.transcriptSpilled = { epoch: 0, rows: 0 };
   if (hostShellJobs !== undefined) out.hostShellJobs = hostShellJobs;
   if (fold.live) Object.assign(out, liveFields(fold.live));
+  const approval = nextApproval(requests, fold.sessionId);
+  if (approval) {
+    out.toolApproval = approval.card;
+    out.toolApprovalsWaiting = approval.waiting;
+  }
+  return withRoomView(out);
+}
+
+function nextApproval(requests: readonly ServerRequest[], sessionId: string): { card: Obj; waiting: number } | null {
   const pending = requests
-    .filter((r) => surfaceOf(r) === fold.sessionId)
+    .filter((r) => surfaceOf(r) === sessionId)
     .map((r, arrival) => ({ r, arrival, order: (r.params as { order: number }).order }))
     .sort((a, b) => a.order - b.order || a.arrival - b.arrival);
   const first = pending[0];
-  if (first) {
-    out.toolApproval = approvalCard(first.r);
-    out.toolApprovalsWaiting = pending.length - 1;
-  }
-  return withRoomView(out);
+  return first ? { card: approvalCard(first.r), waiting: pending.length - 1 } : null;
 }
 
 /** A room log's `roomView` laid over its state as Node's `decorateRoomSnapshot` decorates the room's session state
@@ -421,7 +502,8 @@ function withRoomView(out: Obj): Obj {
   delete out.roomView;
   if (!view || typeof view !== 'object' || Array.isArray(view)) return out;
   const room = view as Obj;
-  if (Array.isArray(room.handoffQuestions) && room.handoffQuestions.length) out.handoffQuestions = room.handoffQuestions;
+  if (Array.isArray(room.handoffQuestions) && room.handoffQuestions.length)
+    out.handoffQuestions = room.handoffQuestions;
   if (room.busy !== true) return out;
   out.busy = true;
   if (room.toolApproval && typeof room.toolApproval === 'object') out.toolApproval = room.toolApproval;
@@ -455,7 +537,10 @@ export function subscribeFramedSessionStates(
   listener: (threadId: string, state: DesktopSessionState, position: StreamPosition) => void,
   current?: (threadId: string, state: DesktopSessionState, position: StreamPosition) => void
 ): () => void {
-  const heard = new WeakMap<object, { frames: number; fold: SessionFold; state: DesktopSessionState; position: StreamPosition }>();
+  const heard = new WeakMap<
+    object,
+    { frames: number; fold: SessionFold; state: DesktopSessionState; position: StreamPosition }
+  >();
   return client.store.subscribe((change) => {
     if (change.type !== 'thread') return;
     const id = threadId() ?? change.threadId;
@@ -473,7 +558,10 @@ export function subscribeFramedSessionStates(
       }
       return;
     }
-    const state = { ...desktopSessionState(fold, client.pendingServerRequests(), client.store.section('hostShellJobs')?.value), structureRevision: fold.framedRevision ?? fold.structureRevision };
+    const state = {
+      ...desktopSessionState(fold, client.pendingServerRequests(), client.store.section('hostShellJobs')?.value),
+      structureRevision: fold.framedRevision ?? fold.structureRevision,
+    };
     if (fold.origin) heard.set(fold.origin, { frames, fold, state, position });
     listener(id, state, position);
   });

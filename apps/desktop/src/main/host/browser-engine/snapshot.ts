@@ -22,7 +22,7 @@ import { parseBrowserQuery } from '../../browser/semantic-query';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
 import type { EngineContext } from './context';
 import { documentIdOf } from './precondition';
-import { registerEngineMethod } from './registry';
+import { registerEngineMethod, type EngineParams } from './registry';
 
 export const HOST_BROWSER_SNAPSHOT = 'host/browser/snapshot';
 export const HOST_BROWSER_REVISION = 'host/browser/revision';
@@ -82,6 +82,32 @@ function parseFrame(value: unknown): FrameRef | undefined {
   return sessionId || frameId ? { sessionId, frameId } : undefined;
 }
 
+function parseSnapshotParams(params: EngineParams): { command: BrowserCommand; frame: FrameRef | undefined } {
+  const { mode, query } = params;
+  if (typeof mode !== 'string' || !MODES.has(mode)) {
+    throw invalid('snapshot mode must be full, interactive, query or viewport.');
+  }
+  if (query !== undefined && query !== null && typeof query !== 'string') {
+    throw invalid('snapshot query must be a string.');
+  }
+  try {
+    parseBrowserQuery(query);
+  } catch (error) {
+    throw invalid((error as Error).message);
+  }
+  const maxElements = optionalCount(params.maxElements, 'maxElements');
+  const textChars = optionalCount(params.textChars, 'textChars');
+  const frame = parseFrame(params.frame);
+  const command: BrowserCommand = {
+    action: 'snapshot',
+    ...(typeof query === 'string' && query.trim() ? { query } : {}),
+    ...(mode === 'viewport' ? { viewportOnly: true } : {}),
+    ...(maxElements !== undefined ? { maxElements } : {}),
+    ...(textChars !== undefined ? { maxChars: textChars } : {}),
+  };
+  return { command, frame };
+}
+
 export function registerSnapshot(connection: HostConnection, ctx: EngineContext, host: SnapshotHost): void {
   // The revision the page has now, as the same number a snapshot answers: a visual grounding is current only while the two agree, and
   // a capture to read it would retire the refs the agent holds.
@@ -91,28 +117,7 @@ export function registerSnapshot(connection: HostConnection, ctx: EngineContext,
   });
 
   registerEngineMethod(connection, ctx, HOST_BROWSER_SNAPSHOT, async (params, signal, page) => {
-    const { mode, query } = params;
-    if (typeof mode !== 'string' || !MODES.has(mode)) {
-      throw invalid('snapshot mode must be full, interactive, query or viewport.');
-    }
-    if (query !== undefined && query !== null && typeof query !== 'string') {
-      throw invalid('snapshot query must be a string.');
-    }
-    try {
-      parseBrowserQuery(query);
-    } catch (error) {
-      throw invalid((error as Error).message);
-    }
-    const maxElements = optionalCount(params.maxElements, 'maxElements');
-    const textChars = optionalCount(params.textChars, 'textChars');
-    const frame = parseFrame(params.frame);
-    const command: BrowserCommand = {
-      action: 'snapshot',
-      ...(typeof query === 'string' && query.trim() ? { query } : {}),
-      ...(mode === 'viewport' ? { viewportOnly: true } : {}),
-      ...(maxElements !== undefined ? { maxElements } : {}),
-      ...(textChars !== undefined ? { maxChars: textChars } : {}),
-    };
+    const { command, frame } = parseSnapshotParams(params);
     const payload = { ...(await host.captureSnapshotPayload(page.guest, command, signal)) };
     const warnings = [...(payload.warnings ?? [])];
     if (frame?.sessionId) {

@@ -13,10 +13,6 @@ const BOT_ORDER_ZONE = 'bot-order';
 
 type DropMark = { id: string; edge: 'before' | 'after' };
 
-/** The drop-line drag machinery of one reorderable list, shared by the bot
- *  lists and the section-order dialog: `ids` in list order, rows marked by
- *  `attr`, `draggedId` naming the id the drag in flight carries (null = not
- *  ours: refused), `move` applying a drop. */
 function listReorder(
   mark: DropMark | null,
   setMark: React.Dispatch<React.SetStateAction<DropMark | null>>,
@@ -86,6 +82,11 @@ function altArrowDelta(event: React.KeyboardEvent<HTMLElement>): -1 | 0 | 1 {
   return event.key === 'ArrowUp' ? -1 : 1;
 }
 
+function refocusMovedRow(event: React.KeyboardEvent<HTMLElement>): void {
+  const row = event.currentTarget.closest('[data-agent-contact]');
+  window.setTimeout(() => row?.querySelector<HTMLElement>('button')?.focus(), 0);
+}
+
 /** Drag-and-drop and Alt+Arrow reordering of one bot list. Bots only: Mixy
  *  (pinned first) neither moves nor is passed, and any other session dragged
  *  over the list — a workflow agent, a sub-agent — is refused, as is a bot
@@ -119,9 +120,7 @@ export function useBotReorder() {
         onKeyDown(contact: AgentContact, event: React.KeyboardEvent<HTMLElement>) {
           const delta = altArrowDelta(event);
           if (!delta || !list.step(contact.agentId, delta)) return;
-          // The row is re-seated by the new order; keep the keyboard on it.
-          const row = event.currentTarget.closest('[data-agent-contact]');
-          window.setTimeout(() => row?.querySelector<HTMLElement>('button')?.focus(), 0);
+          refocusMovedRow(event);
         },
       };
     },
@@ -175,9 +174,7 @@ export function usePaneBotReorder(contacts: readonly AgentContact[]) {
       const delta = altArrowDelta(event);
       const neighbour = shownIds[shownIds.indexOf(contact.agentId) + delta];
       if (!delta || !neighbour || !moveBot(shownIds, contact.agentId, neighbour)) return;
-      // The row is re-seated by the new order; keep the keyboard on it.
-      const row = event.currentTarget.closest('[data-agent-contact]');
-      window.setTimeout(() => row?.querySelector<HTMLElement>('button')?.focus(), 0);
+      refocusMovedRow(event);
     },
   };
 }

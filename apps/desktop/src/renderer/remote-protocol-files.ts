@@ -1,10 +1,3 @@
-// The phone's "Files and editor" and "Project list" calls (Node's `listProjects` ... `writeProjectFile`, `searchProjectFiles`,
-// `lspRequest`, `previewProjectFile`), answered over the protocol. Each equals what Node's remote methods gave the page
-// (b6f10295a: remote-methods.ts `workspaceRemoteMethods` / `projectEntryRemoteMethods` / `editorRemoteMethods`,
-// remote-file-preview.ts, remote-local-page.ts): the same argument checks and texts (shared/remote-files-arguments.ts), the same
-// answer and the same failure, with the error's `code` Node put on the frame. The replay in apps/mobile compares them with the
-// recording. The connection's one call queue (remote-protocol-queue.ts) orders them, entered by the router (remote-shim-protocol.ts)
-// for every adapter alike, as Node's was: nothing here queues.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import {
   FileDownloadError,

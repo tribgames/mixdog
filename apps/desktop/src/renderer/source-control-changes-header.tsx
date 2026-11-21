@@ -16,10 +16,6 @@ import type { ScmSortKey } from './source-control-support';
 
 type RemoteEntry = ReturnType<typeof sourceControlRemoteActions>['pushEntry'];
 
-// Each count rides the action that CLEARS it: ahead on Push (a tag at its top
-// right), behind on Fetch. Split that way every corner carries ONE
-// count, so a diverged branch (↑11 ↓32) never has to fit a pair into a
-// section that is a THIRD of a 252px/300px dock.
 export function RemoteActionButtons({
   entries,
   aheadCount,
@@ -171,13 +167,6 @@ function IconAction({
   );
 }
 
-// Tri-state select-all row; the shared filter box lives in the view controls
-// above Changes | History. The row is also the list's ACTION header: Stage
-// All, Unstage All and Discard All sit here with Stash / Pop Stash and
-// View & Sort beside them. It is a plain row (not a
-// <label>) so those buttons cannot toggle the checkbox by label activation;
-// the checkbox keeps the same accessible name it always had. No visible count
-// line: the Changes tab above already carries the counter.
 export function ChangedFilesHeader({
   files,
   unlistedCount,

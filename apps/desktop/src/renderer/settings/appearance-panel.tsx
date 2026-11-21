@@ -83,7 +83,15 @@ function useFonts(): FontSettings {
   return JSON.parse(useSyncExternalStore(subscribeFontSettings, read, read)) as FontSettings;
 }
 
-function Row({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+export function SkinRow({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
   return (
     <div className="mixdog-settings__row skin-row">
       <div className="mixdog-settings__copy">
@@ -145,7 +153,7 @@ export function ThemeFilesGroup() {
           setActiveUserTheme(value === BUILTIN ? null : value);
         }}
       />
-      <Row
+      <SkinRow
         title={t('Theme files')}
         description={t(
           'Export writes the current theme, or the built-in one as a starter file that editors can check.'
@@ -171,7 +179,7 @@ export function ThemeFilesGroup() {
             if (file) void importFile(file);
           }}
         />
-      </Row>
+      </SkinRow>
       {(error ||
         report.error ||
         report.warnings.length > 0 ||
@@ -250,10 +258,6 @@ function FontField({
   fonts: string[];
   onCommit(name: string): void;
 }) {
-  // '' is the built-in font. A stored font that is not installed here (another
-  // device's, or one since removed) stays selectable as its own entry. OpenSelect
-  // bounds and wheel-scrolls its menu (a body portal), so thousands of fonts are fine;
-  // typing a first letters jumps to a match.
   const options = useMemo(
     () => [
       { value: '', label: t('Default') },
@@ -300,18 +304,18 @@ export function FontsGroup() {
       title={t('Fonts')}
       description={t('Pick an installed font. Characters it lacks still use the built-in fonts.')}
     >
-      <Row title={t('UI font')}>
+      <SkinRow title={t('UI font')}>
         <FontField label={t('UI font')} value={fonts.ui} fonts={installed} onCommit={(ui) => setFontSettings({ ui })} />
-      </Row>
-      <Row title={t('Code font')}>
+      </SkinRow>
+      <SkinRow title={t('Code font')}>
         <FontField
           label={t('Code font')}
           value={fonts.mono}
           fonts={installed}
           onCommit={(mono) => setFontSettings({ mono })}
         />
-      </Row>
-      <Row
+      </SkinRow>
+      <SkinRow
         title={t('UI size')}
         description={`${t('Scales all text in the app.')} ${t('Ctrl/⌘ + = larger, Ctrl/⌘ + − smaller, Ctrl/⌘ + 0 reset.')}`}
       >
@@ -328,8 +332,8 @@ export function FontsGroup() {
           />
           <output className="skin-slider-value">{uiPercent}%</output>
         </div>
-      </Row>
-      <Row title={t('Code size')}>
+      </SkinRow>
+      <SkinRow title={t('Code size')}>
         <div className="skin-slider">
           <input
             type="range"
@@ -343,8 +347,8 @@ export function FontsGroup() {
           />
           <output className="skin-slider-value">{codePx}</output>
         </div>
-      </Row>
-      <Row
+      </SkinRow>
+      <SkinRow
         title={t('Code ligatures')}
         description={t('Joins symbols such as => and != into one glyph, in fonts that have them.')}
       >
@@ -354,7 +358,7 @@ export function FontsGroup() {
           optimistic={false}
           onChange={(ligatures) => setFontSettings({ ligatures })}
         />
-      </Row>
+      </SkinRow>
       <ChatTextSizeRow />
       <div className="appearance-sample">
         <p>{t('The quick brown fox jumps over the lazy dog.')}</p>

@@ -1,10 +1,3 @@
-/**
- * The endpoint a relayed command runs under, from its dispatch to every worker request it makes: the scope's `commit` and signal
- * admit each request right before it is sent, and `track` counts it until it settled (`worker-pool.ts` `fenced`). The dispatch chain
- * (`answerAdmittedCommand` → `answerPublicCommand` → `dispatchBridgeCommand`) takes the endpoint as a required argument and runs the
- * command inside it, so every request the command's queue, router, sequence runner or secret typing sends, however many awaits
- * later, is admitted through it: once a scope's endpoint is supplied, nothing of its command reaches a worker unfenced.
- */
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 /** What a relayed command is admitted through (a scope's `ScopeContext` is one). */

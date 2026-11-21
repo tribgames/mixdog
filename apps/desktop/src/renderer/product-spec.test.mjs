@@ -79,7 +79,9 @@ test('the rail runs in Basics, AI behavior, Integrations and Support sections, B
     'each section is one adjacent run'
   );
   assert.equal(SETTINGS_CATEGORIES.find((category) => category.value === 'bots')?.label, 'Bots');
-  // Check-ins and reactions are the PC's settings: every surface lists Bots.
+});
+
+test('every surface lists Bots', () => {
   for (const open of [false, true]) {
     assert.equal(
       settingsCategoriesForSurface(true, open).some((category) => category.value === 'bots'),
@@ -89,8 +91,9 @@ test('the rail runs in Basics, AI behavior, Integrations and Support sections, B
   }
   assert.equal(settingsCategoryForSurface('bots', false), 'bots');
   assert.equal(settingsCategoryForSurface('work', true), 'work');
-  // Delegation is listed on the phone/remote surface too; the retired
-  // Instruction control category lands on it.
+});
+
+test('Delegation is listed on every surface and the retired Instruction control category lands on it', () => {
   for (const remote of [false, true]) {
     assert.equal(
       settingsCategoriesForSurface(remote, true).some((category) => category.value === 'delegation'),

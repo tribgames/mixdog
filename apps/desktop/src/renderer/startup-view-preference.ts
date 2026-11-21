@@ -1,8 +1,3 @@
-// "Start screen" (Settings → Display): whether a launch resumes the last
-// conversation ('last') or opens a fresh conversation with no project
-// ('new-projectless', the default; restored tabs stay open behind it). A
-// device-local renderer preference of the desktop window only: the phone and
-// web clients keep reopening the conversation they showed last.
 import { isNativeDesktopWindow } from './remote-ui-projection';
 
 export type StartupView = 'last' | 'new-projectless';

@@ -626,7 +626,7 @@ const rowProps = (id, attention) => ({
   onDeleteSession: async () => {},
 });
 
-test('sidebar rows and collapsed project groups use the same status set', async () => {
+test('sidebar rows show one distinct mark per status', async () => {
   const rows = await render(
     React.createElement(
       'div',
@@ -655,6 +655,9 @@ test('sidebar rows and collapsed project groups use the same status set', async 
   } finally {
     await rows.unmount();
   }
+});
+
+test('collapsed project groups show the strongest status of their sessions', async () => {
   const attention = { a: 'unread', b: 'failed', c: 'running' };
   const group = (key, sessionIds) => ({
     key,

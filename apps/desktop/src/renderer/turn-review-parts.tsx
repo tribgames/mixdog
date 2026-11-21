@@ -349,6 +349,20 @@ function turnReviewFileRow({
   );
 }
 
+function turnReviewSourceHeader(source: TurnReviewSource) {
+  return (
+    <li key={`${source.key}:source`} className="turn-review-source">
+      {/* Turn/Lead are catalog keys; the session label arrives translated;
+            agent tags are user data, never keys. */}
+      <strong>{source.key === 'turn' || source.key === 'lead' ? t(source.label) : source.label || t('Agent')}</strong>
+      <span className="diff-stats" aria-hidden={!source.summary.hasLineStats}>
+        <i>{source.summary.additions > 0 ? `+${source.summary.additions}` : ''}</i>
+        <em>{source.summary.deletions > 0 ? `-${source.summary.deletions}` : ''}</em>
+      </span>
+    </li>
+  );
+}
+
 /** Every source's header row followed by its file rows. */
 export function turnReviewFileItems({
   sources,
@@ -373,17 +387,7 @@ export function turnReviewFileItems({
     .replace(/\\/g, '/')
     .replace(/\/+$/, '');
   return sources.flatMap((source) => {
-    const sourceHeader = (
-      <li key={`${source.key}:source`} className="turn-review-source">
-        {/* Turn/Lead are catalog keys; the session label arrives translated;
-            agent tags are user data, never keys. */}
-        <strong>{source.key === 'turn' || source.key === 'lead' ? t(source.label) : source.label || t('Agent')}</strong>
-        <span className="diff-stats" aria-hidden={!source.summary.hasLineStats}>
-          <i>{source.summary.additions > 0 ? `+${source.summary.additions}` : ''}</i>
-          <em>{source.summary.deletions > 0 ? `-${source.summary.deletions}` : ''}</em>
-        </span>
-      </li>
-    );
+    const sourceHeader = turnReviewSourceHeader(source);
     const rows = [...source.summary.files.entries()].map(([name, entry]) => {
       const normalizedName = name.replace(/\\/g, '/');
       const rel =

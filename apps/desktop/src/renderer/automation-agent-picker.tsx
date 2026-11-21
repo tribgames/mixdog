@@ -1,8 +1,3 @@
-// The bot a schedule or webhook belongs to: Mixy (the default) or one of the
-// user's bots, each with its face. Every fire is a turn in that bot's own chat
-// (session-runtime/routine-home-turn.mjs), where it replies with the result.
-// Routines are bot-based: with no bot at all (no representative bot yet) none
-// can be made (RoutineNeedsBot), and a routine whose bot is gone is paused.
 import { Fragment, type ReactNode, useMemo } from 'react';
 import { agentAvatar } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import { MIXY_AGENT_ID } from '../shared/agent-contacts';

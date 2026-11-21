@@ -7,12 +7,6 @@ import { registerMobileBack } from '../mobile-back';
 import { ActionButton, Group, ResourceRow } from './capability-controls';
 import type { PanelContext } from './capability-data';
 
-// The instruction editor shared by Settings → Delegation and Settings → Output
-// style: the full text of an orchestration mode or an output-style depth level,
-// as the shipped .md or the user's override of the same name
-// (src/session-runtime/workflow-agents-api/instruction-files.mjs). Which mode /
-// style is in use is still chosen where it always was.
-
 type InstructionGroup = 'delegation' | 'outputStyle';
 
 interface InstructionFile {

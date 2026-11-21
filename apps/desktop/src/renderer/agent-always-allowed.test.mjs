@@ -60,7 +60,7 @@ test('an upload allow is listed in the profile and revoked back to asking', () =
   );
 });
 
-test('the upload card shows the destination origin, each file with its size, and the outside-project mark', async () => {
+async function mountUploadCard() {
   const { BrowserApprovalHost, BrowserApprovalCard, useBrowserApprovals } = await import('./BrowserApprovalHost.tsx');
   // The host only queues (b1f10baa3): the card shows where its chat docks it.
   const Dock = ({ sessionId }) => {
@@ -100,7 +100,20 @@ test('the upload card shows the destination origin, each file with its size, and
     expiresAt: Date.now() + 30_000,
     remember: { kinds: ['upload'] },
   };
-  await act(async () => listener(prompt));
+  return {
+    dock,
+    prompt,
+    send: (next) => act(async () => listener(next)),
+    unmount: async () => {
+      await act(async () => chat.unmount());
+      await act(async () => root.unmount());
+    },
+  };
+}
+
+test('the upload card shows the destination origin, each file with its size, and the outside-project mark', async () => {
+  const { dock, prompt, send, unmount } = await mountUploadCard();
+  await send(prompt);
   const card = dock.textContent;
   assert.match(card, /Upload to/);
   assert.match(card, /https:\/\/pay\.other\.example/);
@@ -113,22 +126,25 @@ test('the upload card shows the destination origin, each file with its size, and
   const outside = [...dock.querySelectorAll('li')].map((li) => li.textContent.includes('Outside the project'));
   assert.deepEqual(outside, [false, true]);
   assert.match(card, /Upload files in the browser/);
-  // The receiving frame is the page itself: that origin, with no "embedded" line.
-  await act(async () => listener({ ...prompt, id: 'a2', receiverOrigin: 'https://app.example' }));
-  await act(async () => listener({ id: 'a1', closed: true }));
+  await unmount();
+});
+
+test('an upload whose receiving frame is the page itself shows that origin with no "embedded" line', async () => {
+  const { dock, prompt, send, unmount } = await mountUploadCard();
+  await send({ ...prompt, receiverOrigin: 'https://app.example' });
   assert.equal(dock.querySelector('.browser-approval-destination').textContent, 'https://app.example');
-  // Not confirmed: never shown as if the page origin were the destination.
-  await act(async () => listener({ ...prompt, id: 'a3', receiverOrigin: '' }));
-  await act(async () => listener({ id: 'a2', closed: true }));
+  await unmount();
+});
+
+test('an upload whose receiving site is unconfirmed is never shown as the page origin being the destination', async () => {
+  const { dock, prompt, send, unmount } = await mountUploadCard();
+  await send({ ...prompt, receiverOrigin: '' });
   assert.equal(
     dock.querySelector('.browser-approval-destination').textContent,
     'Receiving site not confirmedPage: https://app.example'
   );
-  await act(async () => listener({ id: 'a3', closed: true }));
-  await act(async () => chat.unmount());
-  await act(async () => root.unmount());
+  await unmount();
 });
-
 test('the profile lists allows and "Ask again" revokes one, leaving the rest', async () => {
   let permissions = PERMISSIONS.map((row) => ({ ...row }));
   let tools = TOOLS.map((row) => ({ ...row }));

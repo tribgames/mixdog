@@ -1,7 +1,3 @@
-// The Bots page's sections (Bots, Rooms, Agents under the pinned Mixy row):
-// no heading rows; the order lives in the SAME host-stored list as the bot
-// order (reserved `section:<id>` entries) and reaches every device.
-// Real components in jsdom, with a fake host.
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React, { act } from 'react';

@@ -1,8 +1,5 @@
-/** How a terminal pane reaches its PTY. A warm-up mount (rendered before its
- *  dock opens, e.g. on the toggle's hover) only attaches to a shell already
- *  running, never starting or changing one. The real open always runs the
- *  ensure, whatever the warm-up found: a shell it attached to can have exited
- *  since, and ensuring a live shell is idempotent (the same PTY answers). */
+/** How a terminal pane reaches its PTY: a warm-up mount only attaches to a
+ *  running shell; the real open always ensures (idempotent for a live shell). */
 export type TerminalConnectMode = 'attach' | 'ensure';
 
 export interface TerminalConnectGate {

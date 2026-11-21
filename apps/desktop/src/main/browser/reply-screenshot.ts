@@ -1,9 +1,3 @@
-/**
- * A screenshot in the reply is bound to the snapshot it was taken with, so
- * coordinates read off the image can be trusted against that snapshot id. A
- * page that changed between the two is refused; a full-page capture is
- * inspection only and binds nothing.
- */
 import type { WebContents } from 'electron';
 
 import { persistBrowserScreenshot } from '../frame-files';

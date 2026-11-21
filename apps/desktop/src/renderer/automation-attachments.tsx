@@ -13,10 +13,7 @@ import { canonicalPromptFileMimeType, MAX_PROMPT_FILE_BASE64_TOTAL, PDF_MIME_TYP
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 
-// Composer-parity attachments for automation editors (schedules/webhooks).
-// Persisted with the automation row (jsonb) and replayed on every fire as
-// composer-style content parts. Mirrors the runtime's
-// automation-attachments.mjs shape/limits.
+// Shape and limits mirror the runtime's automation-attachments.mjs.
 export type AutomationAttachment = {
   kind: 'image' | 'text' | 'pdf' | 'office';
   name: string;
@@ -67,6 +64,30 @@ async function fileBase64(file: File): Promise<string> {
   return url.slice(url.indexOf(',') + 1);
 }
 
+type BinaryCheck = { kind: AutomationAttachment['kind']; mimeType: string } | { error: string };
+
+async function checkBinaryFile(
+  file: File,
+  name: string,
+  imageType: string,
+  isPdf: boolean,
+  officeMime: string
+): Promise<BinaryCheck> {
+  if (imageType.startsWith('image/')) {
+    if (!SUPPORTED_IMAGE_TYPES.test(imageType) || file.size > MAX_IMAGE_FILE_BYTES) {
+      return { error: t('{{name}}: use PNG, JPEG, GIF, or WebP under 12 MB.', { name }) };
+    }
+    return { kind: 'image', mimeType: imageType };
+  }
+  if (isPdf) {
+    if (file.size > MAX_PDF_FILE_BYTES) return { error: t('{{name}}: PDFs must be under 20 MB.', { name }) };
+    if (!(await hasPdfHeader(file))) return { error: t('{{name}}: this file is not a valid PDF.', { name }) };
+    return { kind: 'pdf', mimeType: PDF_MIME_TYPE };
+  }
+  if (file.size > MAX_OFFICE_FILE_BYTES) return { error: t('{{name}}: Office files must be under 20 MB.', { name }) };
+  return { kind: 'office', mimeType: officeMime };
+}
+
 /** Read picked files into attachments, enforcing count/size caps against `existing`. */
 export async function readAutomationFiles(
   files: FileList | File[],
@@ -91,28 +112,8 @@ export async function readAutomationFiles(
     const imageType =
       extensionImage && (!mimeKind || mimeKind === 'application/octet-stream') ? extensionImage : mimeKind;
     if (imageType.startsWith('image/') || isPdf || officeMime) {
-      let kind: AutomationAttachment['kind'] = 'image';
-      let mimeType = imageType;
-      if (imageType.startsWith('image/')) {
-        if (!SUPPORTED_IMAGE_TYPES.test(imageType) || file.size > MAX_IMAGE_FILE_BYTES) {
-          return { attachments: next, error: t('{{name}}: use PNG, JPEG, GIF, or WebP under 12 MB.', { name }) };
-        }
-      } else if (isPdf) {
-        if (file.size > MAX_PDF_FILE_BYTES) {
-          return { attachments: next, error: t('{{name}}: PDFs must be under 20 MB.', { name }) };
-        }
-        if (!(await hasPdfHeader(file))) {
-          return { attachments: next, error: t('{{name}}: this file is not a valid PDF.', { name }) };
-        }
-        kind = 'pdf';
-        mimeType = PDF_MIME_TYPE;
-      } else {
-        if (file.size > MAX_OFFICE_FILE_BYTES) {
-          return { attachments: next, error: t('{{name}}: Office files must be under 20 MB.', { name }) };
-        }
-        kind = 'office';
-        mimeType = officeMime;
-      }
+      const checked = await checkBinaryFile(file, name, imageType, isPdf, officeMime);
+      if ('error' in checked) return { attachments: next, error: checked.error };
       const data = await fileBase64(file);
       binaryTotal += data.length;
       if (binaryTotal > MAX_PROMPT_FILE_BASE64_TOTAL) {
@@ -122,7 +123,7 @@ export async function readAutomationFiles(
           error: t('Image, PDF and Office attachments are too large together ({{max}} MB max).', { max }),
         };
       }
-      next.push({ kind, name, mimeType, data });
+      next.push({ kind: checked.kind, name, mimeType: checked.mimeType, data });
       continue;
     }
     if (await fileLooksLikeText(file)) {

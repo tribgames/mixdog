@@ -1,7 +1,3 @@
-// Which question the usage dialog answers when it opens: what was SPENT
-// (token usage) or how a subscription's quota was used up (subscription
-// usage). The last choice persists; a provider meter in the usage flyout opens
-// its own subscription and window directly.
 import { useCallback, useState } from 'react';
 
 export type UsageSurfaceMode = 'tokens' | 'quota' | 'requests';

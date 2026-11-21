@@ -1,9 +1,3 @@
-/**
- * What may run at the same time. Gestures on one page serialize behind each
- * other, named background pages get their own queue so independent research
- * runs in parallel, and observations overlap freely — a write still waits for
- * the reads already in flight, so it never lands mid-observation.
- */
 import { type BrowserCommand, type BrowserCommandResult, normalizeBrowserAction } from './host-types';
 import { queueBarrier, trackQueueTail, waitForBarrier, type QueueLedger } from './command-queue-barrier';
 import { commandQueueKey, type QueueKeyHost } from './command-queue-key';

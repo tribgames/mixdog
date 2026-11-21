@@ -1,8 +1,3 @@
-// Built-artifact checks: these read electron-vite output (out/), the staged
-// platform runtime (.runtime/) and the packaged installer payload (dist/), so
-// they run after a build — `verify:packaging-artifact` in desktop-package.yml —
-// never in the default discovery lane. Source-shape packaging invariants stay
-// in packaging.test.mjs.
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { access, lstat, open, readdir, readFile, stat } from 'node:fs/promises';
@@ -70,11 +65,7 @@ const MACHO_64 = 0xfeedfacf;
 const FAT_MAGIC = 0xcafebabe;
 const LC_SEGMENT_64 = 0x19;
 
-// Developer ID signing rewrites every Mach-O binary's __LINKEDIT segment (it
-// holds the code signature) and the load commands that size it, so a signed
-// macOS package can never match the staged file byte for byte. The code and
-// data segments must still be identical, which is what "emitted unchanged"
-// guards. Returns null for non-Mach-O files so callers fall back to bytes.
+// Developer ID signing rewrites __LINKEDIT and its load commands, so only the other segments are comparable.
 function machoSliceSegments(data, base, digest) {
   if (data.readUInt32LE(base) !== MACHO_64) return false;
   const commandCount = data.readUInt32LE(base + 16);

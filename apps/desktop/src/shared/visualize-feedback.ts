@@ -505,10 +505,6 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
     return { count: count, masks: overflow ? [] : masks, masksOverflow: overflow, anchor: anchorOf(area) };
   }
   function fraction(value) { return Math.round(Math.min(1, Math.max(0, value)) * 10000) / 10000; }
-  // The smallest element whose border box wholly holds a dragged area (body
-  // and html included, the overlay never), and the area as fractions of
-  // that box: the page draws the region from it, so it follows scroll and
-  // reflow.
   function anchorOf(area) {
     var right = area.x + area.width;
     var bottom = area.y + area.height;
@@ -746,10 +742,6 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
   addEventListener('click', function (event) {
     if (!state.comment) choose(event.target);
   }, true);
-  // A web link to another origin (or one asking for a new window): the panel
-  // window may not frame it and the pane may not open windows, so the panel
-  // opens it the way a chat link opens. Links the page handles itself, and
-  // its own pages, keep their default.
   addEventListener('click', function (event) {
     if (state.comment || event.defaultPrevented || event.button !== 0) return;
     var link = event.target && event.target.closest ? event.target.closest('a[href]') : null;

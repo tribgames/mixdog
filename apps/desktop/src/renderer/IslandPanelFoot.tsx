@@ -3,8 +3,7 @@ import type { ReactNode } from 'react';
 
 /** The composer island panels' footer row (agents, shell, branch), below the
  *  list: the panel's own line or actions on the left, its tidy action at the
- *  right end. One component so the three panels keep one layout. Renders
- *  nothing when it would hold nothing. */
+ *  right end. Renders nothing when it would hold nothing. */
 export function IslandPanelFoot({
   className,
   end,

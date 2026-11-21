@@ -1,8 +1,3 @@
-// Whether something sits over the conversation workspace so the user cannot
-// actually read it: an open modal (settings, onboarding, dialogs — the shared
-// dialog-modality owner already tracks those) or an expanded dock/browser/
-// terminal sheet filling the main panel. Surfaces that live in their own React
-// roots share this one module, so they report here instead of through props.
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { hasOpenModal, subscribeModals } from './settings/dialog-modality';
 

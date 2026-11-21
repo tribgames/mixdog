@@ -56,9 +56,16 @@ test('Browser viewport presets expose responsive fill and exact device frames', 
       height: 844,
     }
   );
-  // Retired device-named ids keep their size class.
+  assert.equal(resolveBrowserViewportPreset('unknown').id, 'responsive');
+});
+
+test('Retired device-named viewport ids keep their size class', () => {
   assert.equal(resolveBrowserViewportPreset('iphone-14').id, 'phone-390');
   assert.equal(resolveBrowserViewportPreset('pixel-7').id, 'phone-412');
+});
+
+test('Browser viewport emulation carries the preset device metrics', () => {
+  const iphone = resolveBrowserViewportPreset('phone-390');
   assert.deepEqual(browserViewportEmulation(iphone), {
     width: 390,
     height: 844,
@@ -68,6 +75,10 @@ test('Browser viewport presets expose responsive fill and exact device frames', 
     userAgent: iphone.userAgent,
   });
   assert.match(iphone.userAgent, /iPhone/);
+});
+
+test('Browser viewport zoom follows the preset and pane width', () => {
+  const iphone = resolveBrowserViewportPreset('phone-390');
   assert.equal(browserAutoFitZoom(720), 0.5);
   assert.equal(browserAutoFitZoom(1440), 1);
   const normal = resolveBrowserViewportPreset('responsive');
@@ -78,7 +89,6 @@ test('Browser viewport presets expose responsive fill and exact device frames', 
   assert.equal(browserViewportZoom(normal, 720, 1.25), 1.25);
   assert.equal(browserViewportZoom(resolveBrowserViewportPreset('fit'), 720), 0.5);
   assert.equal(browserViewportZoom(iphone, 720), 1);
-  assert.equal(resolveBrowserViewportPreset('unknown').id, 'responsive');
 });
 
 test('Browser viewport choice persists per session and fails closed to responsive', () => {

@@ -1,7 +1,3 @@
-/**
- * The agent `export` action's request-independent parts: its host deadline
- * and the result text describing the written file.
- */
 import { localizeProblemText } from './page-problems';
 
 /** Host-side deadline of an agent `export`; the bridge client's is longer. */

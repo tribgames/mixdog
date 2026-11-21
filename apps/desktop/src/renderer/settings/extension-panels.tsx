@@ -93,18 +93,10 @@ function saveSkillEnabled(run: PanelContext['run'], disabled: ReadonlySet<string
 
 const REMOVAL_IN_FLIGHT = Symbol('mcp-removal-in-flight');
 
-export function McpPanel({ data, pending, run, confirm, refreshExtensions, createOpen, closeCreate }: PanelContext) {
-  const status = record(data.mcp);
-  const oauthLogin = useMcpOAuthLogin({ run, refreshExtensions });
-  // A confirmed removal hides its row while the call is in flight. Once it
-  // resolves, the first MCP snapshot that arrives after that point is
-  // authoritative and drops the tombstone; a failed removal drops it at once.
-  // Each entry holds REMOVAL_IN_FLIGHT or the snapshot current at resolve.
+function useRemovalTombstones(snapshot: unknown) {
   const [removed, setRemoved] = useState<ReadonlyMap<string, unknown>>(() => new Map());
-  const latestMcp = useRef<unknown>(data.mcp);
-  const listed = rows(status, 'servers').filter((server) => server.source !== 'plugin');
-  const servers = listed.filter((server) => !removed.has(String(server.name)));
-  const busy = Boolean(pending);
+  const latest = useRef<unknown>(snapshot);
+  const markRemoving = (name: string) => setRemoved((current) => new Map(current).set(name, REMOVAL_IN_FLIGHT));
   const forgetRemoved = (name: string) =>
     setRemoved((current) => {
       if (!current.has(name)) return current;
@@ -114,15 +106,25 @@ export function McpPanel({ data, pending, run, confirm, refreshExtensions, creat
     });
   const settleRemoved = (name: string) =>
     setRemoved((current) =>
-      current.get(name) === REMOVAL_IN_FLIGHT ? new Map(current).set(name, latestMcp.current) : current
+      current.get(name) === REMOVAL_IN_FLIGHT ? new Map(current).set(name, latest.current) : current
     );
   useEffect(() => {
-    latestMcp.current = data.mcp;
+    latest.current = snapshot;
     setRemoved((current) => {
-      const next = new Map([...current].filter(([, seen]) => seen === REMOVAL_IN_FLIGHT || seen === data.mcp));
+      const next = new Map([...current].filter(([, seen]) => seen === REMOVAL_IN_FLIGHT || seen === snapshot));
       return next.size === current.size ? current : next;
     });
-  }, [data.mcp]);
+  }, [snapshot]);
+  return { removed, markRemoving, forgetRemoved, settleRemoved };
+}
+
+export function McpPanel({ data, pending, run, confirm, refreshExtensions, createOpen, closeCreate }: PanelContext) {
+  const status = record(data.mcp);
+  const oauthLogin = useMcpOAuthLogin({ run, refreshExtensions });
+  const { removed, markRemoving, forgetRemoved, settleRemoved } = useRemovalTombstones(data.mcp);
+  const listed = rows(status, 'servers').filter((server) => server.source !== 'plugin');
+  const servers = listed.filter((server) => !removed.has(String(server.name)));
+  const busy = Boolean(pending);
   const [editor, setEditor] = useState<{ name: string; server: RecordValue | null } | null>(null);
   const openName = editor?.name || '';
   const openServer = editor?.server || null;
@@ -149,7 +151,7 @@ export function McpPanel({ data, pending, run, confirm, refreshExtensions, creat
       danger: true,
       onConfirm: async () => {
         setEditor((current) => (current?.name === name ? null : current));
-        setRemoved((current) => new Map(current).set(name, REMOVAL_IN_FLIGHT));
+        markRemoving(name);
         const result = await run('removeMcpServer', [name]);
         if (result === undefined) forgetRemoved(name);
         else settleRemoved(name);
@@ -483,9 +485,6 @@ function PluginDetailDialog({
   const mcpProblems = pluginMcpProblems(open, servers);
   const pluginOn = open.enabled !== false;
   const contents = servers.length;
-  // Footer keeps the plugin's real actions only — Remove (parked left) and
-  // Update. Its MCP servers appear on their own from its declarations; the
-  // root path and MCP names sit in Info as selectable text.
   return (
     <ExtensionDetailDialog
       className="extensions-plugin-detail-dialog"
@@ -677,8 +676,4 @@ export function PluginExtensionsPanel(context: PanelContext) {
       <PluginsPanel {...context} />
     </>
   );
-}
-
-export function SkillExtensionsPanel(context: PanelContext) {
-  return <McpPanel {...context} />;
 }

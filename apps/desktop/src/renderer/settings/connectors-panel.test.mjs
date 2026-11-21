@@ -1,7 +1,3 @@
-// Extensions → 커넥터: every item kind lands in one group, a paste is
-// detected without running anything, the one-click OAuth row walks its
-// states, 연결 해제 is not uninstall, the server id is immutable, and no skill
-// is listed anywhere on the two tabs.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -298,8 +294,7 @@ test('the catalog OAuth row goes 연결 → browser sign-in → 연결됨, and a
 const rowOf = (scope, id) => scope.querySelector(`[data-connector-row="${id}"]`);
 const settle = (ms = 0) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
 
-test('one row state: a server the host reports connected ends a pending sign-in (never 연결됨 beside 취소)', async () => {
-  // The model alone: every combination of the two sources.
+test('one row state is derived from the host server and the sign-in session together', () => {
   const pending = { phase: 'browser', mode: 'connect' };
   const connected = { name: 'gmail', connected: true };
   assert.deepEqual(
@@ -315,9 +310,9 @@ test('one row state: a server the host reports connected ends a pending sign-in 
   assert.equal(connectorRowView({ enabled: false }, null).status, 'disabled');
   assert.equal(connectorRowView({ authRequired: true, oauth: { signedIn: true } }, null).status, 'needs-reauth');
   assert.equal(connectorRowView({ authRequired: true, oauth: { signedIn: false } }, null).status, 'needs-connect');
+});
 
-  // The repro: Gmail's sign-in still pending here while the host already
-  // reports it connected.
+test('a server the host reports connected ends a pending sign-in (never 연결됨 beside 취소)', async () => {
   const gmail = {
     name: 'gmail',
     connector: 'gmail',
@@ -556,8 +551,8 @@ test('the server id is immutable in the editor; a plugin config is read-only', a
   await owned.unmount();
 });
 
-test('several Gmail accounts side by side: each is its own server, shown with its address, disconnected on its own', async () => {
-  const gmail = {
+const gmailPair = () => [
+  {
     name: 'gmail',
     connector: 'gmail',
     enabled: true,
@@ -565,8 +560,8 @@ test('several Gmail accounts side by side: each is its own server, shown with it
     status: 'connected',
     source: 'config',
     oauth: { signedIn: true, account: 'work@example.com' },
-  };
-  const second = {
+  },
+  {
     name: 'gmail-2',
     connector: 'gmail',
     enabled: true,
@@ -574,8 +569,11 @@ test('several Gmail accounts side by side: each is its own server, shown with it
     status: 'connected',
     source: 'config',
     appPassword: { account: 'me@gmail.com' },
-  };
-  const live = [gmail, second];
+  },
+];
+
+test('several Gmail accounts side by side: each is its own server, the first read by single-account consumers', () => {
+  const live = gmailPair();
   const groups = groupConnectors(live, []);
   const row = groups.catalog.find((item) => item.entry.id === 'gmail');
   assert.deepEqual(
@@ -583,8 +581,10 @@ test('several Gmail accounts side by side: each is its own server, shown with it
     ['gmail', 'gmail-2']
   );
   assert.equal(row.server.name, 'gmail', 'single-account consumers still read the first server');
+});
 
-  // Another account: a new server with its own sign-in URL, the first untouched.
+test('Gmail takes no new Google sign-in; an app-password address already connected is reconnected, not duplicated', async () => {
+  const live = gmailPair();
   calls.length = 0;
   handlers = {
     mcpStatus: () => ({ servers: live }),
@@ -613,8 +613,14 @@ test('several Gmail accounts side by side: each is its own server, shown with it
   );
   assert.ok(!calls.some(([capability]) => capability === 'addMcpServer'));
   assert.equal(calls.find(([capability]) => capability === 'saveMcpServer')[1][0].originalName, 'gmail-2');
+});
 
-  // The detail lists both accounts; 연결 해제 on one removes only that server.
+test('the Gmail detail lists both accounts by address; 연결 해제 on one removes only that server', async () => {
+  const live = gmailPair();
+  handlers = {
+    mcpStatus: () => ({ servers: live }),
+    removeMcpServer: () => ({ signIn: 'removed', revoked: false }),
+  };
   calls.length = 0;
   const pane = await render(
     React.createElement(CategoryPanel, {
@@ -648,8 +654,8 @@ test('several Gmail accounts side by side: each is its own server, shown with it
   await pane.unmount();
 });
 
-test('one Gmail server holding several accounts: one row per account, each added, reconnected and removed by its name', async () => {
-  const gmail = {
+const gmailMultiAccount = () => [
+  {
     name: 'gmail',
     connector: 'gmail',
     enabled: true,
@@ -667,8 +673,11 @@ test('one Gmail server holding several accounts: one row per account, each added
         error: 'GMAIL_APP_PASSWORD_MISSING: x',
       },
     ],
-  };
-  const live = [gmail];
+  },
+];
+
+test('one Gmail server holding several accounts: one account row each, a failing one keeps its own state', () => {
+  const live = gmailMultiAccount();
   const row = groupConnectors(live, []).catalog.find((item) => item.entry.id === 'gmail');
   assert.deepEqual(
     row.servers.map((account) => [account.name, account.server, account.connected, account.appPassword.account]),
@@ -680,7 +689,10 @@ test('one Gmail server holding several accounts: one row per account, each added
   );
   assert.equal(row.servers[2].status, 'failed', 'a failing account keeps its own state');
   assert.equal(row.servers[1].accounts, undefined);
+});
 
+test('a Gmail address is reconnected by its account name, a new address is added by the host', async () => {
+  const live = gmailMultiAccount();
   calls.length = 0;
   handlers = {
     mcpStatus: () => ({ servers: live }),
@@ -711,7 +723,14 @@ test('one Gmail server holding several accounts: one row per account, each added
     appPassword: 'abcdwxyzabcdwxyz',
   });
   assert.ok(!calls.some(([capability]) => capability === 'addMcpServer'));
+});
 
+test('the multi-account Gmail detail has one ⋯ menu per account; disconnect removes only that account', async () => {
+  const live = gmailMultiAccount();
+  handlers = {
+    mcpStatus: () => ({ servers: live }),
+    removeMcpServer: () => ({ signIn: 'removed', revoked: false }),
+  };
   calls.length = 0;
   const pane = await render(
     React.createElement(CategoryPanel, {
@@ -1007,7 +1026,7 @@ test('without the built-in Google client a second account asks for a key first a
   await pane.unmount();
 });
 
-test('a connector with accounts opens its detail even when its first account needs a sign-in; each account connects on its own', async () => {
+const needsSignInAccounts = () => {
   const calendar = {
     name: 'google-calendar',
     connector: 'google-calendar',
@@ -1032,12 +1051,18 @@ test('a connector with accounts opens its detail even when its first account nee
       { name: 'gm-b', appPassword: { account: 'work@gmail.com' } },
     ],
   };
-  const live = [calendar, gmail];
-  const groups = groupConnectors(live, []);
+  return [calendar, gmail];
+};
+
+test('a connector whose first account needs a sign-in still reads that account as needs-connect', () => {
+  const groups = groupConnectors(needsSignInAccounts(), []);
   const first = (id) => groups.catalog.find((row) => row.entry.id === id).servers[0];
   assert.equal(connectorRowView(first('google-calendar'), null).status, 'needs-connect');
   assert.equal(connectorRowView(first('gmail'), null).status, 'needs-connect');
+});
 
+async function renderNeedsSignInPane() {
+  const live = needsSignInAccounts();
   calls.length = 0;
   handlers = {
     mcpStatus: () => ({ servers: live }),
@@ -1051,7 +1076,11 @@ test('a connector with accounts opens its detail even when its first account nee
       context: panelContext({ data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] } }),
     })
   );
-  // Calendar: the row opens the detail (no sign-in starts), listing both accounts.
+  return pane;
+}
+
+test('a Calendar connector with an account needing sign-in opens its detail; only that account connects', async () => {
+  const pane = await renderNeedsSignInPane();
   await click(rowOf(pane.host, 'google-calendar').querySelector('.extensions-row-open'));
   await settle();
   const detail = document.body.querySelector('.connectors-detail-dialog');
@@ -1068,9 +1097,11 @@ test('a connector with accounts opens its detail even when its first account nee
   await settle();
   assert.deepEqual(calls.find(([capability]) => capability === 'beginMcpOAuthLogin')[1], ['work-cal']);
   cancelConnectorLogin('work-cal');
-  await click(button(detail, 'Close'));
+  await pane.unmount();
+});
 
-  // Gmail: the same, and its account connects with its app password.
+test('a Gmail account needing sign-in connects with its app password from the detail', async () => {
+  const pane = await renderNeedsSignInPane();
   await click(rowOf(pane.host, 'gmail').querySelector('.extensions-row-open'));
   await settle();
   const gmailDetail = document.body.querySelector('.connectors-detail-dialog');
@@ -1108,7 +1139,7 @@ test('a custom MCP server cannot take a connector account name; the refusal name
   await create.unmount();
 });
 
-test('every catalog connector shows + Add account; "In use" marks only the inUse account; no single-account hint', async () => {
+async function renderInUsePane() {
   const live = [
     {
       name: 'notion',
@@ -1146,6 +1177,11 @@ test('every catalog connector shows + Add account; "In use" marks only the inUse
       context: panelContext({ data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] } }),
     })
   );
+  return pane;
+}
+
+test('"In use" marks only the inUse account; no single-account hint', async () => {
+  const pane = await renderInUsePane();
   await click(rowOf(pane.host, 'notion').querySelector('.extensions-row-open'));
   const dialog = document.body.querySelector('.connectors-detail-dialog');
   const items = [...dialog.querySelectorAll('.extensions-item')];
@@ -1153,8 +1189,11 @@ test('every catalog connector shows + Add account; "In use" marks only the inUse
   assert.equal(items[0].querySelector('.connectors-in-use'), null);
   assert.equal(items[1].querySelector('.connectors-in-use').textContent, 'In use');
   assert.doesNotMatch(dialog.textContent, /no documented way to ask for another account/);
-  await click(button(dialog, 'Close'));
+  await pane.unmount();
+});
 
+test('a connector with one account shows + Add account, which starts a second account sign-in', async () => {
+  const pane = await renderInUsePane();
   await click(rowOf(pane.host, 'linear').querySelector('.extensions-row-open'));
   const single = document.body.querySelector('.connectors-detail-dialog');
   assert.doesNotMatch(single.textContent, /no documented way to ask for another account/);

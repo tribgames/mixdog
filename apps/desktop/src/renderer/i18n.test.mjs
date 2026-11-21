@@ -148,11 +148,7 @@ test('the bundled workflow description is translated in every supported UI langu
   }
 });
 
-test('every developer option string the core declares is translated in every supported UI language', () => {
-  const source = readFileSync(
-    new URL('../../../../native/core/crates/mixdog-core-config/src/config/settings.rs', import.meta.url),
-    'utf8'
-  );
+function developerOptionStrings(source) {
   const STRING = /^"((?:[^"\\]|\\.)*)"$/;
   // The strings of `const NAME: &str = "...";`, so a field may name one.
   const constants = Object.fromEntries(
@@ -217,6 +213,16 @@ test('every developer option string the core declares is translated in every sup
   }
   assert.ok(strings.has('Show Devin OAuth in Providers and the model picker.'));
   assert.ok(strings.has('Providers') && strings.has('Approvals') && strings.has(constants.OAUTH_RISK_WARNING));
+  return strings;
+}
+
+test('every developer option string the core declares is translated in every supported UI language', () => {
+  const strings = developerOptionStrings(
+    readFileSync(
+      new URL('../../../../native/core/crates/mixdog-core-config/src/config/settings.rs', import.meta.url),
+      'utf8'
+    )
+  );
   for (const [language, catalog] of catalogs) {
     for (const key of strings) {
       assert.equal(typeof catalog[key], 'string', `${language}: missing developer option text "${key}"`);

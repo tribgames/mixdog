@@ -1,7 +1,3 @@
-// The phone's pending bubble is released by the stored row's id, which Node sets to the submission id
-// (transcript-intake.mjs `pushUserOrSyntheticItem(text, id)`; conversation-prompt-items.ts `pendingPromptTranscriptItems`
-// releases `settledIds.has(String(item.id))`). The core's user item names the submission as `clientSubmissionId`; the shared fold
-// (`rowOf`) must make it the row's id, so the match holds without the ordinal fallback.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { pendingPromptTranscriptItems } from './conversation-prompt-items.ts';

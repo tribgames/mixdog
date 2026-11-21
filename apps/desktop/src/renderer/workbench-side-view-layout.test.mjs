@@ -550,13 +550,17 @@ test('visited side groups stay retained while removed groups are pruned', () => 
   ]);
 });
 
-test('the whole activity bar accepts a drag and drops after the last icon', async () => {
+function iconBarHarness(t) {
   const { dom, restore } = installTestDom(null, {
     jsdom: { url: 'http://localhost/' },
     expose: ['navigator', 'Element', 'HTMLElement'],
   });
 
   const root = createRoot(document.getElementById('root'));
+  t.after(async () => {
+    await act(async () => root.unmount());
+    restore();
+  });
   const moves = [];
   const Icon = () => React.createElement('span');
   const descriptors = new Map([
@@ -585,73 +589,11 @@ test('the whole activity bar accepts a drag and drops after the last icon', asyn
     Object.defineProperty(event, 'clientY', { value: clientY });
     return event;
   };
-
-  try {
-    await act(async () =>
+  const renderBar = (side) =>
+    act(async () =>
       root.render(
         React.createElement(WorkbenchSideIconBar, {
-          side: 'left',
-          groups: [['projects'], ['extensions']],
-          activeRoot: 'projects',
-          descriptors,
-          orientation: 'vertical',
-          onSelect() {},
-          onMoveGroup(...args) {
-            moves.push(args);
-          },
-          onMoveView() {},
-        })
-      )
-    );
-    const bar = document.querySelector('.workbench-side-icon-bar');
-    const buttons = [...bar.querySelectorAll('button')];
-    assert.equal(buttons.length, 2);
-    buttons[0].getBoundingClientRect = () => ({
-      x: 0,
-      y: 0,
-      top: 0,
-      right: 48,
-      bottom: 48,
-      left: 0,
-      width: 48,
-      height: 48,
-      toJSON() {},
-    });
-    buttons[1].getBoundingClientRect = () => ({
-      x: 0,
-      y: 48,
-      top: 48,
-      right: 48,
-      bottom: 96,
-      left: 0,
-      width: 48,
-      height: 48,
-      toJSON() {},
-    });
-
-    await act(async () => {
-      buttons[0].dispatchEvent(dragEvent('dragstart', 24));
-    });
-    const over = dragEvent('dragover', 130);
-    await act(async () => {
-      bar.dispatchEvent(over);
-    });
-    assert.equal(over.defaultPrevented, true);
-    assert.equal(dataTransfer.dropEffect, 'move');
-    assert.equal(buttons[1].dataset.dropPosition, 'after');
-
-    await act(async () => {
-      bar.dispatchEvent(dragEvent('drop', 130));
-    });
-    assert.deepEqual(moves, [['projects', 'left', 'extensions', 'after']]);
-
-    // The same bar on the right belongs to the pane: its icons cannot be
-    // picked up and a drop landing there changes nothing.
-    moves.length = 0;
-    await act(async () =>
-      root.render(
-        React.createElement(WorkbenchSideIconBar, {
-          side: 'right',
+          side,
           groups: [['projects'], ['extensions']],
           activeRoot: 'projects',
           descriptors,
@@ -666,26 +608,73 @@ test('the whole activity bar accepts a drag and drops after the last icon', asyn
         })
       )
     );
-    const rightBar = document.querySelector('.workbench-side-icon-bar');
-    const rightButtons = [...rightBar.querySelectorAll('button')];
-    assert.equal(
-      rightButtons.some((button) => button.draggable),
-      false
-    );
-    const rightOver = dragEvent('dragover', 130);
-    await act(async () => {
-      rightBar.dispatchEvent(rightOver);
-      rightBar.dispatchEvent(dragEvent('drop', 130));
-    });
-    assert.equal(rightOver.defaultPrevented, false);
-    assert.deepEqual(moves, []);
-  } finally {
-    await act(async () => root.unmount());
-    restore();
-  }
+  return { moves, dragEvent, dataTransfer, renderBar };
+}
+
+test('the whole activity bar accepts a drag and drops after the last icon', async (t) => {
+  const { moves, dragEvent, dataTransfer, renderBar } = iconBarHarness(t);
+  await renderBar('left');
+  const bar = document.querySelector('.workbench-side-icon-bar');
+  const buttons = [...bar.querySelectorAll('button')];
+  assert.equal(buttons.length, 2);
+  buttons[0].getBoundingClientRect = () => ({
+    x: 0,
+    y: 0,
+    top: 0,
+    right: 48,
+    bottom: 48,
+    left: 0,
+    width: 48,
+    height: 48,
+    toJSON() {},
+  });
+  buttons[1].getBoundingClientRect = () => ({
+    x: 0,
+    y: 48,
+    top: 48,
+    right: 48,
+    bottom: 96,
+    left: 0,
+    width: 48,
+    height: 48,
+    toJSON() {},
+  });
+
+  await act(async () => {
+    buttons[0].dispatchEvent(dragEvent('dragstart', 24));
+  });
+  const over = dragEvent('dragover', 130);
+  await act(async () => {
+    bar.dispatchEvent(over);
+  });
+  assert.equal(over.defaultPrevented, true);
+  assert.equal(dataTransfer.dropEffect, 'move');
+  assert.equal(buttons[1].dataset.dropPosition, 'after');
+
+  await act(async () => {
+    bar.dispatchEvent(dragEvent('drop', 130));
+  });
+  assert.deepEqual(moves, [['projects', 'left', 'extensions', 'after']]);
 });
 
-test('a controlled resize reports preview, commit and cancel as distinct phases', async (t) => {
+test('the right activity bar belongs to the pane: its icons cannot be picked up and a drop changes nothing', async (t) => {
+  const { moves, dragEvent, renderBar } = iconBarHarness(t);
+  await renderBar('right');
+  const bar = document.querySelector('.workbench-side-icon-bar');
+  assert.equal(
+    [...bar.querySelectorAll('button')].some((button) => button.draggable),
+    false
+  );
+  const over = dragEvent('dragover', 130);
+  await act(async () => {
+    bar.dispatchEvent(over);
+    bar.dispatchEvent(dragEvent('drop', 130));
+  });
+  assert.equal(over.defaultPrevented, false);
+  assert.deepEqual(moves, []);
+});
+
+async function mountControlledResize(t) {
   const { root, document, window } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'Element'] });
   window.Element.prototype.setPointerCapture = () => {};
   window.Element.prototype.releasePointerCapture = () => {};
@@ -716,17 +705,24 @@ test('a controlled resize reports preview, commit and cancel as distinct phases'
     Object.defineProperty(event, 'pointerId', { value: 1 });
     handle.dispatchEvent(event);
   };
+  return { calls, fire };
+}
+
+test('a controlled resize aborted by pointercancel reports preview then cancel', async (t) => {
+  const { calls, fire } = await mountControlledResize(t);
   await act(async () => {
     fire('pointerdown', 100);
     fire('pointermove', 60);
     fire('pointercancel', 60);
   });
-  // Cancel carries the rendered width only as information: the owner restores its own snapshot.
   assert.deepEqual(
     calls.map(([, phase]) => phase),
     ['preview', 'cancel']
   );
-  calls.length = 0;
+});
+
+test('a controlled resize released by pointerup reports preview then commit at the dragged width', async (t) => {
+  const { calls, fire } = await mountControlledResize(t);
   await act(async () => {
     fire('pointerdown', 100);
     fire('pointermove', 60);

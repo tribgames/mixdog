@@ -1,7 +1,3 @@
-// A click on a row of the panel's Elements list asks the Comment layer of that
-// pane to start a pin on the row's element. The request is a single pending
-// slot that only the panel itself fills (from a trusted click) and only the
-// matching Comment layer takes, once and while still fresh.
 import { useSyncExternalStore } from 'react';
 
 export interface VisualizeElementPinRequest {

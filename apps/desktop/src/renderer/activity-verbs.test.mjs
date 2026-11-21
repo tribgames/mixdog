@@ -90,20 +90,32 @@ test('the verb pool follows the active language and updates on a switch', async 
   try {
     await i18n.changeLanguage('en');
     assert.equal(activityVerbPool(), SPINNER_VERBS);
-    assert.equal(reconnectActivityVerb('Connection lost · retry 1/3 in 15s'), 'Connection lost · retry 1/3 in 15s');
     assert.equal(thinkingEffortLabel('High'), 'Thinking (High)');
     await switchLanguage('ko');
     assert.equal(activityVerbPool(), LOCALIZED_ACTIVITY_VERBS);
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+});
+
+test('reconnect text keeps English as authored and localizes the counter and an advised wait', async () => {
+  try {
+    await i18n.changeLanguage('en');
+    assert.equal(reconnectActivityVerb('Connection lost · retry 1/3 in 15s'), 'Connection lost · retry 1/3 in 15s');
+    await switchLanguage('ko');
     assert.equal(reconnectActivityVerb('Reconnecting... 2/3'), `${catalog('ko')['Reconnecting…']} 2/3`);
-    // A server-advised wait keeps its remaining time instead of a bare counter.
     assert.equal(
       reconnectActivityVerb('Rate limited by the provider · retry 1/5 in 210s'),
       '다시 연결하는 중… 1/5 · 3분 30초 후 다시 시도'
     );
-    // The status line repaints once a second with the SAME published verb and
-    // wait; the wait is anchored to this clock on first sight and recounted on
-    // every repaint. The runtime's clock is never compared to this one, so a
-    // client whose clock runs 5 minutes behind (or ahead) counts the same.
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+});
+
+test('a reconnect countdown anchors to the local clock whatever the runtime clock skew', async () => {
+  try {
+    await switchLanguage('ko');
     const published = 'Rate limited by the provider · retry 1/5 in 210s';
     const runtimeRetryAt = 9_000_000 + 210_000;
     for (const skew of [0, -300_000, 300_000]) {
@@ -125,12 +137,28 @@ test('the verb pool follows the active language and updates on a switch', async 
       assert.equal(paint(start + 205_500), '다시 연결하는 중… 1/5 · 5초 후 다시 시도', `skew ${skew}`);
       assert.equal(paint(start + 210_001), `${catalog('ko')['Reconnecting…']} 1/5`, `skew ${skew}`);
     }
-    // A later publication of the same retry (fresher retryInMs) keeps the anchor.
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+});
+
+test('a later publication of the same retry keeps its anchor', async () => {
+  try {
+    await switchLanguage('ko');
+    const published = 'Rate limited by the provider · retry 1/5 in 210s';
     const late = (now, retryInMs) =>
       activityVerb({ mode: 'reconnecting', runtimeVerb: published, retryKey: 'late', retryInMs, anchor: 1, now });
     assert.equal(late(100_000, 60_000), '다시 연결하는 중… 1/5 · 1분 후 다시 시도');
     assert.equal(late(101_000, 59_000), '다시 연결하는 중… 1/5 · 59초 후 다시 시도');
+  } finally {
     await i18n.changeLanguage('en');
+  }
+});
+
+test('English reconnect text recounts the wait locally', async () => {
+  try {
+    await i18n.changeLanguage('en');
+    const published = 'Rate limited by the provider · retry 1/5 in 210s';
     const english = (now) =>
       activityVerb({
         mode: 'reconnecting',
@@ -143,10 +171,15 @@ test('the verb pool follows the active language and updates on a switch', async 
     assert.equal(english(1_000), 'Rate limited by the provider · retry 1/5 in 210s');
     assert.equal(english(2_000), 'Rate limited by the provider · retry 1/5 in 209s');
     assert.equal(english(211_000), 'Rate limited by the provider · retry 1/5');
-    await switchLanguage('ko');
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+});
+
+test('state-mode verbs follow the active language and never come from the pool', async () => {
+  try {
     await switchLanguage('ja');
     assert.equal(activityVerb({ mode: 'resuming', anchor: 1, now: 1 }), catalog('ja')['Resuming conversation']);
-    // A request waiting for its headers reads as the model thinking, not a pool verb.
     assert.equal(activityVerb({ mode: 'model-thinking', anchor: 1, now: 1 }), catalog('ja')['Model thinking']);
     i18n.addResourceBundle('de', 'translation', catalog('de'));
     await i18n.changeLanguage('de');

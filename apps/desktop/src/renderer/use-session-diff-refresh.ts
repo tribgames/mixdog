@@ -11,11 +11,6 @@ import {
 import { useTurnChangesEpoch } from './turn-changes-model';
 
 const SIGNAL_DEBOUNCE_MS = 150;
-/** The signal a read now running will answer (others join it, not repeat it);
- *  removed when that read settles. The signal a session's last SUCCESSFUL read
- *  answered lives in the session-diff cache (bounded with it): a signal stays
- *  dirty until a read that started after it has landed, so a failed read is
- *  retried on the next focus / visibility / request. */
 const readingSignal = new Map<string, string>();
 
 export function useSessionDiffRefresh({
@@ -26,7 +21,6 @@ export function useSessionDiffRefresh({
   sessionId: string;
   active: boolean;
   revision: string;
-  busy?: boolean;
 }) {
   const [state, setState] = useState(() => ({
     sessionId,

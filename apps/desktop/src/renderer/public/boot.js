@@ -121,11 +121,6 @@ function bootT(key) {
   return (BOOT_UI_CATALOGS[mixdogUiLanguage] || {})[key] || key;
 }
 
-// Every browser lays out at device-width in native CSS pixels: phones, tablets
-// and PC browsers alike (a fixed desktop width cannot shrink onto a portrait
-// tablet). The phone LAYOUT marker comes from the classifier mobile-surface.ts
-// also uses (shared/surface-class.ts, prepended above), so the first paint
-// already has the layout the mounted app keeps.
 var mixdogSurface = null;
 if (!/Electron/i.test(navigator.userAgent)) {
   mixdogSurface = readSurfaceProbe(navigator, window);
@@ -163,14 +158,6 @@ try {
   /* default dark */
 }
 
-// First-paint skin and user theme. The bundle paints both only after it has
-// run, so the first frame was the default theme (and a skin's picture arrived
-// before its plates). skin-boot-snapshot.ts records what the bundle set on
-// <html> (attributes, --mx-skin-* values, the user theme's style sheet text);
-// replaying it here, before anything paints, makes the bundle's later paint a
-// no-op. mixdogBootSig (this build's chunk list) and mixdogThemeInputs (what the
-// appearance above is resolved from) tell a record made for another build or
-// another appearance apart: such a record is ignored, never half-applied.
 var mixdogBootSig = '';
 try {
   const mixdogSigHost = document.getElementById('mixdog-first-screen');
@@ -314,17 +301,6 @@ if (/Electron/i.test(navigator.userAgent)) {
   }
 }
 
-// The installed web app has no equivalent of the desktop's hidden window:
-// rendererReady is a no-op over the relay, so the browser painted every step of
-// the launch in sequence — unstyled document, first React frame in fallback
-// glyphs, then the restored layout landing on top (user: 웹앱 처음 들어갈 때
-// 화면이 툭툭 튄다). Hold #root behind the window band until the renderer
-// reports a settled first frame, and move the build's first-screen hints into
-// the head so the stylesheet, React and the app bundle are fetched together
-// instead of one relay round trip at a time (user: 늦게 생성되기도 하고).
-// A browser tab that connected directly (mark set by mobile-surface.ts) runs
-// the same app, so it gets the same gate; a tab that only shows the old-host
-// install guide pays for neither.
 var mixdogInstalledApp = false;
 try {
   mixdogInstalledApp =
@@ -357,20 +333,13 @@ if (mixdogInstalledApp) {
     if (mixdogHint.hasAttribute('fetchpriority')) {
       mixdogLink.setAttribute('fetchpriority', mixdogHint.getAttribute('fetchpriority'));
     }
-    // Resolved against the DOCUMENT: a template's contents carry no base of
-    // their own, and the bundle's module-preload helper skips a dependency only
-    // when an existing link's href ATTRIBUTE equals the absolute URL it
-    // resolved — a relative one here would load every chunk twice.
+    // The bundle's module-preload helper skips a dependency only when a link's href attribute equals the absolute URL.
     mixdogLink.href = new URL(mixdogHint.getAttribute('href'), document.baseURI).href;
     document.head.appendChild(mixdogLink);
   }
   const mixdogGate = document.createElement('style');
   mixdogGate.id = 'mixdog-boot-gate';
-  // --mx-window-band of each theme (desktop/01-tokens.css) — the gate paints
-  // the color the settled app keeps, so releasing it never changes the backdrop.
-  // A recorded skin or user theme already painted above: the gate then holds
-  // the window in THEIR colours (the skin's picture under its frame and veil
-  // plates, never bare; the user theme's band), not the built-in ones.
+  // Colours: --mx-window-band of each theme in desktop/01-tokens.css.
   const mixdogGateBand = mixdogLight ? '#f7f7f7' : '#181818';
   mixdogGate.textContent =
     'html[data-mixdog-booting]{background:' +
@@ -440,11 +409,6 @@ if (mixdogInstalledApp) {
   observer.observe(document.documentElement, { childList: true, subtree: true });
   function overlay() {
     if (!deadlineReached || !document.body || settled || hasStarted()) return;
-    // A browser tab never mounts the app: remote-shim draws the install guide
-    // (or the approval wait) beside #root, so an empty root there is the
-    // expected state, not a bundle that failed. Painting the failure overlay
-    // over that guide after the timer is what the user saw as "No error
-    // captured" a few seconds after the guide appeared.
     if (document.getElementById('mixdog-remote-pairing')) {
       clearOverlay();
       return;
@@ -452,6 +416,7 @@ if (mixdogInstalledApp) {
     // The boot gate hides #root, so a failure message must not sit behind a
     // reveal that will never arrive.
     if (window.mixdogRevealApp) window.mixdogRevealApp();
+    var div = document.getElementById('mixdog-boot-error');
     var div = document.getElementById('mixdog-boot-error');
     if (!div) {
       div = document.createElement('div');
@@ -523,21 +488,10 @@ if (mixdogInstalledApp) {
     'error',
     (event) => {
       var target = event.target;
-      // Only a shell chunk (script or stylesheet) failing says the boot broke.
-      // A media thumbnail that cannot load (Studio's mixdog-media assets) is
-      // the page's own business: counting each one as a "missing chunk"
-      // reloaded the window once per image, forever (user: 무한으로 깜빡).
       if (target && target !== window && target.tagName !== 'SCRIPT' && target.tagName !== 'LINK') return;
       if (target && target !== window && (target.src || target.href)) {
         errors.push('failed to load: ' + (target.src || target.href));
-        // The worker answers this document from its last copy, so a launch that
-        // follows a deploy can name chunks that deploy removed. Drop the cached
-        // shell and reload ONCE per missing chunk — the network copy names live
-        // chunks. The record is keyed by the URL that failed, not by the tab:
-        // Safari keeps a tab's sessionStorage for weeks, and a tab-wide flag
-        // from one earlier recovery skipped every later deploy straight to this
-        // overlay (user: qr로 연동하려고하니 저게뜸). A genuinely broken build
-        // fails on the SAME url twice and still stops here.
+        // Safari keeps sessionStorage for weeks, so the recovery record is keyed by the failed URL, not the tab.
         try {
           const failedUrl = String(target.src || target.href);
           if (sessionStorage.getItem('mixdog.shell-recovered') !== failedUrl && window.caches) {

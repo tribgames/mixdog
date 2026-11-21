@@ -1,7 +1,3 @@
-// "Open in the system browser" on a paired device. A loopback address
-// (`http://localhost:5173`, `127.0.0.1`, `[::1]`) names the PC the agent runs
-// on; this device's own browser would reach itself instead. Such an address
-// opens in the PC's browser, streamed into the conversation's browser panel.
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
 import { t } from './i18n';
 

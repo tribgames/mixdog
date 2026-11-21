@@ -1,7 +1,3 @@
-// The guided LibreOffice install started from a failed Office preview. It lives
-// at module level so leaving the pane mid-install neither cancels it nor loses
-// its outcome: a pane opened later reads the same state, and every pane that is
-// open when the install succeeds retries its own preview.
 import { useSyncExternalStore } from 'react';
 import { readDesktopStatus, recordDesktopStatus, subscribeDesktopStatus } from './settings/desktop-status-cache';
 import { errorMessageText } from './ErrorNotice';
@@ -38,10 +34,6 @@ subscribeDesktopStatus((key, value, previous) => {
 const REFRESH_THROTTLE_MS = 3000;
 let lastRefreshAt = Number.NEGATIVE_INFINITY;
 
-/** Re-reads the Office engine status (an install done outside Mixdog records no
- *  change by itself). A newly installed engine reaches the open failed previews
- *  through the cache subscription above. Throttled: activation and window focus
- *  can fire back to back. */
 export function refreshOfficeAvailability(api: typeof window.mixdogDesktop): void {
   const now = Date.now();
   if (now - lastRefreshAt < REFRESH_THROTTLE_MS) return;

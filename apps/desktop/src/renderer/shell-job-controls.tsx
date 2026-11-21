@@ -19,6 +19,21 @@ type ShellKind = 'stop' | 'release';
 // the survivors), so it stays visible instead of turning into a release.
 type ShellRequest = { kind: ShellKind; state: NonNullable<ShellStopState>; held?: boolean };
 
+async function requestShellJob(
+  sessionId: string,
+  taskId: string,
+  kind: ShellKind
+): Promise<ReturnType<typeof shellStopOutcome>> {
+  try {
+    if (kind === 'release') {
+      return (await window.mixdogDesktop.releaseShellJob?.(sessionId, taskId))?.released === true ? 'done' : 'failed';
+    }
+    return shellStopOutcome(await window.mixdogDesktop.stopShellJob?.(sessionId, taskId));
+  } catch {
+    return 'failed';
+  }
+}
+
 /** Stop requests per shell row. A row stays "stopping" until the shell-jobs
  *  status lists it as finished (the row then reads Stopped and Dismiss), or
  *  until the request fails, which keeps it running and offers a retry. A row
@@ -56,24 +71,12 @@ export function useShellStops(sessionId: string) {
         return;
       const held = kind === 'stop' && row.terminationUnconfirmed === true;
       setStops((current) => ({ ...current, [row.key]: { kind, state: 'stopping', held } }));
-      let done = false;
-      let unconfirmed = false;
-      try {
-        if (kind === 'release') {
-          done = (await window.mixdogDesktop.releaseShellJob?.(sessionId, row.taskId))?.released === true;
-        } else {
-          const outcome = shellStopOutcome(await window.mixdogDesktop.stopShellJob?.(sessionId, row.taskId));
-          done = outcome === 'done';
-          unconfirmed = outcome === 'unconfirmed';
-        }
-      } catch {
-        done = false;
-      }
+      const outcome = await requestShellJob(sessionId, row.taskId, kind);
       // A stop of a held row that is not confirmed fails visibly, so Release
       // anyway stays reachable.
-      if (unconfirmed && !held)
+      if (outcome === 'unconfirmed' && !held)
         setStops((current) => ({ ...current, [row.key]: { kind, state: 'unconfirmed', held } }));
-      else if (!done) setStops((current) => ({ ...current, [row.key]: { kind, state: 'failed', held } }));
+      else if (outcome !== 'done') setStops((current) => ({ ...current, [row.key]: { kind, state: 'failed', held } }));
     },
     [sessionId]
   );

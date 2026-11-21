@@ -50,32 +50,15 @@ export function readDeviceCredentials(request) {
   return { deviceId: '', secret: '' };
 }
 
-// Trust-on-first-use only binds ids that cannot be guessed ahead of the device
-// that owns them: a full UUID (what the desktop and the hook worker mint) or an
-// equivalent 32+ hex-character id. Routing still accepts the wider shape, so
-// existing rows and links keep working.
 export function registrableDeviceId(deviceId) {
   return REGISTRABLE_DEVICE_ID.test(String(deviceId || ''));
 }
 
-// Trust-on-first-use registration is what makes setup zero-config, but an
-// unauthenticated caller must not be able to mint rows at network speed.
-// The caller applies the per-IP registration limiter; legitimate fleet
-// growth itself is unbounded here and can move to sharded storage later.
 export function authenticateDevice(store, deviceId, secret) {
   const known = store.devices.get(deviceId);
   if (!known) {
-    // A NEW id is bound to whichever secret arrives first, so the id itself
-    // has to be unguessable: a short or predictable label could be preclaimed
-    // before the real device ever dials, and the owner would then be locked
-    // out of its own route. Desktops and hook workers mint a UUID; ids
-    // already in the store keep authenticating on their secret alone.
     if (!registrableDeviceId(deviceId)) return false;
     store.devices.set(deviceId, { secretHash: sha256(secret), clientTokenHash: '', clients: {} });
-    // Persist BEFORE the credential goes live. A registration that only
-    // exists in memory authenticates until the next restart and then
-    // silently becomes a stranger — worse, a failed write would leave the id
-    // claimed here while the owner's next dial re-registers it elsewhere.
     if (!store.saveOrLog()) {
       store.devices.delete(deviceId);
       return false;
@@ -114,11 +97,6 @@ export function revokeDevice(store, deviceId) {
     store.clientTokenIndex.delete(client.tokenHash);
   }
   store.devices.delete(deviceId);
-  // The acknowledgement is the durability boundary for Unpair: persist
-  // synchronously before telling the desktop that the registration is gone.
-  // A write that fails is reported as a failed revocation — otherwise the
-  // credential returns on the next restart while the user was told it was
-  // gone; restore the in-memory row so relay and disk stay one state.
   if (!store.saveOrLog()) {
     store.devices.set(deviceId, known);
     if (known.clientTokenHash) store.tokenIndex.set(known.clientTokenHash, deviceId);

@@ -1,12 +1,3 @@
-// Connection-level failure → one short user-facing sentence.
-//
-// Transport errors reach the UI in many shapes: a Node errno on the error
-// itself, an undici SocketError buried in `cause`, a bare fetch message
-// ('fetch failed', 'terminated') with no code at all, or a gateway 5xx. Every
-// surface that shows a failure reads them through this one classifier so the
-// user sees "Connection to the provider was lost (UND_ERR_SOCKET)." instead of
-// the runtime's raw wording, while the code stays visible for diagnosis.
-
 const MAX_CAUSE_DEPTH = 8;
 
 const LOST_CODES = new Set([
@@ -52,10 +43,7 @@ const TLS_CODE_RE = /^(?:UNABLE_TO_|CERT_|DEPTH_ZERO_SELF_SIGNED|SELF_SIGNED_CER
 const UNAVAILABLE_STATUSES = new Set([502, 503, 504, 521, 522, 523, 524]);
 const WS_LOST_CLOSE_CODES = new Set([1000, 1001, 1005, 1006, 1011, 1012]);
 
-// Bare runtime messages that carry no code: undici body abort, Node/Chromium/
-// WebKit fetch failures, the Anthropic/OpenAI SDK connection wrapper. Matched
-// whole so a shell job "terminated by signal" or a session "terminated" notice
-// never reads as a provider disconnect.
+// Codeless runtime messages (undici, Node/Chromium/WebKit fetch, Anthropic/OpenAI SDK), matched whole.
 const LOST_BARE_MESSAGE_RE = /^(?:terminated|socket hang up|other side closed|connection error\.?)$/i;
 const FETCH_BARE_MESSAGE_RE = /^(?:fetch failed|failed to fetch|couldn'?t fetch\.?|load failed|network error)$/i;
 const LOST_PHRASE_RE =
@@ -142,12 +130,7 @@ function messageTransportKind(messages) {
   return null;
 }
 
-/**
- * Classify a connection-level failure by walking the error and its `cause`
- * chain. Returns `{ kind, code, status }` or null when the failure is not a
- * transport problem. `code` is the innermost errno/undici code (the most
- * specific cause), preferred over the outer wrapper's code.
- */
+/** Classifies a failure through its `cause` chain into `{ kind, code, status }`, or null when not a transport problem. */
 export function classifyTransportError(error) {
   const chain = typeof error === 'string' ? [] : causeChain(error);
   const messages = typeof error === 'string' ? [error.trim()] : chain.map(messageOf);

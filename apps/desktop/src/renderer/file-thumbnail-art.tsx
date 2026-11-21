@@ -1,8 +1,3 @@
-// Thumbnail art drawn from a file's own content, shared by the transcript's
-// document cards and the attachment cards (design/link-surfaces.html): the
-// drawn document sheet used before (or instead of) a rendered first page, the
-// code and prose minimaps, and the table thumbnail of a CSV/TSV. Colours come
-// from CSS (`.file-*` in desktop/13-tool-cards.css), so both themes apply.
 import type { CSSProperties } from 'react';
 import { parseDelimited } from './editor-delimited';
 

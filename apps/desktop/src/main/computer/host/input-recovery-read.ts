@@ -1,8 +1,3 @@
-/**
- * The foreground input-recovery baseline: which window holds focus, where the
- * pointer is, and the input observer's position, read before a foreground
- * delivery so the same state can be verified or restored afterwards.
- */
 import type { ComputerCommand } from '../shared/types';
 import type { InputRecoveryState } from './execution-state';
 import type { InputResolutionHost } from './input-resolution';

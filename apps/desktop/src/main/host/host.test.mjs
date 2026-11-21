@@ -168,6 +168,7 @@ function build(overrides = {}) {
         sources: () => ({ power: new EventEmitter(), screen: new EventEmitter() }),
       },
       desktopHostCommand: () => null,
+      desktopHostProcessFate: () => null,
       computerSwitch: createComputerSwitch(true),
       desktopHostScreen: () =>
         calls.computerOff
@@ -463,6 +464,7 @@ test('the core computer host handlers are always served: a core that does not dr
     'host/computer/pixels',
     'host/computer/permissions',
     'host/computer/command',
+    'host/computer/processFate',
   ];
   const { wire } = build();
   const served = wire.connection.servedMethods();

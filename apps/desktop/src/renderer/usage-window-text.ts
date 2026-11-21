@@ -1,7 +1,3 @@
-/**
- * Quota-window wording shared by the sidebar usage flyout and the account rows
- * in Settings › Providers: one window reads `label | meter | % | reset` on both.
- */
 import { t } from './i18n';
 import { usageNumber } from './usage-format';
 import { formatUsageResetRemaining } from './usage-reset-time';
@@ -39,11 +35,7 @@ export function usageResetText(value: unknown): string {
   return schedule.state === 'soon' ? t('Resets soon') : '';
 }
 
-/** Every quota window carries its OWN schedule: a compact duration that closes
- *  the meter row after the percentage, with the full sentence kept in the row
- *  tooltip.
- *  The duration units are notation, not prose, so they stay untranslated like
- *  the 5d/13h reading itself. */
+/** Compact reset duration closing the meter row; units are notation, left untranslated. */
 export function usageResetShortText(value: unknown): string {
   const schedule = usageResetSchedule(value);
   if (schedule.state === 'due') return '—';

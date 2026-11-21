@@ -33,10 +33,6 @@ export function useSessionDiffRevert({
     if (!sessionId) return;
     return subscribeReviewInvalidation(sessionId, () => setReverts((count) => count + 1));
   }, [sessionId]);
-  // A turn's review is fixed once it ends: it is re-read when a turn ends
-  // (busy), a new turn's checkpoint lands, its history moves, or a revert
-  // lands — never on every lane publication, which re-ran the whole review
-  // read every few seconds for an idle Lead whose workers reported progress.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reviewKey and reverts re-read the turn review when they move
   useEffect(() => {
     setTurnReview(null);

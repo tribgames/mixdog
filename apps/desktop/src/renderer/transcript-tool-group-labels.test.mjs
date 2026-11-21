@@ -1,7 +1,3 @@
-// Tool-group labels and grouping, run on the shapes of real sessions (the Lead
-// desktop session and its workers): what a group's summary line says while it
-// runs and once it is finished, in English and Korean, and which calls share
-// one group.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';

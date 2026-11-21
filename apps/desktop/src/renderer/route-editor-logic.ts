@@ -164,10 +164,7 @@ function flyoutSides(
   return { sideWidth, canOpenLeft: spaceLeft >= sideWidth, canOpenRight: spaceRight >= sideWidth };
 }
 
-/** True while a submenu still fits as a second column beside the sheet. A
- *  phone never does, and stacking the two panels left the submenu glued to
- *  the viewport top, detached from the pill (the sub-window runs out of room
- *  and sticks to the top), so narrow surfaces drill down inside the sheet instead. */
+/** True while a submenu still fits as a second column beside the sheet; narrow surfaces drill down inside the sheet instead. */
 export function routeFlyoutFitsBeside(
   sheet: { left: number; width: number },
   viewport: RouteViewport,

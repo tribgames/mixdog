@@ -559,7 +559,7 @@ test('a stored Profile view outside the session groups never titles the Changes 
   }
 });
 
-test('the side file header offers Open in main tab', async () => {
+async function mountSideFileDock(calls) {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',
     expose: ['navigator', 'Element', 'HTMLElement', 'Node'],
@@ -569,35 +569,43 @@ test('the side file header offers Open in main tab', async () => {
     return 1;
   };
   dom.window.cancelAnimationFrame = () => {};
-  const calls = [];
   const Icon = () => React.createElement('span');
   const root = createRoot(document.getElementById('root'));
+  await act(async () =>
+    root.render(
+      React.createElement(PaneSideDock, {
+        leafId: 'pane-1',
+        groups: [['source-control']],
+        descriptors: new Map([['source-control', { id: 'source-control', label: 'Source Control', icon: Icon }]]),
+        focused: true,
+        onSelect() {},
+        onClose() {},
+        onCloseDiff() {},
+        onCloseFile: () => calls.push(['close']),
+        onMoveGroup() {},
+        onMoveView() {},
+        onFocusPane() {},
+        openFileTab: (...args) => calls.push(['open', ...args]),
+        renderFileSurface: (file, _active, side) => React.createElement(SideFileStub, { rel: file.rel, side }),
+        renderFileProblems: (file) =>
+          React.createElement('div', { 'data-testid': 'side-problems' }, `problems:${file.rel}`),
+        renderView: () => null,
+        entry: withPaneDockFileOpened(closed(), { ...fileLink, accessToken: 'tok' }, 1, { now: 2 }),
+      })
+    )
+  );
+  return {
+    async unmount() {
+      await act(async () => root.unmount());
+      restore();
+    },
+  };
+}
+
+test('the side file header is one row with the file chip and its action buttons', async () => {
+  const view = await mountSideFileDock([]);
   try {
-    await act(async () =>
-      root.render(
-        React.createElement(PaneSideDock, {
-          leafId: 'pane-1',
-          groups: [['source-control']],
-          descriptors: new Map([['source-control', { id: 'source-control', label: 'Source Control', icon: Icon }]]),
-          focused: true,
-          onSelect() {},
-          onClose() {},
-          onCloseDiff() {},
-          onCloseFile: () => calls.push(['close']),
-          onMoveGroup() {},
-          onMoveView() {},
-          onFocusPane() {},
-          openFileTab: (...args) => calls.push(['open', ...args]),
-          renderFileSurface: (file, _active, side) => React.createElement(SideFileStub, { rel: file.rel, side }),
-          renderFileProblems: (file) =>
-            React.createElement('div', { 'data-testid': 'side-problems' }, `problems:${file.rel}`),
-          renderView: () => null,
-          entry: withPaneDockFileOpened(closed(), { ...fileLink, accessToken: 'tok' }, 1, { now: 2 }),
-        })
-      )
-    );
     assert.equal(document.querySelector('[data-testid="side-file"]')?.textContent, 'src/a.ts');
-    // ONE header row for the file: no separate dock title row, no extra strip.
     assert.equal(document.querySelectorAll('.pane-side-dock-header').length, 0);
     assert.equal(document.querySelector('.pane-side-dock-title'), null);
     assert.equal(document.querySelectorAll('.dock-header-row').length, 1);
@@ -613,11 +621,16 @@ test('the side file header offers Open in main tab', async () => {
       ),
       ['Save', 'More actions', 'Expand', 'Close panel']
     );
-    // Problems opens only from the editor's bottom status bar, never the strip.
     assert.equal(strip.querySelector('[aria-label="Problems"]'), null);
     assert.equal(document.querySelector('.editor-breadcrumbs'), null);
-    // Problems: the status-bar button opens a split INSIDE the side file slot,
-    // under the editor, scoped to this file; its own X closes it again.
+  } finally {
+    await view.unmount();
+  }
+});
+
+test('the side file status-bar Problems button opens a split under the editor, closed by its own X', async () => {
+  const view = await mountSideFileDock([]);
+  try {
     assert.equal(document.querySelector('.pane-side-file-problems'), null);
     await act(async () => document.querySelector('[data-testid="status-problems"]').click());
     const split = document.querySelector('.pane-side-file-problems');
@@ -635,20 +648,26 @@ test('the side file header offers Open in main tab', async () => {
     await act(async () => split.querySelector('button[aria-label="Close panel"]').click());
     assert.equal(document.querySelector('.pane-side-file-problems'), null);
     assert.ok(document.querySelector('.pane-side-file-editor'), 'the editor keeps the full height');
+  } finally {
+    await view.unmount();
+  }
+});
+
+test('the side file header offers Open in main tab and closes the file through the host', async () => {
+  const calls = [];
+  const view = await mountSideFileDock(calls);
+  try {
     await act(async () => document.querySelector('.side-file-header .dock-header-more').click());
     const button = [...document.querySelectorAll('.dock-header-menu [role="menuitem"]')].find((item) =>
       item.textContent.includes('Open in main tab')
     );
     assert.ok(button);
     await act(async () => button.click());
-    // The host's main-tab open takes the file over (and closes this side file).
     assert.deepEqual(calls, [['open', 'C:/p', 'src/a.ts', 12, 'tok']]);
-    // The header X closes the file through the host's guarded path.
     await act(async () => document.querySelector('button[aria-label="Close panel"]').click());
     assert.deepEqual(calls.at(-1), ['close']);
   } finally {
-    await act(async () => root.unmount());
-    restore();
+    await view.unmount();
   }
 });
 
@@ -1197,24 +1216,43 @@ test('dock expansion toggles and resets when the surface, the view or the open s
     assert.equal(dock.expandedRect, undefined, `${Object.keys(change)[0]} change clears the geometry`);
   }
 });
-test('side file: status lives in a second row; ⋯ holds only real actions', async () => {
-  const { sideFileActions, SideFileStrip } = await import('./side-surface-strip.tsx');
-  const { renderToStaticMarkup } = await import('react-dom/server');
+const sideFileChrome = (calls = []) => ({
+  editable: true,
+  dirty: true,
+  saving: false,
+  save() {},
+  reveal() {},
+  problems: { errors: 2, warnings: 5, onToggle: () => calls.push('problems') },
+  cursor: { label: 'Ln 12, Col 1', short: '12:1', onGoto: () => calls.push('goto') },
+  language: 'TypeScript',
+  format: () => calls.push('format'),
+  viewToggle: { value: 'rendered', renderedLabel: 'Preview', modes: ['rendered', 'source'], onChange() {} },
+});
+const sideFilePreviewChrome = {
+  editable: false,
+  dirty: false,
+  saving: false,
+  save() {},
+  reveal() {},
+  openDefault() {},
+};
+const sideFileTab = (rel, extra = {}) => ({ project: 'C:/p', rel, nonce: 1, openedAt: 1, ...extra });
+const sideFileStripProps = (chrome, files, activeKey, over = {}) => ({
+  files,
+  activeKey,
+  chrome,
+  onSelect() {},
+  onCloseTab() {},
+  onKeep() {},
+  onOpenInMain() {},
+  onClose() {},
+  ...over,
+});
+
+test('side file: ⋯ holds only real actions, Save is the only header button', async () => {
+  const { sideFileActions } = await import('./side-surface-strip.tsx');
   const calls = [];
-  const chrome = {
-    editable: true,
-    dirty: true,
-    saving: false,
-    save() {},
-    reveal() {},
-    problems: { errors: 2, warnings: 5, onToggle: () => calls.push('problems') },
-    cursor: { label: 'Ln 12, Col 1', short: '12:1', onGoto: () => calls.push('goto') },
-    language: 'TypeScript',
-    format: () => calls.push('format'),
-    viewToggle: { value: 'rendered', renderedLabel: 'Preview', modes: ['rendered', 'source'], onChange() {} },
-  };
-  const actions = sideFileActions(chrome, () => {});
-  // ⋯ keeps Reveal, Open in main tab and Format; Save is the only header button.
+  const actions = sideFileActions(sideFileChrome(calls), () => {});
   assert.deepEqual(
     actions.filter((a) => a.inline).map((a) => a.id),
     ['save']
@@ -1231,27 +1269,20 @@ test('side file: status lives in a second row; ⋯ holds only real actions', asy
     );
   actions.find((a) => a.id === 'format').onSelect();
   assert.deepEqual(calls, ['format']);
+});
 
-  // The header is the single top row; the status row is the card's footer.
-  const tabOf = (rel, extra = {}) => ({ project: 'C:/p', rel, nonce: 1, openedAt: 1, ...extra });
-  const stripProps = (files, activeKey, over = {}) => ({
-    files,
-    activeKey,
-    chrome,
-    onSelect() {},
-    onCloseTab() {},
-    onKeep() {},
-    onOpenInMain() {},
-    onClose() {},
-    ...over,
-  });
-  const deep = tabOf('src/deep/a.ts');
-  const header = renderToStaticMarkup(React.createElement(SideFileStrip, stripProps([deep], sideFileKey(deep))));
+test('side file: the header is the single top row and a preview tab carries its hint', async () => {
+  const { sideFileActions, SideFileStrip } = await import('./side-surface-strip.tsx');
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const chrome = sideFileChrome();
+  const deep = sideFileTab('src/deep/a.ts');
+  const header = renderToStaticMarkup(
+    React.createElement(SideFileStrip, sideFileStripProps(chrome, [deep], sideFileKey(deep)))
+  );
   assert.equal(header.includes('side-file-status-row'), false, 'no second row under the header');
-  // A preview tab is marked (italic via .is-preview) and carries the hint.
-  const previewTab = tabOf('src/deep/b.ts', { preview: true });
+  const previewTab = sideFileTab('src/deep/b.ts', { preview: true });
   const tabs = renderToStaticMarkup(
-    React.createElement(SideFileStrip, stripProps([deep, previewTab], sideFileKey(previewTab)))
+    React.createElement(SideFileStrip, sideFileStripProps(chrome, [deep, previewTab], sideFileKey(previewTab)))
   );
   assert.equal((tabs.match(/class="browser-tab dock-header-chip/g) ?? []).length, 2);
   assert.equal((tabs.match(/is-preview/g) ?? []).length, 1);
@@ -1262,8 +1293,12 @@ test('side file: status lives in a second row; ⋯ holds only real actions', asy
     () => {}
   );
   assert.equal(keepActions[0].id, 'keep-open');
+});
+
+test('side file status row: source mode shows toggle-less problems, cursor and language; rendered mode is empty', async () => {
+  const { renderToStaticMarkup } = await import('react-dom/server');
   const { SideFileStatusRow } = await import('./side-file-status-row.tsx');
-  // Source mode: toggle (left) + problems, cursor, language (right); no path.
+  const chrome = sideFileChrome();
   const source = renderToStaticMarkup(
     React.createElement(SideFileStatusRow, {
       chrome: { ...chrome, viewToggle: { ...chrome.viewToggle, value: 'source' } },
@@ -1274,38 +1309,43 @@ test('side file: status lives in a second row; ⋯ holds only real actions', asy
   assert.ok(source.includes('side-file-status-problems') && source.includes('>2<') && source.includes('>5<'));
   assert.ok(source.includes('>12:1<'));
   assert.ok(source.includes('TypeScript'));
-  // The footer carries no view switch: it lives in the file header.
   assert.equal(source.includes('editor-view-switch') || source.includes('role="radio'), false);
-  // Rendered mode: the right side is empty.
   const rendered = renderToStaticMarkup(React.createElement(SideFileStatusRow, { chrome }));
   for (const marker of ['side-file-status-problems', 'side-file-status-cursor', 'side-file-status-language'])
     assert.equal(rendered.includes(marker), false, `rendered: ${marker}`);
-  // Plain code (no toggle): only the right-side items.
   const code = renderToStaticMarkup(
     React.createElement(SideFileStatusRow, { chrome: { ...chrome, viewToggle: undefined } })
   );
   assert.ok(code.includes('side-file-status-cursor') && code.includes('side-file-status-problems'));
-  // Previews (image/pdf/office/binary: no cursor, no view toggle) get NO footer; the chip tooltip carries the path.
+});
+
+test('side file footer exists only when there is something to report', async () => {
   const { sideFileHasFooter } = await import('./side-file-status-row.tsx');
-  const previewChrome = { editable: false, dirty: false, saving: false, save() {}, reveal() {}, openDefault() {} };
-  assert.equal(sideFileHasFooter(previewChrome), false);
+  const chrome = sideFileChrome();
+  assert.equal(sideFileHasFooter(sideFilePreviewChrome), false);
   assert.equal(sideFileHasFooter(null), false);
   assert.equal(sideFileHasFooter({ ...chrome, viewToggle: undefined }), true, 'plain code keeps its footer');
   assert.equal(sideFileHasFooter({ ...chrome, viewToggle: { ...chrome.viewToggle, value: 'source' } }), true);
   assert.equal(sideFileHasFooter(chrome), false, 'a rendered Markdown view has nothing to report');
   assert.equal(
-    sideFileHasFooter({ ...previewChrome, tableSize: { rows: 2, columns: 3 } }),
+    sideFileHasFooter({ ...sideFilePreviewChrome, tableSize: { rows: 2, columns: 3 } }),
     true,
     'a rendered table keeps its size footer'
   );
-  // The header carries the one view switch (+ outline toggle), left of the action buttons.
+});
+
+test('side file header carries the one view switch and outline toggle, left of the action buttons', async () => {
+  const { sideFileActions, SideFileStrip } = await import('./side-surface-strip.tsx');
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const chrome = sideFileChrome();
+  const deep = sideFileTab('src/deep/a.ts');
   const markdownChrome = {
     ...chrome,
     viewToggle: { value: 'rich', renderedLabel: 'Preview', modes: ['rendered', 'rich', 'source'], onChange() {} },
     toc: { open: true, onToggle() {} },
   };
   const markdownHeader = renderToStaticMarkup(
-    React.createElement(SideFileStrip, stripProps([deep], sideFileKey(deep), { chrome: markdownChrome }))
+    React.createElement(SideFileStrip, sideFileStripProps(markdownChrome, [deep], sideFileKey(deep)))
   );
   assert.deepEqual(
     [...markdownHeader.matchAll(/role="radio" aria-checked="(true|false)"[^>]*>([^<]*)</g)].map((m) => [m[2], m[1]]),
@@ -1322,11 +1362,14 @@ test('side file: status lives in a second row; ⋯ holds only real actions', asy
       .map((a) => a.id),
     ['toc', 'save']
   );
+});
+
+test('side file: a preview file has no footer and its chip tooltip carries the path', async () => {
+  const { SideFileStrip } = await import('./side-surface-strip.tsx');
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const deck = sideFileTab('decks/deck.pptx');
   const previewHeader = renderToStaticMarkup(
-    React.createElement(
-      SideFileStrip,
-      stripProps([tabOf('decks/deck.pptx')], sideFileKey(tabOf('decks/deck.pptx')), { chrome: previewChrome })
-    )
+    React.createElement(SideFileStrip, sideFileStripProps(sideFilePreviewChrome, [deck], sideFileKey(deck)))
   );
   assert.ok(previewHeader.includes('class="browser-tab-select" title="decks/deck.pptx"'));
 });
@@ -1579,7 +1622,7 @@ function DirtyFileStub({ rel, active, side }) {
   );
 }
 
-test('file surface (rendered): header → editor → problems → footer, hidden editors keep their buffers', async () => {
+async function mountFileSurface() {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',
     expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'MouseEvent'],
@@ -1592,7 +1635,6 @@ test('file surface (rendered): header → editor → problems → footer, hidden
   const Icon = () => React.createElement('span');
   let entry = withPaneDockFileOpened(closed(), fileLink, 1, { now: 1 });
   entry = withPaneDockFileOpened(entry, { project: 'C:/p', rel: 'src/b.ts' }, 2, { now: 2 });
-  const aKey = sideFileKey(fileLink);
   const props = (next) => ({
     leafId: 'pane-1',
     groups: [['source-control']],
@@ -1611,10 +1653,22 @@ test('file surface (rendered): header → editor → problems → footer, hidden
     entry: next,
   });
   const root = createRoot(document.getElementById('root'));
-  const editor = (rel) => document.querySelector(`[data-testid="editor-${rel}"]`);
+  const render = (next) => act(async () => root.render(React.createElement(PaneSideDock, props(next))));
+  await render(entry);
+  return {
+    entry,
+    render,
+    editor: (rel) => document.querySelector(`[data-testid="editor-${rel}"]`),
+    async unmount() {
+      await act(async () => root.unmount());
+      restore();
+    },
+  };
+}
+
+test('file surface (rendered): header → editor → problems → footer, one mounted editor per tab', async () => {
+  const view = await mountFileSurface();
   try {
-    await act(async () => root.render(React.createElement(PaneSideDock, props(entry))));
-    await act(async () => document.querySelector('[data-testid="edit-src/b.ts"]').click());
     await act(async () => document.querySelector('[data-testid="problems-src/b.ts"]').click());
     const card = document.querySelector('.workbench-side-surface-slot');
     assert.equal(card.dataset.surfaceActive, 'true');
@@ -1630,32 +1684,37 @@ test('file surface (rendered): header → editor → problems → footer, hidden
       ['pane-side-file-editor', 'pane-side-file-problems']
     );
     assert.equal(body.querySelector('[data-testid="side-problems"]').textContent, 'src/b.ts');
-    // One mounted editor per tab; only the active one shows and is active.
     const tabs = [...body.querySelectorAll('.pane-side-file-editor > .pane-side-file-tab')];
     assert.deepEqual(
       tabs.map((tab) => tab.hidden),
       [true, false]
     );
-    assert.equal(editor('src/a.ts').dataset.active, 'false');
-    assert.equal(editor('src/b.ts').dataset.active, 'true');
-    // Switching tabs hides — never unmounts — the dirty editor.
-    const dirty = editor('src/b.ts');
-    await act(async () => root.render(React.createElement(PaneSideDock, props({ ...entry, activeFile: aKey }))));
-    assert.equal(editor('src/b.ts'), dirty, 'same mounted editor');
+    assert.equal(view.editor('src/a.ts').dataset.active, 'false');
+    assert.equal(view.editor('src/b.ts').dataset.active, 'true');
+  } finally {
+    await view.unmount();
+  }
+});
+
+test('file surface: switching tabs or folding the dock hides a dirty editor without unmounting it', async () => {
+  const view = await mountFileSurface();
+  try {
+    await act(async () => document.querySelector('[data-testid="edit-src/b.ts"]').click());
+    const dirty = view.editor('src/b.ts');
+    await view.render({ ...view.entry, activeFile: sideFileKey(fileLink) });
+    assert.equal(view.editor('src/b.ts'), dirty, 'same mounted editor');
     assert.equal(dirty.dataset.edits, '1', 'unsaved buffer survives');
     assert.equal(dirty.closest('.pane-side-file-tab').hidden, true);
-    assert.equal(editor('src/a.ts').dataset.active, 'true');
-    // Folding to the panel view hides the card but keeps every editor mounted.
-    await act(async () => root.render(React.createElement(PaneSideDock, props({ ...entry, surface: '' }))));
+    assert.equal(view.editor('src/a.ts').dataset.active, 'true');
+    await view.render({ ...view.entry, surface: '' });
     const hiddenCard = document.querySelector('.workbench-side-surface-slot');
     assert.equal(hiddenCard.dataset.surfaceActive, 'false');
     assert.equal(hiddenCard.getAttribute('aria-hidden'), 'true');
-    assert.equal(editor('src/b.ts'), dirty);
+    assert.equal(view.editor('src/b.ts'), dirty);
     assert.equal(dirty.dataset.edits, '1');
-    assert.equal(editor('src/b.ts').dataset.active, 'false');
+    assert.equal(view.editor('src/b.ts').dataset.active, 'false');
   } finally {
-    await act(async () => root.unmount());
-    restore();
+    await view.unmount();
   }
 });
 

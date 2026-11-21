@@ -1,8 +1,3 @@
-// A group room's "who is typing" band, revision by revision. The core publishes a member's words together with the end of its
-// typing (`item/completed.roomView`: one notification, so one revision), a turn that leaves no row as a view alone, and the
-// room deciding who speaks next as the band's hand-off row. The shared reducer folds each notification before anyone is told, so
-// every state a subscriber sees (the desktop reads each change; the phone reads one per `thread/frame`) has rows and band that
-// belong together, and a snapshot taken at any boundary reads as the live fold does.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ProtocolClient } from '../src/api.ts';
@@ -12,18 +7,38 @@ import type { SessionFold } from '../src/session-state.ts';
 type O = Record<string, any>;
 const T = 'sess_room_room01';
 
-const typingRow = (id: string, speaker: string): O => ({ kind: 'notice', id, tone: 'info', text: `${speaker}…`, room: { kind: 'typing', speaker, name: speaker.toUpperCase() } });
-const decidingRow: O = { kind: 'notice', id: 'room-deciding', tone: 'info', text: '…', room: { kind: 'typing', speaker: '', name: '' } };
+const typingRow = (id: string, speaker: string): O => ({
+  kind: 'notice',
+  id,
+  tone: 'info',
+  text: `${speaker}…`,
+  room: { kind: 'typing', speaker, name: speaker.toUpperCase() },
+});
+const decidingRow: O = {
+  kind: 'notice',
+  id: 'room-deciding',
+  tone: 'info',
+  text: '…',
+  room: { kind: 'typing', speaker: '', name: '' },
+};
 const typing = (id: string, speaker: string): O => ({ busy: true, typing: typingRow(id, speaker) });
 const deciding: O = { busy: true, deciding: true, typing: decidingRow };
 
 const item = (id: string): O => ({ type: 'agentMessage', id, text: `words ${id}`, meta: {} });
 /** `roomView` absent: the view stands; `null`: the room shows no activity (the clear travels with its row). */
-const landed = (id: string, roomView?: O | null): O => ({ method: 'item/completed', params: { threadId: T, turnId: '', item: item(id), ...(roomView !== undefined ? { roomView } : {}) } });
+const landed = (id: string, roomView?: O | null): O => ({
+  method: 'item/completed',
+  params: { threadId: T, turnId: '', item: item(id), ...(roomView !== undefined ? { roomView } : {}) },
+});
 const view = (value: O | null): O => ({ method: 'thread/roomView/updated', params: { threadId: T, value } });
 const frame = (structureChanged: boolean): O => ({ method: 'thread/frame', params: { threadId: T, structureChanged } });
 
-const snapshot = (ids: string[], roomView: O | null): O => ({ thread: { id: T }, state: roomView ? { roomView } : {}, items: ids.map(item), hasOlder: false });
+const snapshot = (ids: string[], roomView: O | null): O => ({
+  thread: { id: T },
+  state: roomView ? { roomView } : {},
+  items: ids.map(item),
+  hasOlder: false,
+});
 
 /** `rows | band`: the transcript rows, then who types (`…` while the room decides, `-` when nobody). */
 function shown(state: O): string {
@@ -48,7 +63,10 @@ function clientOf(initial: O) {
   const store = {
     thread: () => ({ feed: { id: T, epoch: 'e', seq: 1 }, order: 1, state: fold }),
     section: () => undefined,
-    subscribe: (listener: (change: O) => void) => (listeners.add(listener), () => listeners.delete(listener)),
+    subscribe: (listener: (change: O) => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
   };
   const client = { store, pendingServerRequests: () => [] } as unknown as ProtocolClient<SessionFold>;
   return {
@@ -80,7 +98,14 @@ const exchange = (): Step[] => [
 ];
 
 test('a plain send after a finished exchange: each speaker is replaced by the hand-off band, never by a gap', () => {
-  assert.deepEqual(everyChange(exchange()), ['u1 | …', 'u1 | a', 'u1,a1 | …', 'u1,a1 | b', 'u1,a1,b1 | …', 'u1,a1,b1 | -']);
+  assert.deepEqual(everyChange(exchange()), [
+    'u1 | …',
+    'u1 | a',
+    'u1,a1 | …',
+    'u1,a1 | b',
+    'u1,a1,b1 | …',
+    'u1,a1,b1 | -',
+  ]);
 });
 
 test('a send queued while the room answers: the cut-short member is retired with no row and the band stays until the next speaker', () => {
@@ -136,7 +161,7 @@ test('a send landing after the exchange ended carries the clear with its row: on
   assert.equal(shown(kept.state()), 'u1,u2 | …');
 });
 
-test('a history reset keeps the room\'s activity: the rows are cut back and the band stands', () => {
+test("a history reset keeps the room's activity: the rows are cut back and the band stands", () => {
   const room = clientOf(snapshot(['u1', 'a1'], typing('t1', 'b')));
   room.feed({ method: 'thread/historyReset', params: { threadId: T, fromItemId: 'u1' } });
   assert.equal(shown(room.state()), 'u1 | b');
@@ -158,7 +183,11 @@ test('a snapshot at every boundary reads as the live fold does (reconnect needs 
 test('the phone reads one state per frame, each with rows and band together', () => {
   const room = clientOf(snapshot(['u1'], null));
   const framed: string[] = [];
-  subscribeFramedSessionStates(room.client, () => T, (_id, state) => framed.push(shown(state as O)));
+  subscribeFramedSessionStates(
+    room.client,
+    () => T,
+    (_id, state) => framed.push(shown(state as O))
+  );
   // The first fold of the thread.
   room.feed(frame(false));
   // The core announces a frame after each transition; a row and the view it landed with are one notification of it.

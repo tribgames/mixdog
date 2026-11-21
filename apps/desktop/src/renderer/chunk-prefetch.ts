@@ -1,7 +1,4 @@
-// Download a lazy module's built files ahead of time WITHOUT evaluating them.
-// `modulepreload` fetches and compiles a module off the main thread; the code
-// runs only on its first import(). The file lists come from the build
-// (scripts/chunk-prefetch.ts); the dev server has none, so nothing is fetched there.
+// `modulepreload` fetches and compiles a module off the main thread; it runs only on its first import().
 import { chunkFiles } from 'virtual:mixdog-chunk-prefetch';
 
 export type ChunkPrefetchName = 'diff' | 'terminal' | 'browser' | 'visualize' | 'editor' | 'settings';

@@ -66,10 +66,6 @@ function uniqueTarget(matches: ResolvedLocalLink[], name: string): ResolvedLocal
   return null;
 }
 
-/** An absolute path opens wherever it is: through the deepest registered
- *  Project that contains it, otherwise as its own root on this PC (a folder
- *  is the root, a file is addressed in its folder). A paired device's or a
- *  server's host answers with a one-off file grant instead. */
 async function resolveAbsolute(target: string, path: string, sessionId?: string): Promise<ResolvedLocalLink> {
   const resolvePaths = window.mixdogDesktop?.resolveLocalPaths;
   if (!resolvePaths) throw new Error(t('Local file links can only be opened in the desktop app.'));
@@ -125,6 +121,16 @@ export async function resolveLocalLink(project: string, path: string, sessionId?
       if (!searchable || !missingFile(error)) throw error;
     }
   }
+  const match = uniqueTarget(await findInOtherProjects(project, relative!, searchable), path);
+  if (match) return match;
+  throw new Error(t('File not found in the Project: {{file}}', { file: path }));
+}
+
+async function findInOtherProjects(
+  project: string,
+  relative: string,
+  searchable: boolean
+): Promise<ResolvedLocalLink[]> {
   const projects = (await window.mixdogDesktop?.listProjects?.()) || [];
   const others = [
     ...new Map(
@@ -133,29 +139,19 @@ export async function resolveLocalLink(project: string, path: string, sessionId?
         .map((entry) => [projectKey(entry.path), entry.path])
     ).values(),
   ];
-  // A registered Project whose folder is gone holds no match; it must not
-  // turn a plain miss into its own ENOENT. An access refusal in any of them
-  // is still the answer.
-  const matches = (
-    await Promise.all(
-      others.map((root) =>
-        findInProject(root, relative!, searchable).catch((error: unknown) => {
-          if (projectUnavailable(error)) return [];
-          throw error;
-        })
-      )
+  const matches = await Promise.all(
+    others.map((root) =>
+      findInProject(root, relative, searchable).catch((error: unknown) => {
+        if (projectUnavailable(error)) return [];
+        throw error;
+      })
     )
-  ).flat();
-  const match = uniqueTarget(matches, path);
-  if (match) return match;
-  throw new Error(t('File not found in the Project: {{file}}', { file: path }));
+  );
+  return matches.flat();
 }
 
-// Rendering verifies every filename mention in a transcript, and one name is
-// often mentioned many times: each (Project, path) costs one request per
-// file service while it is in flight or recently settled. A found file stays
-// verified briefly; a missing one retries soon, since it may be about to be
-// written.
+// One verification per (Project, path) while in flight or recently settled: a found file stays
+// verified for 30s, a missing one retries after 3s since it may be about to be written.
 const VERIFIED_TTL_MS = 30_000;
 const MISSING_TTL_MS = 3_000;
 /** The target a click opens. A verified location is reused as is, but a file

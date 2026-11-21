@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { SentClaim, TransportSink, TransportWriter } from '../src/api.ts';
 import { connect } from '../src/client.ts';
-import { MockConn, MockNetwork } from '../src/mock.ts';
+import { type MockConn, MockNetwork } from '../src/mock.ts';
 
 const options = JSON.parse(readFileSync(new URL('../conformance/options.json', import.meta.url), 'utf8'));
 
@@ -22,7 +22,14 @@ async function rig() {
   net.open = async (target, sink: TransportSink): Promise<TransportWriter> => {
     const writer = await open(target, sink);
     // As a transport does: the claim of a request frame is given the completion of that frame (here, at once).
-    return { ...writer, send: (text, sent) => (frames.push({ body: JSON.parse(text), sent }), sent?.(Promise.resolve()), writer.send(text)) };
+    return {
+      ...writer,
+      send: (text, sent) => {
+        frames.push({ body: JSON.parse(text), sent });
+        sent?.(Promise.resolve());
+        return writer.send(text);
+      },
+    };
   };
   const connecting = connect({
     target: { id: 'local' },
@@ -46,7 +53,10 @@ async function rig() {
   const statusIs = (state: string): Promise<void> =>
     new Promise((resolve) => {
       const off = client.on((event) => {
-        if (event.type === 'status' && event.status.state === state) (off(), resolve());
+        if (event.type === 'status' && event.status.state === state) {
+          off();
+          resolve();
+        }
       });
     });
   const answerNext = async (result: unknown = {}): Promise<{ id: number; method: string }> => {
@@ -77,7 +87,10 @@ async function rig() {
 const CALL = 'thread/list';
 
 /** The call's frame comes after the `initialized` of the connection made after `reconnectingAt` (a log index), not after the original handshake's. */
-export function writtenAfterReconnectHandshake(methods: readonly (string | undefined)[], reconnectingAt: number): boolean {
+export function writtenAfterReconnectHandshake(
+  methods: readonly (string | undefined)[],
+  reconnectingAt: number
+): boolean {
   const written = methods.indexOf(CALL);
   if (written < 0) return false;
   const initialized = methods.lastIndexOf('initialized', written);
@@ -99,17 +112,26 @@ test('a call asked while the connection is down writes nothing then, and hands i
   await reconnect();
   const methods = frames.map((frame) => frame.body.method);
   // `initialized` is the last frame of the new handshake: the call's frame, if it had been written while down, would precede it.
-  assert.ok(writtenAfterReconnectHandshake(methods, reconnectingAt), 'the call is written after the new connection is ready');
+  assert.ok(
+    writtenAfterReconnectHandshake(methods, reconnectingAt),
+    'the call is written after the new connection is ready'
+  );
   const written = methods.indexOf(CALL);
-  assert.ok(frames[written]?.sent, 'the frame carries this call\'s claim');
+  assert.ok(frames[written]?.sent, "the frame carries this call's claim");
   await answerNext();
   assert.equal(mine.got.length, 1);
 });
 
 test('the order check rejects a call written between the original handshake and the reconnect handshake', () => {
   // [original initialized, premature call, reconnect initialize/initialized]: the reconnecting status came after the first two frames.
-  assert.equal(writtenAfterReconnectHandshake(['initialize', 'initialized', CALL, 'initialize', 'initialized'], 2), false);
-  assert.equal(writtenAfterReconnectHandshake(['initialize', 'initialized', 'initialize', 'initialized', CALL], 2), true);
+  assert.equal(
+    writtenAfterReconnectHandshake(['initialize', 'initialized', CALL, 'initialize', 'initialized'], 2),
+    false
+  );
+  assert.equal(
+    writtenAfterReconnectHandshake(['initialize', 'initialized', 'initialize', 'initialized', CALL], 2),
+    true
+  );
   assert.equal(writtenAfterReconnectHandshake(['initialize', 'initialized'], 2), false, 'no call at all');
 });
 
@@ -138,10 +160,13 @@ test('a multi-chunk upload hands its claim to the last chunk, once: the upload h
   assert.equal(mine.got.length, 1, 'the third and last chunk carries the claim');
   const puts = frames.filter((f) => f.body.method === 'blob/put');
   assert.equal(puts.length, 3);
-  assert.deepEqual(puts.map((f) => f.sent === mine.claim), [false, false, true]);
+  assert.deepEqual(
+    puts.map((f) => f.sent === mine.claim),
+    [false, false, true]
+  );
 });
 
-test('a call that never writes hands nothing over, and the next call\'s frame is claimed by that call alone', async () => {
+test("a call that never writes hands nothing over, and the next call's frame is claimed by that call alone", async () => {
   const { client, frames, answerNext } = await rig();
   const refused = recorder();
   await assert.rejects(client.call('no/such/method' as never, {} as never, { sent: refused.claim }));

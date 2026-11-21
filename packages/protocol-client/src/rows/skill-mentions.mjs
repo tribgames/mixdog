@@ -9,10 +9,6 @@
 // included (`$pptx로`), ends it.
 const MENTION = /(^|[\s([{"'`])\$([a-z0-9][a-z0-9-]{0,63})(?![A-Za-z0-9_-])/g;
 
-// Common environment-variable names (compared case-insensitively) and
-// numeric-only tokens are never inline mentions, even when a skill has that
-// name: `$path` or `$300` in prose means the variable or the amount. Choosing
-// such a skill explicitly (the `Skill:` header chip) still works.
 const RESERVED_NAMES = new Set([
   'path',
   'home',
@@ -40,13 +36,6 @@ export function isReservedMentionName(name) {
   return /^[0-9]+$/.test(value) || RESERVED_NAMES.has(value.toLowerCase());
 }
 
-// Markdown code is never a mention: fenced blocks (``` or ~~~, 3+ chars,
-// optional info string, closed by a fence of the same char at least as long,
-// else running to the end) and inline code spans (a backtick run closed by
-// the next run of exactly the same length; an unmatched run is literal).
-// Deliberate Mixdog difference: Codex (codex-rs/skills/src/mentions.rs) scans
-// raw bytes with no code handling. Offsets stay those of the original text,
-// so desktop highlighting lines up (and never lands inside code).
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 

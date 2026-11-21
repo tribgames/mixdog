@@ -1,7 +1,3 @@
-// A first message with attachments and no words titles its session (tab
-// strip, sidebar, window title) by the first attachment — a file by its name,
-// an image or video by its localized kind — never by a raw `[Image]` /
-// `[File]` / `[PDF #n: …]` placeholder. Words, when there are any, title it.
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React, { act } from 'react';
@@ -93,7 +89,7 @@ for (const [kind, draft, attachments, english, korean] of CASES) {
   });
 }
 
-test('after a restart a session tab titled [Image] reads as the localized kind in the tab strip', async (t) => {
+async function mountKoreanDom(t) {
   const { root } = installTestDom(t, {
     jsdom: { url: 'http://localhost/' },
     rootId: 'root',
@@ -107,10 +103,12 @@ test('after a restart a session tab titled [Image] reads as the localized kind i
     i18n.setUiLanguagePreference('en');
     await i18n.initUiLanguage();
   });
-  const [{ useAppStartupRestore }, { useAppPaneChrome }] = await Promise.all([
-    import('./use-app-startup-restore.ts'),
-    import('./use-app-pane-chrome.tsx'),
-  ]);
+  return root;
+}
+
+test('after a restart the restored [Image] session registers under the localized kind', async (t) => {
+  const root = await mountKoreanDom(t);
+  const { useAppStartupRestore } = await import('./use-app-startup-restore.ts');
   window.localStorage.setItem('restore-session', 's-image');
   const sessions = [{ id: 's-image', title: '[Image]', preview: '[Image]' }];
   const registered = [];
@@ -148,8 +146,12 @@ test('after a restart a session tab titled [Image] reads as the localized kind i
     registered.map((entry) => [entry.selection.id, entry.title]),
     [['s-image', '이미지']]
   );
-  // A tab persisted with the raw placeholder (or registered before this fix)
-  // is shown the same way; any other title is shown as it is.
+});
+
+test('a session tab titled [Image] reads as the localized kind in the tab strip; other titles are unchanged', async (t) => {
+  const root = await mountKoreanDom(t);
+  const { useAppPaneChrome } = await import('./use-app-pane-chrome.tsx');
+  const sessions = [{ id: 's-image', title: '[Image]', preview: '[Image]' }];
   const tabs = [
     { key: 'session:s-image', title: '[Image]', selection: { kind: 'session', id: 's-image' } },
     { key: 'session:s-text', title: 'Fix the release', selection: { kind: 'session', id: 's-text' } },

@@ -1,8 +1,3 @@
-// The side file card of the per-pane dock (PaneSideDock): the file tab
-// header, one mounted editor per tab, the Problems split under the editor and
-// the status footer — in that DOM order. The dock owns the card's mount gate
-// and the Problems/chrome state (`useSideFileProblems`), so both keep the
-// dock's lifetime.
 import type { ReactNode } from 'react';
 import type { SideFileProblemsState } from './pane-side-dock-hooks';
 import { PaneDockSurfaceSlot } from './pane-side-dock-surface-slot';

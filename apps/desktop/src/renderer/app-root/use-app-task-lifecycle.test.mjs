@@ -122,7 +122,7 @@ test('a launch focuses an untouched draft tab instead of adding another blank on
   await manual.unmount();
 });
 
-test('useAppTaskLifecycle manages selection, tabs, task start, and session clear', async () => {
+async function mountLifecycle() {
   const { dom } = installTestDom(null, {
     html: '<!doctype html><html><body><div id="root"></div></body></html>',
     jsdom: {
@@ -215,52 +215,79 @@ test('useAppTaskLifecycle manages selection, tabs, task start, and session clear
   });
 
   assert.notEqual(hookResult, null);
-  assert.equal(hookResult.selection.kind, 'new');
-  assert.equal(hookResult.selection, harnessSelection);
-  assert.equal(hookResult.selectionRef, harnessSelectionRef);
-  const activateSelection = hookResult.activateSelection;
+  return {
+    hook: () => hookResult,
+    harnessSelection: () => harnessSelection,
+    harnessSelectionRef: () => harnessSelectionRef,
+    navigationEpoch,
+    viewedSessionRef,
+    resetCalls,
+    focusedSelection: () => focusedSelection,
+    unmount: () =>
+      act(async () => {
+        root.unmount();
+      }),
+  };
+}
 
-  // 1. activateSelection switches selection and updates viewedSessionRef
+test('the lifecycle exposes the selection the caller owns', async () => {
+  const mounted = await mountLifecycle();
+  assert.equal(mounted.hook().selection.kind, 'new');
+  assert.equal(mounted.hook().selection, mounted.harnessSelection());
+  assert.equal(mounted.hook().selectionRef, mounted.harnessSelectionRef());
+  await mounted.unmount();
+});
+
+test('activateSelection switches the selection, updates viewedSessionRef and registers the tab', async () => {
+  const mounted = await mountLifecycle();
+  const activateSelection = mounted.hook().activateSelection;
   await act(async () => {
-    hookResult.activateSelection({ kind: 'session', id: 's1' }, 'Session 1');
+    mounted.hook().activateSelection({ kind: 'session', id: 's1' }, 'Session 1');
   });
-  assert.equal(hookResult.selection.kind, 'session');
-  assert.equal(harnessSelection.kind, 'session');
-  assert.equal(harnessSelectionRef.current.kind, 'session');
-  assert.equal(viewedSessionRef.current, 's1');
-  assert.equal(focusedSelection.kind, 'session');
-  assert.equal(hookResult.activateSelection, activateSelection);
+  assert.equal(mounted.hook().selection.kind, 'session');
+  assert.equal(mounted.harnessSelection().kind, 'session');
+  assert.equal(mounted.harnessSelectionRef().current.kind, 'session');
+  assert.equal(mounted.viewedSessionRef.current, 's1');
+  assert.equal(mounted.focusedSelection().kind, 'session');
+  assert.equal(mounted.hook().activateSelection, activateSelection);
+  assert.equal(mounted.hook().tabs.length, 1);
+  assert.equal(mounted.hook().tabs[0].key, 'session:s1');
+  await mounted.unmount();
+});
 
-  // 2. tabs registry has Session 1
-  assert.equal(hookResult.tabs.length, 1);
-  assert.equal(hookResult.tabs[0].key, 'session:s1');
-
-  // 3. startTask increments epoch and opens new draft
-  const epochBefore = navigationEpoch.current;
+test('startTask increments the navigation epoch and opens a new draft', async () => {
+  const mounted = await mountLifecycle();
+  const activateSelection = mounted.hook().activateSelection;
   await act(async () => {
-    hookResult.startTask();
+    mounted.hook().activateSelection({ kind: 'session', id: 's1' }, 'Session 1');
   });
-  assert.equal(navigationEpoch.current, epochBefore + 1);
-  assert.equal(hookResult.selection.kind, 'new');
-  assert.equal(hookResult.activateSelection, activateSelection);
-
-  // 3b. startProjectlessTask opens a fresh draft with No project, even from a draft
-  resetCalls.length = 0;
-  const draftBefore = harnessSelectionRef.current;
+  const epochBefore = mounted.navigationEpoch.current;
   await act(async () => {
-    hookResult.startProjectlessTask();
+    mounted.hook().startTask();
   });
-  assert.equal(hookResult.selection.kind, 'new');
-  assert.notEqual(harnessSelectionRef.current, draftBefore);
-  assert.deepEqual(resetCalls, [[null, { projectless: true }]]);
+  assert.equal(mounted.navigationEpoch.current, epochBefore + 1);
+  assert.equal(mounted.hook().selection.kind, 'new');
+  assert.equal(mounted.hook().activateSelection, activateSelection);
+  await mounted.unmount();
+});
 
-  // 4. clearSessionToNewTask creates draft seeded from session
+test('startProjectlessTask opens a fresh draft with No project, even from a draft', async () => {
+  const mounted = await mountLifecycle();
+  const draftBefore = mounted.harnessSelectionRef().current;
   await act(async () => {
-    hookResult.clearSessionToNewTask('s1');
+    mounted.hook().startProjectlessTask();
   });
-  assert.equal(hookResult.selection.kind, 'new');
+  assert.equal(mounted.hook().selection.kind, 'new');
+  assert.notEqual(mounted.harnessSelectionRef().current, draftBefore);
+  assert.deepEqual(mounted.resetCalls, [[null, { projectless: true }]]);
+  await mounted.unmount();
+});
 
+test('clearSessionToNewTask creates a draft seeded from the session', async () => {
+  const mounted = await mountLifecycle();
   await act(async () => {
-    root.unmount();
+    mounted.hook().clearSessionToNewTask('s1');
   });
+  assert.equal(mounted.hook().selection.kind, 'new');
+  await mounted.unmount();
 });

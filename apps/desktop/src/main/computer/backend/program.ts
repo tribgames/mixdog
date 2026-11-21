@@ -1,10 +1,3 @@
-/**
- * The PowerShell side of Computer Use: the resident host program and the
- * one-shot abort cleanup program, kept out of the TypeScript host so neither
- * half buries the other. These are program text only — every decision about
- * when to run them lives in host/powershell-host.ts.
- */
-
 import { PS_SESSION } from './ps-session';
 import { PS_OBSERVATION } from './ps-observation';
 import { PS_INPUT } from './ps-input';
@@ -33,10 +26,6 @@ public static class MixdogAbortCleanup {
   [DllImport("user32.dll", EntryPoint = "SetWindowLongW")] static extern int SetWindowLong(IntPtr hwnd, int index, int value);
   [DllImport("user32.dll", EntryPoint = "GetClassNameW", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hwnd, StringBuilder text, int count);
   [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId")] static extern uint GetWindowProcessId(IntPtr hwnd, out uint processId);
-  /// Replays each exited worker's inactive-window ledger and clears
-  /// WS_EX_NOACTIVATE only on roots still recorded as added whose handle,
-  /// process id and class name still match. A ledger is deleted once every
-  /// recorded root is cleared or no longer ours; a failed clear keeps it.
   public static void RecoverLedgers(string paths) {
     if (String.IsNullOrEmpty(paths)) return;
     var failed = new List<string>();

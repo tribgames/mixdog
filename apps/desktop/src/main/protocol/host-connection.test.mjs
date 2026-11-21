@@ -1,7 +1,3 @@
-// A browser command through the product's own pieces: the client library over a scripted core socket, the desktop's protocol
-// connection, its host connection and the browser command host. The core ends a command it stopped waiting for (a cancelled or
-// timed-out call, an ended run) with `serverRequest/resolved`, which aborts the running command here and sends no answer; an
-// answered command ends with its answer. Neither is held in the client's pending set, which the approval cards are read from.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';

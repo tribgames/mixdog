@@ -67,10 +67,7 @@ function editableFocused(): boolean {
   );
 }
 
-/** The desktop pane's client-side zoom of the picture (frame image or
- *  video): the desktop keeps streaming the same page; this window scales and
- *  pans it about the fitted picture's centre. Pointer coordinates read the
- *  picture's transformed box, so they stay exact. */
+/** The desktop pane's client-side zoom and pan of the picture (frame image or video), about the fitted picture's centre. */
 export function useRemoteFrameZoom(sessionId: string, ownerSessionId: string, imageRef: RefObject<HTMLElement | null>) {
   const [zoomLevel, setZoomLevel] = useState(() => readBrowserZoom(window.localStorage, sessionId));
   const zoomRef = useRef(zoomLevel);
@@ -157,14 +154,83 @@ export type RemoteZoom = {
   reset(): void;
 };
 
-/**
- * This device's view of the picture (frame image or video), on the shared
- * viewport (remote-viewport.ts): the desktop keeps streaming the same page;
- * this device scales and pans it. The first view fills one axis; pinch never
- * goes below the whole page; the soft keyboard is a bottom inset (the view
- * keeps its scale, may be panned up over it, and eases back as it closes).
- * Input reads the picture's rendered box, so it stays exact at any view.
- */
+/** The stage's layout size and the soft keyboard's bottom inset over it. */
+function useStageTrack(contentRef: RefObject<HTMLDivElement | null>, enabled: boolean): StageTrack | null {
+  const [stage, setStage] = useState<StageTrack | null>(null);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!enabled || !content) return undefined;
+    let baseline: ViewSize | null = null;
+    let open = false;
+    let closing: KeyboardClosing | null = null;
+    // Where the VirtualKeyboard API exists (Chromium), the keyboard's own
+    // rectangle over the page; empty while the page is resized for it.
+    const keyboard = (navigator as Navigator & { virtualKeyboard?: VirtualKeyboardLike }).virtualKeyboard;
+    const measure = () => {
+      const visual = window.visualViewport;
+      const rect = keyboard?.boundingRect;
+      let overlay = 0;
+      if (rect && rect.height > 0) {
+        const box = content.getBoundingClientRect();
+        overlay = Math.max(0, Math.min(box.bottom, rect.bottom) - Math.max(box.top, rect.top));
+      }
+      if (visual) {
+        const seen = keyboardEvidence(baseline, {
+          visual: { width: visual.width, height: visual.height },
+          focused: editableFocused(),
+          closing: closing !== null,
+          overlay,
+        });
+        baseline = seen.baseline;
+        open = seen.open;
+      } else {
+        open = overlay > 0;
+      }
+      const measured = { width: content.clientWidth, height: content.clientHeight };
+      setStage((prev) => {
+        const next = trackStage(prev, measured, open, overlay);
+        return prev && next.width === prev.width && next.height === prev.height && next.bottom === prev.bottom
+          ? prev
+          : next;
+      });
+    };
+    const focusIn = () => {
+      closing = null;
+      measure();
+    };
+    const focusOut = () => {
+      const visual = window.visualViewport;
+      closing = open && visual ? { height: visual.height } : null;
+      measure();
+    };
+    const visualResize = () => {
+      const visual = window.visualViewport;
+      if (closing && visual)
+        closing = keyboardClosing(closing, { width: visual.width, height: visual.height }, baseline);
+      measure();
+    };
+    measure();
+    const Observer = window.ResizeObserver;
+    const observer = typeof Observer === 'function' ? new Observer(measure) : null;
+    observer?.observe(content);
+    window.addEventListener('resize', measure);
+    window.visualViewport?.addEventListener('resize', visualResize);
+    keyboard?.addEventListener('geometrychange', measure);
+    document.addEventListener('focusin', focusIn);
+    document.addEventListener('focusout', focusOut);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+      window.visualViewport?.removeEventListener('resize', visualResize);
+      keyboard?.removeEventListener('geometrychange', measure);
+      document.removeEventListener('focusin', focusIn);
+      document.removeEventListener('focusout', focusOut);
+    };
+  }, [contentRef, enabled]);
+  return stage;
+}
+
+/** This device's view of the picture (frame image or video) on the shared viewport (remote-viewport.ts): the first view fills one axis, pinch never goes below the whole page, and the soft keyboard is a bottom inset. */
 export function useRemoteView(
   contentRef: RefObject<HTMLDivElement | null>,
   enabled: boolean,
@@ -173,7 +239,7 @@ export function useRemoteView(
 ) {
   const [view, setViewState] = useState<RemoteView | null>(null);
   const viewRef = useRef<RemoteView | null>(null);
-  const [stage, setStage] = useState<StageTrack | null>(null);
+  const stage = useStageTrack(contentRef, enabled);
   const layout = useMemo<RemoteViewLayout | null>(
     () =>
       enabled && stage && pictureWidth > 0 && pictureHeight > 0
@@ -212,84 +278,6 @@ export function useRemoteView(
     relaxFrame.current = window.requestAnimationFrame(step);
   }, [setView, stopRelax]);
   useEffect(() => stopRelax, [stopRelax]);
-
-  // The stage's layout size (untransformed), apart from the soft keyboard
-  // over it: a focused field plus the visual viewport's shrink say one is
-  // up (remote-viewport.ts keyboardEvidence); without both, every resize is
-  // the layout's own and the view fits it again.
-  useLayoutEffect(() => {
-    const content = contentRef.current;
-    if (!enabled || !content) return undefined;
-    let baseline: ViewSize | null = null;
-    let open = false;
-    /** The keyboard sliding away after a blur, followed resize by resize. */
-    let closing: KeyboardClosing | null = null;
-    // Where the VirtualKeyboard API exists (Chromium), the keyboard's own
-    // rectangle over the page; empty while the page is resized for it.
-    const keyboard = (navigator as Navigator & { virtualKeyboard?: VirtualKeyboardLike }).virtualKeyboard;
-    const measure = () => {
-      const visual = window.visualViewport;
-      const rect = keyboard?.boundingRect;
-      let overlay = 0;
-      if (rect && rect.height > 0) {
-        const box = content.getBoundingClientRect();
-        overlay = Math.max(0, Math.min(box.bottom, rect.bottom) - Math.max(box.top, rect.top));
-      }
-      if (visual) {
-        const seen = keyboardEvidence(baseline, {
-          visual: { width: visual.width, height: visual.height },
-          focused: editableFocused(),
-          closing: closing !== null,
-          overlay,
-        });
-        baseline = seen.baseline;
-        open = seen.open;
-      } else {
-        open = overlay > 0;
-      }
-      const measured = { width: content.clientWidth, height: content.clientHeight };
-      setStage((prev) => {
-        const next = trackStage(prev, measured, open, overlay);
-        return prev && next.width === prev.width && next.height === prev.height && next.bottom === prev.bottom
-          ? prev
-          : next;
-      });
-    };
-    const focusIn = () => {
-      closing = null;
-      measure();
-    };
-    // The field let go: a keyboard that was up slides away, and the visual
-    // viewport's resizes say when it is gone (keyboardClosing).
-    const focusOut = () => {
-      const visual = window.visualViewport;
-      closing = open && visual ? { height: visual.height } : null;
-      measure();
-    };
-    const visualResize = () => {
-      const visual = window.visualViewport;
-      if (closing && visual)
-        closing = keyboardClosing(closing, { width: visual.width, height: visual.height }, baseline);
-      measure();
-    };
-    measure();
-    const Observer = window.ResizeObserver;
-    const observer = typeof Observer === 'function' ? new Observer(measure) : null;
-    observer?.observe(content);
-    window.addEventListener('resize', measure);
-    window.visualViewport?.addEventListener('resize', visualResize);
-    keyboard?.addEventListener('geometrychange', measure);
-    document.addEventListener('focusin', focusIn);
-    document.addEventListener('focusout', focusOut);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener('resize', measure);
-      window.visualViewport?.removeEventListener('resize', visualResize);
-      keyboard?.removeEventListener('geometrychange', measure);
-      document.removeEventListener('focusin', focusIn);
-      document.removeEventListener('focusout', focusOut);
-    };
-  }, [contentRef, enabled]);
 
   // A new stage size or picture shape fits again; the same picture at another
   // size keeps what is on screen; an inset that went eases the view back.

@@ -1,20 +1,8 @@
-/**
- * Resident workers stay warm after a session's last command, but not forever:
- * idle ones are reclaimed sooner under worker pressure, never while their
- * session still holds a target lease, and never by quietly retiring a worker
- * that still owes an input release — that one goes through the full abort
- * barrier.
- */
 import { MAX_COMPUTER_WORKERS } from '../backend/worker-capacity';
 import { restoreSessionDesktop, type RetiredChild, type SessionAbort } from './lifecycle-abort';
 import type { LifecycleContext } from './session-lifecycle';
 
-// Resident workers remain warm longer than target leases. A window lease is
-// deliberately short-lived in the coordinator so an abandoned session
-// cannot reserve a user's app for this whole worker-idle period.
-// An agent routinely thinks for one to five minutes between commands. Reclaim
-// inside that gap restarts the worker (about half a second on the next
-// capture) and releases the session's frames, turning its next ref stale.
+// An agent routinely thinks for one to five minutes between commands.
 const WORKER_IDLE_STALE_MS = 300_000;
 // Near the worker limit the relaxed window is useless: the pool refuses the
 // next session while its own finished ones stay warm, and a caller cannot
@@ -73,10 +61,6 @@ export function createWorkerReclaim(
         });
         continue;
       }
-      // Routine reclaim: an idle session holds no input, so retiring its worker
-      // must not raise the global barrier that guards a user takeover — that
-      // barrier refuses every other session's next command until it clears.
-      // The reclaimed session ends here, so its one desktop restore runs first.
       const retire = () => {
         host.retirePowerShell(child, new Error('computer_worker_reclaimed: idle session worker was released'));
         host.releaseSessionState(sessionId, host.releaseCaptureSession);

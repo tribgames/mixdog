@@ -1,8 +1,3 @@
-/**
- * Restoring a file tab's kept version over its files (and the page assets
- * kept with them), each contained in the root the version recorded for it
- * (the cwd, or an outside page's own folder) when it was kept.
- */
 import type { VisualizeServiceContext } from './context';
 import type { TabState } from './tab-state';
 import { resolveTargetWithin } from './targets';

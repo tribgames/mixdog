@@ -1,8 +1,3 @@
-// Settings → Bots: regular check-ins and reactions, plus (this PC's desktop
-// window only) the representative bot overlay, a small window that is a side
-// chat with the representative bot (Mixy's agent id, whatever it is named).
-// Every overlay option lives here, the same ones its right-click menu shows,
-// kept in sync through main.
 import { useRef, useState } from 'react';
 import {
   HEARTBEAT_INTERVAL_CHOICES,

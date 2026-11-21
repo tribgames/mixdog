@@ -14,10 +14,6 @@ const VIRTUAL_ROWS_MIN = 40;
 /** Rows kept mounted past each viewport edge: a fling and a Tab press past the
  *  edge land on rows that already exist. */
 const VIRTUAL_ROWS_OVERSCAN = 12;
-/** The window moves in steps of this many rows. Every step mounts and
- *  releases rows (each row measures its title), so a step per row scrolled
- *  cost a commit and a layout every few frames; the overscan covers the
- *  rows a step lags behind. */
 const VIRTUAL_ROWS_STEP = 8;
 
 /** Last measured row box, shared by every list: all session rows have one
@@ -29,10 +25,6 @@ export function sessionRowPitch(): number {
   return learnedRow.height + learnedRow.gap;
 }
 
-/** The rows after a paged list's revealed ones. Its paging sentinel stands in
- *  for them at their height, so the scroll extent always reaches the end of
- *  the whole list: a fling runs on over rows whose page has not committed
- *  yet instead of dying at the end of the revealed ones. */
 export interface UnrevealedRows {
   count: number;
   sentinelRef: React.Ref<HTMLDivElement>;
@@ -87,12 +79,9 @@ interface FocusRequest {
   last: boolean;
 }
 
-/** One session list inside the shared Sessions scroller. Rows stay in normal
- *  flow inside their section; the rows outside the window are replaced by
- *  spacers of the same height, so the scroll extent, the scroll anchor and the
- *  paging sentinel see the full revealed list. Rows that must survive a scroll
- *  (the selected one, a delete awaiting confirmation, the focused row, the
- *  native drag source whose unmount would end the drag) stay mounted. */
+/** One session list inside the shared Sessions scroller; rows outside the
+ *  window become same-height spacers, and pinned, focused and dragged rows
+ *  stay mounted. */
 export function VirtualSessionRows<T extends VirtualRowItem>({
   items,
   renderItem,
@@ -195,12 +184,6 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
   const rendered = windowed ? virtualizer.getVirtualItems().map((item) => item.index) : [];
   const renderedRef = useRef(rendered);
   renderedRef.current = rendered;
-  // Learn the row box and the list's origin from the rows on screen. Sections
-  // above this list change its origin only through a sidebar render, which
-  // hands this list a new `items`; a scroll step alone re-renders with the
-  // same items and skips the measurement (and its forced layout). A list
-  // short of windowing measures too while rows stay unrevealed: their
-  // reserved height is laid out from this box.
   const measured = windowed || Boolean(unrevealed?.count);
   // biome-ignore lint/correctness/useExhaustiveDependencies: items marks a sidebar render; geometry is read, not a trigger
   useLayoutEffect(() => {
@@ -208,10 +191,6 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
     const scroller = scrollerRef.current;
     const container = markerRef.current?.parentElement;
     if (!scroller || !container) return;
-    // A list inside a hidden view (a closed drawer, a rail page not shown) has
-    // no box to learn from; reading one would only lay the page out inside
-    // this commit (a closing drawer paid the whole Settings layout here). It
-    // measures in the render that shows it.
     if (scroller.closest('[hidden]')) return;
     const rows = ownRows(container, indexById);
     // Unwindowed, every item is mounted in order.

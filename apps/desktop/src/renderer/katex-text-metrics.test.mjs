@@ -1,13 +1,3 @@
-/**
- * katex-text-metrics.test.mjs — KaTeX lends characters it has no metrics for
- * (Hangul, CJK, …) the metrics of 'M', so a fraction clears them by too little
- * and their ink crosses the bar. The markdown pipeline must lay such text out
- * with the metrics of the glyph that is really painted.
- *
- * The expected layout is independent of KaTeX's internals: a Hangul syllable
- * measured with the built-in metrics of a Latin glyph has to lay out exactly
- * like that Latin glyph.
- */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

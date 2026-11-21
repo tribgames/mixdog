@@ -24,7 +24,6 @@ import {
 } from './SessionGoalIsland.tsx';
 import { CompletionStatus, ContextUsageIndicator } from './transcript-status.tsx';
 import { PaneContextIndicator } from './app-snapshot-views.tsx';
-import { agentActivitySessionIds } from './desktop-types.ts';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store.ts';
 import { shellJobsStatusEqual } from '../shared/shell-jobs-status.ts';
@@ -335,18 +334,6 @@ test('Agent groups can be hidden, stay hidden through pool pushes and remounts, 
     await act(async () => dom.root.unmount());
     dom.close();
   }
-});
-
-test('Agents owner list is independent from the selected session', () => {
-  assert.deepEqual(
-    agentActivitySessionIds([
-      { id: 'lead', leadWorking: true },
-      { id: 'children', agentWorking: true },
-      { id: 'aggregate-only', working: true },
-      { id: 'idle' },
-    ]),
-    ['lead', 'children']
-  );
 });
 
 test('shell status equality includes detail fields that arrive after the task id', () => {
@@ -1183,10 +1170,6 @@ test('new task header ignores the previous session lane cache', async () => {
     });
     assert.doesNotMatch(document.body.textContent, /4%|18K/i);
 
-    // routeState republishes the derived window fields as 0 whenever its route
-    // comparison misses. A 0 denominator is "unresolved", not "no window": the
-    // gauge keeps dividing by the last known limit instead of repainting the
-    // whole reading it held before the compaction.
     await act(async () => {
       defaultSessionLaneStore.apply({
         sessionId: 'session-context',
@@ -1219,7 +1202,7 @@ test('new task header ignores the previous session lane cache', async () => {
   }
 });
 
-test("Agents groups every active session and renders each session's live agents", async () => {
+async function mountAgentGroups() {
   const dom = installDom();
   const opened = [];
   window.mixdogDesktop = {
@@ -1291,56 +1274,67 @@ test("Agents groups every active session and renders each session's live agents"
       return () => {};
     },
   };
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(AgentActivityPane, {
-          active: true,
-          sessions: [
-            {
-              id: 'lead-a',
-              title: 'First task',
-              preview: '',
-              updatedAt: 2,
-              messageCount: 1,
-              cwd: 'C:\\a',
-              classification: 'task',
-              projectPath: null,
-              working: true,
-              leadWorking: true,
-              agentWorking: true,
-            },
-            {
-              id: 'lead-b',
-              title: 'Second task',
-              preview: '',
-              updatedAt: 1,
-              messageCount: 1,
-              cwd: 'C:\\b',
-              classification: 'task',
-              projectPath: null,
-              working: true,
-              leadWorking: true,
-              agentWorking: true,
-            },
-            {
-              id: 'idle',
-              title: 'Idle task',
-              preview: '',
-              updatedAt: 3,
-              messageCount: 1,
-              cwd: 'C:\\idle',
-              classification: 'task',
-              projectPath: null,
-            },
-          ],
-          onOpenLeadSession: (sessionId) => opened.push(['lead', sessionId]),
-          onOpenSession: (sessionId, title, ownerSessionId) => opened.push(['agent', sessionId, title, ownerSessionId]),
-        })
-      );
-    });
+  await act(async () => {
+    dom.root.render(
+      React.createElement(AgentActivityPane, {
+        active: true,
+        sessions: [
+          {
+            id: 'lead-a',
+            title: 'First task',
+            preview: '',
+            updatedAt: 2,
+            messageCount: 1,
+            cwd: 'C:\\a',
+            classification: 'task',
+            projectPath: null,
+            working: true,
+            leadWorking: true,
+            agentWorking: true,
+          },
+          {
+            id: 'lead-b',
+            title: 'Second task',
+            preview: '',
+            updatedAt: 1,
+            messageCount: 1,
+            cwd: 'C:\\b',
+            classification: 'task',
+            projectPath: null,
+            working: true,
+            leadWorking: true,
+            agentWorking: true,
+          },
+          {
+            id: 'idle',
+            title: 'Idle task',
+            preview: '',
+            updatedAt: 3,
+            messageCount: 1,
+            cwd: 'C:\\idle',
+            classification: 'task',
+            projectPath: null,
+          },
+        ],
+        onOpenLeadSession: (sessionId) => opened.push(['lead', sessionId]),
+        onOpenSession: (sessionId, title, ownerSessionId) => opened.push(['agent', sessionId, title, ownerSessionId]),
+      })
+    );
+  });
 
-    await expandAllAgentGroups();
+  await expandAllAgentGroups();
+  return {
+    opened,
+    finish: async () => {
+      await act(async () => dom.root.unmount());
+      dom.close();
+    },
+  };
+}
+
+test("Agents groups every active session and renders each session's live agents", async () => {
+  const { finish } = await mountAgentGroups();
+  try {
     assert.equal(document.querySelectorAll('[data-agent-owner-session-id]').length, 2);
     assert.match(document.body.textContent, /First task/);
     assert.match(document.body.textContent, /Second task/);
@@ -1354,6 +1348,14 @@ test("Agents groups every active session and renders each session's live agents"
     assert.ok(document.querySelector('[data-agent-session-id="child-b"]'));
     assert.equal(document.querySelector('[data-agent-session-id="maintainer-a"]'), null);
     assert.equal(document.querySelector('[data-agent-session-id="search-a"]'), null);
+  } finally {
+    await finish();
+  }
+});
+
+test('folding an Agents group heading hides its children and unfolding restores them', async () => {
+  const { finish } = await mountAgentGroups();
+  try {
     const firstHeading = document.querySelector('[data-lead-session-id="lead-a"]');
     assert.equal(firstHeading.getAttribute('aria-expanded'), 'true');
     await act(async () => firstHeading.click());
@@ -1364,6 +1366,14 @@ test("Agents groups every active session and renders each session's live agents"
     await act(async () => firstHeading.click());
     assert.equal(firstHeading.getAttribute('aria-expanded'), 'true');
     assert.ok(document.querySelector('[data-agent-session-id="child-a"]'));
+  } finally {
+    await finish();
+  }
+});
+
+test('Agent rows show a running timer and a resting agent as the bare Idle word', async () => {
+  const { finish } = await mountAgentGroups();
+  try {
     assert.equal(document.querySelectorAll('.workflows-agent-summary-row .projects-row-icon').length, 0);
     const runningRow = document.querySelector('[data-agent-session-id="lead-a"]').closest('.schedules-row');
     assert.equal(runningRow.querySelector('.agent-activity-status [role=status]'), null);
@@ -1375,7 +1385,14 @@ test("Agents groups every active session and renders each session's live agents"
     // (user decision), so the label is the bare state word.
     assert.equal(idleRow.querySelector('.agent-activity-elapsed').textContent, 'Idle');
     assert.equal(idleRow.querySelector('.agent-activity-spinner-slot'), null);
+  } finally {
+    await finish();
+  }
+});
 
+test('clicking Agent rows opens the Lead session and the exact child session', async () => {
+  const { opened, finish } = await mountAgentGroups();
+  try {
     await act(async () => document.querySelector('[data-agent-session-id="lead-a"]').click());
     await act(async () => document.querySelector('[data-agent-session-id="child-b"]').click());
     assert.deepEqual(opened, [
@@ -1383,8 +1400,7 @@ test("Agents groups every active session and renders each session's live agents"
       ['agent', 'child-b', 'Review dependency update · legacy-session', 'lead-b'],
     ]);
   } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
+    await finish();
   }
 });
 
@@ -2161,10 +2177,6 @@ test('the Agents pane paints a cancelled agent as cancelled, never completed or 
     assert.match(document.body.textContent, /Cancel unconfirmed/);
     assert.doesNotMatch(document.body.textContent, /Completed|Idle|Queued/);
 
-    // A later snapshot reporting the same sessions as running again (the
-    // daemon has not unwound their turns yet) must not resurrect either of
-    // them — including the queued cancellation, which has NO frozen stamp of
-    // its own while the report invents startedAt from the session record.
     await act(async () =>
       push([
         {
@@ -2558,7 +2570,7 @@ for (const inlineActions of [false, true]) {
   });
 }
 
-test('the Agent window renders the Parent-Child tree and folds every generation', async () => {
+async function mountHierarchyTree() {
   const dom = installDom();
   window.mixdogDesktop = {
     async listAgentPool() {
@@ -2568,32 +2580,42 @@ test('the Agent window renders the Parent-Child tree and folds every generation'
       return () => {};
     },
   };
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(AgentActivityPane, {
-          active: true,
-          sessions: [
-            {
-              id: 'lead-a',
-              title: 'First task',
-              preview: '',
-              updatedAt: 2,
-              messageCount: 1,
-              cwd: 'C:\\a',
-              classification: 'task',
-              projectPath: null,
-              working: true,
-              leadWorking: true,
-              agentWorking: true,
-            },
-          ],
-          unreadSessionIds: new Set(['great-a']),
-        })
-      );
-    });
+  await act(async () => {
+    dom.root.render(
+      React.createElement(AgentActivityPane, {
+        active: true,
+        sessions: [
+          {
+            id: 'lead-a',
+            title: 'First task',
+            preview: '',
+            updatedAt: 2,
+            messageCount: 1,
+            cwd: 'C:\\a',
+            classification: 'task',
+            projectPath: null,
+            working: true,
+            leadWorking: true,
+            agentWorking: true,
+          },
+        ],
+        unreadSessionIds: new Set(['great-a']),
+      })
+    );
+  });
 
-    await expandAllAgentGroups();
+  await expandAllAgentGroups();
+  return {
+    finish: async () => {
+      await act(async () => dom.root.unmount());
+      dom.close();
+    },
+  };
+}
+
+test('the Agent window renders the Parent-Child tree with its levels, positions and roving focus', async () => {
+  const { finish } = await mountHierarchyTree();
+  try {
     const tree = document.querySelector('.agent-activity-page .schedules-list');
     assert.equal(tree.getAttribute('role'), 'tree');
     assert.equal(tree.getAttribute('aria-label'), 'First task');
@@ -2639,7 +2661,15 @@ test('the Agent window renders the Parent-Child tree and folds every generation'
     const unreadIdle = rowAt('great-a').querySelector('.agent-activity-elapsed');
     assert.equal(unreadIdle.getAttribute('data-state'), 'done');
     assert.equal(unreadIdle.textContent, 'Completed');
+  } finally {
+    await finish();
+  }
+});
 
+test('the Agent window folds every generation under its Lead heading', async () => {
+  const { finish } = await mountHierarchyTree();
+  try {
+    const rowAt = (sessionId) => document.querySelector(`[data-agent-session-id="${sessionId}"]`);
     const heading = document.querySelector('[data-lead-session-id="lead-a"]');
     await act(async () => heading.click());
     assert.equal(heading.getAttribute('aria-expanded'), 'false');
@@ -2656,8 +2686,7 @@ test('the Agent window renders the Parent-Child tree and folds every generation'
     assert.ok(rowAt('great-a'));
     assert.equal(rowAt('lead-a').getAttribute('aria-expanded'), 'true');
   } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
+    await finish();
   }
 });
 

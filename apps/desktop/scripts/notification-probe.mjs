@@ -1,6 +1,3 @@
-// Interactive native probe: no model request, installed-app restart, or
-// production settings mutation. The SAME controller as index.ts consumes a
-// restored completed turn, then calls the real Electron Notification API.
 // Run from apps/desktop: node scripts/notification-probe.mjs
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';

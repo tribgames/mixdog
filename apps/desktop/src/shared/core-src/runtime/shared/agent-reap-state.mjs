@@ -51,10 +51,7 @@ export function tagTombstoneKey(row = {}) {
   return `${positiveInt(row.clientHostPid) || 0}\0${clean(row.tag)}`;
 }
 
-// Keys are built directly (same shape as tagTombstoneKey): this runs once per
-// row/session on every scan, and spreading a session-sized row just to
-// override its tag copied the whole record per lookup. `tag` must already be
-// clean when passed.
+/** `tag` must already be clean when passed. */
 export function findTagTombstone(row, tombstones, tag = clean(row.tag || row.agentTag)) {
   const parent = clean(row.parentSessionId || row.ownerSessionId);
   return (

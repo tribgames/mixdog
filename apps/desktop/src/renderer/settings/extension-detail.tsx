@@ -69,14 +69,8 @@ export function ExtensionRow({
  *  `editor` for the Skill/MCP forms that carry a Markdown body. */
 type ExtensionDialogWidth = 'compact' | 'detail' | 'editor';
 
-/** THE card every Extensions entry opens in — built-in feature, plugin,
- *  skill, MCP server, and the install/add prompts. One header (identity plate,
- *  title, status switch or install control, close), one scrolling body on
- *  the 16px section rhythm, and a footer only when the entry has real
- *  actions. Editors pass `onSubmit`; the body and footer then live inside a
- *  form so the footer's submit button posts it. Rows drill IN here instead
- *  of exposing their actions in the list. Portaled because the list lives inside the sidebar's
- *  clipped box. */
+/** The card every Extensions entry opens in. Editors pass `onSubmit`: the body and footer then live inside a
+ *  form so the footer's submit button posts it. Portaled because the list lives inside the sidebar's clipped box. */
 export function ExtensionDetailDialog({
   title,
   icon,
@@ -186,11 +180,6 @@ export function ExtensionDetailDialog({
     </SidebarDialogLayer>
   );
 }
-
-/** Body building blocks shared by every Extensions card: titled sections,
- *  item rows, the facts list, notes, previews, form fields, the one action
- *  button, and the project-scope control. They live here so each dialog
- *  composes the same grammar instead of growing its own. */
 
 type ExtensionScopeKind = 'skills' | 'mcp' | 'plugins';
 

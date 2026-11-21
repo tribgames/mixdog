@@ -1,8 +1,3 @@
-// The desktop paints a streamed reply before its line completes. The engine
-// publishes the live row line-gated (`streamingTail`, what the terminal shows)
-// and, beside it, the unfinished line (`streamingPartial`). This module is the
-// one place that joins them; every desktop reader of the live row (renderer
-// lanes, the remote streaming mailbox) goes through it.
 import type { DesktopStreamingPartial, DesktopTranscriptItem } from './contract-session';
 
 type LiveRowState = {

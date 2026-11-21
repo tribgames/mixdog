@@ -231,25 +231,36 @@ test('a pane Enter that answers one browser card restarts the settle of another 
   }
 });
 
-test('an unconfirmed receiver or an outside file: focus on 거절, Enter never allows; the allow says why in its tooltip', async () => {
+async function mountUnconfirmedUpload() {
   const api = desktop();
   const host = createRoot(doc.getElementById('host'));
   const chat = createRoot(doc.getElementById('chat'));
   await act(async () => host.render(React.createElement(BrowserApprovalHost)));
   await act(async () => chat.render(React.createElement(Dock, { sessionId: 'nowhere' })));
+  await api.send(
+    prompt({
+      id: 'r1',
+      surfaceSessionId: 'nowhere',
+      action: 'upload',
+      origin: 'https://forms.example',
+      receiverOrigin: '',
+      files: [{ name: 'tax.pdf', path: 'C:\\Users\\me\\tax.pdf', size: 860 * 1024, outside: true }],
+      remember: null,
+    })
+  );
+  return {
+    api,
+    root: doc.getElementById('chat'),
+    unmount: async () => {
+      await act(async () => chat.unmount());
+      await act(async () => host.unmount());
+    },
+  };
+}
+
+test('an unconfirmed receiver or an outside file: focus on 거절; the allow says why in its tooltip', async () => {
+  const { root, unmount } = await mountUnconfirmedUpload();
   try {
-    await api.send(
-      prompt({
-        id: 'r1',
-        surfaceSessionId: 'nowhere',
-        action: 'upload',
-        origin: 'https://forms.example',
-        receiverOrigin: '',
-        files: [{ name: 'tax.pdf', path: 'C:\\Users\\me\\tax.pdf', size: 860 * 1024, outside: true }],
-        remember: null,
-      })
-    );
-    const root = doc.getElementById('chat');
     assert.equal(root.querySelector('.approval-title').textContent, 'Upload these files?');
     assert.deepEqual(labels(root), ['Deny', 'Allow just once']);
     assert.equal(doc.activeElement, button(root, 'Deny'));
@@ -266,6 +277,14 @@ test('an unconfirmed receiver or an outside file: focus on 거절, Enter never a
     assert.doesNotMatch(root.querySelector('.approval-prompt').textContent, /bot's own chat/);
     assert.ok(root.querySelector('.approval-preview-row[data-warn]'));
     assert.match(root.querySelector('.approval-tag').textContent, /Outside the project/);
+  } finally {
+    await unmount();
+  }
+});
+
+test('an unconfirmed receiver or an outside file: Enter and Space never allow, only a click does', async () => {
+  const { api, root, unmount } = await mountUnconfirmedUpload();
+  try {
     await settle();
     doc.activeElement?.blur();
     await key('Enter', doc.body);
@@ -288,8 +307,7 @@ test('an unconfirmed receiver or an outside file: focus on 거절, Enter never a
     await act(async () => allow.click());
     assert.deepEqual(api.decisions, [['r1', 'once', undefined]], 'a click with no key before it does');
   } finally {
-    await act(async () => chat.unmount());
-    await act(async () => host.unmount());
+    await unmount();
   }
 });
 
@@ -496,13 +514,21 @@ test('an approval answered on another device flashes "<action> · Allowed from <
     ).text,
     'Run a command · Expired'
   );
-  // The glyph matches the outcome: a deny is never drawn with the allow's check.
+});
+
+test('the flash glyph matches the outcome: a deny is never drawn with the allow check', async () => {
+  const { conversationIslandFlash } = await import('./use-conversation-approvals.tsx');
+  const shell = { id: 's1', kind: 'approval', name: 'shell', args: { command: 'ls' } };
   const glyph = (outcome) => conversationIslandFlash({ approval: shell, outcome }, null, 'DESKTOP-7').icon;
   assert.equal(glyph({ approved: true, device: '' }), 'check');
   assert.equal(glyph({ approved: false, device: '' }), 'close-small');
   assert.equal(glyph({ approved: false, device: 'Pixel 9' }), 'close-small');
   assert.equal(glyph({ approved: false, device: '', expired: true }), 'clock');
-  // A question leaves no trace line, however it ended.
+});
+
+test("a question, or this device's own answer, leaves no flash", async () => {
+  const { conversationIslandFlash } = await import('./use-conversation-approvals.tsx');
+  const email = { id: 'm1', kind: 'outbound', outbound: { category: 'email' } };
   const question = { id: 'q1', kind: 'question' };
   for (const outcome of [
     { approved: true, device: 'Pixel 9' },
@@ -511,7 +537,6 @@ test('an approval answered on another device flashes "<action> · Allowed from <
   ]) {
     assert.equal(conversationIslandFlash({ approval: question, outcome }, null, 'DESKTOP-7'), null);
   }
-  // This device's own answer is never announced back to it.
   assert.equal(
     conversationIslandFlash({ approval: email, outcome: { approved: true, device: 'Pixel 9' } }, null, 'Pixel 9'),
     null

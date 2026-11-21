@@ -1,8 +1,3 @@
-// The preview frame allows outside https, which includes the relay's own
-// origin. These tests pin what keeps that harmless: every relay cookie is
-// SameSite=Lax (never None, never Domain-wide), and a cookie never counts as
-// a credential on a cross-site, non-navigation or `Origin: null` request —
-// exactly what a page in the opaque-origin preview frame sends.
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

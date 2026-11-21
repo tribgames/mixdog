@@ -144,10 +144,6 @@ function scheduleStableSurfaceCommit(commit: () => void): () => void {
 }
 
 function useStableSurfaceReveal(ready: boolean, transitionKey: string | number = ''): boolean {
-  // Readiness is a cold-start contract, not a background-refresh state. Once
-  // this exact surface key has been revealed, transient loading caused by a
-  // dropdown, filter, or refresh must preserve its DOM instead of replaying a
-  // full-frame cover. A genuinely different key still starts cold.
   const [reveal, setReveal] = useState(() => ({
     key: transitionKey,
     revealed: ready,
@@ -171,11 +167,6 @@ function useStableSurfaceReveal(ready: boolean, transitionKey: string | number =
  *  outlasts this grace puts the cover back. */
 export const SURFACE_HOLD_GRACE_MS = 300;
 
-/** A hold the covered content reports itself, read by the cover alone. As
- *  owner state it re-rendered the owner's whole tree (PaneConversation's
- *  Conversation) twice per visit — once in the switch commit when the
- *  transcript hid, once in the reveal frame — for a value only the cover
- *  reads. */
 export type SurfaceHoldSignal = {
   get(): boolean;
   set(hold: boolean): void;
@@ -241,11 +232,6 @@ export function DesktopBootGate({
     currentRemoteConnectionState,
     () => null
   );
-  // The cover's end belongs to the window's own link to its core: a window
-  // with a local core link (the desktop app's) is not handed off, by
-  // readiness, the time limit or anything else, until that link is open. What
-  // the core reports while it starts (a rebuild's counts, a failure) only
-  // decides what the cover draws.
   const coreLink = useLocalCoreLink();
   const bootProgress = useBootProgress();
   const bootFailure = useBootFailure();
@@ -319,11 +305,6 @@ export function DesktopBootGate({
   }, [barrier, revealed, timedOut]);
   useEffect(() => () => barrier.dispose(), [barrier]);
 
-  // The watermark's boot fade belongs to the hand-off alone. At hand-off the
-  // gate collects the fades actually running on a watermark (none for a hidden
-  // logo, reduced motion or no logo); once each has finished or been cancelled
-  // (interrupted, logo removed) the attribute goes, so a watermark mounted
-  // later (a New Task switch) starts at its final opacity.
   const gateRef = useRef<HTMLDivElement>(null);
   const [brandSettled, setBrandSettled] = useState(false);
   useEffect(() => {
@@ -345,10 +326,6 @@ export function DesktopBootGate({
   return (
     <div
       ref={gateRef}
-      // `is-booting` lives only until the hand-off: the hide-everything rule
-      // below the cover keys on it, so after boot the style engine's
-      // ancestor filter rejects that rule outright instead of walking every
-      // element's ancestors on each style update (19-studio.css).
       className={handoffComplete ? 'desktop-boot-gate' : 'desktop-boot-gate is-booting'}
       data-ready={handoffComplete ? 'true' : 'false'}
       data-leaving={coverLeaving ? 'true' : undefined}
@@ -543,13 +520,6 @@ export function PersistentPanePortal({
     else host.removeAttribute('aria-hidden');
   }, [host, retained]);
   const [attached, setAttached] = useState(false);
-  // Scroll offsets are recorded once a surface's scroll settles, so neither
-  // the scroll itself nor the relocation forces a layout to read them back.
-  // Reading scrollTop/Left inside EVERY scroll event forced a style/layout
-  // pass per frame whenever anything had invalidated style (any running
-  // animation), on the transcript's hottest path. The values are still taken
-  // while the host is attached: a slot removed under the host detaches it, and
-  // a detached scroller reads 0.
   const [scrollOffsets] = useState(() => new Map<Element, PersistentSurfaceScroll>());
   const settleScrollOffsets = useRef<() => void>(() => {});
   useLayoutEffect(() => {

@@ -1,11 +1,3 @@
-/**
- * The geometry main locks for a streamed page: its CSS viewport as it is
- * (never refitted to the phone unless the phone explicitly asks), and the
- * capture pixel size, which honours the page's device pixel ratio up to the
- * client's frame bound. Renewals, keyboard and rotation never change it; only
- * a real change of the page (a PC-side resize or zoom, or an explicit resize)
- * locks a new generation.
- */
 import type { DesktopRemoteBrowserStreamOptions } from '../../shared/contract';
 import type { RemoteWebrtcGeometry } from '../../shared/remote-webrtc';
 import type { BrowserGuestCdp } from './cdp';
@@ -18,15 +10,7 @@ export interface RemotePageMetrics {
   devicePixelRatio: number;
 }
 
-/**
- * How frames are captured at the locked size:
- * - `screencast`: Page.startScreencast frames, which Chromium sizes in DIP
- *   (CSS pixels) and only ever scales down — exact when the pixel size is at
- *   most the CSS size.
- * - `screenshot`: Page.captureScreenshot of the viewport, at the page's device
- *   pixels — used when those exceed the CSS size and fit the client's bound.
- *   The screencast keeps running as the page's repaint signal.
- */
+/** `screencast` frames are sized by Chromium in CSS pixels and only scaled down; `screenshot` captures at device pixels. */
 export type RemoteCaptureMode = 'screencast' | 'screenshot';
 
 export interface RemoteLockedGeometry {
@@ -69,11 +53,7 @@ export function lockRemoteGeometry(
   };
 }
 
-/** The page's device pixel ratio from its layout metrics: the deprecated
- *  `visualViewport` is in device pixels, `cssVisualViewport` in CSS pixels
- *  (both exclude scrollbars, so their ratio is exact). Null when unreadable,
- *  e.g. while a dialog holds the page. The CSS size itself comes from the
- *  screencast's own metadata, which covers the whole view frames show. */
+/** `visualViewport` is in device pixels, `cssVisualViewport` in CSS pixels, both without scrollbars. Null when unreadable. */
 export async function readRemotePagePixelRatio(
   cdp: Pick<BrowserGuestCdp, 'call'>,
   guest: Electron.WebContents

@@ -46,10 +46,6 @@ const SYNTHETIC_SESSION_TEXT_PATTERNS = Object.freeze([
   // User-cancel + process-restart control rows must never title/preview a session.
   CONTROL_MARKER_RE,
   /^a previous model worked on this task and produced the compacted handoff summary below\b/i,
-  // Compact/auto-clear re-seed handoff variants: these lead the FIRST user
-  // message of every post-compaction session, so titling from them painted
-  // "Re-attached after compaction…" rows in Recent (user report). Skipping
-  // them titles the session from its first REAL user message instead.
   /^re-attached after compaction\b/i,
   /^the async (?:agent|shell) task\b/i,
 ]);
@@ -96,12 +92,7 @@ export function cleanSessionPreview(text, max = 160) {
   return JSON.parse(JSON.stringify(cleaned.slice(0, limit)));
 }
 
-// Stable sentinel carried in late-tool (deferred MCP) announcement reminders.
-// Nothing in this repository emits it any more (late tools now travel as a
-// deferred_tools_delta), but stored transcripts may still hold such blocks.
-// Detection keys on this exact string (never fuzzy matching) so the raw
-// announcement block stays hidden from user-facing surfaces while the model
-// context stays untouched.
+// Stored transcripts may still hold late-tool announcement blocks carrying this exact sentinel.
 const LATE_TOOL_ANNOUNCEMENT_SENTINEL = 'connected after this session started';
 
 export function isLateToolAnnouncement(text) {

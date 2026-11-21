@@ -61,10 +61,6 @@ export function loadDeviceStore(path) {
   return devices;
 }
 
-// sha256(token) hex -> deviceId. Phone auth is on the hot path of every
-// /ws upgrade and static GET; a linear scan over all devices would decay
-// with fleet size. Indexing by digest keeps lookup O(1) and leaks nothing
-// useful: matching a key requires the token preimage.
 export function buildTokenIndexes(devices) {
   const tokenIndex = new Map();
   const clientTokenIndex = new Map();

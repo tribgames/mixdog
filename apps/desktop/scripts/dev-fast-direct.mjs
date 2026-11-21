@@ -25,10 +25,7 @@ export function asarPath(path) {
   return String(path).replace(/[\\/]+/g, sep);
 }
 
-// koffi stays listed in the archive but lives in app.asar.unpacked, as
-// electron-builder's asarUnpack leaves it: a native binding cannot be loaded
-// from inside the archive. asar matches unpackDir with minimatch, which takes
-// `/` on Windows too.
+// A native binding cannot load from inside the archive; asar matches unpackDir with minimatch, which takes `/` on Windows.
 export const koffiBindingPath = `node_modules/@koromix/koffi-${process.platform}-${process.arch}/${process.platform}_${process.arch}/koffi.node`;
 
 export function fastDirectAsarOptions() {
@@ -678,12 +675,7 @@ function isDiscardedStagedShellPath(relativePath) {
   );
 }
 
-// `extractAll` reads every entry, including the ones stageShell deletes again,
-// so a single unreadable file under `out/` aborted a deploy that was about to
-// overwrite that file anyway - as happened when Windows Defender quarantined one
-// renderer locale asset out of app.asar.unpacked. This extracts only the entries
-// the staging keeps, with extractAll's directory, symlink and executable-bit
-// handling; a kept entry that cannot be read still fails the deploy.
+// Unlike asar's `extractAll`, skips the discarded paths, so an unreadable file under `out/` does not abort the deploy.
 export async function extractStagedShell(archivePath, destination) {
   // Creating symlinks on Windows needs elevation, so asar extracts links there
   // as plain files. Mirror that per-platform choice instead of inventing one.
@@ -727,11 +719,7 @@ export async function extractStagedShell(archivePath, destination) {
   }
 }
 
-// One file of the staged tree. Windows file-system filters — search indexers and
-// security products — can fail a CopyFileW with a status libuv cannot translate,
-// and the deploy then dies on that same file every run. Moving the bytes through
-// read/write never issues that call, and a bounded retry absorbs a lock that is
-// still clearing rather than failing the whole deploy over one handle.
+// Windows file-system filters can fail CopyFileW with a status libuv cannot translate; read/write never issues that call.
 async function stageFile(source, destination, mode) {
   let failure;
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -767,10 +755,7 @@ async function stageTree(source, destination) {
 /** The `out/**` exclusions of electron-builder.yml `files`, which the full Windows package applies. `path` is
  *  relative to the package root, with `/` separators. */
 export function packageExcludesOutputFile(path) {
-  return (
-    path === 'out/main/capture-window.js' ||
-    path.endsWith('.map')
-  );
+  return path === 'out/main/capture-window.js' || path.endsWith('.map');
 }
 
 // walkFiles skips any path under an `out` directory, so this lists the tree itself.

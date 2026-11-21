@@ -1,10 +1,3 @@
-// Page-image viewer for Office documents and PDFs: the app's own scroller,
-// scrollbar and zoom instead of a foreign viewer (Chromium's PDF viewer brings
-// its own toolbar and native scrollbars).
-//
-// Pages arrive one small batch at a time, driven by what is actually on
-// screen. A document is therefore as cheap to open as its first page, and
-// scrolling pays for exactly the pages it reaches.
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 
 import {
@@ -158,12 +151,8 @@ function DocumentPages({
     [preview.pageCount]
   );
 
-  // The pages in view follow the scroller's scroll and the boxes' sizes (zoom,
-  // a page's own aspect arriving, the pane resizing); both deliver at most
-  // once per frame, in the frame's own event and observer steps.
   // No IntersectionObserver: while one exists, Chromium runs a main-thread
-  // frame on every vsync for as long as any animation runs in the window —
-  // here the loading pages' own spinners.
+  // frame on every vsync for as long as any animation runs in the window.
   // biome-ignore lint/correctness/useExhaustiveDependencies: pageCount is the deliberate trigger - the page slots to observe are rendered from it - and scrollRef.current is a ref read at run time.
   useEffect(() => {
     const root = scrollRef.current;

@@ -1,14 +1,6 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useId, useRef, useSyncExternalStore } from 'react';
 import type { StudioMediaJob } from './studio-media-state';
 
-// What the Studio panes tell the Studio rail panel: the runs in flight, so a
-// board row can show that something in it is generating. (The open board
-// itself is shared through studio-boards.)
-//
-// Ownership: of the Studio panes showing their tab, the panel mirrors the one
-// the user focused last (`shown`, owner last). Only the owner's state is kept;
-// when the owner stops showing its tab or unmounts, the previous pane takes
-// over (and republishes), or the state clears.
 interface StudioPanelState {
   /** The owning pane's key, '' when no Studio pane is shown. */
   ownerKey: string;
@@ -67,6 +59,32 @@ export function publishStudioPaneState(paneKey: string, jobs: readonly StudioMed
 
 export function useStudioPaneOwner(paneKey: string): boolean {
   return useSyncExternalStore(subscribe, () => state.ownerKey === paneKey);
+}
+
+/** Registers a Studio pane with the rail panel while its tab is shown, tracks
+ *  its focus, and publishes its runs while it owns the panel. */
+export function useStudioPanelRegistration(
+  tabKey: string | undefined,
+  active: boolean,
+  focused: boolean,
+  jobs: readonly StudioMediaJob[]
+): void {
+  const instanceKey = useId();
+  const paneKey = tabKey ?? instanceKey;
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  useEffect(() => {
+    if (!active) return undefined;
+    showStudioPane(paneKey, focusedRef.current);
+    return () => hideStudioPane(paneKey);
+  }, [active, paneKey]);
+  useEffect(() => {
+    if (active && focused) focusStudioPane(paneKey);
+  }, [active, focused, paneKey]);
+  const owner = useStudioPaneOwner(paneKey);
+  useEffect(() => {
+    if (owner) publishStudioPaneState(paneKey, jobs);
+  }, [owner, paneKey, jobs]);
 }
 
 export function useStudioPanelState(): Pick<StudioPanelState, 'jobs'> {

@@ -1,7 +1,3 @@
-/** Page identity across restarts, so a transcript card keeps the screenshot,
- *  icon and title it had before the app closed. Sealed with the OS keychain
- *  like the session cookies: a screenshot shows what a signed-in page showed.
- *  Writes are coalesced; nothing is written until the saved copy is back. */
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 

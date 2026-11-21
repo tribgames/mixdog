@@ -1,8 +1,3 @@
-/**
- * The input observer's view around a capture: the bounded read of its monitor
- * and sequence, and whether the two reads bracketing a capture prove the
- * foreground stayed untouched.
- */
 import type { ComputerCommand, ComputerInputObservation } from '../shared/types';
 import { CAPTURE_ACCESSIBILITY_TIMEOUT_MS, sleep } from '../shared/common';
 
@@ -44,6 +39,26 @@ export interface InputObservationHost {
  *  input sequence that could reach that window's process. */
 export type CaptureInputObservation = ComputerInputObservation & { targetSequence?: number };
 
+function parseInputIdleState(result: Record<string, unknown> | undefined): CaptureInputObservation | undefined {
+  if (
+    typeof result?.monitor !== 'string' ||
+    !result.monitor ||
+    !Number.isSafeInteger(result.sequence) ||
+    Number(result.sequence) < 0
+  )
+    return undefined;
+  const ready = result.observer_ready === true;
+  const reason = !ready && typeof result.observer_reason === 'string' ? result.observer_reason : '';
+  const targetSequence = Number.isSafeInteger(result.target_sequence) ? Number(result.target_sequence) : undefined;
+  return {
+    ready,
+    monitor: result.monitor,
+    sequence: Number(result.sequence),
+    ...(reason ? { reason } : {}),
+    ...(targetSequence === undefined ? {} : { targetSequence }),
+  };
+}
+
 export function createInputObservationReader(host: InputObservationHost, command: ComputerCommand, windowId?: string) {
   const readOnce = async (): Promise<CaptureInputObservation | undefined> => {
     host.assertExecutionNotAborted();
@@ -58,25 +73,7 @@ export function createInputObservationReader(host: InputObservationHost, command
         CAPTURE_ACCESSIBILITY_TIMEOUT_MS
       );
       host.assertExecutionNotAborted();
-      const result = response.result;
-      if (
-        !response.ok ||
-        typeof result?.monitor !== 'string' ||
-        !result.monitor ||
-        !Number.isSafeInteger(result.sequence) ||
-        Number(result.sequence) < 0
-      )
-        return undefined;
-      const ready = result.observer_ready === true;
-      const reason = !ready && typeof result.observer_reason === 'string' ? result.observer_reason : '';
-      const targetSequence = Number.isSafeInteger(result.target_sequence) ? Number(result.target_sequence) : undefined;
-      return {
-        ready,
-        monitor: result.monitor,
-        sequence: Number(result.sequence),
-        ...(reason ? { reason } : {}),
-        ...(targetSequence === undefined ? {} : { targetSequence }),
-      };
+      return response.ok ? parseInputIdleState(response.result) : undefined;
     } catch {
       host.assertExecutionNotAborted();
       return undefined;
@@ -111,10 +108,6 @@ export function inputMonitorChanged(
   return Boolean(before && after && before.monitor !== after.monitor);
 }
 
-/** User input into the captured window during the capture never fails it: the
- *  capture is published without a foreground-ready observation, so foreground
- *  input refuses it and background input proceeds. Input into other processes
- *  leaves it ready; the action's own check judges everything since `before`. */
 export function settleInputObservation(
   before: CaptureInputObservation | undefined,
   after: CaptureInputObservation | undefined

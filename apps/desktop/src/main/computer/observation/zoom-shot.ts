@@ -1,9 +1,3 @@
-/**
- * A fresh full-surface shot of the exact source a frame came from, for
- * zooming: app-owned windows render through Electron, native-backend windows
- * through the worker, everything else through the compositor. Any drift from
- * the frame's geometry is a stale frame, never a silently mis-cropped zoom.
- */
 import { desktopCapturer, screen, type NativeImage } from 'electron';
 
 import type { CaptureAttempt } from '../shared/capture-attempts';

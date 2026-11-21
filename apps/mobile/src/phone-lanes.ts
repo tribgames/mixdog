@@ -52,11 +52,13 @@ export function createLaneFeeds(client: LaneClient, terminal: { redraw(): void; 
         closing.delete(feedId);
         sync();
       };
-      void client.call('feed/unsubscribe', { feedId }, isTerminal ? { timeoutMs: 10_000 } : undefined).then(closed, () => {
-        if (closing.get(feedId) !== claim) return;
-        if (isTerminal) terminal.retire();
-        else closed();
-      });
+      void client
+        .call('feed/unsubscribe', { feedId }, isTerminal ? { timeoutMs: 10_000 } : undefined)
+        .then(closed, () => {
+          if (closing.get(feedId) !== claim) return;
+          if (isTerminal) terminal.retire();
+          else closed();
+        });
     }
     for (const feedId of wanted) {
       const isTerminal = feedId === TERMINAL_FEED;
@@ -64,34 +66,40 @@ export function createLaneFeeds(client: LaneClient, terminal: { redraw(): void; 
       const claim = { pending: true };
       open.set(feedId, claim);
       const resumeFrom = isTerminal ? position : undefined;
-      void client.call('feed/subscribe', { feedId, ...(resumeFrom ? { resumeFrom } : {}) }, isTerminal ? { timeoutMs: 10_000 } : undefined).then(
-        () => {
-          if (open.get(feedId) !== claim) return;
-          claim.pending = false;
-          if (isTerminal) clearRetry();
-          if (!wantedFeeds().has(feedId)) sync();
-        },
-        (error: unknown) => {
-          if (open.get(feedId) !== claim) return;
-          open.delete(feedId);
-          if (!isTerminal) return;
-          // A timed-out request might still attach; only a new connection may safely replace it.
-          if ((error as { detail?: { kind?: string } } | null)?.detail?.kind === 'requestTimeout') {
-            terminal.retire();
-            return;
+      void client
+        .call(
+          'feed/subscribe',
+          { feedId, ...(resumeFrom ? { resumeFrom } : {}) },
+          isTerminal ? { timeoutMs: 10_000 } : undefined
+        )
+        .then(
+          () => {
+            if (open.get(feedId) !== claim) return;
+            claim.pending = false;
+            if (isTerminal) clearRetry();
+            if (!wantedFeeds().has(feedId)) sync();
+          },
+          (error: unknown) => {
+            if (open.get(feedId) !== claim) return;
+            open.delete(feedId);
+            if (!isTerminal) return;
+            // A timed-out request might still attach; only a new connection may safely replace it.
+            if ((error as { detail?: { kind?: string } } | null)?.detail?.kind === 'requestTimeout') {
+              terminal.retire();
+              return;
+            }
+            if (!wantedFeeds().has(feedId)) return;
+            if ((error as { detail?: { reason?: string } } | null)?.detail?.reason === 'cursorInvalidated') {
+              redrawOnSnapshot = position !== undefined || redrawOnSnapshot;
+              position = undefined;
+            }
+            retry = setTimeout(() => {
+              retry = undefined;
+              sync();
+            }, retryDelay);
+            retryDelay = Math.min(retryDelay * 2, 10_000);
           }
-          if (!wantedFeeds().has(feedId)) return;
-          if ((error as { detail?: { reason?: string } } | null)?.detail?.reason === 'cursorInvalidated') {
-            redrawOnSnapshot = position !== undefined || redrawOnSnapshot;
-            position = undefined;
-          }
-          retry = setTimeout(() => {
-            retry = undefined;
-            sync();
-          }, retryDelay);
-          retryDelay = Math.min(retryDelay * 2, 10_000);
-        }
-      );
+        );
     }
   };
   const off = client.on((event: ClientEvent) => {
@@ -124,7 +132,7 @@ export function createLaneFeeds(client: LaneClient, terminal: { redraw(): void; 
       used = new Set(lanes);
       sync();
     },
-    expected: () => wantedFeeds().has(TERMINAL_FEED) ? [TERMINAL_FEED] : [],
+    expected: () => (wantedFeeds().has(TERMINAL_FEED) ? [TERMINAL_FEED] : []),
     stop() {
       off();
       clearRetry();

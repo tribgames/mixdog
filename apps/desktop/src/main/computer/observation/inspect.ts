@@ -1,8 +1,3 @@
-/**
- * The read-only questions Computer Use can answer: whether the backend, OCR and
- * accessibility are ready (diagnose), and whether a bounded condition has become
- * true (verify, in verify-window.ts).
- */
 import { elapsedMs } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import type { ComputerWindowRecord } from '../shared/window-transition';

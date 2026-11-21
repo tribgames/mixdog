@@ -1,12 +1,3 @@
-// The project root listing the Files tree paints from in its first frame
-// (keyed-read-cache): a warm-up (boot, or the Search entry's open intent) and
-// the mounted tree share one read in flight, and every activation revalidates
-// behind the cached rows instead of opening on an empty tree.
-//
-// Retention follows live use, with no size cap: a listing is kept only while
-// its project is the current one or a mounted tree reads it, and is dropped
-// when the project is unregistered (changesReaders style: readers are counted
-// and the entry leaves with the last one).
 import type { DesktopApi, DesktopDirEntry } from '../shared/contract';
 import { projectIdentity } from '../shared/project-identity';
 import { createKeyedReadCache, type KeyedReadCache } from './keyed-read-cache';
@@ -44,11 +35,6 @@ function sweep(): void {
   }
 }
 
-/** Runs a read on the project's cache and keeps its outcome: the newest failure,
- *  cleared by the next success. An outcome counts only while the cache entry
- *  that started the read is still the project's (a read finishing after its
- *  entry was evicted leaves nothing behind); the retention sweep runs after
- *  every read, so a listing or failure nothing holds leaves with it. */
 function track(
   projectPath: string,
   run: (cache: KeyedReadCache<DesktopDirEntry[]>) => Promise<DesktopDirEntry[]>

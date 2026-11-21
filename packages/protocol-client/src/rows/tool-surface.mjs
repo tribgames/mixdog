@@ -1,6 +1,3 @@
-// ── Facade: tool-surface primitives + result summaries are re-exported from
-// their cohesive modules. This file keeps the display-name / arg-summary and
-// aggregate-card clusters.
 import {
   DEFAULT_SUMMARY_MAX,
   AGENT_SURFACE_BRIEF_MAX,
@@ -181,10 +178,7 @@ function displayToolName(name, args = {}) {
   }
 }
 
-// The bridge tools (`browser`, `computer`) carry their fields in a nested
-// `input` object, so the tool-level action stays at the argument root while
-// `parseToolArgs` hands back the unwrapped input. Resolve both halves straight
-// from the raw arguments, which may still arrive as a JSON string.
+// Bridge tools (`browser`, `computer`) nest their fields in `input` while the action stays at the root; raw args may be a JSON string.
 function bridgeToolCall(args) {
   let root = args;
   if (typeof root === 'string') {
@@ -620,14 +614,6 @@ export function aggregateToolCategoryEntries(name, args = {}, category = '') {
   return units.map((unit) => categoryEntryFromUnit(cat, unit));
 }
 
-/**
- * Rebuild the per-category count map for the DONE state. Counts ATTEMPTS —
- * failed calls included — so the collapsed header total always agrees with
- * the 'N Ok · N Failed' breakdown rendered beside it ("Ran 5 commands ·
- * 3 Ok · 2 Failed", never "Ran 3 commands · 3 Ok · 2 Failed"). Mirrors the
- * call-time accumulation in turn.mjs (sum aggregateToolCategoryEntry(...).count
- * per key); outcome splitting stays in the failure detail, not the header.
- */
 export function aggregateDoneCategories(calls = []) {
   return runSync(aggregateDoneCategoriesSteps(calls));
 }
@@ -691,10 +677,6 @@ function aggregateDescriptor(key, value) {
   };
 }
 
-/**
- * Build a comma-separated header from per-category counts.
- * e.g. "Read 6 items, Searched 5 items, Called 1 agent"
- */
 export function formatAggregateHeader(
   categories,
   { pending = false, order = null, stableVerbWidth = false, failed = false } = {}
@@ -755,17 +737,11 @@ function accumulateUpdateMetric(metric, update) {
   metric.seen = metric.seen || update.seen;
 }
 
-/**
- * Join a list of per-call result summaries into a single detail line,
- * deduplicating exact repeats while preserving order.
- */
 export function formatAggregateDetail(summaries) {
   return runSync(formatAggregateDetailSteps(summaries));
 }
 
-/** `formatAggregateDetail`, yielding every `STEP` summaries and every `STEP` rendered parts. */
-export function* formatAggregateDetailSteps(summaries) {
-  if (!summaries || summaries.length === 0) return '';
+function createAggregateDetailFold() {
   const metrics = new Map();
   const order = [];
   const extras = new Set();
@@ -784,42 +760,69 @@ export function* formatAggregateDetailSteps(summaries) {
     order.push({ type: 'extra', text });
   };
 
-  let seen = 0;
-  for (const raw of summaries) {
-    if (++seen % STEP === 0) yield;
-    const text = String(raw || '').trim();
-    if (!text) continue;
+  const foldUpdate = (update) => {
+    if (update.action === 'Checked') {
+      if (!update.seen) return false;
+      const metric = addMetric('checked_files', {
+        files: new Set(),
+        fileCount: 0,
+        added: 0,
+        removed: 0,
+        seen: false,
+        render: (m) => {
+          const target = mergedFileTarget(m);
+          const editDelta = formatLineDelta(metrics.get('updated_files'));
+          const delta = editDelta ? '' : formatLineDelta(m);
+          return delta ? `Checked ${target} · ${delta}` : `Checked ${target}`;
+        },
+      });
+      accumulateUpdateMetric(metric, update);
+      return true;
+    }
+    const metric = addMetric('updated_files', {
+      files: new Set(),
+      fileCount: 0,
+      actions: new Set(),
+      added: 0,
+      removed: 0,
+      seen: false,
+      render: (m) => {
+        const delta = formatLineDelta(m);
+        if (delta) return delta;
+        const action = m.actions.size === 1 ? [...m.actions][0] : 'Updated';
+        return `${action} ${mergedFileTarget(m)}`;
+      },
+    });
+    metric.actions.add(update.action);
+    accumulateUpdateMetric(metric, update);
+    return true;
+  };
 
+  const fold = (text) => {
     let match = /^(?:Read\s+)?(\d+)\s+lines?$/i.exec(text);
     if (match) {
       const metric = addMetric('read_lines', { count: 0, render: (m) => `${m.count} ${pluralize(m.count, 'line')}` });
       metric.count += Number(match[1]);
-      continue;
+      return;
     }
 
     if (/^(?:Read\s+)?image$/i.test(text)) {
       const metric = addMetric('read_images', { count: 0, render: (m) => `${m.count} ${pluralize(m.count, 'image')}` });
       metric.count += 1;
-      continue;
+      return;
     }
 
     match = /^(?:Found\s+)?(\d+)\s+([a-z]+)$/i.exec(text);
     if (match) {
-      const nounRaw = match[2].toLowerCase();
-      // Normalize to a canonical singular so singular/plural variants of the
-      // SAME noun merge into one metric ("48 matches" + "1 match" is
-      // "49 matches", not two metrics).
-      const singular = singularNoun(nounRaw);
-      const plural = pluralNoun(singular);
-      const key = `found_${singular}`;
-      const metric = addMetric(key, {
+      const singular = singularNoun(match[2].toLowerCase());
+      const metric = addMetric(`found_${singular}`, {
         count: 0,
         singular,
-        plural,
+        plural: pluralNoun(singular),
         render: (m) => `${m.count} ${pluralize(m.count, m.singular, m.plural)}`,
       });
       metric.count += Number(match[1]);
-      continue;
+      return;
     }
 
     match = /^(?:Updated(?:\s+-)?\s+)?\+(\d+)\s+-(\d+)$/i.exec(text);
@@ -827,66 +830,37 @@ export function* formatAggregateDetailSteps(summaries) {
       const metric = addMetric('updated', { added: 0, removed: 0, render: (m) => `+${m.added} -${m.removed}` });
       metric.added += Number(match[1]);
       metric.removed += Number(match[2]);
-      continue;
+      return;
     }
 
+    // Dry-run checks get their own metric so their line delta is never summed into the real edit total.
     const update = parseUpdateSummary(text);
-    // Dry-run patch checks ("Checked foo.js · +7 -5") are validations, not
-    // edits: their line delta must NEVER be summed into the real edit total.
-    // They get their own metric so repeated checks still merge; the preview
-    // delta is shown only when the card has no real edit delta it could be
-    // confused with. Delta-less "Checked ..." texts (task/memory summaries)
-    // fall through to extras unchanged.
-    if (update && update.action === 'Checked') {
-      if (update.seen) {
-        const metric = addMetric('checked_files', {
-          files: new Set(),
-          fileCount: 0,
-          added: 0,
-          removed: 0,
-          seen: false,
-          render: (m) => {
-            const target = mergedFileTarget(m);
-            const editDelta = formatLineDelta(metrics.get('updated_files'));
-            const delta = editDelta ? '' : formatLineDelta(m);
-            return delta ? `Checked ${target} · ${delta}` : `Checked ${target}`;
-          },
-        });
-        accumulateUpdateMetric(metric, update);
-        continue;
-      }
-    } else if (update) {
-      const metric = addMetric('updated_files', {
-        files: new Set(),
-        fileCount: 0,
-        actions: new Set(),
-        added: 0,
-        removed: 0,
-        seen: false,
-        render: (m) => {
-          // The aggregate header already carries the action + file count
-          // (e.g. "Edited 2 files"), so the detail row shows only the merged
-          // line delta. Fall back to the action + file/count summary only when
-          // there is no +/- delta to show (e.g. pure create/delete).
-          const delta = formatLineDelta(m);
-          if (delta) return delta;
-          const action = m.actions.size === 1 ? [...m.actions][0] : 'Updated';
-          return `${action} ${mergedFileTarget(m)}`;
-        },
-      });
-      metric.actions.add(update.action);
-      accumulateUpdateMetric(metric, update);
-      continue;
-    }
-
+    if (update && foldUpdate(update)) return;
     addExtra(text);
+  };
+
+  const render = (item) => (item.type === 'metric' ? metrics.get(item.key)?.render(metrics.get(item.key)) : item.text);
+
+  return { fold, order, render };
+}
+
+/** `formatAggregateDetail`, yielding every `STEP` summaries and every `STEP` rendered parts. */
+export function* formatAggregateDetailSteps(summaries) {
+  if (!summaries || summaries.length === 0) return '';
+  const { fold, order, render } = createAggregateDetailFold();
+
+  let seen = 0;
+  for (const raw of summaries) {
+    if (++seen % STEP === 0) yield;
+    const text = String(raw || '').trim();
+    if (text) fold(text);
   }
 
   let joined = '';
   let rendered = 0;
   for (const item of order) {
     if (++rendered % STEP === 0) yield;
-    const part = item.type === 'metric' ? metrics.get(item.key)?.render(metrics.get(item.key)) : item.text;
+    const part = render(item);
     if (part) joined = joined ? `${joined}, ${part}` : part;
   }
   return joined;

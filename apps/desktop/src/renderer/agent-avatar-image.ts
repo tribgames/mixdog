@@ -1,9 +1,3 @@
-// Custom avatar images, prepared in the renderer before they leave it. A
-// still picture (PNG, JPG or a still WebP) is decoded by an <img> and redrawn
-// cover-cropped as a 256px square PNG, which also drops its metadata. An
-// animation (GIF, APNG, animated WebP) keeps its bytes — it must be square and
-// at most 512px — and brings its first frame as a PNG (createImageBitmap
-// decodes an animation's first frame) for reduced motion and still views.
 // SVG is never accepted: its markup could carry script.
 import {
   AGENT_AVATAR_IMAGE_MAX_BYTES,

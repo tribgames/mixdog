@@ -70,10 +70,6 @@ for (const scenario of report) {
         .join('  ') || 'none'
     }`
   );
-  // ONE count per button — ahead on Push, behind on Fetch — so a diverged
-  // branch never crowds a single corner. Each badge shows its digits (capped
-  // at 99+) AND its own visible arrow, stays wider than it is tall instead of
-  // collapsing into a dot, and the old band under the toolbar must stay gone.
   check(
     scenario,
     syncBadges.length === 2 &&
@@ -190,10 +186,6 @@ for (const scenario of report) {
     );
   }
 
-  // The branch panel opens INSTANTLY with a loading row and fills one turn
-  // later. Its box must not change between those frames: the list owns a
-  // stable height and scrolls inside it, so the panel neither moves nor
-  // resizes when the data lands (first open AND cached reopen).
   const firstFrame = scenario.branchPanelFirst;
   const settled = scenario.branchPanelSettled;
   const reopenFirst = scenario.branchPanelReopenFirst;
@@ -282,10 +274,6 @@ for (const scenario of report) {
     check(scenario, !stub, `label ${name} renders as a clipped stub ("${label.text}")`);
   }
 
-  // Changes | History must be two EQUAL halves spanning the tab bar, the ONE
-  // 4px gap of the shared segmented control (rail-controls.css) included. The
-  // bar is the lower member of the dock's top CONTROL STACK, so it shares the
-  // search box's inset instead of reaching the panel edges.
   const tabs = scenario.tabs || [];
   if (!check(scenario, tabs.length === 2, `expected 2 tab halves, measured ${tabs.length}`)) {
     console.log(`   tab bar      MISSING (${tabs.length} halves)`);
@@ -387,11 +375,6 @@ for (const scenario of report) {
     console.log(`     copy ${box(copy)}  ${inside(copy, scenario.commitHeader, 'header')}`);
     console.log(`     files rows=${fileRows}`);
     check(scenario, contains(scenario.commitHeader, scenario.panel), 'the commit detail header leaves the dock panel');
-    // The subject is CLAMPED to two lines (25-scm-dock.css
-    // `.dock-scm-commit-headline > b`), so the rule is that it renders and
-    // never grows past that clamp — a header that keeps its box however long
-    // the subject is. The one-line rule belonged to the retired two-tier
-    // header and reported every clamped subject as a defect.
     check(
       scenario,
       Boolean(title?.rendered) && titleLines > 0 && titleLines <= 2,
@@ -430,13 +413,6 @@ for (const scenario of report) {
     check(scenario, fileRows > 0, 'the commit detail lists no changed files at all');
   }
 
-  // The search/filter box is the TOP of the dock's control stack, above the
-  // list's own hairline: Source Control renders the Search pane's control
-  // stack (27-search-review.css `.workbench-explorer-search,
-  // .dock-scm-view-controls`), so the box pays that stack's side inset, not
-  // the list gutter the rows below it sit on. The rule is therefore that both
-  // boxes land on the tab bar's edges — one stack, one inset, symmetric in
-  // the panel — and the row edges stay printed for contrast.
   const stackInset = (field) =>
     field && scenario.panel
       ? `inset ${round(field.left - scenario.panel.left)}/${round(scenario.panel.right - field.right)}`
@@ -504,10 +480,6 @@ for (const scenario of report) {
     );
   }
 
-  // Path truncation keeps the FILE NAME: the dim
-  // directory prefix is the only part allowed to lose characters, so the name
-  // is never ellipsized, never clipped and never overflows its path column —
-  // at 300px (DESKTOP_UTILITY_DOCK_MIN_WIDTH) and at the reported 290px too.
   const changedFiles = scenario.changesFiles || [];
   check(scenario, changedFiles.length > 0, 'no changed-file path columns were measured');
   for (const entry of changedFiles) {
@@ -557,10 +529,6 @@ for (const scenario of report) {
     );
   });
 
-  // WINDOWED lists: `Show N more` / `Load more` are gone, so scrolling is the
-  // only way to reach the end of either list — which only works if the scroll
-  // container carries the FULL row count's height while a window of rows is
-  // mounted (SourceControlDock `useRowWindow`).
   const changesScroll = scenario.changesScroll;
   const changesEnd = scenario.changesScrollEnd;
   const rowHeight = scenario.changesRowHeight ?? 0;

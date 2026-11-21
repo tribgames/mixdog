@@ -9,10 +9,7 @@ import { requireEnv } from './require-env';
 
 if (process.env.OVERLAY_SOFTWARE_RENDERING === '1') app.disableHardwareAcceleration();
 app.setPath('userData', join(requireEnv('OVERLAY_TEST_DIRECTORY'), 'profile'));
-// Retiring the frozen renderer leaves this fixture with zero windows until the replacement
-// exists. Without this listener Electron's default quit-on-last-window-close runs the whole
-// quit sequence right there, the process exits 0 before any result or diagnostic is written,
-// and app.exit(1) from the rejection handler can no longer change that exit code.
+// Electron's default quit-on-last-window-close would exit 0 before any result is written while the frozen renderer's replacement is pending.
 app.on('window-all-closed', () => {
   void emit(process.stderr, 'OVERLAY_WINDOWS_ALL_CLOSED\n');
 });

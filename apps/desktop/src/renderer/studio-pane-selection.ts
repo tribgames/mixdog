@@ -4,7 +4,8 @@ import { t } from './i18n';
 import type { StudioCleanupRequest } from './studio-cleanup';
 import { removeStudioAssetReferences, type StudioReferenceStore } from './studio-draft-cache';
 import type { StudioMediaJob } from './studio-media-state';
-import { callCapability, errorText, type MediaAsset, type MediaKind, type StudioApi } from './studio-support';
+import { callCapability, type MediaAsset, type MediaKind, type StudioApi } from './studio-support';
+import { errorMessage } from './editor-pane-session-errors';
 
 // Selection mode for bulk delete: a tile click toggles its check instead of
 // opening the detail.
@@ -53,7 +54,7 @@ export function useStudioSelection({
       ])) as { ids?: string[] } | undefined;
       setCheckedIds(new Set(Array.isArray(preview?.ids) ? preview.ids : []));
     } catch (reason) {
-      setError(errorText(reason));
+      setError(errorMessage(reason));
     }
   };
   /** Bulk cleanup: the runtime names the matching ids first, the user confirms
@@ -79,7 +80,7 @@ export function useStudioSelection({
       exitSelection();
       await reloadAssetKind(kind, removed);
     } catch (reason) {
-      setError(errorText(reason));
+      setError(errorMessage(reason));
     }
   };
   return { checkedIds, cleanUp, exitSelection, selectAll, selecting, setSelecting, toggleChecked };

@@ -1,10 +1,7 @@
 import { useEffect } from 'react';
-import { errorText, laneSpec, type MediaAsset, type MediaKind, type MediaLane } from './studio-support';
+import { laneSpec, type MediaAsset, type MediaKind, type MediaLane } from './studio-support';
+import { errorMessage } from './editor-pane-session-errors';
 
-/** The open asset's neighbours in gallery order, and its route named with the
- *  catalog's labels instead of lane and model ids. Paging toward the end of
- *  the loaded list pulls the next page, so a swipe through a long gallery
- *  never dead-ends at a page boundary. */
 export function useStudioDetailPaging({
   selected,
   visibleAssets,
@@ -25,7 +22,7 @@ export function useStudioDetailPaging({
   // biome-ignore lint/correctness/useExhaustiveDependencies: setError is a state setter
   useEffect(() => {
     if (selectedIndex < 0 || selectedIndex < visibleAssets.length - 3) return;
-    void loadMoreAssets(kind).catch((reason) => setError(errorText(reason)));
+    void loadMoreAssets(kind).catch((reason) => setError(errorMessage(reason)));
   }, [kind, loadMoreAssets, selectedIndex, visibleAssets.length]);
   return {
     previousAsset: selectedIndex > 0 ? visibleAssets[selectedIndex - 1] || null : null,

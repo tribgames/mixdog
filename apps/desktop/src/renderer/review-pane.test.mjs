@@ -1,7 +1,3 @@
-// A multi-file patch keys each diff body by file name. Interpolating the
-// `{fileName, content}` objects instead collapsed every file onto the single
-// key "[object Object]\n[object Object]", so React could reuse one file's diff
-// body for another.
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React, { act } from 'react';

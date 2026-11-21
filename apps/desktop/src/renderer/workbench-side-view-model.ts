@@ -86,13 +86,6 @@ export function isViewId(value: unknown): value is WorkbenchSideViewId {
   return ALL_VIEW_IDS.includes(value as WorkbenchSideViewId);
 }
 
-/**
- * Where a view the stored layout never carried belongs: ahead of the first
- * group that already holds a default view following it. A side stored before
- * those views existed (for example, an older sparse phone layout) therefore
- * rebuilds in DEFAULT order instead of collecting every missing view behind
- * whatever it happened to store.
- */
 function defaultSlotIndex(
   groups: readonly WorkbenchSideViewGroup[],
   defaultOrder: readonly WorkbenchSideViewId[],
@@ -110,10 +103,6 @@ export function normalizeWorkbenchSideViewLayout(
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const allowed = new Set(available);
   const seen = new Set<WorkbenchSideViewId>();
-  // The right side belongs to the pane and cannot be rearranged, so only the
-  // views that ship there may stay there. A stored placement from before a
-  // view moved rails (Source Control, Search…) re-seats on the left in default
-  // order instead of lingering on the right forever.
   const paneBound = new Set(DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT.right.flat());
   const normalizeSide = (side: WorkbenchSide): WorkbenchSideViewId[][] => {
     const groups: WorkbenchSideViewId[][] = [];
@@ -167,10 +156,6 @@ function locateGroup(
   return null;
 }
 
-/**
- * Rearranging is a LEFT-side gesture only. The right side ships with the
- * views its pane drives, so a move that starts there or lands there is a no-op.
- */
 function movableWithinLeft(
   layout: WorkbenchSideViewLayout,
   sourceId: WorkbenchSideViewId,
@@ -239,27 +224,13 @@ export function moveWorkbenchSideView(
   return next;
 }
 
-/**
- * The views the activity rail draws as buttons, top to bottom: the pinned ids,
- * in pin order, that are shown on the left (so an unpinned, unavailable or
- * feature-gated view never leads). The pins store owns this order; the rail
- * and the start view both read it here.
- */
+/** The pinned ids shown on the left, in pin order: the activity rail's buttons top to bottom. */
 export function pinnedRailViews(pins: readonly string[], shown: readonly WorkbenchSideViewId[]): WorkbenchSideViewId[] {
   const present = new Set<string>(shown);
   return pins.filter((id): id is WorkbenchSideViewId => present.has(id));
 }
 
-/**
- * First active view per side. No last-visited view survives a reload — the dock tab and the bottom panel
- * drop their persisted selection for the same reason — so every reconnect
- * lands on one predictable entry point per edge.
- * The left's is the rail's first button, so the user picks it by dragging a
- * rail item to the top (the activity rail pins own that order, never the
- * layout's). With nothing pinned and shown, the rail holds only More and its
- * menu's first entry leads. The right's is the group that leads it. A side
- * that holds nothing has no active view.
- */
+/** First active view per side: the left's first pinned shown view (else its first view), the right's leading group; null for an empty side. */
 export function initialActiveWorkbenchSideViews(
   layout: WorkbenchSideViewLayout,
   pins: readonly string[]
@@ -271,12 +242,7 @@ export function initialActiveWorkbenchSideViews(
   };
 }
 
-/**
- * Every stored placement predates the pane-scoped right side, so patching one
- * shape at a time can no longer land the new arrangement. This drops the stored
- * value once — the defaults then apply to existing installs exactly as they do
- * to a fresh profile — and leaves later hand-arranged left rails untouched.
- */
+/** Removes the stored layout once, returning null so the defaults apply; later calls return `value`. */
 export function discardLayoutForPaneBoundRight(
   storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>,
   value: unknown

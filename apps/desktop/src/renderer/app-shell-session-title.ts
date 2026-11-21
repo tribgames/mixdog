@@ -1,9 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { displaySessionTitle, sessionDisplayTitle } from './session-display-title';
-import { desktopUtilityDockTabEnabled } from './desktop-feature-config';
 import { t } from './i18n';
-import { agentActivitySessionIds } from './desktop-types';
 import type { NavigationSelection, WorkspaceTab } from './navigation';
 import { navigationKey } from './text-format';
 
@@ -34,11 +32,6 @@ export function useAppSessionTitle({ navigationSelection, sessions, tabs, rename
           .filter((session) => session.leadWorking === true || session.agentWorking === true)
           .map((session) => session.id)
       ),
-    [sessions]
-  );
-
-  const observedAgentSessionIds = useMemo(
-    () => (desktopUtilityDockTabEnabled('agents') ? agentActivitySessionIds(sessions) : []),
     [sessions]
   );
 
@@ -80,7 +73,6 @@ export function useAppSessionTitle({ navigationSelection, sessions, tabs, rename
     selectedSession,
     currentSessionTitle,
     workingSessionIds,
-    observedAgentSessionIds,
     visibleSessionTitle,
     openHeaderTitleEditor,
     closeHeaderTitleEditor,

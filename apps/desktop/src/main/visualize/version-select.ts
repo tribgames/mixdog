@@ -1,7 +1,3 @@
-/**
- * Showing a tab's kept version instead of (or beside) live: file tabs from
- * the version store's snapshot folder, inline tabs from memory.
- */
 import type { VisualizeServiceContext } from './context';
 import type { TabState } from './tab-state';
 import { noVersion } from './tab-versions';

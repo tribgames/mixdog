@@ -16,7 +16,7 @@ export interface RoutineRow extends RoutineHealth {
   source: RecordValue;
 }
 
-const stamp = (value: unknown): number | null => {
+export const stamp = (value: unknown): number | null => {
   const at = typeof value === 'string' && value ? Date.parse(value) : Number.NaN;
   return Number.isFinite(at) ? at : null;
 };

@@ -70,10 +70,6 @@ export function useComposerMessageSelector({
         return;
       }
       historyNavigation.current = { index: -1, seed: '' };
-      // The composer's own restore replaces the whole draft and its chips (the
-      // same path a message taken back from the transcript uses), so a
-      // pasted-text chip keeps its edit dialog and a plain message leaves no
-      // stale chips behind.
       const handoff = steer?.draft.current;
       if (!handoff?.restore(value as RecordValue, { replace: true })) setDraft(text);
       if (typeof value?.notice === 'string' && value.notice) showNotice(value.notice, 'error');

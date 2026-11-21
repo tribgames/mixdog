@@ -1,17 +1,6 @@
-/**
- * Element records as the worker reports them, normalized into the shape the
- * host stores, and the alias targets a later command may name a mark by: a
- * semantic ref for UIA/MSAA elements, a frame-bound point for OCR words.
- */
 import type { ChromeUiaAncestor } from '../../browser/chrome-uia';
 import type { ComputerElementRecord, ElementAliasTarget } from '../shared/types';
 
-/**
- * A label identifies a control; it is not a text extraction surface. Chat and
- * document clients publish entire message bodies as one element name, which
- * would spend the reply budget on private content nobody asked for. Reading
- * that text is what a capture's OCR or the app's own document tree is for.
- */
 export const MAX_COMPUTER_ELEMENT_TEXT_CHARS = 200;
 
 /** An optional worker field: absent, null and '' all mean "not reported". */

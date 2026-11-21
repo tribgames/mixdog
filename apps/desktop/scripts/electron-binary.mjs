@@ -1,9 +1,5 @@
-// Electron 42+ has no install script: on first use the electron package
-// downloads its binary and prints progress to stdout, which would corrupt a
-// caller's captured path or JSON output. The download runs here as its own
-// step with stdout discarded, so the path is all a caller ever sees.
-//
-//   node scripts/electron-binary.mjs   → prints only the binary's path
+// Electron 42+ downloads its binary on first use and prints progress to stdout.
+// node scripts/electron-binary.mjs   → prints only the binary's path
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';

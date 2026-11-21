@@ -1,14 +1,3 @@
-/**
- * One date-range picker for the whole app.
- *
- * The native date and time inputs hand their popups to Chromium, which paints
- * its own calendar and clock in its own metrics — a frame that never matched
- * ours. Every pixel here
- * is our own markup, so a range reads like the surface holding it.
- *
- * A range is two clicks. Clocks stay optional: blank means the whole day,
- * which is exactly what a date-only range already meant.
- */
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { t, uiFormatLocale } from './i18n';
@@ -69,6 +58,47 @@ function monthCells(month: string, start: number): string[] {
   return Array.from({ length: WEEKS * 7 }, (_, index) => addDays(origin, index));
 }
 
+function DayClock({
+  edge,
+  range,
+  disabled,
+  onChange,
+}: {
+  edge: 'startTime' | 'endTime';
+  range: DayRange;
+  disabled: boolean;
+  onChange: (next: DayRange) => void;
+}) {
+  const hours = [
+    { value: '', label: t('All day') },
+    ...Array.from({ length: 24 }, (_, hour) => ({ value: pad2(hour), label: pad2(hour) })),
+  ];
+  const minutes = Array.from({ length: 12 }, (_, index) => ({ value: pad2(index * 5), label: pad2(index * 5) }));
+  const text = range[edge] || '';
+  const write = (next?: string) => onChange({ ...range, [edge]: next });
+  return (
+    <div className="mx-daterange-clock">
+      <span>{edge === 'startTime' ? t('Start time') : t('End time')}</span>
+      <OpenSelect
+        ariaLabel={t('Hour')}
+        className="mx-daterange-unit"
+        options={hours}
+        value={text.slice(0, 2)}
+        disabled={disabled}
+        onChange={(hour) => write(hour ? `${hour}:${text.slice(3, 5) || '00'}` : undefined)}
+      />
+      <OpenSelect
+        ariaLabel={t('Minute')}
+        className="mx-daterange-unit"
+        options={minutes}
+        value={text.slice(3, 5) || '00'}
+        disabled={disabled || !text}
+        onChange={(minute) => write(`${text.slice(0, 2)}:${minute}`)}
+      />
+    </div>
+  );
+}
+
 export function DateRangePicker({
   value,
   maxDay,
@@ -124,38 +154,6 @@ export function DateRangePicker({
     const next = addDays(day, step);
     setMonth(monthOf(next));
     queueMicrotask(() => grid.current?.querySelector<HTMLButtonElement>(`[data-day="${next}"]`)?.focus());
-  };
-
-  const hours = [
-    { value: '', label: t('All day') },
-    ...Array.from({ length: 24 }, (_, hour) => ({ value: pad2(hour), label: pad2(hour) })),
-  ];
-  const minutes = Array.from({ length: 12 }, (_, index) => ({ value: pad2(index * 5), label: pad2(index * 5) }));
-
-  const clock = (edge: 'startTime' | 'endTime') => {
-    const text = value[edge] || '';
-    const write = (next?: string) => onChange({ ...value, [edge]: next });
-    return (
-      <div className="mx-daterange-clock">
-        <span>{edge === 'startTime' ? t('Start time') : t('End time')}</span>
-        <OpenSelect
-          ariaLabel={t('Hour')}
-          className="mx-daterange-unit"
-          options={hours}
-          value={text.slice(0, 2)}
-          disabled={disabled}
-          onChange={(hour) => write(hour ? `${hour}:${text.slice(3, 5) || '00'}` : undefined)}
-        />
-        <OpenSelect
-          ariaLabel={t('Minute')}
-          className="mx-daterange-unit"
-          options={minutes}
-          value={text.slice(3, 5) || '00'}
-          disabled={disabled || !text}
-          onChange={(minute) => write(`${text.slice(0, 2)}:${minute}`)}
-        />
-      </div>
-    );
   };
 
   return (
@@ -219,8 +217,8 @@ export function DateRangePicker({
           );
         })}
       </div>
-      {clock('startTime')}
-      {clock('endTime')}
+      <DayClock edge="startTime" range={value} disabled={disabled} onChange={onChange} />
+      <DayClock edge="endTime" range={value} disabled={disabled} onChange={onChange} />
     </div>
   );
 }

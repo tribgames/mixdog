@@ -1,7 +1,3 @@
-// Agent mode's bubble runs (agent-chat-row.tsx): which side a transcript row
-// sits on, and whether it opens a run of one sender (face, name, tail) or
-// closes it (time). Tool rounds and the live band neither group nor break a
-// run; a date divider goes where the day changes.
 import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { splitAskUser, toolCallsOf } from './ask-user-record';
 import { asRecord } from './text-format';
@@ -171,10 +167,6 @@ export type Handoff = {
   prompt?: boolean;
 };
 
-/** The handoffs of one stored tool item, in call order. A running call, an
- *  error and a refused send handed nothing over; a call whose session reports
- *  nothing back (`reportsBack: false`, a create with `notify: false`) has no
- *  end to wait for. */
 function itemHandoffs(item: TranscriptItem): Handoff[] {
   const handoffs: Handoff[] = [];
   for (const { member, args } of sessionCallsOf([item])) {
@@ -242,12 +234,6 @@ function noteEnds(ends: Map<string, SessionEnds>, sessionId: string, sendIds: re
   ends.set(sessionId, session);
 }
 
-/** Whether `handoff`'s turn has ended. A report naming its send ends it
- *  wherever that report sits in the rows (a report can be stored before the
- *  call that asked for it); a report naming no send (an older one), or a
- *  handoff with no send id (a created session, an older send), matches by
- *  session, and only from a report after the handoff — an older report never
- *  closes a later resend to the same session. */
 function handoffEnded(answered: Map<string, SessionEnds>, after: Map<string, SessionEnds>, handoff: Handoff): boolean {
   if (handoff.sendId && answered.get(handoff.sessionId)?.sendIds.has(handoff.sendId)) return true;
   const later = after.get(handoff.sessionId);
@@ -269,15 +255,6 @@ type HandoffIndex = {
 const handoffIndexCache = new WeakMap<readonly TranscriptRowModel[], HandoffIndex>();
 const NO_HANDOFFS: Handoff[] = [];
 
-/** Where the `rows` snapshot draws the work its agent handed to sessions,
- *  built once per snapshot (rows are immutable: a new snapshot is a new
- *  array) in linear passes. A handoff keeps its line until that session's
- *  terminal report of it (handoffEnded). A turn's lines are one block on one
- *  carrier row: its live reply part (the typing bubble while it streams, the
- *  whole reply once complete, then the same row settled: one row identity
- *  from streaming through the turn's end), else its live band while it runs
- *  (below the typing bubble), else its last reply, else each round keeps its
- *  own at its row (a turn with no text reply). */
 function handoffIndexOf(rows: readonly TranscriptRowModel[]): HandoffIndex {
   const cached = handoffIndexCache.get(rows);
   if (cached) return cached;
@@ -504,12 +481,8 @@ export function agentTypingShown(rows: readonly TranscriptRowModel[], index: num
 }
 
 /** A live reply part that is not complete yet: still streaming, or with no
- *  text. Like a messenger, a bot's bubble appears whole when its message is
- *  complete: until then the typing bubble stands for it and the part paints
- *  nothing. (A part also opens before its first text, reasoning first:
- *  painted then, it was an empty bubble that replaced the 62px typing bubble
- *  with a 46px one, and the followed transcript dropped 16px.) The part's
- *  final commit swaps the typing bubble for the whole bubble in one layout. */
+ *  text. Until complete the typing bubble stands for it and the part paints
+ *  nothing. */
 export function agentReplyUnfinished(live: boolean | undefined, item: TranscriptItem): boolean {
   return (
     Boolean(live) && item.kind === 'assistant' && (Boolean(item.streaming) || String(item.text || '').trim() === '')
@@ -580,20 +553,12 @@ export function agentChatPlace(
     }
     return null;
   };
-  // A run shows one time, on its last bubble: bubbles of one turn always join,
-  // other turns join only when sent in the same minute. A posted row (a
-  // message delivered outside any turn, hours apart from the next) is no part
-  // of the turn whose key it shares: the minute decides.
   const together = (row: TranscriptRowModel) => {
     const posted = rowItem(row)?.posted === true || rowItem(rows[index])?.posted === true;
     if (row.turnKey === rows[index].turnKey && !posted) return true;
     const other = rowTime(row);
     return !at || !other || minuteOf(other) === minuteOf(at);
   };
-  // A message waiting behind the running turn (`steer`) lands after that
-  // turn's reply: it is a run of its own until then, so the bubble before it
-  // keeps its time instead of losing it at the send and getting it back when
-  // the reply lands between them.
   const waits = (row: TranscriptRowModel) => Boolean(rowItem(row)?.steer);
   const grouped = (hit: { sender: Sender; row: TranscriptRowModel } | null) =>
     (own.side === 'agent' || own.side === 'user') &&

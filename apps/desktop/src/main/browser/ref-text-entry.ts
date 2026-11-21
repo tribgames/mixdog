@@ -1,10 +1,3 @@
-/**
- * Putting text into one element by ref. `fill` replaces the whole value the
- * way a form library expects — through the native value setter, with the
- * input and change events a page listens for — while `type` sends real
- * keystrokes for controls that only react while a person types. A rich
- * editor owns its DOM, so its text is replaced as typed input instead.
- */
 import type { WebContents } from 'electron';
 
 import { BROWSER_EDITABILITY_CHECK } from './editability';

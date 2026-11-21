@@ -1,8 +1,3 @@
-// Per-client pacing of a session's live Browser Use frames. The desktop's
-// browser host produces one frame stream per session; each paired client
-// subscribes to it, holds at most one unacknowledged frame in flight, and
-// always receives the newest frame next — frames it was too slow for are
-// dropped, never queued.
 import type {
   DesktopRemoteBrowserStreamFrame,
   DesktopRemoteBrowserStreamOptions,
@@ -12,7 +7,6 @@ import { REMOTE_BROWSER_FRAME_EVENT } from '../shared/remote-browser';
 
 /** A frame is sent again after this long even if its ack never arrived. */
 export const REMOTE_BROWSER_FRAME_ACK_TIMEOUT_MS = 1_500;
-const ACK_TIMEOUT_MS = REMOTE_BROWSER_FRAME_ACK_TIMEOUT_MS;
 /** A subscription not renewed within this window is dropped. */
 const SUBSCRIPTION_EXPIRY_MS = 4_000;
 
@@ -65,7 +59,7 @@ export interface BrowserRemoteStreamsDeps {
 }
 
 export function createBrowserRemoteStreams(deps: BrowserRemoteStreamsDeps) {
-  const ackTimeoutMs = deps.ackTimeoutMs ?? ACK_TIMEOUT_MS;
+  const ackTimeoutMs = deps.ackTimeoutMs ?? REMOTE_BROWSER_FRAME_ACK_TIMEOUT_MS;
   const expiryMs = deps.expiryMs ?? SUBSCRIPTION_EXPIRY_MS;
   const sessions = new Map<string, Map<string, Subscription>>();
   /** The latest frame per session, so a client joining a static page gets one. */

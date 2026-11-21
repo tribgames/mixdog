@@ -1,9 +1,5 @@
-// Generic CDP evaluator (diagnosis tooling).
-//
-//   node scripts/dom-eval.mjs --port=9342 --url=http://127.0.0.1:5173/ scripts/probes/<name>.js
-//
-// Reads the expression from a FILE so shell quoting never mangles it, then
-// prints the returned value as JSON.
+// node scripts/dom-eval.mjs --port=9342 --url=http://127.0.0.1:5173/ scripts/probes/<name>.js
+// Evaluates the file's expression over CDP and prints the returned value as JSON.
 import { readFile } from 'node:fs/promises';
 
 import { optionValue } from './cli-args.mjs';

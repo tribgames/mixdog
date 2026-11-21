@@ -15,10 +15,6 @@ test('WGC captures a covered fixture without foreign pixels, preserves foregroun
   skip: process.platform !== 'win32' && 'Windows only',
   timeout: 120_000,
 }, async (t) => {
-  // Everything below needs an OS that can actually hand out a capture item and
-  // a compositor frame. Where it can, the whole assertion set stays enforced;
-  // where the probe proves it cannot (hosted CI desktops), the capability is
-  // named instead of failing as a product defect.
   const capability = await probeWindowsGraphicsCapture();
   if (!capability.available) {
     t.skip(`WGC capability probe reported Windows.Graphics.Capture unavailable on this host: ${capability.reason}`);
@@ -31,11 +27,6 @@ public sealed class WgcFixture : System.Windows.Forms.Form {
   public static extern System.IntPtr WindowFromPoint(System.Drawing.Point point);
   [System.Runtime.InteropServices.DllImport("user32.dll")]
   public static extern System.IntPtr GetWindow(System.IntPtr hWnd, uint uCmd);
-  // The cover occludes the target at the probe when both contain the probe, the
-  // target is not what the screen shows there, and the cover is above the target
-  // in z-order. This is judged against the two fixtures only: shell surfaces
-  // (toast notifications, the hosted runner's LockScreenBackstopFrame) or another
-  // app's always-on-top windows may sit above both and leave the target covered.
   public static bool IsOccluded(WgcFixture window, WgcFixture cover, System.Drawing.Point probe) {
     if (!window.Visible || !cover.Visible) return false;
     if (!window.Bounds.Contains(probe) || !cover.Bounds.Contains(probe)) return false;

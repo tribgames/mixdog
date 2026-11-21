@@ -1,8 +1,3 @@
-// Renderer UI language. English source text IS the translation key: an
-// untranslated (or missing) key renders its English original, so English
-// stays the source of truth and existing English-asserting tests never see
-// a difference. locales/*.json supply the translations; `npm run i18n:sync`
-// keeps every catalog in step with renderer, native and boot-recovery usage.
 import i18next from 'i18next';
 import { markKoValue, resolveKoParticles } from '../shared/ko-particle';
 import pluralSources from './ui-plurals.json';
@@ -92,10 +87,6 @@ export function resolveUiLanguage(preference: UiLanguagePreference = getUiLangua
   return selectUiLanguage(preference, systemLocales);
 }
 
-// Catalogs load per language: eleven static imports put ~750KB of JSON — a
-// quarter of the first-paint bundle — in front of every visitor, ten
-// languages of which they will never see. English needs no network catalog:
-// its keys are source text, with only a small local singular/plural map.
 const CATALOGS: Record<Exclude<UiLanguage, 'en'>, () => Promise<{ default: Record<string, string> }>> = {
   de: () => import('./locales/de.json'),
   es: () => import('./locales/es.json'),
@@ -110,11 +101,6 @@ const CATALOGS: Record<Exclude<UiLanguage, 'en'>, () => Promise<{ default: Recor
   'zh-TW': () => import('./locales/zh-TW.json'),
 };
 
-// Synchronous English init (initImmediate: false): t() stays usable from the
-// moment this module is evaluated — no async gate ahead of React's first
-// render, for node tests, and for any module that runs before the entry has
-// finished loading a catalog. fallbackLng false + returnEmptyString false
-// make every unknown or still-untranslated key fall back to its English text.
 void i18next.init({
   lng: 'en',
   fallbackLng: false,

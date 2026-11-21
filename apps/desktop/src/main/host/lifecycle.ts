@@ -1,9 +1,3 @@
-/**
- * Host → core reports that are plain state of this machine: power events,
- * the updater's state, and the SSH tunnel the local core bridges phones to.
- * All of them are re-sent after a reconnect where they are state, never
- * replayed where they are events.
- */
 import type {
   HostPowerParams,
   HostRemoteTargetSetParams,

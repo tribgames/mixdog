@@ -91,12 +91,16 @@ test('a pointer off any row extends into the nearest row, never a boundary row',
   assert.equal(nearestTranscriptSelectionRow([], 200), null);
 });
 
-// Phone: the compositor scrolls from the first move past the slop while the
-// main thread is still inside a streaming frame. The end pin that frame
-// requested must not write the old bottom back under the finger before the
-// touchmove is handled; a tap that never scrolls still re-pins on lift.
-test('a finger on the glass holds the end pin off and its upward scroll releases follow', async () => {
-  const [React, { createRoot }, { useTranscriptFollow, registerTranscriptScrollGeometry }] = await Promise.all([
+async function mountFollowHook({
+  sessionKey,
+  leafTag = 'p',
+  leafId = 'row',
+  clock,
+  navigator,
+  mutationObserver = false,
+  hookOptions = {},
+}) {
+  const [React, { createRoot }, followModule] = await Promise.all([
     import('react'),
     import('react-dom/client'),
     import('./use-transcript-follow.ts'),
@@ -104,292 +108,185 @@ test('a finger on the glass holds the end pin off and its upward scroll releases
   const { restore } = installTestDom(null, {
     html: "<div id='root'></div>",
     jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
-    expose: ['Element'],
+    expose: mutationObserver ? ['Element', 'MutationObserver'] : ['Element'],
+    ...(navigator ? { globals: { navigator } } : {}),
   });
   const realNow = Date.now;
-  let now = 100_000;
-  Date.now = () => now;
+  if (clock) Date.now = () => clock.now;
   const root = createRoot(document.getElementById('root'));
   let follow = null;
   function Harness() {
     const viewport = React.useRef(null);
     const content = React.useRef(null);
-    follow = useTranscriptFollow({ viewport, content, sessionKey: 'finger-down' });
+    follow = followModule.useTranscriptFollow({ viewport, content, sessionKey, ...hookOptions });
     return React.createElement(
       'div',
       { ref: viewport },
-      React.createElement('div', { ref: content }, React.createElement('p', { id: 'row' }, 'row'))
+      React.createElement('div', { ref: content }, React.createElement(leafTag, { id: leafId }, 'rows'))
     );
   }
+  await React.act(async () => root.render(React.createElement(Harness)));
+  const leaf = document.getElementById(leafId);
+  return {
+    React,
+    leaf,
+    viewport: leaf.parentElement.parentElement,
+    registerGeometry: followModule.registerTranscriptScrollGeometry,
+    get follow() {
+      return follow;
+    },
+    frame: () => React.act(() => new Promise((resolve) => window.requestAnimationFrame(() => resolve()))),
+    async dispose() {
+      Date.now = realNow;
+      await React.act(async () => root.unmount());
+      restore();
+    },
+  };
+}
+
+test('a finger on the glass holds the end pin off and its upward scroll releases follow', async () => {
+  const clock = { now: 100_000 };
+  const mount = await mountFollowHook({ sessionKey: 'finger-down', clock });
+  const { React, viewport, leaf: row } = mount;
   let native = 2000;
   try {
-    await React.act(async () => root.render(React.createElement(Harness)));
-    const row = document.getElementById('row');
-    const viewport = row.parentElement.parentElement;
     Object.defineProperty(viewport, 'scrollTop', { configurable: true, get: () => native, set: () => {} });
-    const release = registerTranscriptScrollGeometry(viewport, {
+    const release = mount.registerGeometry(viewport, {
       viewportHeight: () => 400,
       contentHeight: () => 2400,
       scrollTop: () => native,
       deviation: () => 0,
     });
-    await React.act(async () => follow.handleScroll());
-    now += 1_000;
-    assert.equal(follow.followingRef.current, true, 'the reader starts at the tail');
-    assert.equal(follow.hasScrollGesture(), false, 'no reader owns the idle tail');
+    await React.act(async () => mount.follow.handleScroll());
+    clock.now += 1_000;
+    assert.equal(mount.follow.followingRef.current, true, 'the reader starts at the tail');
+    assert.equal(mount.follow.hasScrollGesture(), false, 'no reader owns the idle tail');
     const touch = (clientY) => ({ target: row, currentTarget: viewport, touches: [{ clientY }] });
-    // A tap: the finger holds the pin off while it rests, and lets go on lift.
-    follow.handleTouchStart(touch(100));
-    assert.equal(follow.hasScrollGesture(), true, 'a resting finger holds the end pin off');
-    assert.equal(follow.followingRef.current, true, 'resting is not a leave');
-    follow.handleTouchEnd();
-    assert.equal(follow.hasScrollGesture(), false, 'a tap that never scrolled hands the tail back');
-    // A drag the compositor moved before its touchmove reached the page.
-    follow.handleTouchStart(touch(100));
+    mount.follow.handleTouchStart(touch(100));
+    assert.equal(mount.follow.hasScrollGesture(), true, 'a resting finger holds the end pin off');
+    assert.equal(mount.follow.followingRef.current, true, 'resting is not a leave');
+    mount.follow.handleTouchEnd();
+    assert.equal(mount.follow.hasScrollGesture(), false, 'a tap that never scrolled hands the tail back');
+    mount.follow.handleTouchStart(touch(100));
     native = 1960;
-    await React.act(async () => follow.handleScroll());
-    assert.equal(follow.followingRef.current, false, 'the upward move under the finger releases follow');
+    await React.act(async () => mount.follow.handleScroll());
+    assert.equal(mount.follow.followingRef.current, false, 'the upward move under the finger releases follow');
     release();
   } finally {
-    Date.now = realNow;
-    await React.act(async () => root.unmount());
-    restore();
+    await mount.dispose();
   }
 });
 
-// A touch keeps targeting the row it started on. Virtualization unmounting
-// that row mid-drag means its touchend never reaches the viewport; the finger
-// then "stayed down" until the next touch, and every row size deferred for
-// reader motion stayed deferred with the rows drawn over each other.
 test('a touch whose row is virtualized away stops owning the transcript once its fling idles', async () => {
-  const [React, { createRoot }, { useTranscriptFollow }] = await Promise.all([
-    import('react'),
-    import('react-dom/client'),
-    import('./use-transcript-follow.ts'),
-  ]);
-  const { restore } = installTestDom(null, {
-    html: "<div id='root'></div>",
-    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
-    expose: ['Element'],
-  });
-  const realNow = Date.now;
-  let now = 100_000;
-  Date.now = () => now;
-  const root = createRoot(document.getElementById('root'));
-  let follow = null;
-  function Harness() {
-    const viewport = React.useRef(null);
-    const content = React.useRef(null);
-    follow = useTranscriptFollow({ viewport, content, sessionKey: 'touch' });
-    return React.createElement(
-      'div',
-      { ref: viewport },
-      React.createElement('div', { ref: content }, React.createElement('p', { id: 'row' }, 'row'))
-    );
-  }
+  const clock = { now: 100_000 };
+  const mount = await mountFollowHook({ sessionKey: 'touch', clock });
+  const { viewport, leaf: row } = mount;
   try {
-    await React.act(async () => root.render(React.createElement(Harness)));
-    const viewport = document.getElementById('row').parentElement.parentElement;
-    const row = document.getElementById('row');
     const touch = (clientY) => ({ target: row, currentTarget: viewport, touches: [{ clientY }] });
-    follow.handleTouchStart(touch(100));
-    follow.handleTouchMove(touch(160));
-    now += 5_000;
-    assert.equal(follow.hasScrollGesture(), true, 'a finger resting on the glass keeps ownership');
+    mount.follow.handleTouchStart(touch(100));
+    mount.follow.handleTouchMove(touch(160));
+    clock.now += 5_000;
+    assert.equal(mount.follow.hasScrollGesture(), true, 'a finger resting on the glass keeps ownership');
     row.remove();
-    assert.equal(follow.hasScrollGesture(), false, 'its lost touchend cannot hold ownership forever');
+    assert.equal(mount.follow.hasScrollGesture(), false, 'its lost touchend cannot hold ownership forever');
   } finally {
-    Date.now = realNow;
-    await React.act(async () => root.unmount());
-    restore();
+    await mount.dispose();
   }
 });
 
-// A streamed word's fade wrapper is unwrapped when its fade ends. A finger
-// that pressed it keeps targeting the removed element, so its moves never
-// bubble to the viewport: follow stayed on and the end pin wrote the tail back
-// under the finger every frame (phone: scrolling up stopped at once).
 test('a drag whose pressed word left the document still releases follow and owns the scroll', async () => {
-  const [React, { createRoot }, { useTranscriptFollow, registerTranscriptScrollGeometry }] = await Promise.all([
-    import('react'),
-    import('react-dom/client'),
-    import('./use-transcript-follow.ts'),
-  ]);
-  const { restore } = installTestDom(null, {
-    html: "<div id='root'></div>",
-    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
-    expose: ['Element'],
-  });
-  const root = createRoot(document.getElementById('root'));
-  let follow = null;
-  function Harness() {
-    const viewport = React.useRef(null);
-    const content = React.useRef(null);
-    follow = useTranscriptFollow({ viewport, content, sessionKey: 'touch-detached' });
-    return React.createElement(
-      'div',
-      { ref: viewport },
-      React.createElement('div', { ref: content }, React.createElement('mx-fade', { id: 'word' }, 'word'))
-    );
-  }
+  const mount = await mountFollowHook({ sessionKey: 'touch-detached', leafTag: 'mx-fade', leafId: 'word' });
+  const { React, viewport, leaf: word } = mount;
   const touchEvent = (type, clientY) => {
     const event = new window.Event(type, { bubbles: true });
     Object.defineProperty(event, 'touches', { value: clientY === undefined ? [] : [{ clientY }] });
     return event;
   };
+  let native = 2000;
   try {
-    await React.act(async () => root.render(React.createElement(Harness)));
-    const word = document.getElementById('word');
-    const viewport = word.parentElement.parentElement;
-    let native = 2000;
     Object.defineProperty(viewport, 'scrollTop', { configurable: true, get: () => native, set: () => {} });
-    const release = registerTranscriptScrollGeometry(viewport, {
+    const release = mount.registerGeometry(viewport, {
       viewportHeight: () => 400,
       contentHeight: () => 2400,
       scrollTop: () => native,
       deviation: () => 0,
     });
-    await React.act(async () => follow.handleScroll());
-    assert.equal(follow.followingRef.current, true, 'the reader starts at the followed tail');
-    follow.handleTouchStart({ target: word, currentTarget: viewport, touches: [{ clientY: 100 }] });
+    await React.act(async () => mount.follow.handleScroll());
+    assert.equal(mount.follow.followingRef.current, true, 'the reader starts at the followed tail');
+    mount.follow.handleTouchStart({ target: word, currentTarget: viewport, touches: [{ clientY: 100 }] });
     word.remove();
     await React.act(async () => word.dispatchEvent(touchEvent('touchmove', 140)));
-    assert.equal(follow.hasTouchScroll(), true, 'the drag owns the transcript');
+    assert.equal(mount.follow.hasTouchScroll(), true, 'the drag owns the transcript');
     native = 1960;
-    await React.act(async () => follow.handleScroll());
-    assert.equal(follow.followingRef.current, false, 'the scroll under the finger releases follow');
+    await React.act(async () => mount.follow.handleScroll());
+    assert.equal(mount.follow.followingRef.current, false, 'the scroll under the finger releases follow');
     word.dispatchEvent(touchEvent('touchend'));
     viewport.dispatchEvent(new window.Event('scrollend'));
-    assert.equal(follow.hasTouchScroll(), false, 'its lift and scrollend end the touch scroll');
+    assert.equal(mount.follow.hasTouchScroll(), false, 'its lift and scrollend end the touch scroll');
     release();
   } finally {
-    await React.act(async () => root.unmount());
-    restore();
+    await mount.dispose();
   }
 });
 
-// A correction the timeline holds during a touch scroll moves the LOGICAL
-// offset while the reader's finger keeps climbing: direction is the native
-// displacement, never the held amount growing between two scroll events.
 test('a held touch correction growing between scroll events is not read as a return to the tail', async () => {
-  const [React, { createRoot }, { useTranscriptFollow, registerTranscriptScrollGeometry }] = await Promise.all([
-    import('react'),
-    import('react-dom/client'),
-    import('./use-transcript-follow.ts'),
-  ]);
-  const { restore } = installTestDom(null, {
-    html: "<div id='root'></div>",
-    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
-    expose: ['Element'],
-  });
-  const root = createRoot(document.getElementById('root'));
-  let follow = null;
-  function Harness() {
-    const viewport = React.useRef(null);
-    const content = React.useRef(null);
-    follow = useTranscriptFollow({ viewport, content, sessionKey: 'touch-hold' });
-    return React.createElement(
-      'div',
-      { ref: viewport },
-      React.createElement('div', { ref: content }, React.createElement('p', { id: 'row' }, 'row'))
-    );
-  }
+  const mount = await mountFollowHook({ sessionKey: 'touch-hold' });
+  const { React, viewport, leaf: row } = mount;
   let native = 2000;
   let held = 0;
   let content = 2400;
   try {
-    await React.act(async () => root.render(React.createElement(Harness)));
-    const row = document.getElementById('row');
-    const viewport = row.parentElement.parentElement;
     Object.defineProperty(viewport, 'scrollTop', { configurable: true, get: () => native, set: () => {} });
-    const release = registerTranscriptScrollGeometry(viewport, {
+    const release = mount.registerGeometry(viewport, {
       viewportHeight: () => 400,
       contentHeight: () => content,
       scrollTop: () => native + held,
       deviation: () => held,
     });
-    await React.act(async () => follow.handleScroll());
-    assert.equal(follow.followingRef.current, true, 'the reader starts at the tail');
+    await React.act(async () => mount.follow.handleScroll());
+    assert.equal(mount.follow.followingRef.current, true, 'the reader starts at the tail');
     const touch = (clientY) => ({ target: row, currentTarget: viewport, touches: [{ clientY }] });
-    follow.handleTouchStart(touch(100));
-    await React.act(async () => follow.handleTouchMove(touch(140)));
+    mount.follow.handleTouchStart(touch(100));
+    await React.act(async () => mount.follow.handleTouchMove(touch(140)));
     native = 1990;
-    await React.act(async () => follow.handleScroll());
-    assert.equal(follow.followingRef.current, false, 'the upward drag releases follow');
-    // The finger climbs 10 px more while a row above grows by 400 px into a hold.
+    await React.act(async () => mount.follow.handleScroll());
+    assert.equal(mount.follow.followingRef.current, false, 'the upward drag releases follow');
     native = 1980;
     held = 400;
     content = 2800;
-    await React.act(async () => follow.handleScroll());
-    assert.equal(follow.followingRef.current, false, 'a growing hold is not the reader arriving at the tail');
+    await React.act(async () => mount.follow.handleScroll());
+    assert.equal(mount.follow.followingRef.current, false, 'a growing hold is not the reader arriving at the tail');
     release();
   } finally {
-    await React.act(async () => root.unmount());
-    restore();
+    await mount.dispose();
   }
 });
 
-// The timeline holds its corrections off the native offset for exactly this
-// window: from a drag that moves the transcript, through the fling, until
-// scrollend.
-/** The follow hook driving an end pin over a fake viewport (400px of a 2400px
- *  tail, scrolled to the end). `state` holds the live content height and native
- *  scroll offset; `advance` moves the clock the hook reads. */
 async function mountFollowRig({ sessionKey, startedAt }) {
-  const [React, { createRoot }, { useTranscriptFollow, registerTranscriptScrollGeometry }, { createTranscriptEndPin }] =
-    await Promise.all([
-      import('react'),
-      import('react-dom/client'),
-      import('./use-transcript-follow.ts'),
-      import('./transcript-end-pin.ts'),
-    ]);
-  const { restore } = installTestDom(null, {
-    html: "<div id='root'></div>",
-    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
-    expose: ['Element'],
-  });
-  const realNow = Date.now;
-  let now = startedAt;
-  Date.now = () => now;
+  const { createTranscriptEndPin } = await import('./transcript-end-pin.ts');
   const VIEWPORT = 400;
+  const clock = { now: startedAt };
   const state = { content: 2400, native: 2000 };
   const writes = [];
-  // The timeline the hook drives: its end anchor flips with every follow decision.
   const instance = {
     options: { anchorTo: 'end', followOnAppend: false },
-    targetWindow: window,
+    get targetWindow() {
+      return window;
+    },
     getTotalSize: () => state.content,
   };
   const setAnchorBottomRef = { current: (bottom) => (instance.options.anchorTo = bottom ? 'end' : 'start') };
-  let follow = null;
   let pin = null;
   const scrollToEndRef = { current: () => pin.request() };
-  const root = createRoot(document.getElementById('root'));
-  function Harness() {
-    const viewport = React.useRef(null);
-    const contentRef = React.useRef(null);
-    follow = useTranscriptFollow({
-      viewport,
-      content: contentRef,
-      sessionKey,
-      setAnchorBottomRef,
-      scrollToEndRef,
-    });
-    return React.createElement('div', { ref: viewport }, React.createElement('div', { ref: contentRef }, 'rows'));
-  }
+  const mount = await mountFollowHook({ sessionKey, clock, hookOptions: { setAnchorBottomRef, scrollToEndRef } });
+  const { React, viewport } = mount;
   const flush = () => React.act(async () => {});
-  const frame = () => React.act(() => new Promise((resolve) => window.requestAnimationFrame(() => resolve())));
   let release = () => {};
   const cleanup = async () => {
     release();
-    Date.now = realNow;
-    await React.act(async () => root.unmount());
-    restore();
+    await mount.dispose();
   };
-  let viewport;
   try {
-    await React.act(async () => root.render(React.createElement(Harness)));
-    viewport = document.getElementById('root').firstElementChild;
     Object.defineProperty(viewport, 'scrollTop', {
       configurable: true,
       get: () => state.native,
@@ -398,7 +295,7 @@ async function mountFollowRig({ sessionKey, startedAt }) {
         state.native = Math.min(Math.max(0, value), state.content - VIEWPORT);
       },
     });
-    release = registerTranscriptScrollGeometry(viewport, {
+    release = mount.registerGeometry(viewport, {
       viewportHeight: () => VIEWPORT,
       contentHeight: () => state.content,
       scrollTop: () => state.native,
@@ -409,8 +306,8 @@ async function mountFollowRig({ sessionKey, startedAt }) {
       getViewport: () => viewport,
       getSpacer: () => null,
       getMaxScrollTop: () => state.content - VIEWPORT,
-      hasReaderGesture: () => follow.hasScrollGesture(),
-      markProgrammaticScroll: (top, intended) => follow.markProgrammaticScroll(top, intended),
+      hasReaderGesture: () => mount.follow.hasScrollGesture(),
+      markProgrammaticScroll: (top, intended) => mount.follow.markProgrammaticScroll(top, intended),
     });
   } catch (error) {
     await cleanup();
@@ -423,12 +320,12 @@ async function mountFollowRig({ sessionKey, startedAt }) {
     state,
     writes,
     flush,
-    frame,
+    frame: mount.frame,
     get follow() {
-      return follow;
+      return mount.follow;
     },
     advance: (ms) => {
-      now += ms;
+      clock.now += ms;
     },
     /** A streamed token grows the tail; a following timeline asks for the end. */
     grow: async (px) => {
@@ -608,46 +505,17 @@ test('arriving at the true bottom re-engages follow at once (a wheel) or at the 
 });
 
 test('a wheel ramp holds measured-size corrections off scrollTop until its scrolls go quiet', async () => {
-  const [
-    React,
-    { createRoot },
-    { useTranscriptFollow, registerTranscriptScrollGeometry },
-    { createTouchScrollDeviation },
-  ] = await Promise.all([
-    import('react'),
-    import('react-dom/client'),
-    import('./use-transcript-follow.ts'),
-    import('./transcript-list-touch-deviation.ts'),
-  ]);
-  const { restore } = installTestDom(null, {
-    html: "<div id='root'></div>",
-    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
-    expose: ['Element'],
-  });
-  const realNow = Date.now;
-  let now = 300_000;
-  Date.now = () => now;
+  const { createTouchScrollDeviation } = await import('./transcript-list-touch-deviation.ts');
   const VIEWPORT = 400;
   const content = 4000;
+  const clock = { now: 300_000 };
   let native = 2000;
   const writes = [];
-  let follow = null;
-  const root = createRoot(document.getElementById('root'));
-  function Harness() {
-    const viewport = React.useRef(null);
-    const contentRef = React.useRef(null);
-    follow = useTranscriptFollow({ viewport, content: contentRef, sessionKey: 'wheel-hold' });
-    return React.createElement(
-      'div',
-      { ref: viewport },
-      React.createElement('div', { ref: contentRef }, React.createElement('div', { id: 'space' }, 'rows'))
-    );
-  }
-  const frame = () => React.act(() => new Promise((resolve) => window.requestAnimationFrame(() => resolve())));
+  const mount = await mountFollowHook({ sessionKey: 'wheel-hold', leafTag: 'div', leafId: 'space', clock });
+  const { React, viewport, leaf: space, frame } = mount;
+  let deviation = null;
+  let release = null;
   try {
-    await React.act(async () => root.render(React.createElement(Harness)));
-    const space = document.getElementById('space');
-    const viewport = space.parentElement.parentElement;
     Object.defineProperty(viewport, 'clientHeight', { configurable: true, get: () => VIEWPORT });
     Object.defineProperty(viewport, 'scrollHeight', { configurable: true, get: () => content });
     Object.defineProperty(viewport, 'scrollTop', {
@@ -658,105 +526,79 @@ test('a wheel ramp holds measured-size corrections off scrollTop until its scrol
         native = value;
       },
     });
-    const deviation = createTouchScrollDeviation({
+    deviation = createTouchScrollDeviation({
       getViewport: () => viewport,
       getSpacer: () => space,
-      hasTouchScroll: () => follow.holdsScrollCorrections(),
-      clampAtEdge: () => follow.touchHoldsCorrections(),
-      markProgrammaticScroll: (top, intended) => follow.markProgrammaticScroll(top, intended),
+      hasTouchScroll: () => mount.follow.holdsScrollCorrections(),
+      clampAtEdge: () => mount.follow.touchHoldsCorrections(),
+      markProgrammaticScroll: (top, intended) => mount.follow.markProgrammaticScroll(top, intended),
     });
-    const release = registerTranscriptScrollGeometry(viewport, {
+    release = mount.registerGeometry(viewport, {
       viewportHeight: () => VIEWPORT,
       contentHeight: () => content,
       scrollTop: () => native,
       deviation: () => deviation.amount(),
     });
-    await React.act(async () => follow.handleScroll());
+    await React.act(async () => mount.follow.handleScroll());
     // The reader wheels up; a row measured into view above grows by 30px.
-    now += 1_000;
-    await React.act(async () => follow.handleWheel({ deltaY: -100, target: viewport, currentTarget: viewport }));
-    assert.equal(follow.holdsScrollCorrections(), true, 'the wheel owns the viewport');
+    clock.now += 1_000;
+    await React.act(async () => mount.follow.handleWheel({ deltaY: -100, target: viewport, currentTarget: viewport }));
+    assert.equal(mount.follow.holdsScrollCorrections(), true, 'the wheel owns the viewport');
     native -= 60;
-    await React.act(async () => follow.handleScroll());
+    await React.act(async () => mount.follow.handleScroll());
     assert.equal(deviation.hold(native + 30), true, 'its correction is held');
     assert.equal(space.style.transform, 'translateY(-30px)', 'as a row offset');
     assert.equal(space.style.marginBottom, '-30px', 'and the native end moves up with the lifted rows');
     // The ramp keeps scrolling past the wheel window; it still owns the viewport.
     for (let step = 0; step < 4; step += 1) {
-      now += 120;
+      clock.now += 120;
       native -= 20;
-      await React.act(async () => follow.handleScroll());
+      await React.act(async () => mount.follow.handleScroll());
       await frame();
     }
-    assert.equal(follow.holdsScrollCorrections(), true, 'scrolls of the ramp extend the hold');
+    assert.equal(mount.follow.holdsScrollCorrections(), true, 'scrolls of the ramp extend the hold');
     assert.deepEqual(writes, [], 'no scrollTop write during the wheel scroll');
     // Quiet: the held correction lands as one write.
     const settledAt = native + 30;
-    now += 300;
-    assert.equal(follow.holdsScrollCorrections(), false, 'the hold ends once the ramp is quiet');
+    clock.now += 300;
+    assert.equal(mount.follow.holdsScrollCorrections(), false, 'the hold ends once the ramp is quiet');
     await frame();
     assert.deepEqual(writes, [settledAt], 'one write lands the held correction');
     assert.equal(space.style.transform, '');
     assert.equal(space.style.marginBottom, '');
     // A later scroll that is no wheel (scrollbar, keyboard) holds nothing.
-    now += 50;
+    clock.now += 50;
     native -= 40;
-    await React.act(async () => follow.handleScroll());
-    assert.equal(follow.holdsScrollCorrections(), false, 'a later non-wheel scroll does not revive the hold');
-    release();
-    deviation.cancel();
+    await React.act(async () => mount.follow.handleScroll());
+    assert.equal(mount.follow.holdsScrollCorrections(), false, 'a later non-wheel scroll does not revive the hold');
   } finally {
-    Date.now = realNow;
-    await React.act(async () => root.unmount());
-    restore();
+    release?.();
+    deviation?.cancel();
+    await mount.dispose();
   }
 });
 
 test('a touch scroll owns the transcript from its drag until scrollend ends the fling, and off iOS holds no corrections', async () => {
-  const [React, { createRoot }, { useTranscriptFollow }] = await Promise.all([
-    import('react'),
-    import('react-dom/client'),
-    import('./use-transcript-follow.ts'),
-  ]);
-  const { restore } = installTestDom(null, {
-    html: "<div id='root'></div>",
-    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
-    expose: ['Element'],
-  });
-  const root = createRoot(document.getElementById('root'));
-  let follow = null;
-  function Harness() {
-    const viewport = React.useRef(null);
-    const content = React.useRef(null);
-    follow = useTranscriptFollow({ viewport, content, sessionKey: 'touch-latch' });
-    return React.createElement(
-      'div',
-      { ref: viewport },
-      React.createElement('div', { ref: content }, React.createElement('p', { id: 'row' }, 'row'))
-    );
-  }
+  const mount = await mountFollowHook({ sessionKey: 'touch-latch' });
+  const { viewport, leaf: row } = mount;
   try {
-    await React.act(async () => root.render(React.createElement(Harness)));
-    const viewport = document.getElementById('row').parentElement.parentElement;
-    const row = document.getElementById('row');
     const touch = (clientY) => ({ target: row, currentTarget: viewport, touches: [{ clientY }] });
-    follow.handleTouchStart(touch(100));
-    assert.equal(follow.hasTouchScroll(), false, 'a tap alone owns nothing');
-    follow.handleTouchMove(touch(160));
-    assert.equal(follow.hasTouchScroll(), true, 'the drag owns the transcript');
+    mount.follow.handleTouchStart(touch(100));
+    assert.equal(mount.follow.hasTouchScroll(), false, 'a tap alone owns nothing');
+    mount.follow.handleTouchMove(touch(160));
+    assert.equal(mount.follow.hasTouchScroll(), true, 'the drag owns the transcript');
     // Off iOS WebKit (Android, a desktop touchscreen) a touch fling keeps its
     // momentum through a scrollTop write: nothing is held off the native
     // offset, so the scroll range always includes history landed above.
-    assert.equal(follow.holdsScrollCorrections(), false, 'the drag holds no corrections');
-    assert.equal(follow.touchHoldsCorrections(), false, 'no touch hold');
-    follow.handleTouchEnd();
-    assert.equal(follow.hasTouchScroll(), true, 'the fling keeps it after the finger lifts');
-    assert.equal(follow.holdsScrollCorrections(), false, 'and its fling holds nothing either');
+    assert.equal(mount.follow.holdsScrollCorrections(), false, 'the drag holds no corrections');
+    assert.equal(mount.follow.touchHoldsCorrections(), false, 'no touch hold');
+    mount.follow.handleTouchEnd();
+    assert.equal(mount.follow.hasTouchScroll(), true, 'the fling keeps it after the finger lifts');
+    assert.equal(mount.follow.holdsScrollCorrections(), false, 'and its fling holds nothing either');
     viewport.dispatchEvent(new window.Event('scrollend'));
-    assert.equal(follow.hasTouchScroll(), false, 'scrollend ends it');
+    assert.equal(mount.follow.hasTouchScroll(), false, 'scrollend ends it');
   } finally {
-    await React.act(async () => root.unmount());
-    restore();
+    await mount.dispose();
   }
 });
 
@@ -771,40 +613,17 @@ const IPHONE = {
  *  with the list's correction hold wired to it as TranscriptList wires it.
  *  `navigator` sets the engine (a touch hold exists on iOS WebKit only). */
 async function touchHoldHarness(sessionKey, startTop, navigator) {
-  const [
-    React,
-    { createRoot },
-    { useTranscriptFollow, registerTranscriptScrollGeometry },
-    { createTouchScrollDeviation },
-  ] = await Promise.all([
-    import('react'),
-    import('react-dom/client'),
-    import('./use-transcript-follow.ts'),
-    import('./transcript-list-touch-deviation.ts'),
-  ]);
-  const { restore } = installTestDom(null, {
-    html: "<div id='root'></div>",
-    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
-    expose: ['Element'],
-    ...(navigator ? { globals: { navigator } } : {}),
-  });
-  const realNow = Date.now;
-  const state = { now: 700_000, native: startTop, writes: [], follow: null };
-  Date.now = () => state.now;
-  const root = createRoot(document.getElementById('root'));
-  function Harness() {
-    const viewport = React.useRef(null);
-    const content = React.useRef(null);
-    state.follow = useTranscriptFollow({ viewport, content, sessionKey });
-    return React.createElement(
-      'div',
-      { ref: viewport },
-      React.createElement('div', { ref: content }, React.createElement('div', { id: 'space' }, 'rows'))
-    );
-  }
-  await React.act(async () => root.render(React.createElement(Harness)));
-  const space = document.getElementById('space');
-  const viewport = space.parentElement.parentElement;
+  const { createTouchScrollDeviation } = await import('./transcript-list-touch-deviation.ts');
+  const state = {
+    now: 700_000,
+    native: startTop,
+    writes: [],
+    get follow() {
+      return mount.follow;
+    },
+  };
+  const mount = await mountFollowHook({ sessionKey, leafTag: 'div', leafId: 'space', clock: state, navigator });
+  const { React, leaf: space, viewport, frame } = mount;
   Object.defineProperty(viewport, 'clientHeight', { configurable: true, get: () => 400 });
   Object.defineProperty(viewport, 'scrollHeight', { configurable: true, get: () => 40_400 });
   Object.defineProperty(viewport, 'scrollTop', {
@@ -822,13 +641,12 @@ async function touchHoldHarness(sessionKey, startTop, navigator) {
     clampAtEdge: () => state.follow.touchHoldsCorrections(),
     markProgrammaticScroll: (top, intended) => state.follow.markProgrammaticScroll(top, intended),
   });
-  const release = registerTranscriptScrollGeometry(viewport, {
+  const release = mount.registerGeometry(viewport, {
     viewportHeight: () => 400,
     contentHeight: () => 40_000,
     scrollTop: () => state.native,
     deviation: () => deviation.amount(),
   });
-  const frame = () => React.act(() => new Promise((resolve) => window.requestAnimationFrame(() => resolve())));
   const touch = (clientY) => ({ target: space, currentTarget: viewport, touches: [{ clientY }] });
   /** One momentum frame: the native offset moves, its scroll event runs
    *  (the list's offset observer lands an edge hold first), a frame passes. */
@@ -859,20 +677,13 @@ async function touchHoldHarness(sessionKey, startTop, navigator) {
     async dispose() {
       release();
       deviation.cancel();
-      Date.now = realNow;
-      await React.act(async () => root.unmount());
-      restore();
+      await mount.dispose();
     },
   };
 }
 
-// Android phone: a page of older history held as a row offset left the native
-// range short of it, so an upward fling ran into native 0 at the old first row
-// and stopped there, mid-history (phone: 위로 스크롤하면 중간에 멈춘다).
-// Chromium keeps a touch fling's momentum through a scrollTop write (its fling
-// is a stream of scroll deltas, the same path scroll anchoring adjusts under),
-// so off iOS WebKit the landing is written at once and the fling carries on
-// into the page.
+// Chromium keeps a touch fling's momentum through a scrollTop write, so off iOS WebKit a landing page is written
+// at once and the fling carries on into it.
 test('an Android touch fling writes a page landed above it at once and flings on into the page', async () => {
   const harness = await touchHoldHarness('android-edge', 1_400);
   const { state, space, deviation } = harness;
@@ -947,36 +758,24 @@ test('a hold waits out a rubber-band overscroll before it lands', async () => {
 
 /** A followed tail in jsdom: 2400px of content in a 400px viewport. */
 async function tailHarness(sessionKey) {
-  const [React, { createRoot }, follow] = await Promise.all([
-    import('react'),
-    import('react-dom/client'),
-    import('./use-transcript-follow.ts'),
-  ]);
-  const { restore } = installTestDom(null, {
-    html: "<div id='root'></div>",
-    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
-    expose: ['Element', 'MutationObserver'],
-  });
-  const realNow = Date.now;
-  const state = { native: 2000, now: 200_000, hook: null, restores: 0 };
-  Date.now = () => state.now;
+  const state = {
+    native: 2000,
+    now: 200_000,
+    restores: 0,
+    get hook() {
+      return mount.follow;
+    },
+  };
   const scrollToEndRef = { current: () => (state.restores += 1) };
-  const root = createRoot(document.getElementById('root'));
-  function Harness() {
-    const viewport = React.useRef(null);
-    const content = React.useRef(null);
-    state.hook = follow.useTranscriptFollow({ viewport, content, sessionKey, scrollToEndRef });
-    return React.createElement(
-      'div',
-      { ref: viewport },
-      React.createElement('div', { ref: content }, React.createElement('p', { id: 'row' }, 'row'))
-    );
-  }
-  await React.act(async () => root.render(React.createElement(Harness)));
-  const row = document.getElementById('row');
-  const viewport = row.parentElement.parentElement;
+  const mount = await mountFollowHook({
+    sessionKey,
+    clock: state,
+    mutationObserver: true,
+    hookOptions: { scrollToEndRef },
+  });
+  const { React, leaf: row, viewport } = mount;
   Object.defineProperty(viewport, 'scrollTop', { configurable: true, get: () => state.native, set: () => {} });
-  const release = follow.registerTranscriptScrollGeometry(viewport, {
+  const release = mount.registerGeometry(viewport, {
     viewportHeight: () => 400,
     contentHeight: () => 2400,
     scrollTop: () => state.native,
@@ -1014,12 +813,10 @@ async function tailHarness(sessionKey) {
     pointerDown: (target, extra = {}) =>
       React.act(async () => state.hook.handlePointerDown({ target, currentTarget: viewport, button: 0, ...extra })),
     act: (callback) => React.act(callback),
-    frame: () => React.act(() => new Promise((resolve) => window.requestAnimationFrame(() => resolve()))),
+    frame: mount.frame,
     dispose: async () => {
       release();
-      Date.now = realNow;
-      await React.act(async () => root.unmount());
-      restore();
+      await mount.dispose();
     },
   };
 }

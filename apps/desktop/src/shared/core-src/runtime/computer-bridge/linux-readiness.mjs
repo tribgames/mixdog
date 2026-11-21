@@ -1,39 +1,10 @@
-// Linux Computer Use prerequisites, probed per capability BEFORE a task starts
-// so a missing permission or helper yields one actionable message naming what
-// is missing instead of a failure or hang mid-task. Probes never prompt: they
-// read the environment, test file access and PATH, and ask D-Bus read-only
-// questions. The wording mirrors the native hints in native/mixdog-computer
-// (uinput.rs PERMISSION_HINT, compositor.rs supported, apps.rs TESSERACT_HINT /
-// CLIPBOARD_HINT, atspi.rs connect).
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { isForegroundWindowCapture, requiredCapabilities } from './linux-action-capabilities.mjs';
 
-const UINPUT_HINT =
-  'input_unavailable: Wayland input needs write access to /dev/uinput; add the udev rule `KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"`, add your user to the input group, then sign in again';
-export const INPUT_GROUP_SECURITY_NOTE =
-  'Security note: membership of the input group lets every program you run read and inject keyboard and mouse input system-wide. Grant it only on a machine and account you trust.';
-export const GNOME_EXTENSION_UUID = 'mixdog-windows@mixdog.io';
+const GNOME_EXTENSION_UUID = 'mixdog-windows@mixdog.io';
 /** The oldest helper interface this app can use (2 added Screenshot and StopRequested, 3 the in-shell indicator). */
-export const MIN_WINDOW_HELPER_VERSION = 3;
-const WINDOW_HELPER_RELOGIN_HINT =
-  'wayland_window_control_unavailable: the Mixdog Windows GNOME extension is installed and enabled but GNOME Shell has not loaded it yet; the user must sign out and sign in again once';
-const WINDOW_HELPER_ENABLE_HINT =
-  'wayland_window_control_unavailable: the Mixdog Windows GNOME extension is not enabled; it could not be enabled automatically (run gnome-extensions enable mixdog-windows@mixdog.io)';
-const WINDOW_CONTROL_UNSUPPORTED_HINT =
-  'wayland_window_control_unavailable: this desktop offers no window control to other programs (supported: GNOME with the Mixdog Windows extension, sway, Hyprland, or an X11 session); screen, pointer, keyboard and clipboard still work';
-const ACCESSIBILITY_HINT = 'accessibility_unavailable: the AT-SPI bus is not running; install at-spi2-core';
-export const TESSERACT_HINT =
-  'ocr_unavailable: install Tesseract (for example `sudo apt install tesseract-ocr tesseract-ocr-kor`) to read text from pixels';
-export const CLIPBOARD_HINT =
-  'clipboard_unavailable: install wl-clipboard (`wl-copy`/`wl-paste`) for clipboard access on Wayland';
-const DISPLAY_HINT =
-  'display_unavailable: no graphical session to drive; run inside a desktop session with DISPLAY (X11) or WAYLAND_DISPLAY set';
-
-/** Stable code of the whole refusal; the per-capability codes are the native ones. */
-export const CAPABILITY_UNAVAILABLE_CODE = 'computer_capability_unavailable';
-
+const MIN_WINDOW_HELPER_VERSION = 3;
 const READY = Object.freeze({ state: 'ready' });
 
 function onPath(name, env) {
@@ -136,7 +107,7 @@ function gsettingsOutput(env, args, timeoutMs = 2000) {
 }
 
 /** Where GNOME Shell looks for our extension: system-wide (the .deb) or per user. */
-export function gnomeExtensionDirs(env = process.env) {
+function gnomeExtensionDirs(env = process.env) {
   const home = env.HOME || '';
   const data = env.XDG_DATA_HOME || (home ? path.join(home, '.local', 'share') : '');
   return [
@@ -223,6 +194,35 @@ async function accessibilityCapability({ hasCommand, hasSessionBus, accessibilit
   return (await accessibilityReachable()) ? READY : needsPackage('at-spi2-core');
 }
 
+const optional = (capability) => ({ ...capability, optional: true });
+
+function writable(file) {
+  try {
+    fs.accessSync(file, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function noDisplayReadiness(session, desktop) {
+  const none = { state: 'unsupported' };
+  return {
+    session,
+    desktop,
+    capabilities: {
+      capture: none,
+      windows: none,
+      accessibility: none,
+      semanticActions: none,
+      pointer: none,
+      keyboard: none,
+      clipboard: optional(none),
+      ocr: optional(none),
+    },
+  };
+}
+
 /**
  * Per-capability readiness of this Linux session. Capabilities report
  * 'unknown' when they cannot be probed without side effects; only
@@ -235,14 +235,7 @@ async function accessibilityCapability({ hasCommand, hasSessionBus, accessibilit
  */
 export async function checkLinuxComputerReadiness({
   env = process.env,
-  canWrite = (file) => {
-    try {
-      fs.accessSync(file, fs.constants.W_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  },
+  canWrite = writable,
   hasCommand = (name) => onPath(name, env),
   hasSessionBus = () => sessionBusPresent(env),
   windowHelperVersion = () => gnomeWindowHelperVersion(env),
@@ -251,24 +244,7 @@ export async function checkLinuxComputerReadiness({
 } = {}) {
   const session = detectSession(env);
   const desktop = detectDesktop(env, session);
-  const optional = (capability) => ({ ...capability, optional: true });
-  if (session === 'x11' && !env.DISPLAY) {
-    const none = { state: 'unsupported' };
-    return {
-      session,
-      desktop,
-      capabilities: {
-        capture: none,
-        windows: none,
-        accessibility: none,
-        semanticActions: none,
-        pointer: none,
-        keyboard: none,
-        clipboard: optional(none),
-        ocr: optional(none),
-      },
-    };
-  }
+  if (session === 'x11' && !env.DISPLAY) return noDisplayReadiness(session, desktop);
   const wayland = session === 'wayland';
   const windows = await windowsCapability({ env, session, hasCommand, windowHelperVersion, windowHelperStatus });
   const accessibility = await accessibilityCapability({ env, hasCommand, hasSessionBus, accessibilityReachable });
@@ -296,64 +272,6 @@ export async function checkLinuxComputerReadiness({
   };
 }
 
-function capabilityIssue(name, readiness) {
-  if (readiness.capabilities.capture.state === 'unsupported')
-    return { code: 'display_unavailable', message: DISPLAY_HINT };
-  // Semantic actions fail on whichever of their two prerequisites is missing.
-  const gnomeWayland = readiness.session === 'wayland' && readiness.desktop === 'gnome';
-  let target = name;
-  if (name === 'semanticActions')
-    target = readiness.capabilities.windows.state === 'ready' ? 'accessibility' : 'windows';
-  else if (name === 'capture' && gnomeWayland) target = 'windows';
-  const capability = readiness.capabilities[target];
-  switch (target) {
-    case 'windows':
-      if (capability.fix === 'relogin')
-        return { code: 'wayland_window_control_unavailable', message: WINDOW_HELPER_RELOGIN_HINT };
-      if (capability.fix === 'enable_window_helper')
-        return { code: 'wayland_window_control_unavailable', message: WINDOW_HELPER_ENABLE_HINT };
-      if (capability.fix === 'install_package') {
-        return {
-          code: 'wayland_window_control_unavailable',
-          message: `wayland_window_control_unavailable: the ${readiness.desktop} window tool is missing from PATH; install ${capability.package}`,
-        };
-      }
-      return { code: 'wayland_window_control_unavailable', message: WINDOW_CONTROL_UNSUPPORTED_HINT };
-    case 'accessibility':
-      return { code: 'accessibility_unavailable', message: ACCESSIBILITY_HINT };
-    case 'pointer':
-    case 'keyboard':
-      return { code: 'input_unavailable', message: `${UINPUT_HINT}. ${INPUT_GROUP_SECURITY_NOTE}` };
-    case 'clipboard':
-      return { code: 'clipboard_unavailable', message: CLIPBOARD_HINT };
-    case 'ocr':
-      return { code: 'ocr_unavailable', message: TESSERACT_HINT };
-    default:
-      return {
-        code: `${target}_unavailable`,
-        message: `${target}_unavailable: ${target} is not available on this session`,
-      };
-  }
-}
-
-/** The required capabilities that are not usable, with their stable codes. */
-export function missingCapabilities(readiness, command) {
-  const missing = [];
-  for (const name of requiredCapabilities(command)) {
-    const capability = readiness.capabilities[name];
-    if (!capability || capability.state === 'ready' || capability.state === 'unknown') continue;
-    const { fix, package: pkg } = capability;
-    missing.push({
-      capability: name,
-      state: capability.state,
-      ...(fix ? { fix } : {}),
-      ...(pkg ? { package: pkg } : {}),
-      ...capabilityIssue(name, readiness),
-    });
-  }
-  return missing;
-}
-
 const CACHE_MS = 3000;
 let cached = null;
 
@@ -367,65 +285,4 @@ export function getLinuxComputerReadiness({ check = checkLinuxComputerReadiness,
     });
   }
   return cached.result;
-}
-
-/**
- * Null when the command can run; otherwise `{code, missing, message}` — the
- * model-facing text names every missing capability and says nothing ran.
- */
-export async function linuxComputerPreflight({ command, platform = process.platform, check, now } = {}) {
-  if (platform !== 'linux') return null;
-  const readiness = await getLinuxComputerReadiness({ check, now });
-  const missing = missingCapabilities(readiness, command);
-  if (missing.length === 0) return null;
-  const details = new Map();
-  for (const item of missing) {
-    const entry = details.get(item.message) ?? { code: item.code, message: item.message, capabilities: [] };
-    entry.capabilities.push(item.capability);
-    details.set(item.message, entry);
-  }
-  const lines = [...details.values()].map((entry) => `- ${entry.message} [${entry.capabilities.join(', ')}]`);
-  if (
-    String(command?.action) === 'capture' &&
-    missing.some((item) => item.capability === 'windows') &&
-    !missing.some((item) => item.capability === 'capture')
-  ) {
-    lines.push('Screenshots that need no window still work: capture with mode="vision" and a screen index (screen=0).');
-  }
-  return {
-    code: CAPABILITY_UNAVAILABLE_CODE,
-    missing,
-    message: `${CAPABILITY_UNAVAILABLE_CODE}: Computer Use cannot run this action on this Linux session (${[...new Set(missing.map((item) => item.capability))].join(', ')}) — nothing was executed.\n${lines.join('\n')}`,
-  };
-}
-
-export const CAPTURE_FALLBACK_NOTE =
-  'Note: window control is not available on this Linux session, so this is a full-screen capture of screen 0 instead of the foreground window.';
-
-/**
- * A default capture resolves the foreground window; without window control it
- * becomes a full-screen capture instead of a refusal. Null when no fallback applies.
- */
-export async function linuxCaptureFallback({ command, platform = process.platform, check, now } = {}) {
-  if (platform !== 'linux' || !isForegroundWindowCapture(command)) return null;
-  const { capabilities } = await getLinuxComputerReadiness({ check, now });
-  const { state } = capabilities.windows;
-  if (state !== 'needs_setup' && state !== 'unsupported') return null;
-  // A screen capture the session cannot take either is a refusal, not a fallback.
-  if (capabilities.capture.state === 'needs_setup' || capabilities.capture.state === 'unsupported') return null;
-  const { action, session_id, include_ocr } = command;
-  return {
-    command: {
-      action,
-      mode: 'vision',
-      screen: 0,
-      ...(session_id ? { session_id } : {}),
-      ...(include_ocr ? { include_ocr } : {}),
-    },
-    note: CAPTURE_FALLBACK_NOTE,
-  };
-}
-
-export function resetLinuxComputerPreflightCache() {
-  cached = null;
 }

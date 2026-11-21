@@ -1,9 +1,3 @@
-/**
- * Electron side of the browser core integration harness (see core-harness.md). A mixdogd the runner script started on an
- * isolated profile is dialled with the desktop's own protocol connection, this process claims the host role with a real
- * BrowserHost in a hidden window, and a suite drives the browser through the core (`browser/command`, forwarded as
- * `host/browser/command`) or through the engine hook (`test/browserEngine/run`).
- */
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -143,6 +137,7 @@ export async function startCoreHarness({ engine }: { engine: CoreHarnessEngine }
         },
         desktopHostScreen: () => null,
         desktopHostCommand: () => null,
+        desktopHostProcessFate: () => null,
         // Off: every computer scope is refused here.
         computerSwitch: createComputerSwitch(false),
       },

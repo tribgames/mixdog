@@ -1,15 +1,9 @@
-// Built-in Git & GitHub: GitHub CLI status/install/device-flow login and the
-// global git identity sourced from the signed-in GitHub account. The Connect
-// flow follows the Providers OAuth grammar: start → one-time code card →
-// status polling until a terminal state; gh opens the browser once the user
-// asks from the code card.
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type {
   DesktopApi,
   DesktopGithubCliAccount,
   DesktopGithubCliLoginFlow,
-  DesktopGithubCliStatus,
   DesktopGitGlobalConfig,
 } from '../../shared/contract';
 import { useErrorToast } from '../notifications';
@@ -25,9 +19,9 @@ import {
   ExtensionSection,
   type ExtensionItemTone,
 } from './extension-detail';
-import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
+import { patchCachedGitPanelInfo } from './git-panel-info';
 import { GithubDeviceCodeText, useGithubDeviceCode } from './github-device-code';
-import { useGithubLoginPolling } from './github-login-polling';
+import { useGithubCliStatus, useGithubLoginPolling } from './github-login-polling';
 import { errorMessage } from '../editor-pane-session-errors';
 import { desktopBridge, openExternalOn } from './desktop-bridge';
 
@@ -41,42 +35,63 @@ function cliStatusView(
   if (!status?.installed) return { label: t('Not installed'), tone: 'warn' };
   return status.authenticated ? { label: t('Connected'), tone: 'ok' } : { label: t('Not connected'), tone: 'off' };
 }
+/** No Identity UI: the git identity syncs itself from the connected account — on a fresh machine with no identity
+ *  at all, and after every explicit Connect (once per flow, even over an existing manual identity). */
+function useGitIdentitySync({
+  host,
+  account,
+  config,
+  setConfig,
+  flowId,
+  flowState,
+}: {
+  host: Partial<DesktopApi> | undefined;
+  account: DesktopGithubCliAccount | null;
+  config: DesktopGitGlobalConfig | null;
+  setConfig(next: DesktopGitGlobalConfig): void;
+  flowId: string;
+  flowState: string;
+}) {
+  const appliedGithubIdentity = useRef(false);
+  const loginAppliedFlow = useRef('');
+  const adoptAccountIdentity = useCallback(
+    async (identity: DesktopGithubCliAccount) => {
+      try {
+        await host?.setGitGlobalConfig?.('user.name', identity.name);
+        const next = await host?.setGitGlobalConfig?.('user.email', identity.email);
+        if (next) setConfig(next);
+      } catch {
+        /* git config stays as it was */
+      }
+    },
+    [host, setConfig]
+  );
+  useEffect(() => {
+    if (!account || !config || appliedGithubIdentity.current) return;
+    if (config.name || config.email) return;
+    appliedGithubIdentity.current = true;
+    void adoptAccountIdentity(account);
+  }, [account, config, adoptAccountIdentity]);
+  useEffect(() => {
+    if (flowState !== 'success' || !flowId || !account) return;
+    if (loginAppliedFlow.current === flowId) return;
+    loginAppliedFlow.current = flowId;
+    void adoptAccountIdentity(account);
+  }, [flowState, flowId, account, adoptAccountIdentity]);
+}
+
 export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const host = api ?? desktopBridge();
   const supported = Boolean(host?.githubCliStatus);
-  // Cached snapshot first: the panel paints its
-  // last known rows immediately; the background probe reconciles afterwards.
-  const cachedInfo = getCachedGitPanelInfo(host);
-  const [status, setStatus] = useState<DesktopGithubCliStatus | null>(cachedInfo?.status ?? null);
   const [config, setConfig] = useState<DesktopGitGlobalConfig | null>(null);
-  const [account, setAccount] = useState<DesktopGithubCliAccount | null>(cachedInfo?.account ?? null);
-  const appliedGithubIdentity = useRef(false);
-  const loginAppliedFlow = useRef('');
   const [flow, setFlow] = useState<DesktopGithubCliLoginFlow | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   useErrorToast(error, 'git-settings');
-
-  const refreshStatus = useCallback(async () => {
-    if (!host?.githubCliStatus) return;
-    try {
-      const next = await host.githubCliStatus();
-      setStatus(next);
-      patchCachedGitPanelInfo(host, { status: next });
-    } catch (reason) {
-      setError(errorMessage(reason));
-    }
-  }, [host]);
+  const { status, setStatus, account, refreshStatus } = useGithubCliStatus(host, supported, setError);
 
   useEffect(() => {
     let live = true;
-    // Stale-while-revalidate: the cached snapshot painted already; this probe
-    // reconciles it.
-    void preloadGitPanelInfo(host).then((info) => {
-      if (!live || !info) return;
-      setStatus(info.status);
-      setAccount(info.account);
-    });
     const readConfig = () =>
       void host
         ?.gitGlobalConfig?.()
@@ -99,59 +114,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   useGithubLoginPolling({ host, flowId, flowState, setFlow, setStatus, refreshStatus });
   const deviceCode = useGithubDeviceCode(host, flow, (url) => openExternalOn(host, url));
 
-  // The signed-in GitHub account is the identity source of truth (user
-  // decision): load it whenever gh reports authenticated.
-  const authenticated = status?.authenticated === true;
-  useEffect(() => {
-    if (!authenticated) {
-      setAccount(null);
-      patchCachedGitPanelInfo(host, { account: null });
-      return undefined;
-    }
-    let live = true;
-    void host
-      ?.githubCliAccount?.()
-      .then((next) => {
-        if (!live) return;
-        setAccount(next || null);
-        patchCachedGitPanelInfo(host, { account: next || null });
-      })
-      .catch(() => {
-        /* the manual identity rows remain */
-      });
-    return () => {
-      live = false;
-    };
-  }, [authenticated, host]);
-  const adoptAccountIdentity = useCallback(
-    async (identity: DesktopGithubCliAccount) => {
-      try {
-        await host?.setGitGlobalConfig?.('user.name', identity.name);
-        const next = await host?.setGitGlobalConfig?.('user.email', identity.email);
-        if (next) setConfig(next);
-      } catch {
-        /* git config stays as it was */
-      }
-    },
-    [host]
-  );
-  // No Identity UI: the git identity syncs
-  // itself from the connected account — on a fresh machine with no identity
-  // at all, and after every explicit Connect.
-  useEffect(() => {
-    if (!account || !config || appliedGithubIdentity.current) return;
-    if (config.name || config.email) return;
-    appliedGithubIdentity.current = true;
-    void adoptAccountIdentity(account);
-  }, [account, config, adoptAccountIdentity]);
-  useEffect(() => {
-    // A completed Connect is an explicit identity choice: adopt the account
-    // even over an existing manual identity, once per flow.
-    if (flowState !== 'success' || !flowId || !account) return;
-    if (loginAppliedFlow.current === flowId) return;
-    loginAppliedFlow.current = flowId;
-    void adoptAccountIdentity(account);
-  }, [flowState, flowId, account, adoptAccountIdentity]);
+  useGitIdentitySync({ host, account, config, setConfig, flowId, flowState });
 
   if (!supported) {
     return <ExtensionNote>{t('Git and GitHub settings are managed in the desktop app.')}</ExtensionNote>;

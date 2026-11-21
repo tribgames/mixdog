@@ -1,9 +1,3 @@
-// The plain-text cover of a text file's first open: while the Monaco chunk
-// loads and the editor mounts behind the pane gate, the file's own text is
-// already on screen in the editor's font, line height and gutter, so the swap
-// to the real editor repaints the same lines in place. It is an overlay
-// (absolute inside the gate), so neither its arrival nor its removal moves
-// anything in flow.
 import { useEffect, useState, type CSSProperties } from 'react';
 import type { DesktopEditorSettings } from '../shared/contract';
 import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../shared/editor-settings';
@@ -78,10 +72,6 @@ function readPlaceholderContent(
     .catch(() => null);
 }
 
-/** Starts the file read at mount (before the editor chunk's own session can
- *  take it) and yields the cover content once it lands; null until then, and
- *  for a file that gets no text cover. `settled` turns true once the read
- *  answered (with or without a cover), or at once when there is nothing to read. */
 export function useEditorTextPlaceholder(
   projectPath: string,
   relPath: string,

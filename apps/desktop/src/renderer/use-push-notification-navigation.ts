@@ -48,11 +48,6 @@ export function usePushNotificationNavigation({
   /** Whether the loaded catalog still has the session; absent = open anything. */
   hasSession?(sessionId: string): boolean;
 }): void {
-  // A tap names the PC that sent it: open it here only when that is the PC
-  // this page drives, otherwise move to that PC's route, which opens it.
-  // Routing never waits for THIS PC's catalog: this PC may never become ready
-  // (its pairing is gone, it is offline), and a tap from another PC must still
-  // reach that PC. Only opening a session on this PC waits.
   const routeRef = useRef({ switchHost, hostEnvironment });
   routeRef.current = { switchHost, hostEnvironment };
   const hasSessionRef = useRef(hasSession);

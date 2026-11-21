@@ -18,10 +18,10 @@
   align-items: center;
   gap: 4px 8px;
   padding: 8px 10px;
-  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  border: 1px solid rgba(127, 127, 127, 0.3);
   border-radius: 8px;
-  background: var(--surface-raised, var(--bg, #1f1f1f));
-  color: var(--text, inherit);
+  background: var(--mx-popup-bg);
+  color: var(--mx-text);
   font-size: 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
   pointer-events: auto;
@@ -54,7 +54,7 @@
 
 .file-download-button:hover,
 .file-download-button:focus-visible {
-  background: var(--hover, rgba(127, 127, 127, 0.18));
+  background: rgba(127, 127, 127, 0.18);
 }
 
 .file-download-status {
@@ -69,7 +69,7 @@
 }
 
 .file-download[data-status="failed"] .file-download-status {
-  color: var(--danger, #e5484d);
+  color: #e5484d;
   opacity: 1;
 }
 

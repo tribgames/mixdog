@@ -51,10 +51,6 @@ const PAD = 6;
 const LIST_ROW = '.schedules-row';
 const LIST_ROW_PAD_Y = 2;
 
-// Retained rail and dock layers stay laid out under the active one, hidden by
-// `visibility` only: their copy of a control (the routine pages' "Create
-// representative bot") has a real box in the same spot, so a box alone would
-// light the hidden twin and never see the click on the visible one.
 function findTarget(target: string | readonly string[]): HTMLElement | null {
   for (const selector of typeof target === 'string' ? [target] : target) {
     for (const element of document.querySelectorAll<HTMLElement>(selector)) {
@@ -111,10 +107,6 @@ function safeInsets(): { right: number; bottom: number } {
   return insets;
 }
 
-/** The visible area the card may use: the visual viewport (soft keyboard,
- *  pinch) minus the safe-area insets. On a phone the body — the card's
- *  containing block — already sits at the visual viewport's origin, so the
- *  offset is not added again. */
 function tourView(): { width: number; height: number } {
   const visual = window.visualViewport;
   const insets = safeInsets();
@@ -199,6 +191,24 @@ function useModalKeys(root: { current: HTMLElement | null }, onEscape: () => voi
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [root, enabled]);
+}
+
+/** The padded box to light for `element`, or null while it has no size. The
+ *  hole stops at its list's visible edge, so a long target never spills over
+ *  what is pinned below the list. */
+function litBox(element: HTMLElement, scroller: HTMLElement | null): Box | null {
+  const box = element.getBoundingClientRect();
+  if (!(box.width > 0 && box.height > 0)) return null;
+  const view = scroller?.getBoundingClientRect();
+  const top = view ? Math.max(box.top, view.top) : box.top;
+  const bottom = view ? Math.min(box.bottom, view.bottom) : box.bottom;
+  const padY = element.matches(LIST_ROW) ? LIST_ROW_PAD_Y : PAD;
+  return {
+    top: top - padY,
+    left: box.left - PAD,
+    width: box.width + PAD * 2,
+    height: Math.max(0, bottom - top) + padY * 2,
+  };
 }
 
 export function StarterTour({
@@ -302,28 +312,11 @@ export function StarterTour({
         scroller = element ? scrollParent(element) : null;
         if (element) revealTarget(element, scroller);
       }
-      const box = element?.getBoundingClientRect();
-      if (box && box.width > 0 && box.height > 0) {
-        // The lit hole stops at its list's visible edge, so a long target
-        // never spills over what is pinned below the list.
-        const view = scroller?.getBoundingClientRect();
-        const top = view ? Math.max(box.top, view.top) : box.top;
-        const bottom = view ? Math.min(box.bottom, view.bottom) : box.bottom;
-        const padY = element?.matches(LIST_ROW) ? LIST_ROW_PAD_Y : PAD;
-        const next = {
-          top: top - padY,
-          left: box.left - PAD,
-          width: box.width + PAD * 2,
-          height: Math.max(0, bottom - top) + padY * 2,
-        };
-        setTarget((current) => (sameBox(current, next) ? current : next));
+      const lit = element ? litBox(element, scroller) : null;
+      if (lit) {
+        setTarget((current) => (sameBox(current, lit) ? current : lit));
         setReady(true);
       } else if (performance.now() - startedAt > TARGET_WAIT_MS) {
-        // A stop whose control never appeared is skipped rather than shown
-        // as a dimmed screen with nothing lit; only a final stop falls back
-        // to a centred card so the tour still ends on its explanation.
-        // Standing aside, the form may cover or unmount the control; only
-        // the form closing moves the tour on.
         if (asideRef.current) {
           frame = window.requestAnimationFrame(track);
           return;

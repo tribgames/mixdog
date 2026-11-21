@@ -1,7 +1,3 @@
-/**
- * The input driver a page is driven through: keyboard, mouse, drag and touch
- * gestures over one CDP send port, each timed as an input operation.
- */
 import { type BrowserDragInterceptionDeps, createBrowserDragInterception, createDragInput } from './input-drag';
 import { createKeyboardInput } from './input-keyboard';
 import { createMouseInput } from './input-mouse';

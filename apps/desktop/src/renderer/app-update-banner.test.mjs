@@ -228,10 +228,7 @@ test('settings view mirrors the host updater rows', () => {
     return [v.current, v.latest, v.install.id, v.install.label, v.busy];
   };
   assert.deepEqual(view(null), ['0.1.17', '0.1.17', null, 'Check for update', false]);
-  assert.deepEqual(
-    view({ ...base, status: 'up-to-date' }),
-    ['1.3.2', '1.3.2', null, 'Up to date', false].map((x, i) => (i === 1 ? '1.4.0' : x))
-  );
+  assert.deepEqual(view({ ...base, status: 'up-to-date' }), ['1.3.2', '1.4.0', null, 'Up to date', false]);
   assert.deepEqual(view({ ...base, status: 'checking' }), ['1.3.2', '1.4.0', null, 'Checking for update…', true]);
   // dismissed is ignored: the update can always be started from settings
   assert.deepEqual(view({ ...base, status: 'available', dismissed: true }), [

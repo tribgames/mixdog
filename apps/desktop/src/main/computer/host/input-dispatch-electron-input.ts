@@ -1,7 +1,4 @@
-/** Keys and wheel for Mixdog's own window go to its renderer through Electron's
- *  debugger input channel. Chromium ignores window-message keys, and this
- *  channel needs neither OS focus nor the pointer, so the window is never
- *  raised and the user's foreground window stays where it is. */
+/** Chromium ignores window-message keys; Electron's debugger input channel needs neither OS focus nor the pointer. */
 import { createKeyboardInput } from '../../browser/input-keyboard';
 import { createMouseInput } from '../../browser/input-mouse';
 import { type BrowserMouseButton, cssPoint, normalizeModifierMask } from '../../browser/input-primitives';

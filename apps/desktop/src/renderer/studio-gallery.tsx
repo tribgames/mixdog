@@ -60,6 +60,310 @@ function jobElapsed(entry: StudioMediaJob): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
+function PendingTile({
+  pending,
+  tile,
+  lastRow,
+  gridWidth,
+  rowHeight,
+  onCancel,
+  onDismiss,
+  onRetry,
+}: {
+  pending: StudioMediaJob;
+  tile: JustifiedTile;
+  lastRow: boolean;
+  gridWidth: number;
+  rowHeight: number;
+  onCancel: (id: string) => void;
+  onDismiss: (id: string) => void;
+  onRetry: (entry: StudioMediaJob) => void;
+}) {
+  const box = pendingBox(tile, pending, rowHeight);
+  const progress = jobProgress(pending);
+  const determinate = progress > 0;
+  const elapsed = jobElapsed(pending);
+  const queuedReference = pending.request?.references[0];
+  const queuedPrompt = pending.request?.prompt || '';
+  return (
+    <figure
+      aria-live="polite"
+      className={`studio-tile studio-tile--pending${pending.status === 'failed' ? ' studio-tile--failed' : ''}`}
+      data-studio-asset-id={pending.id}
+      data-studio-prompt={queuedPrompt || undefined}
+      data-size={box.size}
+      style={tileStyle(tile, lastRow, gridWidth)}
+    >
+      {pending.status === 'failed' && (
+        <div className="studio-tile-open">
+          <ErrorNotice
+            error={pending.error || t('Generation failed')}
+            onRetry={() => onRetry(pending)}
+            onDismiss={() => onDismiss(pending.id)}
+          />
+        </div>
+      )}
+      {pending.status !== 'failed' && (
+        <>
+          <div
+            className="studio-tile-open"
+            role="img"
+            aria-label={queuedPrompt ? `${t('Generating')}: ${queuedPrompt}` : t('Generating')}
+          >
+            {queuedReference ? <img className="studio-pending-reference" src={queuedReference.url} alt="" /> : null}
+            {queuedPrompt ? <p className="studio-pending-prompt">{queuedPrompt}</p> : null}
+            {/* A lane-reported percentage gets a determinate rail;
+              everything else remains honestly indeterminate. */}
+            <div className="studio-pending-foot">
+              <span className="studio-pending-meta">
+                <span>{elapsed}</span>
+                {determinate ? <span>{progress}%</span> : null}
+              </span>
+              <span
+                className={`studio-pending-bar${determinate ? '' : ' studio-pending-bar--idle'}`}
+                role="progressbar"
+                aria-valuenow={determinate ? progress : undefined}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <span style={determinate ? { width: `${progress}%` } : undefined} />
+              </span>
+            </div>
+          </div>
+          <div className="studio-pending-head">
+            <span
+              className="studio-pending-chip"
+              role="img"
+              aria-label={
+                determinate
+                  ? t('Generating, {{progress}}%, {{elapsed}} elapsed', { progress, elapsed })
+                  : t('Generating, {{elapsed}} elapsed', { elapsed })
+              }
+            >
+              <ProgressSpinner size={14} className="studio-spinner" aria-hidden="true" />
+            </span>
+            <button
+              type="button"
+              className="studio-pending-cancel"
+              aria-label={t('Cancel generation')}
+              onClick={() => onCancel(pending.id)}
+            >
+              <Ban size={12} aria-hidden="true" />
+              <span>{t('Cancel')}</span>
+            </button>
+          </div>
+        </>
+      )}
+    </figure>
+  );
+}
+
+function StudioTopbar({
+  kind,
+  kindsOffered,
+  tileSize,
+  tileSizes,
+  cleanup,
+  onKindChange,
+  onTileSizeChange,
+}: {
+  kind: MediaKind;
+  kindsOffered: MediaKind[];
+  tileSize: number;
+  tileSizes: readonly number[];
+  cleanup: ReactNode;
+  onKindChange: (kind: MediaKind) => void;
+  onTileSizeChange: (size: number) => void;
+}) {
+  return (
+    <div className="studio-topbar">
+      {/* Only offer what the signed-in providers can produce: one kind hides
+        the toggle, none hides it entirely. */}
+      {/* biome-ignore lint/a11y/useSemanticElements: tag must stay a div; a fieldset would change layout and styling */}
+      <div
+        className="studio-kind"
+        data-empty={kindsOffered.length > 1 ? undefined : 'true'}
+        role="group"
+        aria-label={t('Media kind')}
+        aria-hidden={kindsOffered.length > 1 ? undefined : true}
+      >
+        {(['image', 'video'] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            className={kind === value ? 'active' : ''}
+            disabled={!kindsOffered.includes(value)}
+            aria-pressed={kind === value}
+            onClick={() => onKindChange(value)}
+          >
+            {t(value)}
+          </button>
+        ))}
+      </div>
+      <div className="studio-topbar-tools">
+        <label className="studio-density" aria-label={t('Thumbnail size')}>
+          <input
+            type="range"
+            min={0}
+            max={tileSizes.length - 1}
+            step={1}
+            value={tileSizes.length - 1 - Math.max(0, tileSizes.indexOf(tileSize))}
+            onChange={(event) => {
+              const scaleIndex = Math.max(0, Math.min(tileSizes.length - 1, Number(event.currentTarget.value)));
+              const next = tileSizes[tileSizes.length - 1 - scaleIndex] ?? tileSizes[1];
+              if (next !== undefined) onTileSizeChange(next);
+            }}
+          />
+        </label>
+        {cleanup}
+      </div>
+    </div>
+  );
+}
+
+function StudioAssetTile({
+  asset,
+  tile,
+  lastRow,
+  gridWidth,
+  assetIndex,
+  eagerThumbnailCount,
+  selected,
+  selecting,
+  checked,
+  narrowPane,
+  localTransport,
+  mediaForeground,
+  hovering,
+  assetUrl,
+  fullUrl,
+  thumb,
+  thumbFailed,
+  duration,
+  onDelete,
+  onHoverEnd,
+  onHoverStart,
+  onOpen,
+  onOpenMenu,
+  onThumbnailError,
+  onThumbnailLoad,
+  onThumbnailStall,
+  onToggleChecked,
+}: {
+  asset: MediaAsset;
+  tile: JustifiedTile;
+  lastRow: boolean;
+  gridWidth: number;
+  assetIndex: number;
+  eagerThumbnailCount: number;
+  selected: boolean;
+  selecting: boolean;
+  checked: boolean;
+  narrowPane: boolean;
+  localTransport: boolean;
+  mediaForeground: boolean;
+  hovering: boolean;
+  assetUrl: (assetId: string, variant: 'thumb' | 'original') => string;
+  fullUrl: string | undefined;
+  thumb: string | undefined;
+  thumbFailed: boolean;
+  duration: number | undefined;
+  onDelete: (asset: MediaAsset) => void;
+  onHoverEnd: () => void;
+  onHoverStart: (asset: MediaAsset) => void;
+  onOpen: (asset: MediaAsset) => void;
+  onOpenMenu: (asset: MediaAsset, point: { x: number; y: number }) => void;
+  onThumbnailError: (assetId: string) => void;
+  onThumbnailLoad: (asset: MediaAsset) => void;
+  onThumbnailStall: (assetId: string) => void;
+  onToggleChecked: (asset: MediaAsset) => void;
+}) {
+  // Mount at most one local decoder. Remote hover previews would
+  // stream originals repeatedly, and narrow panes keep the still
+  // to avoid the renderer GPU exhaustion this guard fixed.
+  const hoverPreview = !narrowPane && asset.kind === 'video' && localTransport;
+  const eagerLocalImage = localTransport && asset.kind === 'image' && assetIndex < eagerThumbnailCount;
+  return (
+    <figure
+      key={asset.id}
+      className={`studio-tile ${selected ? 'selected' : ''}${checked ? ' checked' : ''}`}
+      data-studio-asset-id={asset.id}
+      style={tileStyle(tile, lastRow, gridWidth)}
+    >
+      <button
+        type="button"
+        className="studio-tile-open"
+        onClick={() => (selecting ? onToggleChecked(asset) : onOpen(asset))}
+        aria-pressed={selecting ? checked : undefined}
+        aria-label={t('Open {{kind}}: {{prompt}}', { kind: t(asset.kind), prompt: asset.prompt })}
+        onContextMenu={
+          selecting
+            ? undefined
+            : (event) => {
+                event.preventDefault();
+                onOpenMenu(asset, pointerMenuPoint(event));
+              }
+        }
+        onKeyDown={
+          selecting
+            ? undefined
+            : (event) => {
+                if (!isContextMenuKey(event)) return;
+                event.preventDefault();
+                onOpenMenu(asset, elementMenuPoint(event.currentTarget));
+              }
+        }
+        onMouseEnter={hoverPreview ? () => onHoverStart(asset) : undefined}
+        onMouseLeave={hoverPreview ? onHoverEnd : undefined}
+      >
+        {mediaForeground && hoverPreview && hovering && (assetUrl(asset.id, 'original') || fullUrl) ? (
+          <video src={assetUrl(asset.id, 'original') || fullUrl} muted loop autoPlay playsInline preload="metadata" />
+        ) : null}
+        <StudioThumbnail
+          src={thumb || (eagerLocalImage ? '' : assetUrl(asset.id, 'thumb'))}
+          kind={asset.kind}
+          eager={assetIndex < eagerThumbnailCount}
+          pending={eagerLocalImage && !thumb && !thumbFailed}
+          // A missing media route falls back tile-by-tile through RPC.
+          onError={thumb ? undefined : () => onThumbnailError(asset.id)}
+          // A cold custom-protocol rendition may still be live; start
+          // local fallback without unmounting that direct request.
+          onStall={
+            localTransport &&
+            asset.kind === 'video' &&
+            assetIndex < eagerThumbnailCount &&
+            !thumb &&
+            assetUrl(asset.id, 'thumb')
+              ? () => onThumbnailStall(asset.id)
+              : undefined
+          }
+          onLoad={() => onThumbnailLoad(asset)}
+        />
+        {asset.durationSeconds || duration ? (
+          <span className="studio-tile-badge">{asset.durationSeconds || duration}s</span>
+        ) : null}
+      </button>
+      {selecting ? (
+        <span className="studio-tile-check" aria-hidden="true">
+          {checked ? <Check size={14} /> : null}
+        </span>
+      ) : (
+        <div className="studio-tile-actions">
+          <button
+            type="button"
+            className="studio-tile-remove"
+            aria-label={t('Delete asset')}
+            title={assetLabel(asset)}
+            onClick={() => onDelete(asset)}
+          >
+            <Trash2 size={16} aria-hidden="true" />
+          </button>
+        </div>
+      )}
+    </figure>
+  );
+}
+
 export function StudioGallery({
   assetUrl,
   boards,
@@ -208,50 +512,15 @@ export function StudioGallery({
 
   return (
     <>
-      {/* Mode stays visually centered while thumbnail scale owns the gallery's
-        top-right corner and contracts with narrow split layouts. */}
-      <div className="studio-topbar">
-        {/* Only offer what the signed-in providers can produce: one kind hides
-          the toggle, none hides it entirely. */}
-        {/* biome-ignore lint/a11y/useSemanticElements: tag must stay a div; a fieldset would change layout and styling */}
-        <div
-          className="studio-kind"
-          data-empty={kindsOffered.length > 1 ? undefined : 'true'}
-          role="group"
-          aria-label={t('Media kind')}
-          aria-hidden={kindsOffered.length > 1 ? undefined : true}
-        >
-          {(['image', 'video'] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={kind === value ? 'active' : ''}
-              disabled={!kindsOffered.includes(value)}
-              aria-pressed={kind === value}
-              onClick={() => onKindChange(value)}
-            >
-              {t(value)}
-            </button>
-          ))}
-        </div>
-        <div className="studio-topbar-tools">
-          <label className="studio-density" aria-label={t('Thumbnail size')}>
-            <input
-              type="range"
-              min={0}
-              max={tileSizes.length - 1}
-              step={1}
-              value={tileSizes.length - 1 - Math.max(0, tileSizes.indexOf(tileSize))}
-              onChange={(event) => {
-                const scaleIndex = Math.max(0, Math.min(tileSizes.length - 1, Number(event.currentTarget.value)));
-                const next = tileSizes[tileSizes.length - 1 - scaleIndex] ?? tileSizes[1];
-                if (next !== undefined) onTileSizeChange(next);
-              }}
-            />
-          </label>
-          {cleanup}
-        </div>
-      </div>
+      <StudioTopbar
+        kind={kind}
+        kindsOffered={kindsOffered}
+        tileSize={tileSize}
+        tileSizes={tileSizes}
+        cleanup={cleanup}
+        onKindChange={onKindChange}
+        onTileSizeChange={onTileSizeChange}
+      />
       {/* The session transcript's top fade (12-transcript.css), driven by the
         results scroller's position; see 19-studio.css for where it sits. */}
       <div className="transcript-scroll-fade" aria-hidden="true" />
@@ -283,186 +552,54 @@ export function StudioGallery({
                   {row.map((tile) => {
                     const pending = pendingById.get(tile.asset.id);
                     if (!pending) return null;
-                    const box = pendingBox(tile, pending, rowHeight);
-                    const progress = jobProgress(pending);
-                    const determinate = progress > 0;
-                    const elapsed = jobElapsed(pending);
-                    const queuedReference = pending.request?.references[0];
-                    const queuedPrompt = pending.request?.prompt || '';
                     return (
-                      <figure
+                      <PendingTile
                         key={pending.id}
-                        aria-live="polite"
-                        className={`studio-tile studio-tile--pending${pending.status === 'failed' ? ' studio-tile--failed' : ''}`}
-                        data-studio-asset-id={pending.id}
-                        data-studio-prompt={queuedPrompt || undefined}
-                        data-size={box.size}
-                        style={tileStyle(tile, rowIndex === section.rows.length - 1, gridWidth)}
-                      >
-                        {pending.status === 'failed' && (
-                          <div className="studio-tile-open">
-                            <ErrorNotice
-                              error={pending.error || t('Generation failed')}
-                              onRetry={() => onRetry(pending)}
-                              onDismiss={() => onDismiss(pending.id)}
-                            />
-                          </div>
-                        )}
-                        {pending.status !== 'failed' && (
-                          <>
-                            <div
-                              className="studio-tile-open"
-                              role="img"
-                              aria-label={queuedPrompt ? `${t('Generating')}: ${queuedPrompt}` : t('Generating')}
-                            >
-                              {queuedReference ? (
-                                <img className="studio-pending-reference" src={queuedReference.url} alt="" />
-                              ) : null}
-                              {queuedPrompt ? <p className="studio-pending-prompt">{queuedPrompt}</p> : null}
-                              {/* A lane-reported percentage gets a determinate rail;
-                        everything else remains honestly indeterminate. */}
-                              <div className="studio-pending-foot">
-                                <span className="studio-pending-meta">
-                                  <span>{elapsed}</span>
-                                  {determinate ? <span>{progress}%</span> : null}
-                                </span>
-                                <span
-                                  className={`studio-pending-bar${determinate ? '' : ' studio-pending-bar--idle'}`}
-                                  role="progressbar"
-                                  aria-valuenow={determinate ? progress : undefined}
-                                  aria-valuemin={0}
-                                  aria-valuemax={100}
-                                >
-                                  <span style={determinate ? { width: `${progress}%` } : undefined} />
-                                </span>
-                              </div>
-                            </div>
-                            <div className="studio-pending-head">
-                              <span
-                                className="studio-pending-chip"
-                                role="img"
-                                aria-label={
-                                  determinate
-                                    ? t('Generating, {{progress}}%, {{elapsed}} elapsed', { progress, elapsed })
-                                    : t('Generating, {{elapsed}} elapsed', { elapsed })
-                                }
-                              >
-                                <ProgressSpinner size={14} className="studio-spinner" aria-hidden="true" />
-                              </span>
-                              <button
-                                type="button"
-                                className="studio-pending-cancel"
-                                aria-label={t('Cancel generation')}
-                                onClick={() => onCancel(pending.id)}
-                              >
-                                <Ban size={12} aria-hidden="true" />
-                                <span>{t('Cancel')}</span>
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </figure>
+                        pending={pending}
+                        tile={tile}
+                        lastRow={rowIndex === section.rows.length - 1}
+                        gridWidth={gridWidth}
+                        rowHeight={rowHeight}
+                        onCancel={onCancel}
+                        onDismiss={onDismiss}
+                        onRetry={onRetry}
+                      />
                     );
                   })}
                   {row.map((tile) => {
-                    if (pendingById.has(tile.asset.id)) return null;
                     const asset = tile.asset;
-                    const assetIndex = assetIndexById.get(asset.id) ?? 0;
-                    // Mount at most one local decoder. Remote hover previews would
-                    // stream originals repeatedly, and narrow panes keep the still
-                    // to avoid the renderer GPU exhaustion this guard fixed.
-                    const hoverPreview = !narrowPane && asset.kind === 'video' && localTransport;
-                    const eagerLocalImage =
-                      localTransport && asset.kind === 'image' && assetIndex < eagerThumbnailCount;
-                    const checked = selecting && checkedIds.has(asset.id);
+                    if (pendingById.has(asset.id)) return null;
                     return (
-                      <figure
+                      <StudioAssetTile
                         key={asset.id}
-                        className={`studio-tile ${selectedId === asset.id ? 'selected' : ''}${checked ? ' checked' : ''}`}
-                        data-studio-asset-id={asset.id}
-                        style={tileStyle(tile, rowIndex === section.rows.length - 1, gridWidth)}
-                      >
-                        <button
-                          type="button"
-                          className="studio-tile-open"
-                          onClick={() => (selecting ? onToggleChecked(asset) : onOpen(asset))}
-                          aria-pressed={selecting ? checked : undefined}
-                          aria-label={t('Open {{kind}}: {{prompt}}', { kind: t(asset.kind), prompt: asset.prompt })}
-                          onContextMenu={
-                            selecting
-                              ? undefined
-                              : (event) => {
-                                  event.preventDefault();
-                                  openAssetMenu(asset, pointerMenuPoint(event));
-                                }
-                          }
-                          onKeyDown={
-                            selecting
-                              ? undefined
-                              : (event) => {
-                                  if (!isContextMenuKey(event)) return;
-                                  event.preventDefault();
-                                  openAssetMenu(asset, elementMenuPoint(event.currentTarget));
-                                }
-                          }
-                          onMouseEnter={hoverPreview ? () => onHoverStart(asset) : undefined}
-                          onMouseLeave={hoverPreview ? onHoverEnd : undefined}
-                        >
-                          {mediaForeground &&
-                          hoverPreview &&
-                          hoverId === asset.id &&
-                          (assetUrl(asset.id, 'original') || fullUrls[asset.id]) ? (
-                            <video
-                              src={assetUrl(asset.id, 'original') || fullUrls[asset.id]}
-                              muted
-                              loop
-                              autoPlay
-                              playsInline
-                              preload="metadata"
-                            />
-                          ) : null}
-                          <StudioThumbnail
-                            src={thumbs[asset.id] || (eagerLocalImage ? '' : assetUrl(asset.id, 'thumb'))}
-                            kind={asset.kind}
-                            eager={assetIndex < eagerThumbnailCount}
-                            pending={eagerLocalImage && !thumbs[asset.id] && !failedThumbs[asset.id]}
-                            // A missing media route falls back tile-by-tile through RPC.
-                            onError={thumbs[asset.id] ? undefined : () => onThumbnailError(asset.id)}
-                            // A cold custom-protocol rendition may still be live; start
-                            // local fallback without unmounting that direct request.
-                            onStall={
-                              localTransport &&
-                              asset.kind === 'video' &&
-                              assetIndex < eagerThumbnailCount &&
-                              !thumbs[asset.id] &&
-                              assetUrl(asset.id, 'thumb')
-                                ? () => onThumbnailStall(asset.id)
-                                : undefined
-                            }
-                            onLoad={() => onThumbnailLoad(asset)}
-                          />
-                          {asset.durationSeconds || durations[asset.id] ? (
-                            <span className="studio-tile-badge">{asset.durationSeconds || durations[asset.id]}s</span>
-                          ) : null}
-                        </button>
-                        {selecting ? (
-                          <span className="studio-tile-check" aria-hidden="true">
-                            {checked ? <Check size={14} /> : null}
-                          </span>
-                        ) : (
-                          <div className="studio-tile-actions">
-                            <button
-                              type="button"
-                              className="studio-tile-remove"
-                              aria-label={t('Delete asset')}
-                              title={assetLabel(asset)}
-                              onClick={() => onDelete(asset)}
-                            >
-                              <Trash2 size={16} aria-hidden="true" />
-                            </button>
-                          </div>
-                        )}
-                      </figure>
+                        asset={asset}
+                        tile={tile}
+                        lastRow={rowIndex === section.rows.length - 1}
+                        gridWidth={gridWidth}
+                        assetIndex={assetIndexById.get(asset.id) ?? 0}
+                        eagerThumbnailCount={eagerThumbnailCount}
+                        selected={selectedId === asset.id}
+                        selecting={selecting}
+                        checked={selecting && checkedIds.has(asset.id)}
+                        narrowPane={narrowPane}
+                        localTransport={localTransport}
+                        mediaForeground={mediaForeground}
+                        hovering={hoverId === asset.id}
+                        assetUrl={assetUrl}
+                        fullUrl={fullUrls[asset.id]}
+                        thumb={thumbs[asset.id]}
+                        thumbFailed={Boolean(failedThumbs[asset.id])}
+                        duration={durations[asset.id]}
+                        onDelete={onDelete}
+                        onHoverEnd={onHoverEnd}
+                        onHoverStart={onHoverStart}
+                        onOpen={onOpen}
+                        onOpenMenu={openAssetMenu}
+                        onThumbnailError={onThumbnailError}
+                        onThumbnailLoad={onThumbnailLoad}
+                        onThumbnailStall={onThumbnailStall}
+                        onToggleChecked={onToggleChecked}
+                      />
                     );
                   })}
                 </div>

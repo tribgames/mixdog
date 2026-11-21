@@ -48,9 +48,10 @@ const worker = (tag, overrides = {}) => ({
   parentSessionId: 'lead-a',
   status: 'idle',
   stage: 'idle',
+  settledAt: new Date(NOW - 30_000).toISOString(),
   ...overrides,
 });
-const running = { status: 'running', stage: 'running', turnStartedAt: NOW - 5_000 };
+const running = { status: 'running', stage: 'running', turnStartedAt: NOW - 5_000, settledAt: null };
 const sessions = [{ id: 'lead-a', title: 'Fix the release', preview: '', updatedAt: 1, messageCount: 1 }];
 
 function indicator(pool, unread = []) {

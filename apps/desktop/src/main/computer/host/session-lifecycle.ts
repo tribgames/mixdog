@@ -1,9 +1,3 @@
-/**
- * Session lifecycle for the Computer Use host: target leases, the per-session
- * command chain and the shared foreground lane, plus release, abort, takeover,
- * and idle reclamation. Everything that decides whether a command may run and
- * what happens to a session's desktop state when it stops lives here.
- */
 import type { createWorkerPool } from '../backend/worker-pool';
 import type { createCaptureEngine } from '../observation/capture';
 import { computerUseCoordinator as defaultCoordinator, type ComputerUseCoordinator } from '../session/coordinator';

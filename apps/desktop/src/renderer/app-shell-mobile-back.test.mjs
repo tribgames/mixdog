@@ -142,10 +142,7 @@ test('useAppMobileBack opens each layer, re-renders with fresh callbacks without
     assert.equal(pushStateCount, pushesBeforeRerender, 'Re-render with fresh closures must not re-push history');
     assert.equal(backCount, backBeforeRerender, 'Re-render with fresh closures must not trigger history.back');
 
-    // 4. Test quickAccessMode transition (e.g. from "commands" to "files")
-    // Changing quickAccessMode unregisters the previous mode (invoking history.back())
-    // and queues armPendingEntries until after the popstate traversal completes.
-    // Register listener before the transition to avoid racing the popstate event.
+    // 4. quickAccessMode transition ("commands" to "files")
     await afterPopState(dom, () => {
       act(() => {
         root.render(

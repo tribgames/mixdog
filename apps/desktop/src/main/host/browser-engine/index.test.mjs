@@ -187,11 +187,6 @@ function fakeGuest() {
   return guest;
 }
 
-// A navigate the URL rules refuse closes the blank tab the command opened a few milliseconds after it was made, while the page's
-// debugger is still coming up (guest-initialize.ts attachDebuggerEagerly). The attach then fails with the page, and its
-// `CDP initialization failed` entry is recorded for a page that is gone: the entry has no page to be numbered for and no reader.
-// Thrown from the flush timer it was an uncaught exception of Electron main, whose error box holds the process until a person
-// closes it: every later host request then waits, and the core drops the claim of a host that answers no ping.
 test('a host console entry recorded for a page that already closed is dropped by the flush, not thrown from its timer', async (t) => {
   const h = harness();
   const state = new BrowserGuestStateStore();

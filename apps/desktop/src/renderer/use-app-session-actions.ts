@@ -3,6 +3,7 @@ import type { DesktopSessionSummary, SessionSnapshot } from '../shared/contract'
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
 import { forgetComposerScope } from './composer-draft';
+import { errorMessage } from './editor-pane-session-errors';
 import { deleteSessionImagePreviews } from './image-preview-store';
 import type { NavigationSelection, WorkspaceTab } from './navigation';
 import type { SessionTabsClosed } from './session-tab-cleanup';
@@ -79,7 +80,7 @@ export function useAppSessionActions({
             )
           );
         }
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorMessage(reason));
         return;
       }
       if (pendingRenames.current.get(sessionId) === pending) {
@@ -145,7 +146,7 @@ export function useAppSessionActions({
               : session
           )
         );
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorMessage(reason));
         throw reason;
       }
       if (pendingArchives.current.get(sessionId) !== pending) return;
@@ -176,7 +177,7 @@ export function useAppSessionActions({
               : session
           )
         );
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorMessage(reason));
         throw reason;
       }
     },
@@ -192,7 +193,7 @@ export function useAppSessionActions({
       try {
         await window.mixdogDesktop.setSessionProject?.(sessionId, projectPath);
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorMessage(reason));
         throw reason;
       } finally {
         invalidateSessionListings();
@@ -212,7 +213,7 @@ export function useAppSessionActions({
         next = await window.mixdogDesktop.deleteSession(sessionId);
       } catch (reason) {
         pendingDeletes.current.delete(sessionId);
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorMessage(reason));
         throw reason;
       }
       onSessionDeleted(sessionId);

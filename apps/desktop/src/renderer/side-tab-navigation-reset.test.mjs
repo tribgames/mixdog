@@ -158,7 +158,6 @@ test('Source Control returns to Changes while retaining the commit message', asy
     status: { repository: true, branch: 'main', files: [], operation: '' },
     statusReady: true,
     statusError: '',
-    loading: false,
     readinessKey: 'navigation',
     onReadyChange() {},
     onRefreshStatus() {},

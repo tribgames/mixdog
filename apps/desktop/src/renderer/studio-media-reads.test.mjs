@@ -17,10 +17,7 @@ const job = (index, extra = {}) => ({
   ...extra,
 });
 
-/**
- * The core as the window sees it: the keyed `mediaJobs` section the core pushes, one entry per job id (the
- * shape `StatePublisher` publishes it in: `(section, key)` with a revision, removed with `entry: null`).
- */
+/** `StatePublisher` shape: `(section, key)` with a revision, removed with `entry: null`. */
 function mediaCore({ snapshotFails = false, snapshotFailsLate = false, refuse = [], transportFails = [] } = {}) {
   // A snapshot read that is still in flight while the pushes arrive, and fails afterwards.
   let failLate = () => undefined;

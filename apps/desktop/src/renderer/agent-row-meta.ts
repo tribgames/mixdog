@@ -14,10 +14,6 @@ export function agentElapsedText(
   // rests. Time belongs to work.
   if (state === 'queued') return t('Queued');
   if (state === 'running' || state === 'waiting') {
-    // Only the CURRENT turn's start is a valid origin. `startedAt` falls back
-    // to the session's createdAt (a Lead row shows days), so a row without a
-    // turn stamp shows nothing rather than a wrong duration. Waiting on its
-    // own background work keeps the same clock running (the tint names it).
     const base = timeMs(agent.turnStartedAt);
     if (base) return formatWorkElapsed(clock - base) || '0s';
     return state === 'waiting' ? t('Waiting for tasks') : '';

@@ -229,11 +229,6 @@ export function useSessionPrefetch(
   );
   useEffect(() => {
     if (!open || !sessionsReady || !onPrefetchSession) return undefined;
-    // Touch has no hover-intent window. Warm only the first two recent rows
-    // during browser idle so the common mobile tap avoids a full relay RTT
-    // without flooding the lane cache with large transcripts. A pointer device
-    // has that window (hover, press and focus ask the same read), so it warms
-    // nothing unasked: an idle warm loads each session in the core.
     if (!isMobileDeviceSurface()) return undefined;
     const sessionIds = visibleRecentRows.slice(0, 2).map((session) => session.id);
     if (sessionIds.length === 0) return undefined;
@@ -389,10 +384,6 @@ function useBulkArchiveActions(
       const run = async () => {
         setBulkAction(action);
         try {
-          /* Start every row mutation before awaiting any of them. Each row action
-         applies its optimistic state synchronously, so React paints one bulk
-         transition instead of visibly walking the list item by item. A failed
-         row still owns its existing rollback while the rest continue. */
           await Promise.all(
             targets.map(async (session) => {
               try {
@@ -441,9 +432,8 @@ function useBulkArchiveActions(
   return { bulkAction, updateSessionArchives, deleteAllArchived };
 }
 
-/** Registered projects as sidebar folders over the session rows: grouping, the
- *  user's folder order, and revealing a selected session's or newly added
- *  project's folder. */
+/** Registered projects as sidebar folders over the session rows: grouping and
+ *  the user's folder order. */
 function useProjectGroups({
   allRows,
   projects,
@@ -473,6 +463,35 @@ function useProjectGroups({
           ),
     [allRows, projects]
   );
+  useProjectReveal(activityProjectGroups, selection, revealedProject, updateProjectOpen);
+  const activityProjectKeys = useMemo(() => activityProjectGroups.map((group) => group.key), [activityProjectGroups]);
+  const projectOrder = usePersistedListOrder('mixdog:session-sidebar-project-order', activityProjectKeys, {
+    dropAnchor: ':scope > .project-folder',
+  });
+  const projectGroups = useMemo(() => {
+    const byKey = new Map(activityProjectGroups.map((group) => [group.key, group]));
+    return projectOrder.orderedIds.flatMap((key) => {
+      const group = byKey.get(key);
+      return group
+        ? [
+            {
+              ...group,
+              rows: applySessionOrder(group.rows, orderPrefs.sessions, customOrders[`project:${key}`]),
+            },
+          ]
+        : [];
+    });
+  }, [activityProjectGroups, customOrders, orderPrefs.sessions, projectOrder.orderedIds]);
+  return { activityProjectGroups, projectOrder, projectGroups };
+}
+
+/** Opens the folder of a newly selected session and of a newly added project. */
+function useProjectReveal(
+  activityProjectGroups: readonly ProjectSessionGroup[],
+  selection: NavigationSelection,
+  revealedProject: { path: string; nonce: number } | undefined,
+  updateProjectOpen: (update: (current: OpenMap) => OpenMap) => void
+) {
   // Selecting a session (identity change, not a list refresh) opens its
   // collapsed project folder. The id is remembered once its folder is found, so
   // collapsing that folder again while the session stays selected sticks.
@@ -518,25 +537,6 @@ function useProjectGroups({
       document.querySelector(`[data-project-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest' })
     );
   }, [activityProjectGroups, revealedProject, updateProjectOpen]);
-  const activityProjectKeys = useMemo(() => activityProjectGroups.map((group) => group.key), [activityProjectGroups]);
-  const projectOrder = usePersistedListOrder('mixdog:session-sidebar-project-order', activityProjectKeys, {
-    dropAnchor: ':scope > .project-folder',
-  });
-  const projectGroups = useMemo(() => {
-    const byKey = new Map(activityProjectGroups.map((group) => [group.key, group]));
-    return projectOrder.orderedIds.flatMap((key) => {
-      const group = byKey.get(key);
-      return group
-        ? [
-            {
-              ...group,
-              rows: applySessionOrder(group.rows, orderPrefs.sessions, customOrders[`project:${key}`]),
-            },
-          ]
-        : [];
-    });
-  }, [activityProjectGroups, customOrders, orderPrefs.sessions, projectOrder.orderedIds]);
-  return { activityProjectGroups, projectOrder, projectGroups };
 }
 
 /** Drop key of the Favorites section; project keys are paths, so no clash. */
@@ -651,12 +651,6 @@ function useSessionFolderDrop(
       return true;
     },
   };
-  // The scroller's side padding and the gaps between sections hold no target
-  // element, so a pointer there would be refused (and the outline dropped).
-  // It resolves to the target whose box is nearest, within one section gap;
-  // anywhere else the scroller takes no drop and a stale outline goes away
-  // (the target's own dragleave is not reliable once the list scrolls under a
-  // still pointer).
   const gapDrop: SessionGapDrop = {
     onDragOver: (event) => {
       if (claimedEvent.current === event.nativeEvent) return;
@@ -771,11 +765,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const recentScrollerRef = useRef<HTMLDivElement | null>(null);
   const sidebarRef = useRef<HTMLElement | null>(null);
   const panelsScrollerRef = useRef<HTMLDivElement | null>(null);
-  // A phone sidebar never takes `inert` itself: the drawer's panel flips it
-  // for the whole drawer at the slide's end (WorkbenchSidePanel), and a hidden
-  // rail destination is inert through its hidden group. Flipping it here too
-  // read the drawer's animations on every rail switch (a forced style recalc
-  // inside the commit) and restyled the shown sidebar a second time.
   const phone = usePhoneSurfaceMarked();
   useScrollProgress(panelsScrollerRef, ':scope > .session-panel-header');
   useScrollProgress(recentScrollerRef, ':scope > .session-sidebar-top-fade', hasSessionSurface);
@@ -984,10 +973,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   };
   const renderOrderedRow = (session: DesktopSessionSummary, listKey?: string, rowScope?: string, fork?: ForkRowRole) =>
     renderSessionRow(session, listKey, rowContext, rowScope, fork);
-  // Rows a windowed list keeps mounted wherever the reader scrolls: the
-  // selected session, an inline rename, a delete in progress and the last
-  // session menu's origin (focused and dragged rows are pinned by the list
-  // itself).
   const selectedId = selection.kind === 'session' ? selection.id : '';
   const pinnedSessionIds = useMemo(
     () =>

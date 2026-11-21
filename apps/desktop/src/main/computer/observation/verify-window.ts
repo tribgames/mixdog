@@ -1,9 +1,3 @@
-/**
- * A bounded wait for a window condition: the predicates are read against the
- * window's title and element text until they hold for enough consecutive
- * samples or the budget ends. It reads predicate state only, so it never
- * invalidates the refs the caller is holding and never returns pixels.
- */
 import { elapsedMs, sleep } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { evaluateVerifyPredicate, screenshotInteger, type VerifyStatus } from './analysis';

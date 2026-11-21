@@ -4,15 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// Android phone, long session: the reader flings toward older history and the
-// next page lands above them mid-fling. Held as a row offset (a translateY of
-// the row space), the page stayed outside the native scroll range, so the
-// fling ran into native 0 at the old first row and stopped there, mid-history
-// (phone: 위로 스크롤하면 중간에 멈춘다). Chromium keeps a touch fling's
-// momentum through a scrollTop write, so off iOS WebKit the landing is written
-// at once and the same fling carries on into the page. Headless Chromium runs
-// the same fling (a stream of scroll deltas) as Android Chrome and its
-// WebView, not their fling curve or any device-only input path.
+// Chromium keeps a touch fling's momentum through a scrollTop write. Headless
+// Chromium runs the same fling (a stream of scroll deltas) as Android Chrome
+// and its WebView, not their fling curve or any device-only input path.
 
 const HARNESS = `
   import { useLayoutEffect, useRef, useState } from 'react';

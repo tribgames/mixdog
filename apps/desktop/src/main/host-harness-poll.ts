@@ -1,9 +1,3 @@
-/**
- * Bounded polling shared by the desktop host harnesses. The browser and
- * computer programs all wait for a condition the same way and read the same
- * bridge discovery file, so "eventually" and "discovered" mean one thing across
- * them; only the budget and the retry cost differ per harness.
- */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 

@@ -133,7 +133,6 @@ test('cold lists expose a neutral pending state on their very first render', asy
         projectPath: 'C:/project',
         status: null,
         statusReady: false,
-        loading: true,
         onRefreshStatus() {},
         onReadyChange() {},
         readinessKey: 'cold-git',
@@ -841,10 +840,9 @@ test('startup emits no settled signal while persisted panes are still being vali
   assert.equal(settled, 1);
 });
 
-test('start screen preference opens a projectless new conversation over both startup restore paths', async (t) => {
+test('start screen preference opens a projectless new conversation over both startup restore paths, otherwise the restored one', async (t) => {
   const view = harness(t);
   const { useAppStartupRestore } = await import('./use-app-startup-restore.ts');
-  const { setStartupView } = await import('./startup-view-preference.ts');
   const restoredSession = { kind: 'session', id: 's-restored' };
   async function launch({ startFresh, restoredFromStorage }) {
     window.localStorage.setItem('test-session', 's-last');
@@ -887,6 +885,11 @@ test('start screen preference opens a projectless new conversation over both sta
   assert.deepEqual(await launch({ startFresh: true, restoredFromStorage: false }), ['projectless']);
   assert.deepEqual(await launch({ startFresh: false, restoredFromStorage: true }), ['select:s-restored']);
   assert.deepEqual(await launch({ startFresh: false, restoredFromStorage: false }), ['resume:s-last']);
+});
+
+test('start screen preference defaults to a projectless draft on desktop and to the last conversation elsewhere', async (t) => {
+  harness(t);
+  const { setStartupView } = await import('./startup-view-preference.ts');
   window.sessionStorage.clear();
   window.localStorage.removeItem('mixdog.desktop.startup-view.v1');
   const { startsOnProjectlessDraft: phoneLaunch } = await import('./startup-view-preference.ts?phone');

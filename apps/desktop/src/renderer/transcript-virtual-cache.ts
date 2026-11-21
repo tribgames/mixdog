@@ -1,13 +1,5 @@
 import type { VirtualItem } from '@tanstack/react-virtual';
 
-/**
- * Per-session virtual geometry, kept across visits.
- *
- * Re-entering a session must paint at its exact previous geometry, so the
- * timeline hands its REAL measurements (`takeSnapshot`) to the next mount
- * instead of replaying an estimate-then-correct cascade. Cold rows start from
- * one flat estimate; the first measurement replaces it.
- */
 export const TRANSCRIPT_ROW_ESTIMATE = 60;
 // 10 rows per side: markdown rows are expensive to mount, and restored REAL
 // measurements (not estimates) keep scrolling stable, so a wider overscan
@@ -30,11 +22,6 @@ const snapshots = new Map<string, TranscriptVirtualSnapshot>();
 const namespaces = new Map<string, string>();
 let draftNamespaces = 0;
 
-/**
- * A draft's own row-key namespace. It is UNIQUE per draft so the session it
- * materializes can keep it: promotion must not re-key the rows (nor the
- * measured sizes) the reader is already looking at.
- */
 export function nextDraftTranscriptNamespace(): string {
   draftNamespaces += 1;
   return `draft-${draftNamespaces}`;

@@ -1,16 +1,6 @@
-/**
- * Measured KaTeX metrics for text-mode characters KaTeX has none for.
- *
- * KaTeX lets CJK, Cyrillic, Indic, … text appear in `\text{}` (its
- * `supportedCodepoint` scripts) but ships no metrics for those glyphs, so
- * `getCharacterMetrics` lends them the metrics of 'M' (height 0.683, depth 0).
- * A Hangul syllable really rises ~0.875 em and drops ~0.141 em, so a fraction
- * places its numerator/denominator as if the glyphs were shorter and the ink
- * crosses the bar. Before KaTeX lays a formula out, this gives each such
- * character the metrics of the glyph the browser will actually paint, measured
- * once with a 2D canvas, through KaTeX's public `__setFontMetrics` extension
- * point.
- */
+// KaTeX ships no metrics for the CJK, Cyrillic and Indic glyphs its `\text{}` accepts, and
+// `getCharacterMetrics` lends them those of 'M' (height 0.683, depth 0); a Hangul syllable really
+// rises ~0.875 em and drops ~0.141 em, so its ink crosses a fraction bar.
 import katex from 'katex';
 import { getCharacterMetrics } from 'katex/src/fontMetrics.ts';
 import builtInFontMetrics from 'katex/src/fontMetricsData.js';

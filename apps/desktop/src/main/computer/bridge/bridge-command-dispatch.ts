@@ -1,7 +1,3 @@
-/** Where one accepted bridge command goes: the core's `computer/bridge/run`, which answers the runtime-only actions
- *  (secret binding and typing, turn settlement, session abort), the secret-focus capture hold, the allowance of
- *  concurrent requests and the serialisation of a session's commands. A dropped caller ends its call there with
- *  `computer/bridge/abort`. */
 import type {
   ComputerBridgeAbortParams,
   ComputerBridgeRunParams,

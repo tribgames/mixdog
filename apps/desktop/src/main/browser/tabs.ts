@@ -1,8 +1,3 @@
-/**
- * Which page a command runs against, and what the agent can see of the open
- * ones. Named support pages stay hidden unless explicitly revealed. Merely
- * targeting an agent page never turns it into a user-owned, persistent tab.
- */
 import type { BrowserCommandResult } from './host-types';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 import type { BrowserTabsHost } from './tabs-contract';
@@ -41,10 +36,6 @@ export function createBrowserTabs(host: BrowserTabsHost) {
   }
 
   function closeBackgroundTab(sessionId: string, tab: string): BrowserCommandResult {
-    // list_tabs prints the visible tab with the same page id as any other, so
-    // a caller naturally aims close_tab at it. The panel keeps that page for
-    // the session, so say what it is instead of sending the caller back to
-    // the listing that handed out the id.
     if (targeting.visibleTabMatches(sessionId, tab)) {
       throw new Error(
         `"${tab}" is the visible tab, which stays with the browser panel; navigate it elsewhere, or call hide to put the panel away.`

@@ -196,10 +196,6 @@ export function useRouteLayout({
     [dropdown, dropdownBox, dropdownViewport, effortCount, rowButtons, trigger]
   );
 
-  // The sheet's left edge sits on the pill's: the pill expands rightwards to
-  // the sheet width, so both share the same left edge and width. That width
-  // is the panel's, or the label's natural width when a long model name
-  // needs more — measured once per opening (long model names would be cut off).
   const measureSheet = useCallback(
     (
       triggerRect: { left: number; right: number; top: number; bottom: number },

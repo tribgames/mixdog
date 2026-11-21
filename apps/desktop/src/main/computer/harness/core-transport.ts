@@ -1,13 +1,3 @@
-/**
- * How the Computer Use harnesses reach the product: a real `mixdogd` (started by `scripts/computer-core-runner.mjs` on an
- * isolated profile, with the test hooks on) is dialled with the desktop's own protocol connection, this Electron process claims
- * the host role the way the desktop does (the same `host/computer/*` handlers, the presence mirror the overlay draws from), and a
- * harness command is one `dev/computer/run` call. The fixtures (windows, clipboard) stay in this process; everything the helper
- * does to them is done by the core's helper pool.
- *
- * `createCommandTransport` needs nothing of Electron (it takes the protocol call), so its tests run in plain Node;
- * `openComputerCore` loads the Electron side when it is called.
- */
 import type { CommandResult } from './scenario-types';
 
 /** The runtime root of the isolated core the runner started, handed to the Electron process. */
@@ -210,6 +200,7 @@ export async function openComputerCore(): Promise<ComputerCore> {
         environment: { ready: app.whenReady(), sources: () => ({ power: powerMonitor, screen }) },
         desktopHostScreen: () => null,
         desktopHostCommand: () => null,
+        desktopHostProcessFate: () => null,
         // The harness runs Computer Use on: the core's scopes and their revocation apply as in the desktop.
         computerSwitch: createComputerSwitch(true),
       },

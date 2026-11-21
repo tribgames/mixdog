@@ -1,13 +1,3 @@
-// PH-2 "Settings, update, notifications and feedback" group of the phone over `mixdogd`: the settings toggles, this PC's updater
-// and display preferences, the activity rail pins, Settings › Notifications and the feedback dialog. The phone still calls by Node's relay method names
-// (remote-shim-api.ts); each answers as Node's host did (remote-methods.ts at b6f10295a: `settingsRemoteMethods` :1086,
-// `notificationRemoteMethods` :1109, `hostWindowRemoteMethods` :1053, `submitFeedback` and `notifyProviderModelsChanged` :912-917):
-// Node's argument checks first, with Node's texts, then the core request, then the value the relay frame carried.
-//
-// What the core publishes as state the page asked Node for is read from the sections this connection holds: the `config` subtrees
-// (`desktop`, `agent`, `notifications`), `hostState.displayPreferences` and `update` (the PC window's updater state). The paired
-// device roster is a separate request, not the host's `remote` section. Pushes come from announcements and `update` (install below).
-// `libreOfficeStatus` and `installLibreOffice` are answered by the source-control group (remote-protocol-scm.ts).
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { normalizeActivityRailPins, storedPinsState, type ActivityRailPinsState } from '../shared/activity-rail-pins';
 import { normalizeDesktopFeedback } from '../shared/contract-feedback';
@@ -33,6 +23,7 @@ import {
 } from '../shared/settings-input';
 import { phoneCallError } from './remote-protocol-scm';
 import type { NodeCall, PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
+import { record } from './record-utils';
 
 type Client = ProtocolClient<SessionFold>;
 
@@ -40,25 +31,19 @@ type Client = ProtocolClient<SessionFold>;
  *  of every window request): the core says it at once, as `capabilityUnavailable{desktopHost}`, or by holding no window state. */
 const NO_WINDOW = 'The desktop app did not answer the remote request.';
 
-const record = (value: unknown): Record<string, unknown> =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-
 /** The held value of `(section, key)`, or undefined while the core holds none. */
 const held = (client: Client, section: string, key: string | null = null): unknown =>
   client.store.section(section as never, key)?.value;
 
-// The activity rail pins: Node (b6f10295a) kept them in the config's `desktop.activityRailPins` (settings-store.ts:268-291) and sent
-// every paired phone the saved `{pins, revision}` as `activity-rail-pins-changed` after each update, whoever made it
-// (desktop-operations.ts:425-431, remote-relay-push-lanes.ts:50-62); a phone that connected later was sent nothing and read the pins
-// when it mounted. The core keeps the same value in the `desktop` subtree of its `config` section: a read is that section's held value,
-// an update is one `config/value/write`, and the push is the section's next revision with a pins revision the page has not been told.
+type ClientSource = Pick<PhoneProtocolHost, 'client'>;
+const boundTo = (client: Client): ClientSource => ({ client: () => client });
 
 /** A config subtree as the page reads it: the held value, or, when the core published it as a stub (over the inline limit, held as
  *  null), the value config/read answers for exactly that subtree. */
-async function configTree(host: PhoneProtocolHost, subtree: string): Promise<unknown> {
-  const value = held(host.client(), 'config', subtree);
+async function configTree(source: ClientSource, subtree: string): Promise<unknown> {
+  const value = held(source.client(), 'config', subtree);
   if (value !== null) return value;
-  return record(record(await request(host, 'config/read', { keys: [subtree] })).config)[subtree];
+  return record(record(await request(source, 'config/read', { keys: [subtree] })).config)[subtree];
 }
 
 /** Node's phone read a refused call as an `Error` carrying the host's text (remote-shim-dispatch.ts:165-178). */
@@ -80,15 +65,6 @@ async function updatePins(pins: unknown, host: PhoneProtocolHost): Promise<Activ
  *  set while the sections a snapshot swapped in are still being announced. */
 const announcingSnapshot = (client: Client): boolean => Boolean((client.store as { readonly owed?: unknown }).owed);
 
-/** A `config` subtree of the held fold, or, when the core published it as a stub (held as null), what `config/read` answers for
- *  exactly that subtree. */
-async function pagedConfigTree(client: Client, subtree: string): Promise<unknown> {
-  const value = held(client, 'config', subtree);
-  if (value !== null) return value;
-  const answer = await (client.call as (m: string, p: unknown) => Promise<unknown>)('config/read', { keys: [subtree] });
-  return record(record(answer).config)[subtree];
-}
-
 /** Tells the page each pins revision the connected client hears live; what a connection's snapshot holds is not announced. A
  *  read that a newer change superseded, or that ends after the client was dropped, is discarded. */
 function followPins(host: PhoneProtocolHost, client: Client): () => void {
@@ -97,7 +73,7 @@ function followPins(host: PhoneProtocolHost, client: Client): () => void {
   let closed = false;
   const check = (announce: boolean): void => {
     const mine = ++latest;
-    void pagedConfigTree(client, 'desktop').then(
+    void configTree(boundTo(client), 'desktop').then(
       (tree) => {
         if (closed || mine !== latest) return;
         const state = storedPinsState(record(tree).activityRailPins);
@@ -138,7 +114,7 @@ const isWindowGone = (error: unknown): boolean => {
 };
 
 /** One core request; a failure is the error Node's relay frame carried. */
-async function request(host: PhoneProtocolHost, method: string, params: unknown): Promise<unknown> {
+async function request(host: ClientSource, method: string, params: unknown): Promise<unknown> {
   try {
     return await (host.client().call as (m: string, p: unknown) => Promise<unknown>)(method, params);
   } catch (error) {
@@ -217,9 +193,6 @@ const calls: Record<string, NodeCall> = {
     normalizeDesktopFeedback(input);
     return request(host, 'feedback/upload', { input });
   }),
-  // Node checked the origin and told the windows and every paired device, this one included, to drop their provider model lists
-  // (desktop-operations.ts:455-458, remote-relay-push-lanes.ts:53), then answered null; the core tells every client
-  // (`ui/providerModels/changed`, install below). The page ignores the echo of its own origin (sidebar-reference-cache.ts).
   notifyProviderModelsChanged: call(async ([origin], host) => {
     await request(host, 'ui/providerModels/announce', { origin: requiredString(origin, 'origin', 128) });
     return null;
@@ -266,7 +239,7 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
     let wired = true;
     const followMode = (announce: boolean): void => {
       const mine = ++latestMode;
-      void pagedConfigTree(client, 'agent').then(
+      void configTree(boundTo(client), 'agent').then(
         (tree) => {
           if (!wired || mine !== latestMode) return;
           const mode = configuredOrchestrationMode(tree);

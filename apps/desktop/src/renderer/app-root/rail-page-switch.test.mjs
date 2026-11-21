@@ -1,7 +1,3 @@
-// Switching activity-rail pages (Sessions ↔ Bots) only swaps the side panel's
-// list. The active tab, the tab strip, a draft's text and the panel's open
-// state stay as they were; only a row click opens or activates a tab. Clicking
-// the selected rail icon again still toggles the panel.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
@@ -149,7 +145,6 @@ test('Sessions → Bots → Sessions keeps the active tab, the strip, the draft 
         projects: [],
         errors: [],
         paneWorkspace: workspace,
-        observedAgentSessionIds: [],
         paneStripFor: chrome.paneStripFor,
         paneConversationSurface: (shown) =>
           React.createElement(

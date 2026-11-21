@@ -1,8 +1,3 @@
-// Test double for the slice of a Monaco ITextModel the rich editor uses:
-// 1-based line/column positions (CRLF counted as one line break), single-range
-// edits recorded for inspection, content-change listeners, and Monaco's undo
-// history (edits between two stack elements undo as one step; an edit after
-// an undo clears the redo stack; setValue starts a fresh history).
 export function createTestModel(initial) {
   let value = initial;
   let disposed = false;

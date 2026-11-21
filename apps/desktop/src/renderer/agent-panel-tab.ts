@@ -1,7 +1,3 @@
-// The agent panel of a home thread (the right dock's 'routines' view): two
-// tabs, 프로필 · 루틴. The tab is ONE remembered choice for every home thread,
-// so the dock toggle reopens the last-used one; the agent's name in its tab
-// strip, or "프로필 보기", asks for the panel on 프로필.
 import { useSyncExternalStore } from 'react';
 
 export type AgentPanelTab = 'profile' | 'routines';

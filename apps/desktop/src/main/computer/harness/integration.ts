@@ -7,6 +7,7 @@ import { type ComputerCore, openComputerCore } from './core-transport';
 import { createPolling } from '../../host-harness-poll';
 import { actionPayload, capturePayload, ocrMark, ocrText } from './scenario-ocr';
 import type { CommandResult } from './scenario-types';
+import { windowIdByTitle, windowIdWhere } from './window-listing';
 
 const progressPath = process.env.MIXDOG_COMPUTER_INTEGRATION_LOG || '';
 function progress(message: string): void {
@@ -428,10 +429,10 @@ async function verifyParallelSessions(ctx: IntegrationContext): Promise<void> {
 
 async function verifyRealAppSmoke(command: IntegrationCommand): Promise<void> {
   const liveWindows = (await command({ action: 'list_windows' }, 'computer-real-app-smoke')).text;
-  const mixdogLine = liveWindows
-    .split(/\r?\n/)
-    .find((line) => /\|\s+app=Mixdog\b/i.test(line) && line.includes('"Mixdog"'));
-  const mixdogWindowId = mixdogLine?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1];
+  const mixdogWindowId = windowIdWhere(
+    liveWindows,
+    (line) => /\|\s+app=Mixdog\b/i.test(line) && line.includes('"Mixdog"')
+  );
   assert.ok(mixdogWindowId, 'running Mixdog window was not found for real-app smoke');
   const mixdogCapture = await command(
     {
@@ -446,8 +447,7 @@ async function verifyRealAppSmoke(command: IntegrationCommand): Promise<void> {
   assert.ok(mixdogPayload.frame_id);
   assert.ok(Number(mixdogPayload.returned_elements) <= 40);
 
-  const chromeLine = liveWindows.split(/\r?\n/).find((line) => /\|\s+app=(?:chrome|msedge)\b/i.test(line));
-  const chromeWindowId = chromeLine?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1];
+  const chromeWindowId = windowIdWhere(liveWindows, (line) => /\|\s+app=(?:chrome|msedge)\b/i.test(line));
   assert.ok(chromeWindowId, 'running Chrome/Edge window was not found for real-app smoke');
   const chromeCapture = await command(
     {
@@ -475,14 +475,13 @@ async function verifyRealAppSmoke(command: IntegrationCommand): Promise<void> {
     },
     'computer-real-app-smoke'
   );
-  const nativeLine = await eventually(
+  const nativeWindowId = await eventually(
     async () =>
-      (await command({ action: 'list_windows' }, 'computer-real-app-smoke')).text
-        .split(/\r?\n/)
-        .find((line) => line.toLocaleLowerCase().includes('mixdog-computer-native-smoke')) || '',
+      windowIdWhere((await command({ action: 'list_windows' }, 'computer-real-app-smoke')).text, (line) =>
+        line.toLocaleLowerCase().includes('mixdog-computer-native-smoke')
+      ),
     Boolean
   );
-  const nativeWindowId = nativeLine.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1];
   assert.ok(nativeWindowId, 'native text window did not appear');
   const nativeCapture = capturePayload(
     await command(
@@ -574,11 +573,9 @@ async function run(): Promise<void> {
     const command = createCommand(core);
 
     const windows = await command({ action: 'list_windows' });
-    const fixtureLine = windows.text.split(/\r?\n/).find((line) => line.includes('"Mixdog Computer Custom Fixture"'));
-    const windowId = fixtureLine?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1];
+    const windowId = windowIdByTitle(windows.text, 'Mixdog Computer Custom Fixture');
     assert.ok(windowId, `fixture window was not listed:\n${windows.text}`);
-    const blankLine = windows.text.split(/\r?\n/).find((line) => line.includes('"Mixdog Computer Blank Fixture"'));
-    const blankWindowId = blankLine?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1];
+    const blankWindowId = windowIdByTitle(windows.text, 'Mixdog Computer Blank Fixture');
     assert.ok(blankWindowId, `blank fixture window was not listed:\n${windows.text}`);
 
     const context: IntegrationContext = { fixture, blankFixture, command, windowId, blankWindowId };

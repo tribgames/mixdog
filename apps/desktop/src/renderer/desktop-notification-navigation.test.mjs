@@ -58,7 +58,7 @@ test('a closed session leaves both the selected pane and its tabs untouched', ()
   assert.equal(workspace.layout, original);
 });
 
-test('a desktop notification click moves the sidebar selection to the revealed session or bot chat', async (t) => {
+async function mountSidebarProbe(t) {
   const { window, root } = installTestDom(t, { expose: ['navigator'], rootId: 'root' });
   Object.defineProperty(window.navigator, 'serviceWorker', { configurable: true, value: new window.EventTarget() });
   let click;
@@ -92,7 +92,6 @@ test('a desktop notification click moves the sidebar selection to the revealed s
     nav.openSessionRef.current = async (id) => {
       opened.push(id);
     };
-    // What the pane chrome's activatePaneSurface does with a session tab.
     nav.activatePaneSurfaceRef.current = (selection) => nav.setSelection(selection);
     useAppFrameEntryIntake({
       sessionCatalogReady: true,
@@ -106,37 +105,50 @@ test('a desktop notification click moves the sidebar selection to the revealed s
     return null;
   }
   await act(async () => root.render(React.createElement(Probe)));
-  assert.equal(nav.sidebarSelection.id, 'a');
+  return {
+    bot,
+    other,
+    workspace,
+    opened,
+    nav: () => nav,
+    click: (id) => act(async () => click(id)),
+  };
+}
 
-  // A cold open of 'cold' is still loading (its requested id leads the
-  // sidebar) when the click arrives: the reveal supersedes it, row and stamp.
-  await act(async () => nav.setRequestedSessionId('cold'));
-  assert.equal(nav.sidebarSelection.id, 'cold');
-  const epoch = nav.navigationEpoch.current;
-
-  // A session in the same pane: the row the sidebar highlights follows the tab.
-  await act(async () => click('b'));
-  assert.equal(findPaneLeaf(workspace.layout, 'left').activeKey, 'session:b');
-  assert.deepEqual(nav.sidebarSelection, session('b'));
-  assert.ok(nav.navigationEpoch.current > epoch, 'the loading open can no longer settle over the reveal');
-
-  // A bot chat in the other pane: its bot row is the selected one.
-  await act(async () => click(bot));
-  assert.deepEqual(nav.sidebarSelection, session(bot));
-
-  // A conversation with no open tab (a bot chat, room, task or sub-agent
-  // session, or a closed tab) is opened through the same path as a sidebar click.
-  assert.deepEqual(opened, []);
-  await act(async () => click('closed'));
-  assert.deepEqual(opened, ['closed']);
-  await act(async () => click(other));
-  assert.deepEqual(opened, ['closed', other]);
-  // A deleted session (not in the catalog) opens no "Untitled session" tab.
-  await act(async () => click('deleted'));
-  assert.deepEqual(opened, ['closed', other]);
-  assert.deepEqual(nav.sidebarSelection, session(bot));
+test('a desktop notification click moves the sidebar selection to the revealed session', async (t) => {
+  const probe = await mountSidebarProbe(t);
+  assert.equal(probe.nav().sidebarSelection.id, 'a');
+  await act(async () => probe.nav().setRequestedSessionId('cold'));
+  assert.equal(probe.nav().sidebarSelection.id, 'cold');
+  const epoch = probe.nav().navigationEpoch.current;
+  await probe.click('b');
+  assert.equal(findPaneLeaf(probe.workspace.layout, 'left').activeKey, 'session:b');
+  assert.deepEqual(probe.nav().sidebarSelection, session('b'));
+  assert.ok(probe.nav().navigationEpoch.current > epoch, 'the loading open can no longer settle over the reveal');
 });
 
+test('a desktop notification click moves the sidebar selection to the revealed bot chat', async (t) => {
+  const probe = await mountSidebarProbe(t);
+  await probe.click(probe.bot);
+  assert.deepEqual(probe.nav().sidebarSelection, session(probe.bot));
+});
+
+test('a desktop notification for a conversation with no open tab opens it through the sidebar path', async (t) => {
+  const probe = await mountSidebarProbe(t);
+  assert.deepEqual(probe.opened, []);
+  await probe.click('closed');
+  assert.deepEqual(probe.opened, ['closed']);
+  await probe.click(probe.other);
+  assert.deepEqual(probe.opened, ['closed', probe.other]);
+});
+
+test('a desktop notification for a deleted session opens no tab and keeps the selection', async (t) => {
+  const probe = await mountSidebarProbe(t);
+  await probe.click(probe.bot);
+  await probe.click('deleted');
+  assert.deepEqual(probe.opened, []);
+  assert.deepEqual(probe.nav().sidebarSelection, session(probe.bot));
+});
 async function harness(t, { url, ...initial } = {}) {
   const { window, root } = installTestDom(t, { expose: ['navigator'], rootId: 'root' });
   if (url) window.history.replaceState(null, '', url);

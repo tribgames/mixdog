@@ -1,17 +1,5 @@
-// Explorer entry mutations: the file operations the Files pane runs on a
-// selection — recycle-bin delete and the copy/move transfer shared by paste and
-// drag-and-drop — plus the naming a nested "a/b/c" creation resolves to. The
-// IPC and the retry bookkeeping live here; the pane keeps the selection,
-// expansion and error surfacing that follow a mutation.
 import type { DesktopApi } from '../shared/contract';
 import { explorerChildRel, explorerParentRel } from './explorer-tree-model';
-
-/** Raw failure text. The explorer deliberately shows the message the main
- *  process sent (the offending path, the permission detail) instead of
- *  ErrorNotice's stripped summary. */
-export function explorerErrorText(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
-}
 
 /** Outcome of a multi-entry mutation: what survived to be retried, and the
  *  failure the pane reports (the first one — later ones repeat the cause). */

@@ -56,6 +56,111 @@ function sourceFiles(directory, sourcePattern) {
   });
 }
 
+function isUiPhrase(key) {
+  return !(
+    key.length < 2 ||
+    languageNames.has(key) ||
+    /^https?:\/\//.test(key) ||
+    /^mixdog:/.test(key) ||
+    /^[-\w.]+\.(?:md|tsx?|jsx?|json|css)$/.test(key) ||
+    !hasLatinText(key)
+  );
+}
+
+function collectFileKeys(root, path, results, { explicitOnly, functions }) {
+  const source = ts.createSourceFile(
+    path,
+    readFileSync(path, 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  );
+  function add(value, node, explicit = false) {
+    const key = explicit ? value : value.replace(/\s+/g, ' ').trim();
+    if (!key.trim() || (!explicit && !isUiPhrase(key))) return;
+    if (!results.has(key)) {
+      const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+      results.set(key, `${relative(root, path).replaceAll('\\', '/')}:${line + 1}`);
+    }
+  }
+  function expression(node, explicit = false) {
+    if (!node) return;
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) add(node.text, node, explicit);
+    else if (ts.isTemplateExpression(node)) {
+      add(
+        node.head.text + node.templateSpans.map((span, index) => `{{value${index}}}${span.literal.text}`).join(''),
+        node,
+        explicit
+      );
+    } else if (ts.isConditionalExpression(node)) {
+      expression(node.whenTrue, explicit);
+      expression(node.whenFalse, explicit);
+    } else if (
+      ts.isBinaryExpression(node) &&
+      [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind)
+    ) {
+      expression(node.left, explicit);
+      expression(node.right, explicit);
+    } else if (ts.isParenthesizedExpression(node)) expression(node.expression, explicit);
+  }
+  function visit(node) {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && functions.includes(node.expression.text)) {
+      expression(node.arguments[0], true);
+      return;
+    }
+    if (explicitOnly) {
+      ts.forEachChild(node, visit);
+      return;
+    }
+    if (ts.isJsxText(node)) {
+      const parent = node.parent;
+      if (
+        ts.isJsxFragment(parent) ||
+        (ts.isJsxElement(parent) &&
+          !['code', 'kbd', 'pre', 'style'].includes(parent.openingElement.tagName.getText(source)))
+      ) {
+        add(node.text, node);
+      }
+    }
+    if (ts.isJsxAttribute(node) && attributes.has(node.name.getText(source)) && node.initializer) {
+      if (ts.isStringLiteral(node.initializer)) add(node.initializer.text, node.initializer);
+      else if (ts.isJsxExpression(node.initializer)) expression(node.initializer.expression);
+    }
+    if (ts.isPropertyAssignment(node) && properties.has(node.name.getText(source))) {
+      // Desktop command metadata retains the CLI description, but
+      // only its desktop override is rendered when one exists.
+      const overridden =
+        node.name.getText(source) === 'description' &&
+        ts.isObjectLiteralExpression(node.parent) &&
+        node.parent.properties.some((property) => property.name?.getText(source) === 'desktopDescription');
+      if (!overridden) expression(node.initializer);
+    }
+    if (
+      ts.isVariableDeclaration(node) &&
+      /(label|placeholder|title|message|tooltip|warning)$/i.test(node.name.getText(source))
+    ) {
+      expression(node.initializer);
+    }
+    if (ts.isJsxExpression(node) && (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent))) {
+      expression(node.expression);
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      /^set(Error|Notice|Message|ListError)$/.test(node.expression.text)
+    )
+      expression(node.arguments[0]);
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ['confirm', 'prompt', 'alert'].includes(node.expression.name.text)
+    )
+      expression(node.arguments[0]);
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+}
+
 /** UI literals, including TS data modules and phrases held in local variables.
  * Locations are retained so a missing translation can be fixed at its owner. */
 export function collectUiKeys(
@@ -64,109 +169,8 @@ export function collectUiKeys(
 ) {
   const results = new Map();
   const sourcePattern = explicitOnly ? /\.(?:[cm]?js|tsx?)$/ : /\.tsx?$/;
-  for (const path of sourceFiles(root, sourcePattern)) {
-    const source = ts.createSourceFile(
-      path,
-      readFileSync(path, 'utf8'),
-      ts.ScriptTarget.Latest,
-      true,
-      path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-    );
-    function add(value, node, explicit = false) {
-      const key = explicit ? value : value.replace(/\s+/g, ' ').trim();
-      if (
-        !key.trim() ||
-        (!explicit &&
-          (key.length < 2 ||
-            languageNames.has(key) ||
-            /^https?:\/\//.test(key) ||
-            /^mixdog:/.test(key) ||
-            /^[-\w.]+\.(?:md|tsx?|jsx?|json|css)$/.test(key) ||
-            !hasLatinText(key)))
-      )
-        return;
-      if (!results.has(key)) {
-        const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
-        results.set(key, `${relative(root, path).replaceAll('\\', '/')}:${line + 1}`);
-      }
-    }
-    function expression(node, explicit = false) {
-      if (!node) return;
-      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) add(node.text, node, explicit);
-      else if (ts.isTemplateExpression(node)) {
-        add(
-          node.head.text + node.templateSpans.map((span, index) => `{{value${index}}}${span.literal.text}`).join(''),
-          node,
-          explicit
-        );
-      } else if (ts.isConditionalExpression(node)) {
-        expression(node.whenTrue, explicit);
-        expression(node.whenFalse, explicit);
-      } else if (
-        ts.isBinaryExpression(node) &&
-        [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind)
-      ) {
-        expression(node.left, explicit);
-        expression(node.right, explicit);
-      } else if (ts.isParenthesizedExpression(node)) expression(node.expression, explicit);
-    }
-    function visit(node) {
-      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && functions.includes(node.expression.text)) {
-        expression(node.arguments[0], true);
-        return;
-      }
-      if (explicitOnly) {
-        ts.forEachChild(node, visit);
-        return;
-      }
-      if (ts.isJsxText(node)) {
-        const parent = node.parent;
-        if (
-          ts.isJsxFragment(parent) ||
-          (ts.isJsxElement(parent) &&
-            !['code', 'kbd', 'pre', 'style'].includes(parent.openingElement.tagName.getText(source)))
-        ) {
-          add(node.text, node);
-        }
-      }
-      if (ts.isJsxAttribute(node) && attributes.has(node.name.getText(source)) && node.initializer) {
-        if (ts.isStringLiteral(node.initializer)) add(node.initializer.text, node.initializer);
-        else if (ts.isJsxExpression(node.initializer)) expression(node.initializer.expression);
-      }
-      if (ts.isPropertyAssignment(node) && properties.has(node.name.getText(source))) {
-        // Desktop command metadata retains the CLI description, but
-        // only its desktop override is rendered when one exists.
-        const overridden =
-          node.name.getText(source) === 'description' &&
-          ts.isObjectLiteralExpression(node.parent) &&
-          node.parent.properties.some((property) => property.name?.getText(source) === 'desktopDescription');
-        if (!overridden) expression(node.initializer);
-      }
-      if (
-        ts.isVariableDeclaration(node) &&
-        /(label|placeholder|title|message|tooltip|warning)$/i.test(node.name.getText(source))
-      ) {
-        expression(node.initializer);
-      }
-      if (ts.isJsxExpression(node) && (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent))) {
-        expression(node.expression);
-      }
-      if (
-        ts.isCallExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        /^set(Error|Notice|Message|ListError)$/.test(node.expression.text)
-      )
-        expression(node.arguments[0]);
-      if (
-        ts.isCallExpression(node) &&
-        ts.isPropertyAccessExpression(node.expression) &&
-        ['confirm', 'prompt', 'alert'].includes(node.expression.name.text)
-      )
-        expression(node.arguments[0]);
-      ts.forEachChild(node, visit);
-    }
-    visit(source);
-  }
+  for (const path of sourceFiles(root, sourcePattern))
+    collectFileKeys(root, path, results, { explicitOnly, functions });
   return results;
 }
 

@@ -1,7 +1,3 @@
-// Viewer state for a converted Office document. Deliberately separate from the
-// Monaco pane model: this is what a surface with no code editor at all — the
-// phone — needs to show a document, and it must stay loadable without pulling
-// the editor in behind it.
 import type { DesktopDocumentPreviewPage, DesktopDocumentPreviewPages } from '../shared/contract';
 
 /** An Office document shown as page images. Pages arrive as the viewer

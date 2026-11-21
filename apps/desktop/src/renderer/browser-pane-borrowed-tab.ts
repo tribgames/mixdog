@@ -1,8 +1,3 @@
-// A page another session owns, shown in this conversation's browser panel:
-// the transcript's "브라우저 · 보기" for a page a task session or sub-agent
-// opened (browser-peek-line.tsx). The panel stays in the viewer's
-// conversation and shows the owner's tab under its owner's name; it never
-// makes a page of the viewer's own for it.
 import { useSyncExternalStore } from 'react';
 import type { DesktopBrowserTab } from '../shared/contract';
 

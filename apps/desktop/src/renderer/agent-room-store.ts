@@ -19,11 +19,6 @@ export function publishAgentRooms(sessions: readonly DesktopSessionSummary[]): v
   for (const listener of [...listeners]) listener();
 }
 
-/** The durable cache's rooms for the first paint, taken only while nothing
- *  reads the store. It runs while the catalog's owner renders: a remount of
- *  that owner (Fast Refresh, a recovered render error) finds readers still
- *  subscribed to the live rooms, which stay — notifying them would update
- *  them in the middle of another component's render. */
 export function seedAgentRooms(sessions: readonly DesktopSessionSummary[]): void {
   if (listeners.size === 0) publishAgentRooms(sessions);
 }

@@ -1,19 +1,3 @@
-// Content scale of the Visualize panel's active tab, driven by the ZoomPill,
-// Ctrl+wheel and Ctrl/Cmd + = / − / 0 while the pointer or focus is over the
-// panel. 1 is the pane-fit size; the scale resets when another tab (or
-// session) is shown, but survives a reload of the same tab's files.
-//
-// A page, PDF or Markdown pane is an iframe, which takes the wheel and the
-// keyboard for itself: those gestures reach the panel from the main process
-// instead (main/visualize/host-zoom-input.ts, as a `zoom` visualize event) or,
-// in a remote client, from the page itself (visualize-frame-zoom.ts).
-//
-// Parity with the editor previews (ZoomFrame): Ctrl+wheel scales
-// exponentially by the wheel delta and keeps the content point under the
-// pointer fixed; keys step on the 25% grid around the centre. The one
-// difference is a wheel main forwarded out of a frame: Chromium reports only
-// its direction (`zoom-changed`), so that one steps like a key, anchored at
-// the pointer. Which panel a key belongs to is decided centrally (zoom-target.ts).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { flushSync } from 'react-dom';
 
@@ -55,12 +39,6 @@ export function framePointInWindow(frame: HTMLIFrameElement, point: ZoomPoint): 
   return { x: box.left + point.x * scaleX, y: box.top + point.y * scaleY };
 }
 
-/** Style of the layer that holds a pane's content at `scale`. An image is
- *  fitted to its layer, so the layer itself grows (the pane scrolls when it
- *  overflows) and the image is drawn at `scale` times its fitted size
- *  (`--visualize-zoom`, see visualize.css: an image smaller than the pane
- *  would otherwise not change). Pages and documents lay out at 1/scale of the
- *  pane and are scaled back up, like browser zoom, so they always fill the pane. */
 export function visualizeZoomStyle(scale: number, kind: string): CSSProperties | undefined {
   if (scale === 1) return undefined;
   if (kind === 'image') {
@@ -71,10 +49,7 @@ export function visualizeZoomStyle(scale: number, kind: string): CSSProperties |
       '--visualize-zoom': scale,
     } as CSSProperties;
   }
-  // Out of flow (the pane is positioned): a flex item's untransformed 1/scale
-  // box also counts as scrollable overflow, so zoomed out (scale < 1) the pane
-  // scrolled on into empty space past the shrunken page. The scaled box alone
-  // sets the scroll range here, and it never exceeds the pane.
+  // Chromium counts a flex item's untransformed 1/scale box as scrollable overflow; out of flow, only the scaled box sets the scroll range.
   return {
     position: 'absolute',
     top: 0,
@@ -138,10 +113,6 @@ export function useVisualizeZoom({
     [panel]
   );
 
-  // The scale is kept on the 1% grid; a pinch arrives in steps far finer than
-  // that (a finger moves a pixel or two per event), each of which rounded
-  // back to where it started, so a slow pinch never zoomed. The unrounded
-  // product carries from step to step while the shown scale is its rounding.
   const exact = useRef(1);
   /** Multiplies the scale by a pinch step's `ratio` about `at`. */
   const pinchBy = useCallback(
@@ -167,101 +138,100 @@ export function useVisualizeZoom({
 
   useEffect(() => {
     if (!panel || !enabled) return undefined;
-    let over = false;
-    const unregister = registerZoomTarget({
-      element: panel,
-      enabled: () => true,
-      hovered: () => over || panel.matches(':hover'),
-      command(input, point, wheel, pinch) {
-        if (input === 'reset') setScale(1, point);
-        else if (pinch) pinchBy(pinch, point);
-        else if (wheel)
-          setScale(wheelZoomScale(live.current.scale, wheel.deltaY, wheel.deltaMode, panel.clientHeight), point);
-        else setScale(stepSnapped(live.current.scale, input === 'in' ? 1 : -1, VISUALIZE_ZOOM_RANGE), point);
-      },
-    });
-    const onWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey) return;
-      event.preventDefault();
-      setScale(wheelZoomScale(live.current.scale, event.deltaY, event.deltaMode, panel.clientHeight), {
-        x: event.clientX,
-        y: event.clientY,
-      });
-    };
-    // A non-passive wheel listener makes Chromium hold every wheel over its
-    // element, pane frames included, until this document's main thread
-    // answered: a page then scrolled only once the busy shell was free. A
-    // wheel over a frame belongs to the frame's document (its Ctrl+wheel comes
-    // through main), so the listener is held only while the pointer is over
-    // the panel's own content, or while Ctrl/Cmd lets a document frame's
-    // wheel through to the panel.
-    let overFrame = false;
-    let modifier = false;
-    let listening = false;
-    const listen = () => {
-      const wanted = !overFrame || modifier;
-      if (wanted === listening) return;
-      listening = wanted;
-      if (wanted) panel.addEventListener('wheel', onWheel, { passive: false });
-      else panel.removeEventListener('wheel', onWheel);
-    };
-    const onOver = (event: Event) => {
-      overFrame = (event.target as Node | null)?.nodeName === 'IFRAME';
-      listen();
-    };
-    // While Ctrl/Cmd is held a document frame (Chromium's PDF viewer, which
-    // zooms by itself on Ctrl+wheel and cannot be told not to) lets the wheel
-    // through to the panel (visualize.css), which zooms for it. Keys the
-    // panel's document sees update this; with focus in a frame main reports it.
-    const hold = (held: boolean) => {
-      if (held) panel.setAttribute('data-zoom-modifier', '');
-      else panel.removeAttribute('data-zoom-modifier');
-      modifier = held;
-      listen();
-    };
-    const onKey = (event: KeyboardEvent) => hold(event.ctrlKey || event.metaKey);
-    const onBlur = () => hold(false);
-    const enter = () => {
-      over = true;
-    };
-    const leave = () => {
-      over = false;
-    };
-    modifierListeners.add(hold);
-    // A pinch over the panel itself (a remote document's pages, an inline
-    // render); an image pane takes its own touches (VisualizePane), and one
-    // inside a pane frame arrives through dispatchZoomAt instead.
-    const unpinch = watchTouchZoom(panel, { pinch: pinchBy });
-    listen();
-    panel.addEventListener('pointerover', onOver);
-    panel.addEventListener('pointerenter', enter);
-    panel.addEventListener('pointerleave', leave);
-    document.addEventListener('keydown', onKey, true);
-    document.addEventListener('keyup', onKey, true);
-    window.addEventListener('blur', onBlur);
-    return () => {
-      unregister();
-      unpinch();
-      hold(false);
-      modifierListeners.delete(hold);
-      panel.removeEventListener('wheel', onWheel);
-      panel.removeEventListener('pointerover', onOver);
-      panel.removeEventListener('pointerenter', enter);
-      panel.removeEventListener('pointerleave', leave);
-      document.removeEventListener('keydown', onKey, true);
-      document.removeEventListener('keyup', onKey, true);
-      window.removeEventListener('blur', onBlur);
-    };
+    return watchPanelZoom(panel, { scale: () => live.current.scale, setScale, pinchBy });
   }, [panel, enabled, setScale, pinchBy]);
 
   return { scale, setScale, pinchBy };
 }
 
-/** An image pane's own touch gestures (touch-zoom.ts) while `enabled`; the
- *  pane carries `data-touch-zoom` then (visualize.css). A pinch zooms the
- *  panel, one finger (and the pinching fingers' midpoint) scrolls the pane,
- *  and a double tap goes from fit to the image's 100% (200% when 100% already
- *  is fit, as an editor preview's click) and from any other scale back. */
+/** Routes the panel's zoom input (commands, Ctrl+wheel, pinch, the Ctrl/Cmd
+ *  modifier a document frame needs) to the zoom; returns the teardown. */
+function watchPanelZoom(
+  panel: HTMLElement,
+  zoom: {
+    scale(): number;
+    setScale(value: number, at?: ZoomPoint): void;
+    pinchBy(ratio: number, at?: ZoomPoint): void;
+  }
+): () => void {
+  const { setScale, pinchBy } = zoom;
+  let over = false;
+  const unregister = registerZoomTarget({
+    element: panel,
+    enabled: () => true,
+    hovered: () => over || panel.matches(':hover'),
+    command(input, point, wheel, pinch) {
+      if (input === 'reset') setScale(1, point);
+      else if (pinch) pinchBy(pinch, point);
+      else if (wheel) setScale(wheelZoomScale(zoom.scale(), wheel.deltaY, wheel.deltaMode, panel.clientHeight), point);
+      else setScale(stepSnapped(zoom.scale(), input === 'in' ? 1 : -1, VISUALIZE_ZOOM_RANGE), point);
+    },
+  });
+  const onWheel = (event: WheelEvent) => {
+    if (!event.ctrlKey) return;
+    event.preventDefault();
+    setScale(wheelZoomScale(zoom.scale(), event.deltaY, event.deltaMode, panel.clientHeight), {
+      x: event.clientX,
+      y: event.clientY,
+    });
+  };
+  // A non-passive wheel listener makes Chromium hold every wheel over the element, frames included, until this main thread answers; it is attached only over the panel's own content or while Ctrl/Cmd is held.
+  let overFrame = false;
+  let modifier = false;
+  let listening = false;
+  const listen = () => {
+    const wanted = !overFrame || modifier;
+    if (wanted === listening) return;
+    listening = wanted;
+    if (wanted) panel.addEventListener('wheel', onWheel, { passive: false });
+    else panel.removeEventListener('wheel', onWheel);
+  };
+  const onOver = (event: Event) => {
+    overFrame = (event.target as Node | null)?.nodeName === 'IFRAME';
+    listen();
+  };
+  // Chromium's PDF viewer zooms itself on Ctrl+wheel and cannot be told not to; while Ctrl/Cmd is held it lets the wheel through to the panel (visualize.css).
+  const hold = (held: boolean) => {
+    if (held) panel.setAttribute('data-zoom-modifier', '');
+    else panel.removeAttribute('data-zoom-modifier');
+    modifier = held;
+    listen();
+  };
+  const onKey = (event: KeyboardEvent) => hold(event.ctrlKey || event.metaKey);
+  const onBlur = () => hold(false);
+  const enter = () => {
+    over = true;
+  };
+  const leave = () => {
+    over = false;
+  };
+  modifierListeners.add(hold);
+  // A pinch over the panel itself (a remote document's pages, an inline
+  // render); an image pane takes its own touches (VisualizePane), and one
+  // inside a pane frame arrives through dispatchZoomAt instead.
+  const unpinch = watchTouchZoom(panel, { pinch: pinchBy });
+  listen();
+  panel.addEventListener('pointerover', onOver);
+  panel.addEventListener('pointerenter', enter);
+  panel.addEventListener('pointerleave', leave);
+  document.addEventListener('keydown', onKey, true);
+  document.addEventListener('keyup', onKey, true);
+  window.addEventListener('blur', onBlur);
+  return () => {
+    unregister();
+    unpinch();
+    hold(false);
+    modifierListeners.delete(hold);
+    panel.removeEventListener('wheel', onWheel);
+    panel.removeEventListener('pointerover', onOver);
+    panel.removeEventListener('pointerenter', enter);
+    panel.removeEventListener('pointerleave', leave);
+    document.removeEventListener('keydown', onKey, true);
+    document.removeEventListener('keyup', onKey, true);
+    window.removeEventListener('blur', onBlur);
+  };
+}
+
 export function useImagePaneTouch(
   content: HTMLElement | null,
   enabled: boolean,

@@ -1,9 +1,3 @@
-/**
- * Popup and tab handover on the visible surface: a popup is discovered and
- * selected through the tab strip while keeping its opener, login and form
- * state; tabs are created and closed; another session may not steer them;
- * and releasing the session restores (or forgets) its pages as asked.
- */
 import assert from 'node:assert/strict';
 import { webContents, type WebContents } from 'electron';
 import type { BrowserHost } from './host-types';
@@ -21,10 +15,6 @@ export async function exerciseBrowserTabHandover(options: {
   const { host, guest, shell, origin, command, log } = options;
   const readFrame = (sessionId: string) => readyBrowserFrame(host, sessionId);
   const { eventually } = createPolling({ timeoutMs: 8000, intervalMs: 25 });
-  // A page no pane displays is throttled and neither paints nor finishes
-  // loading (page-power). Page facts that need no pixels come from metadata,
-  // and, as the mounted pane does for its current page, the page is reported
-  // displayed so it can load.
   const readPage = async (sessionId: string) => {
     const page = await host.browserPageMetadata(sessionId);
     host.setGuestActive(sessionId, page.webContentsId, true);

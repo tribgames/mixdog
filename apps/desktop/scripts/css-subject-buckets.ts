@@ -1,26 +1,8 @@
-// Build-time CSS rewrite: a selector whose subject compound is only `:is(A, B, …)`
-// (plus pseudo-classes / pseudo-elements) becomes the list `…A, …B`.
-//
-// Why: Blink files each selector under its subject's id, class, attribute or
-// tag and tries it only on elements that have it. A subject made of a
-// multi-argument `:is()` has no single key, so the selector lands in the
-// universal list and is tried against EVERY element on every style update
-// (selector stats of a phone scrolling a long transcript: those rules were
-// ~30% of all selector matching, each tried on ~5k elements and matching
-// none). Spelled out, each arm is keyed on its own subject.
-//
-// The rewrite keeps what every element matches and the cascade:
-//  - the rule stays where it is (only its selector list changes);
-//  - each arm keeps the `:is()`'s specificity (the largest of its arguments)
-//    through padding that every element matches whatever it carries: the
-//    negation of an impossible compound `X:where(:not(X))`, which weighs
-//    exactly X (Selectors 4 §17: :not() takes its argument's specificity,
-//    :where() adds none) and no element can match;
-//  - an argument with combinators is spelled out only where that is exact:
-//    with no prefix, or under a root prefix (`html…` / `:root…`) when its
-//    top compound cannot be the root element. Other arguments stay grouped in
-//    a narrower `:is()`, padded the same way.
-// A rule is left untouched when any argument cannot be padded exactly.
+// A selector whose subject compound is only `:is(A, B, …)` (plus pseudo-classes / pseudo-elements) becomes `…A, …B`:
+// Blink keys each selector on its subject's id, class, attribute or tag, and a multi-argument `:is()` subject has no key,
+// so it is tried on every element (selector stats of a phone scrolling a transcript: ~30% of selector matching).
+// Each arm keeps the `:is()`'s specificity through padding `X:where(:not(X))`, which weighs exactly X (Selectors 4 §17:
+// :not() takes its argument's specificity, :where() adds none) and which no element matches.
 import type { Plugin as PostcssPlugin, Rule } from 'postcss';
 
 type Specificity = [number, number, number];

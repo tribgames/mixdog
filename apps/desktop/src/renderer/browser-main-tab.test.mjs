@@ -322,11 +322,12 @@ test('main browser tab renders the nav row with a ⋯ menu and no dock header or
   }
 });
 
-test('the browser nav row ends with Import after the address field, then the ⋯ menu; a narrow row drops Forward and Import', async (t) => {
+const navImportApi = { browserProfileImportSources: async () => [] };
+const navProps = { sessionId: 'main-browser-nav', mode: 'main', initialUrl: 'https://example.test/page' };
+
+test('the browser nav row ends with Import after the address field, then the ⋯ menu', async () => {
   setUserAgent('Mozilla/5.0 Electron/30');
-  const importApi = { browserProfileImportSources: async () => [] };
-  const props = { sessionId: 'main-browser-nav', mode: 'main', initialUrl: 'https://example.test/page' };
-  let view = await mountPane(props, { current: frame() }, importApi);
+  const view = await mountPane(navProps, { current: frame() }, navImportApi);
   try {
     await flush();
     await flush();
@@ -343,8 +344,11 @@ test('the browser nav row ends with Import after the address field, then the ⋯
   } finally {
     await view.unmount();
   }
-  // Without an import source the button is not offered.
-  view = await mountPane(props, { current: frame() });
+});
+
+test('without an import source the nav row offers no Import button', async () => {
+  setUserAgent('Mozilla/5.0 Electron/30');
+  const view = await mountPane(navProps, { current: frame() });
   try {
     await flush();
     await flush();
@@ -352,7 +356,10 @@ test('the browser nav row ends with Import after the address field, then the ⋯
   } finally {
     await view.unmount();
   }
-  // A narrow row hides Forward first, then Import; Back, Reload and the address stay.
+});
+
+test('a narrow nav row hides Forward first, then Import; Back, Reload and the address stay', async (t) => {
+  setUserAgent('Mozilla/5.0 Electron/30');
   t.mock.method(window.Element.prototype, 'getBoundingClientRect', function () {
     return {
       x: 0,
@@ -365,7 +372,7 @@ test('the browser nav row ends with Import after the address field, then the ⋯
       height: 30,
     };
   });
-  view = await mountPane(props, { current: frame() }, importApi);
+  const view = await mountPane(navProps, { current: frame() }, navImportApi);
   try {
     await flush();
     await flush();

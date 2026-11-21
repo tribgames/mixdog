@@ -6,10 +6,6 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-launch.mjs';
 
-// Real boot.js, real skin CSS, fake data: a reload with a recorded skin paints
-// its very first frame already skinned. The bundle never mounts here (#root
-// stays empty), which is exactly the window in which the picture used to show
-// bare, at full strength, before any plate existed.
 const BOOT = readFileSync(new URL('./public/boot.js', import.meta.url), 'utf8');
 const RED = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#ff0000"/></svg>')}`;
 const VARS = {

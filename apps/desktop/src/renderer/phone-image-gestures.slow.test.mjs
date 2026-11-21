@@ -1,20 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { build } from 'esbuild';
-import puppeteer from 'puppeteer-core';
-import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-launch.mjs';
+import { openPhone as openPhoneSheet, wait } from './test-support/phone-sheet-browser.mjs';
 
-// Phone layout, real Chromium with touch: a tall picture (a phone mockup) in
-// the Visualize side sheet and in the chat image viewer.
-// - The panel's zoom pill floats over its bottom; the picture's bottom was
-//   under it at fit and at the end of a zoomed scroll, out of reach
-//.
-// - One finger scrolled the zoomed picture natively; a second finger's pinch
-//   then could not cancel that scroll, so the picture slid away from the
-//   fingers while it zoomed.
-// - The chat viewer had no touch zoom at all (#275).
-
+const openPhone = (t) => openPhoneSheet(t, HARNESS, 'phone-image-gestures');
 const IMAGE = { width: 1080, height: 2400 };
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${IMAGE.width}" height="${IMAGE.height}"><rect width="100%" height="100%" fill="#3a6"/><rect y="${IMAGE.height - 100}" width="100%" height="100" fill="#d33"/></svg>`;
 const HARNESS = `
@@ -35,93 +23,6 @@ const HARNESS = `
       <ImageLightbox items={[{ id: 'a', src, name: 'mockup.svg' }]} startId="a" onClose={() => { window.viewerClosed = true; }} />);
   };
 `;
-// The phone's right sheet around the panel, as the shell mounts it.
-const BODY = `<div id="root"><div class="app-shell"><div class="pane-side-dock" data-open="true"><div class="pane-side-dock-main">
-  <aside class="workbench-side-panel" data-side="right" data-embedded="true"><div class="workbench-side-panel-content">
-  <div class="workbench-side-panel-body"><section class="workbench-side-section" data-sectioned="false">
-  <div class="workbench-side-section-body"></div></section></div></div></aside></div></div></div></div><div id="viewer"></div>`;
-const VIEWPORT =
-  'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
-
-const noLazyChunks = {
-  name: 'no-lazy-chunks',
-  setup(builder) {
-    builder.onResolve({ filter: /.*/ }, (args) =>
-      args.kind === 'dynamic-import' ? { path: args.path, external: true } : null
-    );
-  },
-};
-
-async function openPhone(t) {
-  const resolveDir = fileURLToPath(new URL('.', import.meta.url));
-  const assets = { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl', '.png': 'dataurl' };
-  const [bundle, styles] = await Promise.all([
-    build({
-      stdin: { resolveDir, loader: 'tsx', contents: HARNESS },
-      bundle: true,
-      write: false,
-      logLevel: 'error',
-      format: 'iife',
-      jsx: 'automatic',
-      outdir: 'phone-image-gestures',
-      define: { 'process.env.NODE_ENV': '"production"' },
-      loader: assets,
-      plugins: [noLazyChunks],
-    }),
-    build({
-      stdin: {
-        resolveDir,
-        loader: 'css',
-        contents:
-          '@import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css"; @import "./pane-layout.css"; @import "./pane-side-dock-bottom.css"; @import "./mobile-web-runtime.css";',
-      },
-      outfile: 'phone-image-gestures.css',
-      bundle: true,
-      write: false,
-      logLevel: 'error',
-      loader: { ...assets, '.jpg': 'dataurl' },
-    }),
-  ]);
-  const css = [styles, bundle].flatMap((result) => result.outputFiles.filter((file) => file.path.endsWith('.css')));
-  const browser = await launchPuppeteerBrowser(puppeteer, {
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-    headless: true,
-  });
-  t.after(() => browser.close());
-  const page = await browser.newPage();
-  await page.emulate({
-    userAgent:
-      'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
-    viewport: { width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true },
-  });
-  const messages = [];
-  page.on('pageerror', (error) => messages.push(error.message));
-  page.on('console', (message) => messages.push(message.text()));
-  await page.setContent(
-    `<!doctype html><html data-mixdog-mobile-tabs><head><meta name="viewport" content="${VIEWPORT}"><style>${css
-      .map((file) => file.text)
-      .join('\n')}</style></head><body>${BODY}</body></html>`
-  );
-  await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
-  const cdp = await page.target().createCDPSession();
-  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
-  let time = Date.now() / 1000;
-  const touch = async (type, points) => {
-    time += 0.016;
-    await cdp.send('Input.dispatchTouchEvent', {
-      type,
-      timestamp: time,
-      touchPoints: points.map(([x, y], id) => ({ x, y, id: id + 1 })),
-    });
-  };
-  const tap = async (x, y) => {
-    await touch('touchStart', [[x, y]]);
-    await touch('touchEnd', []);
-  };
-  return { page, messages, touch, tap };
-}
-
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const box = (page, selector) =>
   page.$eval(selector, (element) => {
     const { left, top, right, bottom, width, height } = element.getBoundingClientRect();

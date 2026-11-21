@@ -1,8 +1,3 @@
-/**
- * The pages a remote export renders in a hidden window when no desktop panel
- * can draw them: inline content (SVG, Mermaid, Markdown, a chart or HTML
- * sketch), an image file, and several panes side by side (a comparison).
- */
 import type { VisualizeInlineContent } from '../../shared/visualize';
 import { INLINE_CHART_RENDERED } from '../../shared/visualize-inline-page';
 import { inlinePageFiles, type VirtualPageFile } from './inline-page';

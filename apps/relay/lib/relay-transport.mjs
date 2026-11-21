@@ -4,75 +4,29 @@
 import { decodeRelayBinaryFrame, RELAY_BINARY_HEADER_BYTES } from './relay-binary-frame.mjs';
 import { isRoutingId } from './ids.mjs';
 
-// Forwarding policy ceiling for ONE frame. It matches the desktop leg's own
-// budget (apps/desktop/src/main/remote-relay.ts): the media lane is disabled
-// there, so gallery originals still ride the RPC fallback as single frames and
-// a smaller ceiling here would cut supported traffic. Memory is protected by
-// admission control and backpressure below, never by shrinking what a
-// supported client is allowed to send.
+// Matches the desktop leg's budget (apps/desktop/src/main/remote-relay.ts): the media lane is disabled there, so gallery originals ride the RPC fallback as single frames.
 export const MAX_FRAME_BYTES = 64 * 1024 * 1024;
-// The transport stop sits ABOVE the policy ceiling on purpose: ws answers an
-// oversize frame by killing the connection (1009), which the user only ever
-// sees as "relay disconnected". The policy check runs first and answers with a
-// payload error on that leg while it stays open.
+// ws destroys the connection (1009) on an oversize frame, so this sits above MAX_FRAME_BYTES and the policy check answers first.
 export const MAX_WS_PAYLOAD_BYTES = MAX_FRAME_BYTES + 4 * 1024 * 1024;
 // Upper clamp for the configured capacity. A configured number may only ever
 // LOWER what a leg said about itself: capacity is a fact about the receiver, so
 // configuration that can raise it is just a version-skew outage with a knob.
 export const MAX_UPLINK_CAPACITY_BYTES = MAX_WS_PAYLOAD_BYTES;
-// JSON escaping is unbounded in principle: one NUL becomes `\u0000`, six bytes
-// for one, so a JSON envelope cannot promise to carry a message of size N. The
-// text path is therefore bounded by the WORST case rather than by whatever the
-// payload in hand happens to escape to — a ceiling derived from the current
-// content is not a ceiling at all, because clients learn it and keep it.
+// One NUL escapes to `\u0000`: six bytes for one.
 const JSON_ESCAPE_WORST_CASE = 6;
-// What a desktop leg is taken to receive until IT says otherwise, on the
-// connection in hand. Routing wraps a phone's message in an envelope — a binary
-// routing header, or a JSON frame whose string escaping can grow the payload —
-// so the bytes this relay SENDS are never the bytes it received, and a message
-// that fits this relay's policy can still land past the desktop's cap, where ws
-// answers by destroying the socket every phone on that desktop shares.
-//
-// It is the conservative FLOOR every receiver in this protocol takes, not the
-// largest receiver this project ships: a capacity nobody declared is a capacity
-// nobody promised. That is what makes this fail-safe by CONSTRUCTION rather
-// than by memory — a first connection, a redial and a restarted relay all start
-// here, so losing state can never become a trust upgrade for a peer whose
-// declaration was false. Small enough that every receiver in this protocol
-// takes it, large enough to keep a session working (handshake, RPC, control)
-// until the leg states its own number.
+// Floor capacity that every receiver in this protocol takes.
 export const UNDECLARED_CAPACITY_BYTES = 64 * 1024;
-// The smallest capacity this protocol can express. Below the relay's own
-// routing envelope nothing can be forwarded at all, and every ceiling derived
-// from such a number would be negative and clamped to zero — a published limit
-// of "send nothing" that an empty message still overruns. Normalising up to it
-// is not a trust upgrade: the relay puts `relay-capabilities` and `client-open`
-// on this leg unprompted, both larger than this, so a receiver that cannot take
-// it cannot take the protocol either.
+// Smallest capacity that holds the relay's own `relay-capabilities` and `client-open` frames.
 const MIN_UPLINK_CAPACITY_BYTES = 1024;
 
-/**
- * Capacity of ONE desktop leg: what that leg declared it can receive on THIS
- * connection, clamped by configuration. A leg that has declared nothing gets
- * the floor, never something roomier — assuming more than a leg can take is
- * what turns a boundary frame into a 1006 for every phone attached to it.
- *
- * This is the ONE place a capacity enters the relay. Both inputs are normalised
- * here — a declaration is a claim made by a peer, a configured value is a claim
- * made by an operator, neither can raise this relay above the largest frame its
- * own protocol works in, and neither is trusted to be a sane number — so every
- * later reader takes a bounded integer and no path can reach a raw one.
- */
+/** Capacity of one desktop leg: the declared value clamped by configuration, the floor when nothing was declared. */
 export function uplinkCapacityFor(declared, configured = MAX_UPLINK_CAPACITY_BYTES) {
   const ceiling = boundedCapacity(configured, MAX_UPLINK_CAPACITY_BYTES);
   const leg = boundedCapacity(declared, UNDECLARED_CAPACITY_BYTES);
   return Math.min(ceiling, leg);
 }
 
-/** Anything malformed — negative, zero, NaN, fractional, absurd — becomes the
- *  caller's fallback rather than being carried onward; anything usable is
- *  bounded at both ends, so every capacity in this file is a whole number
- *  between the protocol minimum and this relay's transport ceiling. */
+/** A whole number within [MIN_UPLINK_CAPACITY_BYTES, MAX_UPLINK_CAPACITY_BYTES]; `fallback` for anything non-finite or not positive. */
 export function boundedCapacity(value, fallback) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
@@ -86,23 +40,7 @@ export function boundedCapacity(value, fallback) {
 // number, without naming a live client.
 const CANONICAL_CLIENT_ID = '00000000-0000-4000-8000-000000000000';
 
-/**
- * The capabilities frame for ONE desktop connection.
- *
- * `textFrames` here is an ACKNOWLEDGEMENT, not a menu: it appears only where
- * this relay will actually carry phone text in the binary envelope for this
- * leg. A desktop cannot infer that from `binaryFrames` — an older relay
- * advertises the very same bit and still JSON-wraps text — and a desktop that
- * guessed would price a 3 KiB text frame at a fixed 42-byte wrapper while the
- * hop it is talking to doubles it.
- *
- * The ceilings ride along because the effective capacity is the relay's to
- * know: it normalises what a leg declares and derives both wire forms from it.
- * Publishing them is what lets both ends reach the same admission decision
- * instead of re-deriving it from different inputs — and they are computed from
- * the very leg state the enforcement path reads, so what is PUBLISHED is what
- * is ENFORCED, on every path, for the life of this connection.
- */
+/** The relay-capabilities frame for one desktop connection. `textFrames` is set only when the relay carries phone text in the binary envelope on this leg. */
 export function relayCapabilities(leg, maxFrameBytes, nativePushPlatforms = [], webPush = false, ice = false) {
   const acknowledged = leg.textFrames === true;
   const ceilings = uplinkCeilings({
@@ -132,13 +70,7 @@ export function relayCapabilities(leg, maxFrameBytes, nativePushPlatforms = [], 
   };
 }
 
-/** Everything the relay knows about ONE desktop connection's receiver: created
- *  with the socket, written only by that socket's own handler, discarded with
- *  it. Per SOCKET and not per device on purpose — a superseded leg holds a
- *  reference to its own state alone, so a handler still draining bytes from a
- *  dead connection can never move a number the replacement's phones are
- *  measured against. Nothing here outlives the socket, which is what leaves the
- *  relay with no memory of a past failure to spend on a future frame. */
+/** Receiver state of one desktop connection, owned by that socket and discarded with it. */
 export function newUplinkLeg(capacityCeiling) {
   return {
     capacityCeiling,
@@ -159,18 +91,7 @@ export function declareUplinkLeg(leg, declared, textFrames) {
   leg.textFrames = textFrames === true;
 }
 
-/**
- * The largest phone message this leg can carry, per wire form. Both numbers are
- * properties of the PATH (capacity, client id, envelope in use) and never of the
- * message in hand, because this is the figure a client is told and remembers.
- *
- * The binary envelope is a fixed header, so its ceiling is exact. The JSON
- * envelope escapes what it carries, so its ceiling assumes the worst case and
- * the relay refuses anything above it even when that particular payload would
- * have fitted: a limit the relay does not honour in both directions is a limit
- * that strands its clients. A leg that decodes text in the binary envelope
- * (`textFrames`) has no such gap — that is the point of it.
- */
+/** Largest phone message this leg carries per wire form; the JSON ceiling assumes worst-case escaping. */
 export function uplinkCeilings({
   capacity = UNDECLARED_CAPACITY_BYTES,
   clientId = '',
@@ -215,17 +136,6 @@ export function relayInflightBytes() {
   return inflightBytes;
 }
 
-// Receive side of the same budget. Outbound bytes are charged when the relay
-// hands a frame to a socket, but an ARRIVING frame is already in memory before
-// any handler can decide anything: ws assembles the whole message (up to
-// maxPayload) per leg on its own, so N authenticated legs are N × maxPayload of
-// heap that no admission decision ever sees. Ingress is therefore metered on
-// the RAW byte stream: every leg reads freely up to a small window, and a
-// message larger than that window needs a reservation out of one box-wide pool.
-// A leg that cannot get one is PAUSED — its bytes stay on the sender's side of
-// the wire — never cut: waiting for room is not misbehaviour.
-// The reservation is the leg's WORST case (the transport ceiling), so reserved
-// bytes are always an upper bound on bytes actually assembled.
 export const INGRESS_RESERVATION_BYTES = MAX_WS_PAYLOAD_BYTES;
 export const MAX_INGRESS_BYTES = 2 * INGRESS_RESERVATION_BYTES;
 export const INGRESS_FREE_WINDOW_BYTES = 256 * 1024;
@@ -237,10 +147,6 @@ const WS_MAX_HEADER_BYTES = 14;
 // to: the binary routing header, or the head of a JSON envelope. Bounded on
 // purpose — the id has to be readable without ever holding the payload.
 const OVERSIZE_ID_SCAN_BYTES = 512;
-// "Was this message already refused" is a property of the MESSAGE, not of the
-// leg: several messages can arrive in one read, so the answers queue up in
-// delivery order. The cap only bounds an absurd backlog; ws delivers within the
-// same read, so the queue is normally one entry deep.
 const MAX_ANNOUNCED_QUEUE = 256;
 // A holder that stops making progress pins box memory for a peer that went
 // quiet mid-frame; a parked leg cannot answer a ping while it is not read.
@@ -338,10 +244,6 @@ export function releaseLeg(socket) {
   socket.pendingEpoch = (socket.pendingEpoch || 0) + 1;
 }
 
-/** A leg's read state has two independent owners — its own uplink backlog and
- *  box-level ingress admission — so the socket is read again only when NEITHER
- *  wants it parked. Merging them here is what keeps one lifting the other's
- *  pause by accident. */
 function applyLegFlow(socket) {
   const parked = Boolean(socket.legPausedUplink || socket.legPausedIngress);
   if (parked === Boolean(socket.legParked)) return;
@@ -371,21 +273,7 @@ function resumeLeg(socket) {
   applyLegFlow(socket);
 }
 
-/** Meter one leg's arriving bytes off the RAW socket: once ws has assembled a
- *  message the memory is already spent, so every decision has to happen while
- *  the frame is still on the wire.
- *
- *  The meter reads the WebSocket FRAMING instead of counting raw bytes, which
- *  is what makes it comparable to the application:
- *   - a frame header DECLARES its payload length, so the exact size of the
- *     message is known before its bytes arrive (a refusal can quote the final
- *     size, and an exact-limit frame is never mistaken for an oversize one);
- *   - header and mask bytes are transport overhead and never counted against
- *     an application ceiling;
- *   - control frames (ping/pong/close) carry no message bytes at all, so a
- *     burst of them cannot look like one endless partial frame.
- *  Valid because this relay disables permessage-deflate: the declared length IS
- *  the application payload length. */
+/** Meter a leg's arriving bytes off the raw socket by reading WebSocket framing: the header declares the payload length, and header, mask and control-frame bytes are not counted. Exact because permessage-deflate is disabled. */
 export function trackLegIngress(socket, rawSocket, options = {}) {
   const {
     ceiling = MAX_INGRESS_BYTES,
@@ -419,10 +307,6 @@ export function trackLegIngress(socket, rawSocket, options = {}) {
     control: false,
     fin: false,
     messageBinary: false,
-    // Unmasked prefix of the message on the wire, kept so a refusal can be
-    // attributed from the envelope's OWN head — including a fragmented one,
-    // whose refusal is only decided several fragments later. One buffer per
-    // leg, reused per message.
     head: Buffer.allocUnsafe(OVERSIZE_ID_SCAN_BYTES),
     headLength: 0,
     refusalDue: false,
@@ -436,10 +320,6 @@ export function trackLegIngress(socket, rawSocket, options = {}) {
   });
 }
 
-/** Walk one raw chunk as WebSocket frames. The whole chunk is always accounted
- *  for, including after a park: pausing stops the NEXT read, while these bytes
- *  are already on their way to ws, and a meter that skipped them would lose the
- *  frame boundary for good. */
 function consumeIngressBytes(socket, chunk) {
   const state = socket.ingress;
   let offset = 0;
@@ -459,26 +339,23 @@ function consumeIngressBytes(socket, chunk) {
     chunk.copy(state.header, state.headerBytes, offset, offset + take);
     state.headerBytes += take;
     offset += take;
-    if (state.headerBytes === 2) {
-      const marker = state.header[1] & 0x7f;
-      let extendedLengthBytes = 0;
-      if (marker === 126) extendedLengthBytes = 2;
-      else if (marker === 127) extendedLengthBytes = 8;
-      const maskBytes = (state.header[1] & 0x80) === 0x80 ? 4 : 0;
-      state.headerNeeded = 2 + extendedLengthBytes + maskBytes;
-    }
+    if (state.headerBytes === 2) state.headerNeeded = frameHeaderLength(state.header);
     if (state.headerBytes < state.headerNeeded) continue;
     startIngressFrame(socket);
     if (state.payloadRemaining === 0) finishIngressFrame(socket);
   }
 }
 
-/** A frame header is complete: commit what it declares. */
-function startIngressFrame(socket) {
-  const state = socket.ingress;
-  const header = state.header;
-  const opcode = header[0] & 0x0f;
-  const masked = (header[1] & 0x80) === 0x80;
+function frameHeaderLength(header) {
+  const marker = header[1] & 0x7f;
+  let extendedLengthBytes = 0;
+  if (marker === 126) extendedLengthBytes = 2;
+  else if (marker === 127) extendedLengthBytes = 8;
+  const maskBytes = (header[1] & 0x80) === 0x80 ? 4 : 0;
+  return 2 + extendedLengthBytes + maskBytes;
+}
+
+function decodeFrameHeader(header) {
   const marker = header[1] & 0x7f;
   let length = marker;
   let cursor = 2;
@@ -489,9 +366,21 @@ function startIngressFrame(socket) {
     length = Number(header.readBigUInt64BE(2));
     cursor = 10;
   }
-  state.mask = masked ? Buffer.from(header.subarray(cursor, cursor + 4)) : null;
+  return {
+    opcode: header[0] & 0x0f,
+    fin: (header[0] & 0x80) === 0x80,
+    length,
+    mask: (header[1] & 0x80) === 0x80 ? Buffer.from(header.subarray(cursor, cursor + 4)) : null,
+  };
+}
+
+/** A frame header is complete: commit what it declares. */
+function startIngressFrame(socket) {
+  const state = socket.ingress;
+  const { opcode, fin, length, mask } = decodeFrameHeader(state.header);
+  state.mask = mask;
   state.control = opcode >= 0x8;
-  state.fin = (header[0] & 0x80) === 0x80;
+  state.fin = fin;
   state.payloadRemaining = length;
   state.payloadSeen = 0;
   state.headerBytes = 0;
@@ -510,16 +399,7 @@ function startIngressFrame(socket) {
     state.messageBinary = opcode === 0x2;
   }
   state.pending += length;
-  // Refuse at DECLARATION only for a message the transport can never deliver:
-  // past ws's own ceiling the socket is destroyed (1009) and the user is told
-  // nothing but "relay disconnected", so this is the last moment anything can
-  // be said about it. Continuations count — a fragmented message overruns that
-  // ceiling on a later fragment, never on its first.
-  //
-  // Everything the transport can still carry is refused on DELIVERY instead,
-  // where the size is the assembled message's own. A declaration is a promise,
-  // not a message: a sender that announces 5 KiB and then stops must not
-  // produce a notice describing bytes that never arrived.
+  // ws destroys the socket (1009) past its own ceiling, so a message over `transport` is refused at declaration, continuations included; anything smaller is refused on delivery.
   if (!state.announced && state.pending > state.transport) {
     state.announced = true;
     state.refusalDue = true;
@@ -533,11 +413,6 @@ function startIngressFrame(socket) {
   flushIngressRefusal(socket);
 }
 
-/** Keep the unmasked head of the message on the wire — its envelope, never its
- *  payload. It is captured from the message's FIRST bytes because a refusal can
- *  be decided much later (a fragmented message overruns the transport on a
- *  fragment that is nowhere near the envelope), and an id read from the middle
- *  of a payload is exactly the attribution this relay refuses to guess at. */
 function captureIngressHead(state, chunk, offset, take) {
   if (state.headLength >= OVERSIZE_ID_SCAN_BYTES) return;
   const wanted = Math.min(take, OVERSIZE_ID_SCAN_BYTES - state.headLength);
@@ -548,10 +423,6 @@ function captureIngressHead(state, chunk, offset, take) {
   }
 }
 
-/** Send the refusal for the message on the wire once enough of its prefix is in
- *  hand to name the client it belongs to (or once the frame ends without one).
- *  Attribution is read, never guessed: an id the relay cannot establish is
- *  omitted so the desktop fails nothing rather than the wrong call. */
 function flushIngressRefusal(socket, frameEnded = false) {
   const state = socket.ingress;
   if (!state.refusalDue) return;
@@ -570,10 +441,6 @@ function finishIngressFrame(socket) {
   if (state.control) return;
   flushIngressRefusal(socket, true);
   if (!state.fin) return;
-  // The message is complete on the wire and ws is about to deliver it. Whether
-  // it was already refused belongs to THAT message: a single flag would be
-  // overwritten by the next message's header when both arrive in one read, and
-  // the delivered one would then be refused a second time.
   state.announcedQueue.push(state.announced);
   if (state.announcedQueue.length > MAX_ANNOUNCED_QUEUE) state.announcedQueue.shift();
   state.announced = false;
@@ -650,11 +517,7 @@ function pumpIngressWaiting() {
   }
 }
 
-/** ws delivered a message: this leg's reservation goes back. The wire meter has
- *  already retired the bytes, so nothing is inferred from the payload here.
- *  Returns whether THIS message was already refused while it was arriving —
- *  one queued answer per completed message, taken in delivery order, so the
- *  delivered path never sends a second notice for the same message. */
+/** Returns whether this message was already refused while arriving; one queued answer per completed message, in delivery order. */
 export function noteIngressDelivery(socket) {
   const state = socket.ingress;
   if (!state) return false;
@@ -689,11 +552,6 @@ function closeLeg(socket, decision) {
 }
 
 function hintResync(phone) {
-  // This leg just lost a state push. Waiting for the NEXT patch to expose the
-  // gap strands it whenever the turn ends here — the phone would keep showing a
-  // transcript without the answer that landed while it was congested. One hint
-  // (sent once per congestion window) makes it ask for a full snapshot as soon
-  // as it drains.
   if (phone.resyncHinted) return;
   phone.resyncHinted = true;
   try {
@@ -703,17 +561,7 @@ function hintResync(phone) {
   }
 }
 
-/** Desktop -> phone. Admission is per phone leg, so a congested phone never
- *  slows the shared desktop socket or a sibling phone.
- *
- *  `pressure` says what a BOX-level refusal means for THIS leg. `'cut'` is the
- *  single-leg path: the ceiling is filled by other conversations and this leg
- *  is asking for more than the box can carry. `'defer'` is the fan-out path,
- *  where the ceiling is filled by the very loop this leg is sitting in — no
- *  flush callback can release until the loop ends, so the legs at the back
- *  would be cut for bytes the legs at the front are still holding. A leg that
- *  has shown no congestion of its own is never closed for that: it keeps its
- *  socket and is told to resync once the box has room. */
+/** Desktop -> phone, admitted per phone leg. `pressure` 'cut' closes the leg on a box-level refusal; 'defer' (fan-out) keeps a leg with no congestion of its own and hints it to resync. */
 export function sendToPhone(phone, data, droppable, pressure = 'cut') {
   if (phone.readyState !== phone.OPEN) return false;
   const queued = phone.bufferedAmount || 0;
@@ -748,10 +596,7 @@ export function sendToPhone(phone, data, droppable, pressure = 'cut') {
   return true;
 }
 
-/** Phone -> desktop. The bytes are charged to the desktop socket that holds
- *  them, while the pause is applied to the PRODUCING phone leg and lifted by
- *  that same leg's flush — one phone can neither outrun the desktop nor stall
- *  another phone. */
+/** Phone -> desktop: bytes are charged to the desktop socket, the pause applies to the producing phone leg and is lifted by its flush. */
 export function sendUplink(phone, desktop, payload) {
   if (!desktop || desktop.readyState !== desktop.OPEN) return false;
   const size = frameBytes(payload);
@@ -784,10 +629,7 @@ export function sendUplink(phone, desktop, payload) {
   return true;
 }
 
-/** One frame against the forwarding policy. Over the ceiling the sender gets a
- *  payload error and KEEPS its leg: tearing the socket down for one bad frame
- *  surfaces to the user as a relay outage. `announced` means the ingress meter
- *  already answered this message while it was still arriving. */
+/** Over `limit` the sender gets a payload error and keeps its leg. `announced`: the ingress meter already answered this message. */
 export function rejectOversizeFrame(socket, raw, limit, announced = false, binary = false) {
   const size = frameBytes(raw);
   if (size <= limit) return false;
@@ -797,35 +639,7 @@ export function rejectOversizeFrame(socket, raw, limit, announced = false, binar
   return true;
 }
 
-// Nothing in this file OBSERVES a failure to decide a later limit, and there is
-// no second admission gate behind the per-form ceilings above.
-//
-// A close carries no evidence of WHICH frame a receiver refused, so a capacity
-// derived from one is a guess charged to whichever client happened to be
-// sending: that mechanism shrank a sibling phone's path over an attacker's
-// frame, turned an unrelated 1009 into a refusal for an honest leg, and made a
-// relay restart a trust upgrade for a peer that had declared falsely. So the
-// relay keeps NO record of a send, a close code, or a past declaration. Every
-// limit comes from the declaration in force on the connection the frame is
-// about to be sent on, and from nothing else.
-//
-// What replaces it is arithmetic. A message admitted under `uplinkCeilings`
-// fits its envelope by construction — the binary form adds a fixed header, the
-// JSON form adds a fixed base plus at most six bytes per byte — and a
-// normalised capacity is never smaller than that envelope, so an admitted frame
-// cannot overrun the receiver its own leg declared. A leg that declares more
-// than it can take still dies of its own claim, exactly once, on the connection
-// that made it: the phones keep their sockets, no client is accused, and the
-// next connection is judged only by what it says for itself.
-
-/** Oversize toward a PHONE leg. Everything on that leg is E2EE ciphertext and
- *  the shim handles exactly two CLEARTEXT keys before decryption
- *  (apps/desktop/src/renderer/remote-shim.ts, its cleartext branch — `pong` and `resync`);
- *  any other cleartext object is handed to decryptJson, throws, and closes the
- *  socket. So the refusal rides the `resync` key: a shim that predates this
- *  frame recovers with a resync instead of disconnecting, and one that reads
- *  `error` fails the oversize call with a payload error the user can act on.
- *  A raw (non-E2EE) phone takes the same branch before any dispatch. */
+/** Oversize toward a phone leg. The shim (apps/desktop/src/renderer/remote-shim.ts) accepts only `pong` and `resync` as cleartext keys and closes on any other, so the refusal rides `resync`. */
 export function signalPhoneOversize(socket, bytes, limit) {
   try {
     socket.send(
@@ -833,10 +647,6 @@ export function signalPhoneOversize(socket, bytes, limit) {
         resync: 1,
         error: 'frame-too-large',
         bytes,
-        // The stable ceiling of this path in this wire form — the same number the
-        // desktop leg was published, and the only figure a client may keep. A
-        // per-payload measurement would have a client refusing traffic this relay
-        // would have carried.
         limit,
       })
     );
@@ -849,12 +659,7 @@ export function signalPhoneOversize(socket, bytes, limit) {
  *  triggered by the phone's own frames. */
 export const DESKTOP_GONE_NOTICE_INTERVAL_MS = 1_000;
 
-/** The PC's leg is gone and this phone's frames have nowhere to go. Same
- *  cleartext channel and the same reason as signalPhoneOversize: the shim acts
- *  on `resync` before decryption and drops the socket on any other cleartext
- *  key, so the notice is `{"resync":"desktop-gone"}` — an older build just
- *  resyncs. `throttle` caps a notice a phone's own traffic provokes to one per
- *  DESKTOP_GONE_NOTICE_INTERVAL_MS; the close-time notice is unthrottled. */
+/** Tell a phone its desktop leg is gone with `{"resync":"desktop-gone"}` (the shim drops the socket on any other cleartext key). `throttle` limits a notice provoked by the phone's own frames to one per DESKTOP_GONE_NOTICE_INTERVAL_MS. */
 export function signalPhoneDesktopGone(socket, throttle = false) {
   if (socket.readyState !== socket.OPEN) return;
   const now = Date.now();
@@ -867,10 +672,7 @@ export function signalPhoneDesktopGone(socket, throttle = false) {
   }
 }
 
-/** Oversize toward the DESKTOP leg. The desktop is what answers phone RPCs, so
- *  name the client whose call produced the refused frame whenever that can be
- *  read without touching the payload: only the desktop can hand that phone an
- *  answer it is able to decrypt. */
+/** Oversize toward the desktop leg, naming the client whose frame was refused when that is readable without the payload. */
 export function signalDesktopOversize(socket, bytes, limit, raw, binary) {
   const clientId = oversizeFrameClientId(raw, binary);
   try {
@@ -887,20 +689,7 @@ export function signalDesktopOversize(socket, bytes, limit, raw, binary) {
   }
 }
 
-/** Name the client a refused frame belongs to — and name one ONLY when that is
- *  the client the frame's OWN router would have delivered it to.
- *
- *  Each wire form is answered by the decoder that routes it. A binary frame
- *  carries its id in a fixed header and is decoded by `decodeRelayBinaryFrame`,
- *  the same call that routes it, so bytes that decoder refuses — JSON-shaped
- *  bytes sent on the binary lane, a bad magic, an id of the wrong length —
- *  reach no client and are attributed to none. A text frame is routed by
- *  `JSON.parse`, so that is what reads its id.
- *
- *  Attribution is a courtesy on a frame being thrown away: a misattributed
- *  refusal makes the desktop fail somebody else's call, while an unattributed
- *  one it treats as "not mine to fail". Naming nobody is always available, so
- *  every uncertainty resolves that way. */
+/** The client a refused frame would have been routed to by its own wire form's router (binary: `decodeRelayBinaryFrame`, text: `JSON.parse`), or '' when none. */
 function oversizeFrameClientId(raw, binary = false) {
   if (!Buffer.isBuffer(raw) || raw.length < 8) return '';
   if (binary) {
@@ -912,22 +701,7 @@ function oversizeFrameClientId(raw, binary = false) {
   return routedClientId(raw);
 }
 
-/** The `clientId` this frame would be ROUTED to, or '' when it would be routed
- *  to nobody.
- *
- *  It is the router's decision, taken with the router's own tool. The text lane
- *  routes by `JSON.parse` (`handleDesktopFrame` in relay-legs.mjs) and reads `clientId` off the
- *  result, so every question about what JSON accepts — duplicate keys, escapes,
- *  control bytes, primitive tokens, matching delimiters, trailing bytes — is
- *  answered by the parser instead of being re-litigated here. Every re-
- *  implementation of that answer this relay has tried diverged from it
- *  somewhere, and each divergence named an innocent client.
- *
- *  A frame the parser rejects, one that is not an object, and one whose id is
- *  not an id this relay hands out are all attributed to nobody. No size bound
- *  guards this: the transport already destroys anything past its own ceiling,
- *  and the routing path parses the very same bytes, so refusing to parse here
- *  would only un-attribute refusals the router itself can attribute. */
+/** The `clientId` the text router (`handleDesktopFrame` in relay-legs.mjs) would route this frame to, or '' when it would reach nobody. */
 export function routedClientId(bytes) {
   if (!Buffer.isBuffer(bytes)) return '';
   let envelope;

@@ -1,21 +1,3 @@
-/**
- * What a page of the browser partition reads to tell Chrome from an embedded
- * Chromium, made to read as Chrome's own. Runs in the page's world before its
- * scripts, in every frame, and defines no global of its own:
- *
- * - `window.chrome` carries `loadTimes`, `csi` and `app` as Chrome does, with
- *   values derived from the page's own navigation timing.
- * - A permission nobody decided reads as Chrome's default, `prompt`
- *   (`default` for `Notification.permission`), rather than the `denied` the
- *   embedding answers until a person allows it. The host says which are
- *   undecided; a permission a person refused stays `denied`. The engine's own
- *   answer is kept everywhere Chrome would say `denied` too: an insecure page
- *   and a cross-origin frame.
- *
- * Each function is a call trap over a function of the engine, so `toString`
- * prints native code and names, arities and prototypes stay the engine's.
- */
-
 /** Permissions a fresh Chrome profile answers `prompt` for, as a
  *  `PermissionStatus` names them (the engine's own names, which differ from
  *  the query names for some: `camera` is `video_capture`). Any other (one

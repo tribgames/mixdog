@@ -11,11 +11,6 @@ import {
 import { MarkdownBlock } from './markdown-block';
 import { type BlockParking, MarkdownBlockParkingContext, UNIT_ATTRIBUTE } from './markdown-block-parking';
 
-// A code block is one block of its reply, so the reply's parking keeps all of
-// it in the DOM while any of it is near the reader (a 60k-character block held
-// 28k elements, ~170 MB). Its lines are held in stretches instead, each a
-// block of its own inside the card, parked like the reply's blocks.
-
 /** Lines in one stretch: about a viewport of them. */
 const STRETCH_LINES = 40;
 

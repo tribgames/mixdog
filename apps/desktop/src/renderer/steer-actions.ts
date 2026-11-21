@@ -69,10 +69,6 @@ type DraftRestoreOptions = Parameters<ComposerDraftHandoff['restore']>[1];
 /** The conversation an action started in, captured when it started. */
 type DraftOrigin = { scope: string; recoveryScope: string };
 
-/** A message this pane sent, as the record the editor restores from: its
- *  words with their attachment tokens, the pasted images with their bytes
- *  (the content's image parts, in order), pasted / attached texts and the
- *  PDF / Office parts. */
 function promptRestoreRecord(content: DesktopPromptContent, options?: DesktopSubmitOptions): RecordValue {
   const pastedTexts = options?.pastedTexts ? { pastedTexts: options.pastedTexts } : {};
   // A text-only message still carries its pasted texts and text files.
@@ -93,12 +89,6 @@ function promptRestoreRecord(content: DesktopPromptContent, options?: DesktopSub
 
 let parkedSequence = 0;
 
-/** Returns a taken-back message — its words and its attachments — to the
- *  editor of the conversation it was taken from. The pane is reused across
- *  sessions, so when its editor shows another conversation by the time the
- *  action completes, the message waits as that conversation's recovery and
- *  is handed back when it is shown again; it never lands in another
- *  session's editor. `ifEmpty` holds there too: nothing typed or stashed. */
 function restoreDraft(
   draft: { current: ComposerDraftHandoff | null },
   origin: DraftOrigin,
@@ -129,6 +119,28 @@ function restoreDraft(
   rejectComposerSubmissionRecovery(id);
 }
 
+function useSteerVisibility(steerItems: PendingPromptItem[]) {
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(NO_IDS);
+  const [sending, setSending] = useState<ReadonlySet<string>>(NO_IDS);
+  useEffect(() => {
+    const live = new Set(steerItems.map((item) => String(item.id)));
+    const prune = (current: ReadonlySet<string>) => {
+      const next = [...current].filter((id) => live.has(id));
+      return next.length === current.size ? current : new Set(next);
+    };
+    setHidden(prune);
+    setSending(prune);
+  }, [steerItems]);
+  const visibleSteerItems = useMemo(() => {
+    if (!hidden.size && !sending.size) return steerItems;
+    const items = steerItems
+      .filter((item) => !hidden.has(String(item.id)))
+      .map((item) => (sending.has(String(item.id)) ? { ...item, steer: 'sending' as const } : item));
+    return items.length ? items : NO_ITEMS;
+  }, [hidden, sending, steerItems]);
+  return { visibleSteerItems, setHidden, setSending };
+}
+
 export function useSteerActions({
   steerItems,
   busy,
@@ -153,26 +165,7 @@ export function useSteerActions({
   onTaken: (ids: string[]) => void;
 }) {
   const { invokeCapability } = useComposerCapability({ invokeResult, applySnapshot, sessionId });
-  // Taken back (hidden until the queue publication catches up) and being
-  // sent now (the action row gives way while the turn stops).
-  const [hidden, setHidden] = useState<ReadonlySet<string>>(NO_IDS);
-  const [sending, setSending] = useState<ReadonlySet<string>>(NO_IDS);
-  useEffect(() => {
-    const live = new Set(steerItems.map((item) => String(item.id)));
-    const prune = (current: ReadonlySet<string>) => {
-      const next = [...current].filter((id) => live.has(id));
-      return next.length === current.size ? current : new Set(next);
-    };
-    setHidden(prune);
-    setSending(prune);
-  }, [steerItems]);
-  const visibleSteerItems = useMemo(() => {
-    if (!hidden.size && !sending.size) return steerItems;
-    const items = steerItems
-      .filter((item) => !hidden.has(String(item.id)))
-      .map((item) => (sending.has(String(item.id)) ? { ...item, steer: 'sending' as const } : item));
-    return items.length ? items : NO_ITEMS;
-  }, [hidden, sending, steerItems]);
+  const { visibleSteerItems, setHidden, setSending } = useSteerVisibility(steerItems);
   const latest = useRef({ steerItems, busy, sessionId, invokeCapability, abort, submit, onTaken });
   latest.current = { steerItems, busy, sessionId, invokeCapability, abort, submit, onTaken };
   const draft = useRef<ComposerDraftHandoff | null>(null);

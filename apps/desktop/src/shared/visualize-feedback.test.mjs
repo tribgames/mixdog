@@ -201,22 +201,34 @@ test('the page never makes a pin: it only describes the element under a pick poi
   assert.equal(pick.masksOverflow, false);
   assert.equal(typeof pick.styles.display, 'string');
   assert.deepEqual(pick.view, { x: 0, y: 0, width: 200, height: 100 });
+});
 
-  // A unique id is used; known key shapes are redacted.
+test('a pick uses the element id as its selector and redacts known key shapes in its name', async (t) => {
+  const { document, sent, api, frames, at } = page(t, `<main><button id="go">Rename ${OPENAI_KEY}</button></main>`);
+  await frames();
+  api.apply({ type: 'state', comment: true, markers: [] });
   at(document.getElementById('go'));
   api.apply({ type: 'pick', id: 'req-2', x: 1, y: 1 });
   assert.equal(sent.at(-1).pick.selector, '#go');
   assert.equal(sent.at(-1).pick.role, 'button');
   assert.equal(sent.at(-1).pick.name, 'Rename [redacted]');
   assert.match(sent.at(-1).pick.html, /Rename \[redacted\]/);
+});
 
-  // Nothing under the point (or the overlay itself): no answer.
+test('a pick with nothing under the point gets no answer', async (t) => {
+  const { sent, api, frames, at } = page(t, '<p>x</p>');
+  await frames();
+  api.apply({ type: 'state', comment: true, markers: [] });
   at(null);
   const count = sent.length;
   api.apply({ type: 'pick', id: 'req-3', x: 1, y: 1 });
   assert.equal(sent.length, count);
+});
 
-  // Esc inside the page leaves Comment mode through the panel.
+test('Esc inside the page leaves Comment mode through the panel', async (t) => {
+  const { document, sent, api, frames } = page(t, '<p>x</p>');
+  await frames();
+  api.apply({ type: 'state', comment: true, markers: [] });
   document.body.dispatchEvent(new document.defaultView.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   assert.equal(sent.at(-1).type, 'exit-comment');
 });
@@ -282,18 +294,24 @@ test('hover shows a human label; Alt+Up/Down move the target, and a pick takes i
   api.apply({ type: 'hover-step', dir: 'down' });
   await frames();
   assert.match(overlay().querySelector('.tag').textContent, /^글자/);
+});
 
-  // The element a comment is written for is outlined as selected, without a hover label.
+test('the element a comment is written for is outlined as selected without a hover label; a pin number picks its element', async (t) => {
+  const { document, sent, api, frames, at, overlay } = page(
+    t,
+    '<section id="card"><div class="foot"><button id="save"><span id="label">Save</span></button></div></section>'
+  );
+  document.getElementById('save').parentElement.getBoundingClientRect = box(0, 0, 200, 40);
+  api.apply({ type: 'state', comment: true, markers: [] });
   api.apply({ type: 'select', selector: '#save' });
   await frames();
   assert.equal(overlay().querySelectorAll('.box.sel').length, 1);
   assert.equal(overlay().querySelector('.tag'), null);
 
-  // A click on a pin's number picks that pin's element.
   api.apply({ type: 'select', selector: null });
   api.apply({ type: 'state', comment: true, markers: [{ n: 1, selector: '#card > div' }] });
   await frames();
-  at(label);
+  at(document.getElementById('label'));
   api.apply({ type: 'pick', id: 'r2', x: 5, y: 5 });
   assert.equal(sent.at(-1).pick.selector, '#card > div');
 });
@@ -326,7 +344,9 @@ test('measure counts the outermost elements inside an area and masks the secret 
   const count = sent.length;
   api.apply({ type: 'measure', id: 'm2', rect: { x: 'no' } });
   assert.equal(sent.length, count, 'a malformed area gets no answer');
+});
 
+test('a measured message from the page is bounded and its anchor clamped into the element', () => {
   const parsed = visualizeFeedbackPageMessage({ ...tag, type: 'measured', id: 'm', count: 1e9, masks: 'x' });
   assert.deepEqual(parsed, { type: 'measured', id: 'm', count: 10_000, masks: [], masksOverflow: true, anchor: null });
   const anchored = (anchor) =>
@@ -354,11 +374,9 @@ test('measure counts the outermost elements inside an area and masks the secret 
   }
 });
 
-test('a dragged area is anchored to the smallest element holding it; the page draws it from that element now', async (t) => {
-  const { document, window, sent, api, frames, overlay } = page(
-    t,
-    '<main id="main"><section id="card"><p id="txt">Hello</p></section></main>'
-  );
+function regionPage(t) {
+  const pageApi = page(t, '<main id="main"><section id="card"><p id="txt">Hello</p></section></main>');
+  const { document, sent, api } = pageApi;
   const card = document.getElementById('card');
   document.documentElement.getBoundingClientRect = box(0, 0, 800, 2000);
   document.body.getBoundingClientRect = box(0, 0, 800, 2000);
@@ -366,7 +384,11 @@ test('a dragged area is anchored to the smallest element holding it; the page dr
   card.getBoundingClientRect = box(100, 100, 400, 300);
   document.getElementById('txt').getBoundingClientRect = box(110, 110, 100, 20);
   api.apply({ type: 'measure', id: 'm1', rect: { x: 150, y: 175, width: 200, height: 150 } });
-  const { anchor } = sent.at(-1);
+  return { ...pageApi, card, anchor: sent.at(-1).anchor };
+}
+
+test('a dragged area is anchored to the smallest element holding it', (t) => {
+  const { anchor } = regionPage(t);
   assert.equal(anchor.selector, '#card');
   assert.deepEqual(anchor.rect, { x: 0.125, y: 0.25, width: 0.5, height: 0.5 });
   assert.deepEqual(
@@ -374,6 +396,10 @@ test('a dragged area is anchored to the smallest element holding it; the page dr
     ['#main', '#card'],
     'its human path: ancestors, then itself'
   );
+});
+
+test('the page draws an anchored region from its element and follows it, its number reopens the pin', async (t) => {
+  const { window, sent, api, frames, overlay, card, anchor } = regionPage(t);
 
   // The page draws the region and its number from the element's live box.
   api.apply({

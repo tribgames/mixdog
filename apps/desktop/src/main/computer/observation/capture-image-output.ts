@@ -1,7 +1,3 @@
-/**
- * The image half of a capture reply: frame fields and the SOM overlay burned
- * into the screenshot, and the optional hand-off of the pixels to a file.
- */
 import { DEFAULT_SCREENSHOT_QUALITY, elapsedMs } from '../shared/common';
 import { persistFrameImage } from '../../frame-files';
 import { renderSomOverlay } from './som-overlay';

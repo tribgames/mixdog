@@ -5,10 +5,7 @@ import { promisify } from 'node:util';
 
 const execute = promisify(execFile);
 
-// Win32/Electron toasts cannot use an arbitrary WAV as toast audio. Play in
-// Windows' SYSTEM notification audio session, not a renderer/media session.
-// Read policy at playback time and fail closed on any query error. No registry
-// writes, volume changes, or default-beep fallback.
+// Win32/Electron toasts cannot use an arbitrary WAV as toast audio, so it plays in Windows' SYSTEM notification audio session.
 const WINDOWS_SOUND = String.raw`
 $ErrorActionPreference = 'Stop'
 function Skip([string] $reason) {

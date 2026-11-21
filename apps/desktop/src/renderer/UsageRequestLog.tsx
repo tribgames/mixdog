@@ -1,8 +1,3 @@
-/**
- * The request log: every model request in a period, newest first, read-only.
- * The ledger keeps all history, so rows arrive a page at a time and the next
- * page is read when the end of the list scrolls into view.
- */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { agentRoleLabel } from './agent-activity-model';
 import { readUsageRequestPage } from './command-surface-cache';

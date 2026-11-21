@@ -1,7 +1,3 @@
-// Recent-list unread dots. Seen state is a per-session MESSAGE COUNT (v2) in
-// localStorage: only message growth that lands while the surface is unread —
-// hidden, unfocused, or showing another session — earns a dot, so housekeeping
-// saves never re-dot a checked row.
 import { useCallback, useRef, useState, type MutableRefObject } from 'react';
 
 import type { DesktopSessionSummary } from '../shared/contract';
@@ -13,12 +9,8 @@ const LEGACY_TIMESTAMP_KEY = 'mixdog.desktop.session-last-seen';
 // suppress the dot forever, so absurd values are dropped and re-baselined.
 const MAX_PLAUSIBLE_COUNT = 1e7;
 
-/** Reading requires ATTENTION, not mere presence on screen: the surface must be
- *  visible AND focused. A desktop window sitting behind another app, or a phone
- *  whose tab lost focus, is not being read — a turn that completes there keeps
- *  its dot and the Agents pane's completion notice (user: 작업 완료 후 읽지도
- *  않았는데 대기중). Both surfaces run this same renderer, so the rule is one.
- *  A host without `hasFocus` degrades to visibility alone. */
+/** Reading requires attention: the surface is visible AND focused. A host
+ *  without `hasFocus` degrades to visibility alone. */
 export function sessionSurfaceEngaged(): boolean {
   if (typeof document === 'undefined') return false;
   if (document.visibilityState !== 'visible') return false;
@@ -30,14 +22,6 @@ function sharedReadCount(row: DesktopSessionSummary): number {
   return Number.isInteger(value) && value >= 0 && value <= MAX_PLAUSIBLE_COUNT ? value : 0;
 }
 
-/** A seen count is in the numbering of the `compactCount` it was recorded
- *  under, and a compaction trims a session's live messages and restarts that
- *  numbering. A count recorded under another one follows the shared cursor,
- *  which the host restarts with it (the turn that compacted stays unread). A
- *  count from before the epoch was recorded is lowered to the row's message
- *  count only when the session is known compacted and that count is a real
- *  one below it. A row without a `compactCount` settles nothing. Returns
- *  whether the seen count or its epoch changed. */
 function settleSeen(
   seen: Map<string, number>,
   epochs: Map<string, number>,
@@ -138,6 +122,50 @@ export function resolveUnreadViewedSessionId({
   return sidebarOpen || dockOpen || bottomPanelOpen || settingsOpen ? '' : target;
 }
 
+/** The per-session seen message counts (and the compaction epoch each was
+ *  recorded under, see settleSeen), persisted to localStorage. */
+function createSeenStore() {
+  let counts: Map<string, number> | null = null;
+  const epochs = new Map<string, number>();
+  return {
+    epochs,
+    load(): Map<string, number> {
+      if (counts) return counts;
+      const map = new Map<string, number>();
+      try {
+        window.localStorage.removeItem(LEGACY_TIMESTAMP_KEY);
+        const raw = window.localStorage.getItem(SEEN_COUNTS_KEY);
+        const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+        for (const [id, at] of Object.entries(parsed || {})) {
+          const value = Number(at);
+          if (Number.isFinite(value) && value >= 0 && value < MAX_PLAUSIBLE_COUNT) map.set(id, value);
+        }
+        const rawEpochs = window.localStorage.getItem(SEEN_EPOCHS_KEY);
+        const parsedEpochs = rawEpochs ? (JSON.parse(rawEpochs) as Record<string, unknown>) : null;
+        for (const [id, at] of Object.entries(parsedEpochs || {})) {
+          if (Number.isSafeInteger(at) && (at as number) >= 0) epochs.set(id, at as number);
+        }
+      } catch {
+        // Unread markers degrade to in-memory tracking without persistent storage.
+      }
+      counts = map;
+      return map;
+    },
+    // The epoch map is written only when an epoch changed: a count-only change
+    // must not reserialize every session's epoch.
+    persist(map: Map<string, number>, epochsChanged: boolean) {
+      try {
+        window.localStorage.setItem(SEEN_COUNTS_KEY, JSON.stringify(Object.fromEntries(map)));
+        if (epochsChanged) {
+          window.localStorage.setItem(SEEN_EPOCHS_KEY, JSON.stringify(Object.fromEntries(epochs)));
+        }
+      } catch {
+        // Unread markers degrade to in-memory tracking without persistent storage.
+      }
+    },
+  };
+}
+
 export function useUnreadSessions({
   viewedSessionRef,
   screenSessionIdsRef,
@@ -153,45 +181,7 @@ export function useUnreadSessions({
   // message-count update: track working -> settled transitions too.
   const previousWorkingSessionIds = useRef<ReadonlySet<string>>(new Set());
   const sharedReadRevisions = useRef<Map<string, number>>(new Map());
-  const sessionLastSeen = useRef<Map<string, number> | null>(null);
-  // The compaction count each seen count was recorded under (see settleSeen).
-  const sessionSeenEpochs = useRef<Map<string, number>>(new Map());
-
-  const loadSeen = useCallback(() => {
-    if (sessionLastSeen.current) return sessionLastSeen.current;
-    const map = new Map<string, number>();
-    try {
-      window.localStorage.removeItem(LEGACY_TIMESTAMP_KEY);
-      const raw = window.localStorage.getItem(SEEN_COUNTS_KEY);
-      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
-      for (const [id, at] of Object.entries(parsed || {})) {
-        const value = Number(at);
-        if (Number.isFinite(value) && value >= 0 && value < MAX_PLAUSIBLE_COUNT) map.set(id, value);
-      }
-      const rawEpochs = window.localStorage.getItem(SEEN_EPOCHS_KEY);
-      const parsedEpochs = rawEpochs ? (JSON.parse(rawEpochs) as Record<string, unknown>) : null;
-      for (const [id, at] of Object.entries(parsedEpochs || {})) {
-        if (Number.isSafeInteger(at) && (at as number) >= 0) sessionSeenEpochs.current.set(id, at as number);
-      }
-    } catch {
-      // Unread markers degrade to in-memory tracking without persistent storage.
-    }
-    sessionLastSeen.current = map;
-    return map;
-  }, []);
-
-  // The epoch map is written only when an epoch changed: a count-only change
-  // must not reserialize every session's epoch.
-  const persistSeen = useCallback((map: Map<string, number>, epochsChanged: boolean) => {
-    try {
-      window.localStorage.setItem(SEEN_COUNTS_KEY, JSON.stringify(Object.fromEntries(map)));
-      if (epochsChanged) {
-        window.localStorage.setItem(SEEN_EPOCHS_KEY, JSON.stringify(Object.fromEntries(sessionSeenEpochs.current)));
-      }
-    } catch {
-      // Unread markers degrade to in-memory tracking without persistent storage.
-    }
-  }, []);
+  const [seenStore] = useState(createSeenStore);
 
   const commitUnread = useCallback((next: ReadonlySet<string>) => {
     const current = unreadSessionIdsRef.current;
@@ -212,7 +202,7 @@ export function useUnreadSessions({
 
   const reconcileUnreadSessions = useCallback(
     (rows: DesktopSessionSummary[]) => {
-      const seen = loadSeen();
+      const seen = seenStore.load();
       const activeId = viewedSessionRef.current;
       const screenIds = new Set(screenSessionIdsRef?.current);
       const liveIds = new Set(rows.map((row) => row.id));
@@ -221,10 +211,6 @@ export function useUnreadSessions({
         [...previousWorkingSessionIds.current].filter((id) => liveIds.has(id) && !workingIds.has(id))
       );
       previousWorkingSessionIds.current = workingIds;
-      // "Viewed" means the surface is on screen AND focused (see
-      // sessionSurfaceEngaged), in any visible pane, focused or not. A bot's
-      // task session (and the sub-agents under it) is also read with the chat
-      // it reports to: reading that chat reads them.
       const engaged = sessionSurfaceEngaged();
       const upperOf = readWithMap(rows);
       const onScreen = (id: string) => id === activeId || screenIds.has(id);
@@ -234,7 +220,7 @@ export function useUnreadSessions({
       for (const id of [...seen.keys()]) {
         if (liveIds.has(id)) continue;
         seen.delete(id);
-        if (sessionSeenEpochs.current.delete(id)) epochsDirty = true;
+        if (seenStore.epochs.delete(id)) epochsDirty = true;
         dirty = true;
       }
       for (const id of [...sharedReadRevisions.current.keys()]) {
@@ -252,7 +238,7 @@ export function useUnreadSessions({
         if (sharedReadClearsUnread(row, priorRevision)) remotelyReadIds.add(row.id);
         const sharedCount = sharedReadCount(row);
         let last = seen.get(row.id);
-        if (settleSeen(seen, sessionSeenEpochs.current, row, sharedCount)) {
+        if (settleSeen(seen, seenStore.epochs, row, sharedCount)) {
           dirty = true;
           epochsDirty = true;
           last = seen.get(row.id);
@@ -286,7 +272,7 @@ export function useUnreadSessions({
         }
         if (count > last && !noNewIncoming(row, last)) unread.add(row.id);
       }
-      if (dirty) persistSeen(seen, epochsDirty);
+      if (dirty) seenStore.persist(seen, epochsDirty);
       // Preserve completion-only dots across later catalog pushes until the row
       // is viewed on either surface. A shared revision advance consumes them.
       for (const id of unreadSessionIdsRef.current) {
@@ -299,19 +285,14 @@ export function useUnreadSessions({
       }
       commitUnread(unread);
     },
-    [commitUnread, loadSeen, persistSeen, publishRead, screenSessionIdsRef, viewedSessionRef]
+    [commitUnread, seenStore, publishRead, screenSessionIdsRef, viewedSessionRef]
   );
 
-  // Viewing a session consumes its marker — but only while the surface is
-  // engaged, so a selected session in a hidden or unfocused window keeps its
-  // dot. The caller fires this from an effect once the selection is known, and
-  // again whenever focus returns. The sessions read with it (a bot chat's task
-  // sessions and their sub-agents: readAlong) are consumed with it.
   const consumeUnread = useCallback(
     (viewedSessionId: string, sessions: DesktopSessionSummary[]) => {
       if (!viewedSessionId) return;
       if (!sessionSurfaceEngaged()) return;
-      const seen = loadSeen();
+      const seen = seenStore.load();
       const upperOf = readWithMap(sessions);
       const along = sessions
         .filter((session) => session.id !== viewedSessionId)
@@ -324,7 +305,7 @@ export function useUnreadSessions({
       const rowById = new Map(sessions.map((session) => [session.id, session]));
       for (const id of [viewedSessionId, ...along]) {
         const row = rowById.get(id);
-        if (row && settleSeen(seen, sessionSeenEpochs.current, row, sharedReadCount(row))) {
+        if (row && settleSeen(seen, seenStore.epochs, row, sharedReadCount(row))) {
           dirty = true;
           epochsDirty = true;
         }
@@ -337,10 +318,10 @@ export function useUnreadSessions({
         if (row) publishRead(row, count, consumedUnread);
         next.delete(id);
       }
-      if (dirty) persistSeen(seen, epochsDirty);
+      if (dirty) seenStore.persist(seen, epochsDirty);
       if (next.size !== current.size) commitUnread(next);
     },
-    [commitUnread, loadSeen, persistSeen, publishRead]
+    [commitUnread, seenStore, publishRead]
   );
 
   return { unreadSessionIds, reconcileUnreadSessions, consumeUnread };

@@ -1,8 +1,3 @@
-// How a `visualize` call reads on its transcript row and its chat card: its
-// arguments, the tab an open reported, the live panel tab a card stands for,
-// and the title later rows name that tab by. Pure (but for the small
-// newest-card registry), so it is testable without a DOM;
-// `transcript-visualize-card.tsx` draws the card.
 import {
   VISUALIZE_INLINE_KINDS,
   type VisualizeInlineContent,
@@ -370,7 +365,7 @@ function showsCall(tab: VisualizeTabView, call: VisualizeCardCall): boolean {
 
 /** The live panes; a tab stepped back to a kept version shows only that
  *  version's panes, and is still the same tab. */
-function livePanes(tab: VisualizeTabView): VisualizeTabView['panes'] {
+export function livePanes(tab: VisualizeTabView): VisualizeTabView['panes'] {
   const current = tab.panes.filter((pane) => pane.version === undefined);
   return current.length ? current : tab.panes;
 }
@@ -469,12 +464,8 @@ export function visualizeCardOwnVersion(
   tab: VisualizeTabView | null = null
 ): number {
   if (newest) {
-    // Only once the card is known as its tab's newest (not merely unseen, as
-    // every card is on a reloaded renderer's first draw), and only the first
-    // version: a later turn's end moves the tab on before this card learns it
-    // is no longer the newest.
-    const known = newestCards.get(sessionId)?.get(call.tabId)?.id === call.id;
-    if (known && live && !cardVersions.has(call.id)) cardVersions.set(call.id, live);
+    const recordedNewest = newestCards.get(sessionId)?.get(call.tabId)?.id === call.id;
+    if (recordedNewest && live && !cardVersions.has(call.id)) cardVersions.set(call.id, live);
     // A closed tab has no live version: the card keeps the one it showed.
     return live || (cardVersions.get(call.id) ?? call.version ?? 0);
   }

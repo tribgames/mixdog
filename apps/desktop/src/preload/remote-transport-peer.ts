@@ -1,11 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-// The direct-transport peer host's preload: its two channels only (main listens
-// on this window's webContents.ipc), never the app's DesktopApi. The names are
-// REMOTE_TRANSPORT_PEER_IPC (main/remote-transport/peer-window.ts); that module
-// loads Electron's main-process API, so a sandboxed preload cannot import it.
-// Payloads are forwarded as they are: carrier bytes stay Uint8Array (structured
-// clone, no base64), and main validates every event.
+// Names duplicate REMOTE_TRANSPORT_PEER_IPC (main/remote-transport/peer-window.ts): that module loads Electron's
+// main-process API, which a sandboxed preload cannot import.
 const COMMAND = 'remote-transport-peer:command';
 const EVENT = 'remote-transport-peer:event';
 

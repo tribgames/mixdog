@@ -135,6 +135,9 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   createdAt: number | string | null;
   updatedAt: number | string | null;
   idleSince?: number | string | null;
+  /** The settle identity the core fixed and stored for this child's settled outcome; it never changes for that
+   *  outcome. Null while the row works or is not settled; a Lead row carries none. */
+  settledAt?: number | string | null;
   reapAt?: number | string | null;
   cwd: string | null;
   clientHostPid: number | null;
@@ -332,12 +335,9 @@ export type DesktopSessionStateUpdate = {
    *  a replay re-carries the revision of the frame it was derived from, so a
    *  stale disk projection delivered late can never claim to be newer. */
   contentRevision?: number;
-  /** Why this frame carried a NULL snapshot. Only 'gone' is a real teardown.
-   *  The daemon reclaims an unwatched idle session's memory ('unloaded') and a
-   *  dropped daemon transport ('disconnected') both leave the transcript on
-   *  disk and reload on demand, so a cached lane must SURVIVE them — dropping
-   *  it repainted a live task as an empty New Task
-   *  (user: 진행중인 TASK창이 갑자기 NEWTASK처럼 아예 비어버린다). */
+  /** Why this frame carried a NULL snapshot. Only 'gone' is a real teardown;
+   *  'unloaded' (idle session reclaimed) and 'disconnected' (daemon transport
+   *  dropped) leave the transcript on disk, so a cached lane must survive them. */
   laneEnd?: DesktopSessionLaneEnd;
   /** The session feed position the published state is current at: what the lane has folded, every notification counted (those
    *  that schedule no frame too). A live publication of a followed thread carries it, so a call's preview ends exactly when

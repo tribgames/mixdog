@@ -91,10 +91,7 @@ export class CdpClient {
   }
 }
 
-/** Polls the CDP target list until the renderer page is debuggable. `pollMs`
- *  is the caller's own interval; each request is bounded by the time left on
- *  the deadline, so a CDP socket that accepts and then hangs cannot outlive
- *  it. */
+/** Polls the CDP target list until the renderer page is debuggable; each request is bounded by the remaining deadline. */
 export async function waitForTarget(port, child, { pollMs = 50, timeoutMs = 30_000 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

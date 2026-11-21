@@ -39,22 +39,7 @@ export function usePlainBrowserChrome(): boolean {
   return !isElectronRenderer() && !phoneLayout && !captionOverlay;
 }
 
-export function DesktopTitlebar() {
-  // The - ㅁ x caption reserve exists only where the window really draws
-  // native caption controls over the page (Window Controls Overlay: the
-  // Windows/Linux main window and other-PC windows). A browser tab, a phone or
-  // macOS has none, and a reserve there only steals the title row.
-  const phoneLayout = useMobileRemoteSurface();
-  const windowsCaptionControls = useWindowControlsOverlayVisible();
-  const bandless = usePlainBrowserChrome();
-  // Band-height consumers (floating side sheet, backdrop, dialogs) read
-  // --titlebar-height; the root marker zeroes it while no band renders.
-  useLayoutEffect(() => {
-    if (!bandless) return undefined;
-    const root = document.documentElement;
-    root.setAttribute('data-mixdog-titlebar', 'hidden');
-    return () => root.removeAttribute('data-mixdog-titlebar');
-  }, [bandless]);
+function useWhatsNewDialogs() {
   const { notice, closeNotice } = useWhatsNewNotice(appVersion);
   const [ChangelogDialog, setChangelogDialog] = useState<ComponentType<{ onClose(): void }> | null>(null);
   const closeChangelog = () => setChangelogDialog(null);
@@ -75,7 +60,7 @@ export function DesktopTitlebar() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [ChangelogDialog]);
-  const dialogs = (
+  return (
     <>
       {notice &&
         createPortal(
@@ -85,6 +70,21 @@ export function DesktopTitlebar() {
       {ChangelogDialog && createPortal(<ChangelogDialog onClose={closeChangelog} />, document.body)}
     </>
   );
+}
+
+export function DesktopTitlebar() {
+  const phoneLayout = useMobileRemoteSurface();
+  const windowsCaptionControls = useWindowControlsOverlayVisible();
+  const bandless = usePlainBrowserChrome();
+  // Band-height consumers (floating side sheet, backdrop, dialogs) read
+  // --titlebar-height; the root marker zeroes it while no band renders.
+  useLayoutEffect(() => {
+    if (!bandless) return undefined;
+    const root = document.documentElement;
+    root.setAttribute('data-mixdog-titlebar', 'hidden');
+    return () => root.removeAttribute('data-mixdog-titlebar');
+  }, [bandless]);
+  const dialogs = useWhatsNewDialogs();
   if (bandless) return dialogs;
   return (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the top-level header is the window's banner landmark, which takes a name.

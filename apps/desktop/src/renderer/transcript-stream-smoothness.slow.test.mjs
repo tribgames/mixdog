@@ -1,12 +1,3 @@
-// Streamed-reply smoothness regression gate for the real transcript.
-//
-// A seeded bursty stream (test-support/bursty-stream.mjs) is published through
-// the real session lane store into the real transcript pipeline (rows, virtual
-// list, follow/pin, live markdown) in headless Chrome. The production stream
-// metrics (transcript-stream-metrics.ts, enabled by the scroll-diagnostics
-// flag) sample what is painted every frame; this file only reads their output.
-//
-// See the THRESHOLDS comment for what the gate holds.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -159,10 +150,6 @@ const HARNESS = `
       settled: Boolean(row?.querySelector('article.message.settled')),
     };
   };
-  // The reply has settled and stopped changing (text, row height, scroll
-  // extent) for 20 frames, then the transcript is watched for the quiet
-  // window. It settles once its last fade ended, after its text stopped; one
-  // that never settles is read after 600 frames.
   window.watchQuiet = async (quietMs) => {
     let previous = '';
     let stable = 0;
@@ -349,11 +336,7 @@ function describe({ raw, summary, quiet }) {
   };
 }
 
-// Received text paints as it arrives (use-transcript-text-reveal.ts), so how
-// evenly it grows follows the stream itself; the gate holds what the reveal
-// must never do. Row shrinks and scroll moves after settling have a baseline
-// of zero, so their threshold is zero; the injected-shrink control proves the
-// shrink check can fail.
+// Row shrinks and scroll moves after settling have a baseline of zero.
 const THRESHOLDS = {
   rowShrinks: 0,
   scrollEventsAfterSettle: 0,

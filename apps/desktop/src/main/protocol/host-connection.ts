@@ -1,13 +1,3 @@
-// The host role's `HostConnection` (main/host/connection.ts) over the one protocol connection: core→host server
-// requests are answered through `respond`, core→host notifications and the connection's liveness come from its
-// events. A request the core abandons (`serverRequest/resolved`) or loses with the socket aborts its handler.
-//
-// Nothing a handler throws leaves this file. The events arrive inside the socket's own message callback and are handed to
-// every listener of the connection in turn: a throw from here would be an uncaught exception of the main process (Electron
-// answers one with an error box that holds the process until a person closes it, and the core drops a host that answers no
-// ping), and it would keep the event from the listeners after this one, the claim that follows a reconnect among them. A
-// failed request is answered with its error, as the old bridge server answered `{ ok: false, error }` and kept serving
-// (browser/bridge-server.ts handleCommand); a notification, an answer or a close listener that fails is reported.
 import { HostRpcError } from '../host/connection';
 import type { HostConnection } from '../host/connection';
 import type { ProtocolConnection } from './connection';
@@ -54,11 +44,6 @@ export function createHostConnection(source: Source, onFault: HostFault = () => 
   const requestHandlers = new Map<string, (params: unknown, signal: AbortSignal) => Promise<unknown>>();
   const notificationHandlers = new Map<string, (params: unknown) => void>();
   const closeListeners = new Set<() => void>();
-  // The running requests of one connection by id: the client that asked them (`asker`), until its link goes down or a reopen
-  // replaces it. The core numbers its requests per process (`host-1`, ...), so a restarted core asks under the ids of the one
-  // before. A connection's requests end with it, aborted and forgotten here: a `serverRequest/resolved` of the next connection
-  // reaches only that connection's requests, and an old request that settles late neither answers the next connection nor
-  // removes the entry of a new request under its id.
   const inflight = new Map<string, AbortController>();
   let asker: unknown = null;
   const endInflight = (): void => {

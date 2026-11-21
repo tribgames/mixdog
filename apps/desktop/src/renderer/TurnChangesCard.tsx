@@ -17,6 +17,7 @@ import { showDesktopToast } from './desktop-toasts';
 import { publishReviewInvalidation } from './review-invalidation';
 import { SetiFileIcon } from './SetiFileIcon';
 import { requestSessionDiffFile, requestSessionDiffList } from './session-diff-focus';
+import { DiffStats } from './diff-stats';
 import { isAbsolutePath } from './session-diff-model';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import {
@@ -52,20 +53,6 @@ export type TurnChangesSurface = {
 };
 
 export const TurnChangesContext = createContext<TurnChangesSurface | null>(null);
-
-function DiffStats({ additions, deletions }: { additions: number; deletions: number }) {
-  return (
-    <span className="diff-stats">
-      {additions > 0 && <i>+{additions}</i>}
-      {deletions > 0 && (
-        <em>
-          {'\u2212'}
-          {deletions}
-        </em>
-      )}
-    </span>
-  );
-}
 
 type ActivateChange = (event: ReactMouseEvent, file: TurnChangesFile | null) => void;
 type MutateChanges = (capability: TurnChangesCapability, file: string | null, success: string) => void;
@@ -506,10 +493,7 @@ function TurnChangesCardBody({
   return frame ? frame(card) : card;
 }
 
-/** A turn's changed-files card (Codex-style), after the last turndone of its
- *  checkpoint. Renders nothing outside a session surface, while its turn
- *  runs, or when the runtime reports no (or no longer any) recorded change.
- *  `frame` seats a shown card (agent mode's bubble column). */
+/** A turn's changed-files card; renders nothing outside a session surface, while its turn runs, or without recorded changes. `frame` seats a shown card. */
 export const TurnChangesCard = memo(function TurnChangesCard({
   turnChanges,
   frame,

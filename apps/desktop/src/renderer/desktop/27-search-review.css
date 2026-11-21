@@ -345,7 +345,7 @@
 /* One header grammar: disclosure on the left, a single ordered controls group
    on the right (view mode first, destructive action last). */
 .turn-review-head {
-  min-height: var(--turn-review-head-height, 32px);
+  min-height: 32px;
   display: flex;
   align-items: center;
   border-radius: var(--mx-radius-md);

@@ -1,9 +1,3 @@
-// The remote page's typing field (one textarea) when a press reaches the page
-// mid-composition: a half-typed syllable belongs to the field it was typed
-// into, so it is committed there BEFORE the press can move the page's focus,
-// and the IME's own late commit of it (focus leaving the textarea, the
-// takeover's keyboard re-raise) is swallowed instead of landing in the next
-// field. An empty composition is closed with nothing.
 import { useMemo, useRef, type CompositionEvent, type FormEvent, type KeyboardEvent, type RefObject } from 'react';
 
 type CompositionHandlers = {

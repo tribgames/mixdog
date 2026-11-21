@@ -37,9 +37,8 @@ function insideProject(projectScope: string, path: string): string | null {
 }
 
 /** Candidate files named as `@path` in the user's messages, newest first,
- *  relative to the project, `\` read as `/`. Only tokens ending in `/` (folders)
- *  are skipped here; whether a candidate is a file is the project's to say
- *  (`verifiedMentionedFiles`). */
+ *  project-relative, `\` read as `/`. Folder tokens (ending in `/`) are skipped;
+ *  the rest are verified by `verifiedMentionedFiles`. */
 export function mentionedFilePaths(
   messages: ReadonlyArray<{ text: string }>,
   projectScope: string,

@@ -1,10 +1,3 @@
-/**
- * Chrome remote-debugging setup: the one flow that drives Chrome's own settings
- * UI so Browser Use can attach. It is Computer Use only in the sense that it
- * uses the same host to click; keeping it here leaves the host itself about the
- * desktop contract. It takes exactly what it needs from the host and nothing
- * else, so it can be reasoned about without a live session.
- */
 import {
   chromeOwnedConsentAllowRef,
   chromeNativeAddressField,

@@ -1,9 +1,3 @@
-/**
- * Fixture servers for the browser host integration run: a bare WebSocket
- * echo endpoint, a cross-origin frame document, and the page server whose
- * routes back every scenario (forms, dialogs, downloads, PDFs, stalls).
- * They only serve documents — no scenario state lives here.
- */
 import { createHash } from 'node:crypto';
 import { createServer, type Server, type ServerResponse } from 'node:http';
 
@@ -73,11 +67,6 @@ export function createBrowserFrameFixture(): Server {
   });
 }
 
-/**
- * The scenario page server. `frameOrigin` is read per request because the
- * cross-origin fixture only has a port once it is listening, and the stalled
- * responses are handed back so the caller can destroy them on teardown.
- */
 export function createBrowserPageFixture(frameOrigin: () => string): {
   server: Server;
   stalledResponses: Set<ServerResponse>;

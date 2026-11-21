@@ -1,9 +1,3 @@
-/**
- * Whether a captured frame carries usable pixels. A frame whose shape does not
- * match the target's coordinate space, or that is effectively one flat colour,
- * is refused here so no coordinate frame is ever issued for it. The judgment is
- * decided by the image alone, which is why it lives outside the capture engine.
- */
 import type { NativeImage } from 'electron';
 
 import { pixelUnavailable } from './analysis';

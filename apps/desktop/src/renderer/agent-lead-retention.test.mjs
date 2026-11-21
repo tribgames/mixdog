@@ -1,8 +1,3 @@
-// Finished Leads on the Bots page: the "Keep finished agents" window (1 hour
-// by default, 1 day, 7 days, forever) and pinned Leads that never expire. Both
-// ride in the host-stored bot order (`retain:<choice>`, `pin:<sessionId>`).
-// The pool stops publishing a finished Lead after an hour, so the longer
-// windows and pins list the session itself, as finished.
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React, { act } from 'react';

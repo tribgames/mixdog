@@ -1,21 +1,10 @@
-// The themed replacement for window.confirm: the settings confirm dialog
-// (the one "Close the getting started guide?" uses) behind a promise. It
-// mounts its own root on document.body, so any handler, desktop or phone, can
-// `await confirmAction(message)` without hosting dialog state. React and the
-// dialog load on first use, so importing this module (every call site does)
-// costs nothing, and a test can install its DOM before React starts.
-
 export interface ConfirmActionOptions {
   /** Defaults to the message's first line (or its first question). */
   title?: string;
   /** Style the confirm button as destructive. */
   danger?: boolean;
   confirmLabel?: string;
-  /** The operation's identity (e.g. `discard-all:<repo>`). While a request
-   *  with this key is pending, another call with the same key does not open or
-   *  queue a dialog: it resolves false at once, so only the first caller's
-   *  action ever runs (a double click never executes twice). Requests without
-   *  a key are independent, even with identical text. */
+  /** Operation identity (e.g. `discard-all:<repo>`): a call whose key is already pending resolves false at once, opening and queueing nothing. Keyless requests are independent. */
   key?: string;
   /** Withdraw a confirmation whose premise is no longer current. */
   signal?: AbortSignal;

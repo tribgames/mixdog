@@ -188,27 +188,28 @@ test('the desktop offer carries ICE servers, locked geometry and the relay epoch
   assert.equal(readRemoteWebrtcDesktopSignal({ ...offer, generation: 0 }), null);
 });
 
-test('host, srflx, prflx and relay candidates (and end-of-candidates) are accepted; malformed ones are not', () => {
-  const body = (line) => ({
-    ...ref,
-    type: 'candidate',
-    candidate: { candidate: line, sdpMid: '0', sdpMLineIndex: 0, usernameFragment: 'abcd' },
-  });
-  // Both signaling directions apply the same check: phone→PC (throws) and
-  // PC→phone (null).
-  const read = (line) => {
-    const fromDesktop = readRemoteWebrtcDesktopSignal(body(line));
-    let fromPhone;
-    try {
-      fromPhone = parseRemoteWebrtcClientSignal(body(line)).candidate.candidate;
-    } catch (error) {
-      assert.equal(fromDesktop, null, `PC→phone accepted what phone→PC refused: ${line}`);
-      throw error;
-    }
-    assert.equal(fromDesktop?.candidate.candidate, fromPhone, `PC→phone refused: ${line}`);
-    assert.equal(isRemoteWebrtcCandidateLine(line), true);
-    return fromPhone;
-  };
+const candidateBody = (line) => ({
+  ...ref,
+  type: 'candidate',
+  candidate: { candidate: line, sdpMid: '0', sdpMLineIndex: 0, usernameFragment: 'abcd' },
+});
+
+// Both signaling directions apply the same check: phone→PC (throws) and PC→phone (null).
+const readCandidateBothWays = (line) => {
+  const fromDesktop = readRemoteWebrtcDesktopSignal(candidateBody(line));
+  let fromPhone;
+  try {
+    fromPhone = parseRemoteWebrtcClientSignal(candidateBody(line)).candidate.candidate;
+  } catch (error) {
+    assert.equal(fromDesktop, null, `PC→phone accepted what phone→PC refused: ${line}`);
+    throw error;
+  }
+  assert.equal(fromDesktop?.candidate.candidate, fromPhone, `PC→phone refused: ${line}`);
+  assert.equal(isRemoteWebrtcCandidateLine(line), true);
+  return fromPhone;
+};
+
+test('host, srflx, prflx and relay candidates are accepted in both signaling directions', () => {
   for (const line of [
     'candidate:8 1 tcp 1518280447 192.168.0.10 50002 typ host tcptype passive generation 0',
     'candidate:9 1 TCP 1518280447 192.168.0.10 50003 typ host tcptype so',
@@ -224,14 +225,20 @@ test('host, srflx, prflx and relay candidates (and end-of-candidates) are accept
     'candidate:6 1 udp 1853824767 198.51.100.9 41000 typ prflx raddr 0.0.0.0 rport 0',
     'candidate:7 1 udp 1686052607 ::ffff:198.51.100.4 40000 typ srflx raddr :: rport 0',
   ]) {
-    assert.equal(read(line), line);
+    assert.equal(readCandidateBothWays(line), line);
   }
+});
+
+test('end-of-candidates signals are accepted', () => {
   assert.equal(parseRemoteWebrtcClientSignal({ ...ref, type: 'candidate', candidate: null }).candidate, null);
   assert.equal(
     parseRemoteWebrtcClientSignal({ ...ref, type: 'candidate', candidate: { candidate: '', sdpMid: '0' } }).candidate
       .candidate,
     ''
   );
+});
+
+test('malformed candidate lines are refused in both signaling directions', () => {
   for (const line of [
     'x',
     'candidate:1 1 udp 2122260223 192.168.0.10 50001 typ host\r\na=evil',
@@ -268,7 +275,7 @@ test('host, srflx, prflx and relay candidates (and end-of-candidates) are accept
     'candidate:1 1 udp 2122260223 12345::1 50001 typ host',
     'candidate:1 1 udp 2122260223 ::ffff:192.0.2.256 50001 typ host',
   ]) {
-    assert.throws(() => read(line), undefined, line);
+    assert.throws(() => readCandidateBothWays(line), undefined, line);
     assert.equal(isRemoteWebrtcCandidateLine(line), false, line);
   }
 });
@@ -378,16 +385,19 @@ test('screen sources: screen-input on the channel, a document-less media-ready, 
   );
 });
 
+const helperInfoBase = { offer: 'none', outcome: null, detail: null, issue: null, secure: null };
+const readHelperInfo = (helperInfo) =>
+  readRemoteWebrtcScreenStatus(
+    JSON.stringify({
+      v: REMOTE_WEBRTC_VERSION,
+      kind: 'screen-status',
+      status: { state: 'secure-desktop', reason: 'lock', helper: 'missing', control: false, helperInfo },
+    })
+  )?.status.helperInfo ?? null;
+
 test('screen-status helper block: every offer, outcome and issue; bounded detail; strict otherwise', () => {
-  const base = { offer: 'none', outcome: null, detail: null, issue: null, secure: null };
-  const read = (helperInfo) =>
-    readRemoteWebrtcScreenStatus(
-      JSON.stringify({
-        v: REMOTE_WEBRTC_VERSION,
-        kind: 'screen-status',
-        status: { state: 'secure-desktop', reason: 'lock', helper: 'missing', control: false, helperInfo },
-      })
-    )?.status.helperInfo ?? null;
+  const base = helperInfoBase;
+  const read = readHelperInfo;
   for (const offer of ['install', 'update', 'none']) assert.deepEqual(read({ ...base, offer }), { ...base, offer });
   for (const outcome of [
     'installed',
@@ -443,9 +453,11 @@ test('screen-status helper block: every offer, outcome and issue; bounded detail
   assert.equal(read(undefined), null, 'the block is required');
   // Null stays the explicit "none" of the nullable members.
   assert.deepEqual(read({ ...base, outcome: null, issue: null, secure: null }), base);
+});
 
-  // `accountIsAdmin` is optional: both values round-trip, absent stays absent
-  // (an older PC), and anything but a boolean is refused.
+test('screen-status accountIsAdmin is optional and boolean only', () => {
+  const base = helperInfoBase;
+  const read = readHelperInfo;
   for (const accountIsAdmin of [true, false]) {
     assert.deepEqual(read({ ...base, accountIsAdmin }), { ...base, accountIsAdmin });
   }
@@ -454,8 +466,10 @@ test('screen-status helper block: every offer, outcome and issue; bounded detail
   for (const bad of ['yes', 1, 0, ['true'], {}]) {
     assert.equal(read({ ...base, accountIsAdmin: bad }), null, JSON.stringify(bad));
   }
+});
 
-  // The status's own enums: strings only; `in-use` is a helper state.
+test("screen-status's own enums are strings only and `in-use` is a helper state", () => {
+  const base = helperInfoBase;
   const status = (over) =>
     readRemoteWebrtcScreenStatus(
       JSON.stringify({
@@ -477,11 +491,11 @@ test('screen-status helper block: every offer, outcome and issue; bounded detail
   }
 });
 
-test('helper grants: challenge, grant and install messages, strict and bounded; real keys and signatures pass', async () => {
-  const NONCE = Buffer.alloc(16, 1).toString('base64');
-  const CHALLENGE = Buffer.alloc(16, 0xfb).toString('base64');
+const NONCE = Buffer.alloc(16, 1).toString('base64');
+const CHALLENGE = Buffer.alloc(16, 0xfb).toString('base64');
+
+test('helper challenge: strict and bounded, and the phone reads back what the desktop sends', () => {
   assert.match(CHALLENGE, /[+/]/u, 'the standard alphabet, not base64url');
-  // Desktop: the challenge for the current run; the phone reads it back.
   const challenge = remoteWebrtcScreenHelperChallenge(4, { nonce: NONCE, challenge: CHALLENGE });
   assert.deepEqual(challenge, {
     v: REMOTE_WEBRTC_VERSION,
@@ -523,8 +537,9 @@ test('helper grants: challenge, grant and install messages, strict and bounded; 
     null
   );
   assert.equal(readRemoteWebrtcScreenHelperChallenge(JSON.stringify({ ...challenge, v: 2 })), null);
+});
 
-  // Phone: a real controller key and a real signature of that challenge.
+test('helper grant and install: a real key and signature pass; malformed ones are refused', async () => {
   const key = await generateSecureDesktopControllerKey();
   const signature = await signSecureDesktopGrant(key.privateKey, { nonce: NONCE, challenge: CHALLENGE }, 4);
   const grant = { epoch: 4, challenge: CHALLENGE, signature };
@@ -580,7 +595,7 @@ test('helper grants: challenge, grant and install messages, strict and bounded; 
   assert.throws(parsed({ ...grantMessage, kind: 'screen-helper-grants' }), TypeError);
 });
 
-test('helper install/enroll/revoke carry optional keys and a credential, bounded and never echoed', async () => {
+test('helper install with extra keys and a credential round-trips exactly', async () => {
   const key = await generateSecureDesktopControllerKey();
   const other = await generateSecureDesktopControllerKey();
   const credential = { password: 'p@ss w0rd', user: 'PC\\admin' };
@@ -600,8 +615,10 @@ test('helper install/enroll/revoke carry optional keys and a credential, bounded
     kind: 'screen-helper-install',
     publicKey: key.publicKey,
   });
+});
 
-  // Enroll/revoke: read with their own readers (off the input dispatch path).
+test('helper enroll and revoke are read by their own readers, off the input dispatch path', async () => {
+  const key = await generateSecureDesktopControllerKey();
   for (const [encode, read, kind] of [
     [encodeRemoteWebrtcScreenHelperEnroll, readRemoteWebrtcScreenHelperEnroll, 'screen-helper-enroll'],
     [encodeRemoteWebrtcScreenHelperRevoke, readRemoteWebrtcScreenHelperRevoke, 'screen-helper-revoke'],
@@ -626,9 +643,11 @@ test('helper install/enroll/revoke carry optional keys and a credential, bounded
     encodeRemoteWebrtcScreenHelperInstall(key.publicKey, { credential: { password: 'pw', user: '' } })
   );
   assert.equal(noUser.credential.user, undefined);
+});
 
-  // Bounds: an over-long password or username, too many keys, an empty
-  // password, or an invalid extra key are all refused on encode and read.
+test('helper credentials and keys are bounded: refused on encode and read', async () => {
+  const key = await generateSecureDesktopControllerKey();
+  const other = await generateSecureDesktopControllerKey();
   const longPassword = 'a'.repeat(CREDUI_MAX_PASSWORD_LENGTH + 1);
   const longUser = 'u'.repeat(CREDUI_MAX_USERNAME_LENGTH + 1);
   const tooManyKeys = Array.from({ length: MAX_REMOTE_SCREEN_HELPER_KEYS + 1 }, () => other.publicKey);
@@ -661,9 +680,9 @@ test('helper install/enroll/revoke carry optional keys and a credential, bounded
     ),
     null
   );
+});
 
-  // The credential never rides back to the phone: the status reader (desktop →
-  // phone) has no credential field to carry it.
+test('a helper credential never rides back to the phone in the status', () => {
   const status = readRemoteWebrtcScreenStatus(
     JSON.stringify({
       v: REMOTE_WEBRTC_VERSION,

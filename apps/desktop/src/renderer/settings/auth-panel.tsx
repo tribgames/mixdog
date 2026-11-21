@@ -1,8 +1,3 @@
-// 설정 › 인증 관리: every login Browser Use may use, merging the saved-login
-// vault with the cookie sign-ins, plus the imports and the auto sign-in /
-// chat-save / clear-all controls. Passwords and authenticator keys flow in
-// only: this page shows a site, a username and which secrets are stored, never
-// their values.
 import { Globe, KeyRound, MoreHorizontal, Search } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -25,7 +20,7 @@ import { type AuthFilter, type AuthRow, authCounts, filterAuthRows, mergeAuthRow
 import { loginSavePayload } from './auth-login-draft';
 import { writeDesktopStatus } from './desktop-status-cache';
 import { useDesktopStatus } from './use-desktop-status';
-import { followSettingsReadConnection, startSettingsReadRecovery } from './read-recovery';
+import { watchSettingsRead } from './read-recovery';
 
 type AuthApi = Partial<DesktopApi>;
 
@@ -52,28 +47,13 @@ interface LoginDialogState {
   login: DesktopVaultLogin | null;
 }
 
-export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?: AuthApi; active?: boolean } = {}) {
+/** The vault logins, signed-in sites and linked sign-ins, re-read every time the page is shown (the panel stays
+ *  mounted while hidden, so a mount-only load would keep a stale list). */
+function useAuthLists(api: AuthApi, active: boolean) {
   const [logins, setLogins] = useState<DesktopVaultLogin[] | null>(null);
   const [sites, setSites] = useState<DesktopBrowserSignedInSite[]>([]);
   const [linked, setLinked] = useState<DesktopLinkedSignIn[]>([]);
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<AuthFilter | null>(null);
-  const [visible, setVisible] = useState(INITIAL_ROWS);
-  const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
-  const [dialog, setDialog] = useState<LoginDialogState | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
-  const [importRevision, setImportRevision] = useState(0);
-  const [confirmClear, setConfirmClear] = useState(false);
-  // The three toggles stay hidden only while the settings are unknown; a late or failed first read is corrected by
-  // the next settings announcement.
-  const settings = useDesktopStatus(api, 'settings', active, 10_000);
-  const autoSignIn = settings ? settings.browserAutoSignIn !== false : null;
-  const saveChatLogins = settings ? settings.saveChatLogins !== false : null;
-  const hidDevices = settings ? settings.browserHidDevices === true : null;
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const [readError, setReadError] = useState('');
-
   // Only the newest read lands: an older one answering late never restores
   // a stale list or clears a newer error.
   const listRead = useRef(0);
@@ -99,23 +79,209 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
     },
     [api]
   );
-
-  // Every time the page is shown it re-reads the vault: the panel stays
-  // mounted while hidden, so a mount-only load would keep a stale list.
   useEffect(() => {
     if (!active) return;
-    const recovery = startSettingsReadRecovery(reload, 10_000, true, true);
-    const stopLink = followSettingsReadConnection(api, recovery);
-    refreshList.current = recovery.replace;
-    window.addEventListener('focus', recovery.replace);
+    const watch = watchSettingsRead(api, reload, 10_000);
+    refreshList.current = watch.replace;
     return () => {
       listRead.current += 1;
       refreshList.current = null;
-      stopLink?.();
-      recovery.stop();
-      window.removeEventListener('focus', recovery.replace);
+      watch.stop();
     };
   }, [active, api, reload]);
+  return { logins, sites, linked, readError, listRead, refreshList };
+}
+
+/** The filterable, searchable list of login rows; owns the filter, query and paging state. */
+function LoginList({
+  rows,
+  loaded,
+  noLogins,
+  busy,
+  onOpenMenu,
+}: {
+  rows: AuthRow[];
+  loaded: boolean;
+  noLogins: boolean;
+  busy: boolean;
+  onOpenMenu(row: AuthRow, point: { x: number; y: number }): void;
+}) {
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<AuthFilter | null>(null);
+  const [visible, setVisible] = useState(INITIAL_ROWS);
+  const counts = authCounts(rows);
+  // Until the user picks one, the switch opens on the side that has logins.
+  // The cookie-only option (which also holds the linked sign-ins) disappears
+  // at zero; its filter then falls back.
+  const preferred: AuthFilter = filter ?? (counts.password === 0 && counts.cookies > 0 ? 'cookies' : 'password');
+  const activeFilter: AuthFilter = preferred === 'cookies' && counts.cookies === 0 ? 'password' : preferred;
+  const shown = filterAuthRows(rows, activeFilter, query);
+  const filters: Array<[AuthFilter, string, number]> = [['password', t('Saved password'), counts.password]];
+  if (counts.cookies > 0) filters.push(['cookies', t('Stay signed in only'), counts.cookies]);
+  return (
+    <>
+      {loaded && !noLogins && (
+        <>
+          <div className="auth-seg" role="group" aria-label={t('Logins')}>
+            {filters.map(([value, label, count]) => (
+              <button
+                type="button"
+                key={value}
+                aria-pressed={activeFilter === value}
+                onClick={() => {
+                  setFilter(value);
+                  setVisible(INITIAL_ROWS);
+                }}
+              >
+                {label} {count}
+              </button>
+            ))}
+          </div>
+          <label className="auth-search">
+            <Search size={13} aria-hidden="true" />
+            <input
+              type="search"
+              value={query}
+              placeholder={t('Search sites and usernames')}
+              aria-label={t('Search sites and usernames')}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setVisible(INITIAL_ROWS);
+              }}
+            />
+          </label>
+        </>
+      )}
+      {!loaded ? (
+        <p className="settings-empty mx-empty-state">{t('Loading…')}</p>
+      ) : noLogins ? (
+        <p className="settings-empty mx-empty-state">
+          {t(
+            'No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).'
+          )}
+        </p>
+      ) : shown.length === 0 ? (
+        <p className="settings-empty mx-empty-state">
+          {query.trim() ? t('No results found.') : t('No saved logins yet.')}
+        </p>
+      ) : (
+        <ul className="auth-list">
+          {shown.slice(0, visible).map((row) => (
+            <li key={row.key} className="auth-row">
+              <span className="auth-row-icon" aria-hidden="true">
+                <Globe size={15} />
+              </span>
+              <span className="auth-row-copy">
+                <b>{row.host}</b>
+                <small>
+                  {row.linked && <span className="auth-pill auth-pill-linked">{row.linked.provider}</span>}
+                  {row.username ? <span className="auth-user">{row.username}</span> : null}
+                  {row.hasPassword && (
+                    <span className="auth-pill auth-pill-key">
+                      <KeyRound size={10} aria-hidden="true" /> {t('Password')}
+                    </span>
+                  )}
+                  {row.hasTotp && <span className="auth-pill auth-pill-otp">{t('Authenticator key')}</span>}
+                  {row.cookies > 0 && (
+                    <span className="auth-pill">{t('Cookies {{count}}', { count: row.cookies })}</span>
+                  )}
+                  {row.loggedOut && <span className="auth-pill auth-pill-off">{t('Signed out')}</span>}
+                  <span className="auth-source">· {sourceText(row)}</span>
+                </small>
+              </span>
+              <button
+                type="button"
+                className="auth-row-menu"
+                aria-label={t('Edit login')}
+                disabled={busy}
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  onOpenMenu(row, { x: rect.right, y: rect.bottom });
+                }}
+              >
+                <MoreHorizontal size={15} aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+          {shown.length > visible && (
+            <li>
+              <button type="button" className="auth-more" onClick={() => setVisible((count) => count + INITIAL_ROWS)}>
+                {t('Show {{count}} more', { count: shown.length - visible })}
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
+    </>
+  );
+}
+
+/** The browser sign-in switches; each stays hidden until the settings are known. */
+function BrowserSettingToggles({
+  api,
+  active,
+  onError,
+}: {
+  api: AuthApi;
+  active: boolean;
+  onError(message: string): void;
+}) {
+  const settings = useDesktopStatus(api, 'settings', active, 10_000);
+  const autoSignIn = settings ? settings.browserAutoSignIn !== false : null;
+  const saveChatLogins = settings ? settings.saveChatLogins !== false : null;
+  const hidDevices = settings ? settings.browserHidDevices === true : null;
+  const toggleSetting = (key: 'browserAutoSignIn' | 'saveChatLogins' | 'browserHidDevices', next: boolean) => {
+    // The choice shows while the write is in flight.
+    void writeDesktopStatus(api, 'settings', () => api.updateSetting?.(key, next), { [key]: next }).catch((reason) =>
+      onError(reason instanceof Error ? reason.message : String(reason))
+    );
+  };
+  return (
+    <Group>
+      {autoSignIn !== null && (
+        <ToggleRow
+          title={t('Auto login')}
+          description={t('The agent signs in by itself with saved logins.')}
+          showDescription
+          checked={autoSignIn}
+          onChange={(next) => toggleSetting('browserAutoSignIn', next)}
+        />
+      )}
+      {saveChatLogins !== null && (
+        <ToggleRow
+          title={t('Save logins entered in chat')}
+          description={t('Save logins you enter in chat.')}
+          showDescription
+          checked={saveChatLogins}
+          onChange={(next) => toggleSetting('saveChatLogins', next)}
+        />
+      )}
+      {hidDevices !== null && (
+        <ToggleRow
+          title={t('HID device connections')}
+          description={t(
+            'Sites in the built-in browser can ask to connect a HID device. You pick the device each time.'
+          )}
+          showDescription
+          checked={hidDevices}
+          onChange={(next) => toggleSetting('browserHidDevices', next)}
+        />
+      )}
+    </Group>
+  );
+}
+
+export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?: AuthApi; active?: boolean } = {}) {
+  const { logins, sites, linked, readError, listRead, refreshList } = useAuthLists(api, active);
+  const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
+  const [dialog, setDialog] = useState<LoginDialogState | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importRevision, setImportRevision] = useState(0);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   const run = async (work: () => Promise<unknown>) => {
     listRead.current += 1;
@@ -131,23 +297,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
     }
   };
 
-  const toggleSetting = (key: 'browserAutoSignIn' | 'saveChatLogins' | 'browserHidDevices', next: boolean) => {
-    // The choice shows while the write is in flight.
-    void writeDesktopStatus(api, 'settings', () => api.updateSetting?.(key, next), { [key]: next }).catch((reason) =>
-      setError(reason instanceof Error ? reason.message : String(reason))
-    );
-  };
-
   const rows = mergeAuthRows(logins ?? [], sites, linked);
-  const counts = authCounts(rows);
-  // Until the user picks one, the switch opens on the side that has logins.
-  // The cookie-only option (which also holds the linked sign-ins) disappears
-  // at zero; its filter then falls back.
-  const preferred: AuthFilter = filter ?? (counts.password === 0 && counts.cookies > 0 ? 'cookies' : 'password');
-  const activeFilter: AuthFilter = preferred === 'cookies' && counts.cookies === 0 ? 'password' : preferred;
-  const shown = filterAuthRows(rows, activeFilter, query);
-  const filters: Array<[AuthFilter, string, number]> = [['password', t('Saved password'), counts.password]];
-  if (counts.cookies > 0) filters.push(['cookies', t('Stay signed in only'), counts.cookies]);
   const noLogins = logins !== null && rows.length === 0;
 
   const openMenu = (row: AuthRow, point: { x: number; y: number }) => {
@@ -209,134 +359,11 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
           </div>
         }
       >
-        {logins !== null && !noLogins && (
-          <>
-            <div className="auth-seg" role="group" aria-label={t('Logins')}>
-              {filters.map(([value, label, count]) => (
-                <button
-                  type="button"
-                  key={value}
-                  aria-pressed={activeFilter === value}
-                  onClick={() => {
-                    setFilter(value);
-                    setVisible(INITIAL_ROWS);
-                  }}
-                >
-                  {label} {count}
-                </button>
-              ))}
-            </div>
-            <label className="auth-search">
-              <Search size={13} aria-hidden="true" />
-              <input
-                type="search"
-                value={query}
-                placeholder={t('Search sites and usernames')}
-                aria-label={t('Search sites and usernames')}
-                autoComplete="off"
-                spellCheck={false}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  setVisible(INITIAL_ROWS);
-                }}
-              />
-            </label>
-          </>
-        )}
-        {logins === null ? (
-          <p className="settings-empty mx-empty-state">{t('Loading…')}</p>
-        ) : noLogins ? (
-          <p className="settings-empty mx-empty-state">
-            {t(
-              'No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).'
-            )}
-          </p>
-        ) : shown.length === 0 ? (
-          <p className="settings-empty mx-empty-state">
-            {query.trim() ? t('No results found.') : t('No saved logins yet.')}
-          </p>
-        ) : (
-          <ul className="auth-list">
-            {shown.slice(0, visible).map((row) => (
-              <li key={row.key} className="auth-row">
-                <span className="auth-row-icon" aria-hidden="true">
-                  <Globe size={15} />
-                </span>
-                <span className="auth-row-copy">
-                  <b>{row.host}</b>
-                  <small>
-                    {row.linked && <span className="auth-pill auth-pill-linked">{row.linked.provider}</span>}
-                    {row.username ? <span className="auth-user">{row.username}</span> : null}
-                    {row.hasPassword && (
-                      <span className="auth-pill auth-pill-key">
-                        <KeyRound size={10} aria-hidden="true" /> {t('Password')}
-                      </span>
-                    )}
-                    {row.hasTotp && <span className="auth-pill auth-pill-otp">{t('Authenticator key')}</span>}
-                    {row.cookies > 0 && (
-                      <span className="auth-pill">{t('Cookies {{count}}', { count: row.cookies })}</span>
-                    )}
-                    {row.loggedOut && <span className="auth-pill auth-pill-off">{t('Signed out')}</span>}
-                    <span className="auth-source">· {sourceText(row)}</span>
-                  </small>
-                </span>
-                <button
-                  type="button"
-                  className="auth-row-menu"
-                  aria-label={t('Edit login')}
-                  disabled={busy}
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    openMenu(row, { x: rect.right, y: rect.bottom });
-                  }}
-                >
-                  <MoreHorizontal size={15} aria-hidden="true" />
-                </button>
-              </li>
-            ))}
-            {shown.length > visible && (
-              <li>
-                <button type="button" className="auth-more" onClick={() => setVisible((count) => count + INITIAL_ROWS)}>
-                  {t('Show {{count}} more', { count: shown.length - visible })}
-                </button>
-              </li>
-            )}
-          </ul>
-        )}
+        <LoginList rows={rows} loaded={logins !== null} noLogins={noLogins} busy={busy} onOpenMenu={openMenu} />
         {(error || readError) && <ErrorNotice error={error || readError} />}
       </Group>
 
-      <Group>
-        {autoSignIn !== null && (
-          <ToggleRow
-            title={t('Auto login')}
-            description={t('The agent signs in by itself with saved logins.')}
-            showDescription
-            checked={autoSignIn}
-            onChange={(next) => toggleSetting('browserAutoSignIn', next)}
-          />
-        )}
-        {saveChatLogins !== null && (
-          <ToggleRow
-            title={t('Save logins entered in chat')}
-            description={t('Save logins you enter in chat.')}
-            showDescription
-            checked={saveChatLogins}
-            onChange={(next) => toggleSetting('saveChatLogins', next)}
-          />
-        )}
-        {hidDevices !== null && (
-          <ToggleRow
-            title={t('HID device connections')}
-            description={t(
-              'Sites in the built-in browser can ask to connect a HID device. You pick the device each time.'
-            )}
-            showDescription
-            checked={hidDevices}
-            onChange={(next) => toggleSetting('browserHidDevices', next)}
-          />
-        )}
-      </Group>
+      <BrowserSettingToggles api={api} active={active} onError={setError} />
 
       <BrowserPermissionsGroup api={api} active={active} />
 

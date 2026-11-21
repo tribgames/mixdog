@@ -1,10 +1,3 @@
-/**
- * Dropping files on a page that never shows a file chooser. A drop nobody
- * handles is a browser navigation to that file, which would throw away the
- * page the caller was working on, so a guard answers at the end of the bubble
- * path: a page handler that already prevented the default keeps it, and an
- * unhandled drop is neutralised and reported as refused.
- */
 export const BROWSER_DROP_GUARD_INSTALL = `(() => {
   globalThis.__mixdogDropGuard?.remove?.();
   const state = { accepted: false };
@@ -24,15 +17,6 @@ export const BROWSER_DROP_GUARD_INSTALL = `(() => {
   return true;
 })()`;
 
-/** The guard of an approved upload (upload == submit: the approval binds the
- *  receiving frame and target). Defence in depth only: the boundary is the
- *  browser-side hit test right before the drop (`ref-upload.ts`
- *  `assertDropLandsOn`). Being a page-world listener, it runs after any
- *  capture listener the page registered first. Installed in every frame, it
- *  refuses a drop except, in the approved frame, one whose path holds the
- *  target it was aimed at (`BROWSER_DROP_GUARD_AIM`), and reports whether the
- *  page took the files. An unhandled drop is neutralised as above. Taking it
- *  back reports `{ accepted, strayed }`. */
 export const BROWSER_BOUND_DROP_GUARD_INSTALL = `(() => {
   globalThis.__mixdogDropGuard?.remove?.();
   const state = { accepted: false, landed: false, strayed: false, target: null };

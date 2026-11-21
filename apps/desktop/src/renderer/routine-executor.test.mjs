@@ -1,7 +1,3 @@
-// A schedule or webhook can name an executor sub-agent (executorAgentId): the
-// editors offer only the delegatable workflow agents (no bot, shared service or
-// switched-off agent), "None" is the default and clears it (null), the saved
-// value round-trips through the save call, and the list row shows who runs it.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';

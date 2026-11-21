@@ -85,10 +85,6 @@ const ROLE_LABELS: Record<string, string> = {
   tool: 'Tool result',
 };
 
-// Tool results are rows of their own now, so this sub-line is only a trace of
-// which tools the turn called — the sizes live in the Tool results category.
-// One name per tool, most-used first, and only the leading few: listing every
-// call let the line, and with it the row, grow without bound.
 export function toolResultLine(entry: Entry): string {
   const calls = new Map<string, number>();
   for (const row of entry.toolResults || []) calls.set(row.name, (calls.get(row.name) || 0) + 1);
@@ -98,10 +94,6 @@ export function toolResultLine(entry: Entry): string {
   return line.join(' · ');
 }
 
-// Message and attachment rows carry role + ordinal so the row reads in the UI
-// language. Everything else is content: tool names are identifiers and prompt
-// section headings are the user's own text, so both stay verbatim. Only the
-// synthetic framing row has a translatable label.
 function entryLabel(entry: Entry): string {
   if (entry.kind === 'attachment') {
     const owner = entry.role ? `${t(ROLE_LABELS[entry.role] || 'Message')} ${entry.ordinal ?? ''}`.trim() : '';
@@ -115,11 +107,6 @@ function entryLabel(entry: Entry): string {
   return entry.label;
 }
 
-/** The contents of the detail section for one entry's preview with a way back
- *  to the list. The bar matches the dialog header: back glyph, entry name,
- *  size. A plain function, not a component: the section around it stays one
- *  element across preview and list, so its live region is updated, not
- *  remounted. */
 function entryPreviewContents({
   preview,
   entry,
@@ -153,10 +140,25 @@ function entryPreviewContents({
   );
 }
 
-/** A category's entries, grouped like the reference tools do: message rows by
- *  role (tool results already live inside their assistant turn), tool rows by
- *  how they ride the wire. Every group starts closed and opens only when its
- *  head is clicked. */
+function groupedEntries(entries: Entry[]): [string, Entry[]][] {
+  const groups = new Map<string, Entry[]>();
+  for (const entry of entries) {
+    const key = entry.group || '';
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(entry);
+    else groups.set(key, [entry]);
+  }
+  const rank = (key: string) => {
+    const index = GROUP_ORDER.indexOf(key);
+    return index < 0 ? GROUP_ORDER.length : index;
+  };
+  return [...groups.entries()].sort(([a, aRows], [b, bRows]) => {
+    const byOrder = rank(a) - rank(b);
+    if (byOrder) return byOrder;
+    return sumTokens(bRows) - sumTokens(aRows);
+  });
+}
+
 function entryListContents({
   category,
   entries,
@@ -174,22 +176,7 @@ function entryListContents({
   onPreview?(entry: Entry): void;
   onClose(): void;
 }) {
-  const groups = new Map<string, Entry[]>();
-  for (const entry of entries) {
-    const key = entry.group || '';
-    const bucket = groups.get(key);
-    if (bucket) bucket.push(entry);
-    else groups.set(key, [entry]);
-  }
-  const rank = (key: string) => {
-    const index = GROUP_ORDER.indexOf(key);
-    return index < 0 ? GROUP_ORDER.length : index;
-  };
-  const ordered = [...groups.entries()].sort(([a, aRows], [b, bRows]) => {
-    const byOrder = rank(a) - rank(b);
-    if (byOrder) return byOrder;
-    return sumTokens(bRows) - sumTokens(aRows);
-  });
+  const ordered = groupedEntries(entries);
   const grouped = ordered.length > 1;
   const row = (entry: Entry) => (
     <button
@@ -249,24 +236,8 @@ function entryListContents({
   );
 }
 
-export function ContextInspector({
-  inspection,
-  windowTokens,
-  request,
-}: {
-  inspection: ContextInspection;
-  windowTokens: number;
-  request?: ContextRequest;
-}) {
-  const [category, setCategory] = useState('');
+function useEntryPreview(inspection: ContextInspection, request: ContextRequest | undefined) {
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  // Which category the pointer is over in the block map, so its blocks and its
-  // row in the list light up together.
-  const [hovered, setHovered] = useState('');
-  // The floating bubble that names the block under the pointer, positioned
-  // against the map rather than the viewport so it travels with the dialog.
-  const [bubble, setBubble] = useState<{ x: number; y: number; flip: boolean; text: string } | null>(null);
   const sequence = useRef(0);
   useEffect(
     () => () => {
@@ -274,34 +245,16 @@ export function ContextInspector({
     },
     []
   );
-  // A new revision means the transcript changed under us. The category list
-  // keeps its DOM (remounting it on every refresh made the dialog flash on
-  // open); only the preview — which was fetched against the OLD revision —
-  // is dropped, together with any in-flight fetch for it. The selected
-  // category survives as long as it still exists.
   const revision = useRef(inspection.revision);
   if (revision.current !== inspection.revision) {
     revision.current = inspection.revision;
     sequence.current += 1;
     if (preview) setPreview(null);
-    if (category && !inspection.categories.some((row) => row.key === category)) setCategory('');
   }
-  const map = buildContextMap(inspection.categories, { windowTokens });
-  const selectCategory = (key: string) => {
+  const closePreview = () => {
     sequence.current += 1;
     setPreview(null);
-    setExpanded({});
-    setCategory(key);
   };
-  const calibration = inspection.calibration;
-  const calibrated = calibration?.source === 'provider';
-  const tokenTitle = (entry: { tokens: number; estimatedTokens?: number }) =>
-    calibrated && entry.estimatedTokens !== undefined && entry.estimatedTokens !== entry.tokens
-      ? t('Raw estimate: ≈{{tokens}}', { tokens: entry.estimatedTokens.toLocaleString() })
-      : undefined;
-  // The list stays put until the content is actually here. Swapping it for a
-  // "Loading preview…" pane first meant one click resized the pane twice; the read is a local snapshot, so
-  // the wait is a frame, not a spinner's worth of time.
   const openPreview = async (entry: Entry) => {
     if (!request) return;
     const ticket = ++sequence.current;
@@ -321,6 +274,36 @@ export function ContextInspector({
       if (ticket === sequence.current) setPreview({ id: entry.id, text: t('Preview unavailable.') });
     }
   };
+  return { preview, openPreview, closePreview };
+}
+
+export function ContextInspector({
+  inspection,
+  windowTokens,
+  request,
+}: {
+  inspection: ContextInspection;
+  windowTokens: number;
+  request?: ContextRequest;
+}) {
+  const [category, setCategory] = useState('');
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [hovered, setHovered] = useState('');
+  const [bubble, setBubble] = useState<{ x: number; y: number; flip: boolean; text: string } | null>(null);
+  const { preview, openPreview, closePreview } = useEntryPreview(inspection, request);
+  if (category && !inspection.categories.some((row) => row.key === category)) setCategory('');
+  const map = buildContextMap(inspection.categories, { windowTokens });
+  const selectCategory = (key: string) => {
+    closePreview();
+    setExpanded({});
+    setCategory(key);
+  };
+  const calibration = inspection.calibration;
+  const calibrated = calibration?.source === 'provider';
+  const tokenTitle = (entry: { tokens: number; estimatedTokens?: number }) =>
+    calibrated && entry.estimatedTokens !== undefined && entry.estimatedTokens !== entry.tokens
+      ? t('Raw estimate: ≈{{tokens}}', { tokens: entry.estimatedTokens.toLocaleString() })
+      : undefined;
   const entries = inspection.entries.filter((entry) => entry.category === category);
   // Ranked by estimated size for scanning; empty categories fall to the tail
   // and stay visible, so the set of categories remains stable.
@@ -385,13 +368,6 @@ export function ContextInspector({
     .join(' ');
   const selected = inspection.categories.find((row) => row.key === category);
   const previewEntry = preview ? entries.find((item) => item.id === preview.id) : undefined;
-  const closePreview = () => {
-    sequence.current += 1;
-    setPreview(null);
-  };
-  // Master/detail: categories on the left are the only navigation, and the
-  // right pane always shows the result of the last choice — a placeholder,
-  // the entry list, or one entry's preview with a way back to the list.
   let detail: ReactNode;
   if (!selected) {
     detail = (

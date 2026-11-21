@@ -1,15 +1,3 @@
-// The daemon's own exit record.
-//
-// The launcher's sidecar (./spawn-capture.mjs) learns a daemon's exit code only
-// while the launcher itself is still alive. A daemon that outlives its launcher
-// (the usual case: the desktop app or terminal closes first) therefore left a
-// sidecar with no exit code and no reason. The daemon now writes what it knows
-// into its own sidecar, in every way it can end:
-//   * process 'exit'                    — every process.exit(), incl. shutdown()
-//   * uncaughtExceptionMonitor          — the fatal error, before the crash
-// and the NEXT daemon settles boots that ended without running any hook
-// (TerminateProcess/SIGKILL by the launcher's process tree, power loss) by
-// marking them `unrecorded-termination`, so no capture stays silent.
 import fs from 'node:fs';
 import path from 'node:path';
 import { writeJsonAtomicSync } from '../../../../../src/runtime/shared/atomic-file.mjs';

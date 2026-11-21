@@ -1,7 +1,3 @@
-// A top-level session or a bot chat that finishes while its window is not
-// focused takes the green done dot on the sidebar rows and the tab strip.
-// The sessions come through the real catalog and unread hooks, as the app
-// wires them.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import React, { act } from 'react';
@@ -20,7 +16,7 @@ const base = {
 const SESSION = { ...base, id: 'sess_top', title: 'Top level', messageCount: 1 };
 const HOME = { ...base, id: 'sess_home_watcher', title: 'Watcher', messageCount: 1, agentHome: 'watcher' };
 
-test('a top-level session and a bot chat that finish while unfocused take the done dot on sidebar rows and tabs', async (t) => {
+async function mountDoneDotApp(t) {
   const { root, document, window } = installTestDom(t, {
     rootId: 'root',
     expose: ['HTMLElement', 'CustomEvent', 'navigator'],
@@ -33,8 +29,8 @@ test('a top-level session and a bot chat that finish while unfocused take the do
     disconnect() {}
   };
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
-  let focused = false;
-  Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => focused });
+  const state = { focused: false };
+  Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => state.focused });
   let push = () => {};
   let pushPool = () => {};
   window.mixdogDesktop = {
@@ -114,6 +110,20 @@ test('a top-level session and a bot chat that finish while unfocused take the do
       ])
     );
 
+  return {
+    state,
+    viewed,
+    sessionRow,
+    botRow,
+    tabCell,
+    turn,
+    clear: () => act(async () => push([])),
+    pushPool: (rows) => act(async () => pushPool(rows)),
+  };
+}
+
+test('a turn that finishes while unfocused takes the done dot on the session row, bot row and tab', async (t) => {
+  const { sessionRow, botRow, tabCell, turn } = await mountDoneDotApp(t);
   await turn(false, 1);
   await turn(true, 1);
   assert.ok(sessionRow().querySelector('.session-row-spinner'), 'running: the session row spins');
@@ -122,40 +132,52 @@ test('a top-level session and a bot chat that finish while unfocused take the do
   assert.ok(sessionRow().querySelector('.session-row-unread-dot'), 'the session row shows the done dot');
   assert.ok(botRow().querySelector('.session-row-unread-dot'), 'the bot row shows the done dot');
   assert.ok(tabCell().querySelector('.workspace-tab-unread-dot'), 'the tab shows the done dot');
+});
 
-  // Variant: the final push settles the turn before the message count moves.
-  await act(async () => push([]));
+test('a final push that settles the turn before the message count moves still takes the done dot', async (t) => {
+  const { sessionRow, botRow, turn, clear } = await mountDoneDotApp(t);
+  await turn(false, 1);
+  await turn(true, 1);
+  await turn(false, 3);
+  await clear();
   await turn(true, 3);
   await turn(false, 3);
   assert.ok(sessionRow().querySelector('.session-row-unread-dot'), 'completion alone: session row dot');
   assert.ok(botRow().querySelector('.session-row-unread-dot'), 'completion alone: bot row dot');
+});
 
-  // Variant: the window is focused on another session.
-  focused = true;
+test('a turn that finishes while the window is focused on another session takes the done dot', async (t) => {
+  const { state, viewed, sessionRow, botRow, turn, clear } = await mountDoneDotApp(t);
+  await turn(false, 1);
+  await turn(true, 1);
+  await turn(false, 3);
+  state.focused = true;
   viewed.current = 'someone-else';
-  await act(async () => push([]));
+  await clear();
   await turn(true, 3);
   await turn(false, 4);
   assert.ok(sessionRow().querySelector('.session-row-unread-dot'), 'focused elsewhere: session row dot');
   assert.ok(botRow().querySelector('.session-row-unread-dot'), 'focused elsewhere: bot row dot');
-  focused = false;
+});
 
-  // Variant: a finished lead run sits in the agent pool.
-  await act(async () => push([]));
+test('a finished lead run in the agent pool takes the done dot', async (t) => {
+  const { sessionRow, botRow, turn, clear, pushPool } = await mountDoneDotApp(t);
+  await turn(false, 1);
+  await turn(true, 1);
+  await turn(false, 3);
+  await clear();
   await turn(true, 3);
-  await act(async () =>
-    pushPool([
-      {
-        tag: 'lead',
-        sessionId: SESSION.id,
-        ownerSessionId: SESSION.id,
-        agent: 'lead',
-        status: 'completed',
-        stage: 'done',
-      },
-      { tag: 'lead2', sessionId: HOME.id, ownerSessionId: HOME.id, agent: 'lead', status: 'completed', stage: 'done' },
-    ])
-  );
+  await pushPool([
+    {
+      tag: 'lead',
+      sessionId: SESSION.id,
+      ownerSessionId: SESSION.id,
+      agent: 'lead',
+      status: 'completed',
+      stage: 'done',
+    },
+    { tag: 'lead2', sessionId: HOME.id, ownerSessionId: HOME.id, agent: 'lead', status: 'completed', stage: 'done' },
+  ]);
   await turn(false, 5);
   assert.ok(sessionRow().querySelector('.session-row-unread-dot'), 'pool row: session row dot');
   assert.ok(botRow().querySelector('.session-row-unread-dot'), 'pool row: bot row dot');

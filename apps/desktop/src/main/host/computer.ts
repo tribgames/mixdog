@@ -4,10 +4,6 @@
  * computer host (`createComputerHost`): a capture is the command the loopback bridge would have been posted,
  * run through the bridge's own answer (`answerPublicCommand`: policy, dispatch, sealed reply), so the frame is
  * fitted and encoded by the host's capture engine and not again here.
- *
- * The rest of what a Computer Use helper needs from this process has a module of its own: the foreground-lock lease
- * (`computer-lease.ts`), the desktop's own windows every window list leaves out (`computer-internal-windows.ts`) and
- * the pointer progress the overlay draws (`computer-pointer.ts`).
  */
 import type {
   HostComputerCaptureParams,

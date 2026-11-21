@@ -7,16 +7,15 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import { PS_INPUT } from './ps-input.ts';
 
-test('covered semantic click prepares focus then rechecks before physical movement', {
-  skip: process.platform !== 'win32' && 'Windows only',
-  timeout: 30000,
-}, async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'mixdog-foreground-order-'));
-  try {
-    await writeFile(join(directory, 'input.ps1'), PS_INPUT);
-    await writeFile(
-      join(directory, 'test.ps1'),
-      `
+let output;
+function runOrderFixture() {
+  output ??= (async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mixdog-foreground-order-'));
+    try {
+      await writeFile(join(directory, 'input.ps1'), PS_INPUT);
+      await writeFile(
+        join(directory, 'test.ps1'),
+        `
 $ErrorActionPreference = 'Stop'
 Add-Type @'
 using System;
@@ -73,15 +72,26 @@ try { Do-Scroll $request; throw 'missing refusal' } catch {
 if (([MixWin32]::Events -join ',') -ne 'resolve,focus,recheck') { throw 'scroll sent through blocker' }
 [Console]::WriteLine('SCROLL_ORDER_OK')
 `
-    );
-    const result = await promisify(execFile)(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
-      { timeout: 20000, windowsHide: true, env: { ...process.env, FIXTURE_DIRECTORY: directory } }
-    );
-    assert.match(result.stdout, /FOREGROUND_ORDER_OK/);
-    assert.match(result.stdout, /SCROLL_ORDER_OK/);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
+      );
+      const result = await promisify(execFile)(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
+        { timeout: 20000, windowsHide: true, env: { ...process.env, FIXTURE_DIRECTORY: directory } }
+      );
+      return result.stdout;
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  })();
+  return output;
+}
+
+const windowsOnly = { skip: process.platform !== 'win32' && 'Windows only', timeout: 30000 };
+
+test('covered semantic click prepares focus then rechecks before physical movement', windowsOnly, async () => {
+  assert.match(await runOrderFixture(), /FOREGROUND_ORDER_OK/);
+});
+
+test('covered semantic scroll prepares focus then rechecks before physical movement', windowsOnly, async () => {
+  assert.match(await runOrderFixture(), /SCROLL_ORDER_OK/);
 });

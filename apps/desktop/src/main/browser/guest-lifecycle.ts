@@ -1,8 +1,3 @@
-/**
- * Every page runs outside the shell's focus tree on the shared partition.
- * Primary pages outlive panel visibility; named support pages retain their
- * bounded, session-scoped lifetimes.
- */
 import type { BrowserWindow, WebContents } from 'electron';
 import { app, screen } from 'electron';
 
@@ -45,10 +40,6 @@ interface BrowserGuestLifecycleHost {
   nativeView?: boolean;
 }
 
-/** Guests always compose offscreen; where Chromium can hand that composited
- *  frame to the GPU directly, every display read takes the shared texture
- *  instead of a bitmap. One predicate keeps the window options and the display
- *  capture path from disagreeing about which frames a guest produces. */
 export function browserSharedTextureRendering(): boolean {
   return process.platform === 'win32' && app.isHardwareAccelerationEnabled();
 }
@@ -199,10 +190,6 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     // A page another caller is still creating is registered before its
     // initial document commits; wait for it instead of driving it early.
     await primaryPages.settled(sessionId);
-    // `adopt: false` (an agent command with no tab) wants a visible page of
-    // its own; a pane shows whichever page the session already has.
-    // A pane's frame read never makes a page while the panel folds for a lost
-    // last page; the person's own request (`user`) does.
     const guest =
       options.adopt === false
         ? (sessions.liveGuest(sessionId) ?? (await primaryPages.ensure(sessionId)))

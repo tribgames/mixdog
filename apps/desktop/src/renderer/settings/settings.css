@@ -980,7 +980,7 @@
   cursor: pointer;
 }
 .conn-btn:hover:not(:disabled) {
-  background: var(--mx-hover-strong, var(--mx-hover));
+  background: var(--mx-hover);
   filter: brightness(1.15);
 }
 .conn-btn:disabled {
@@ -1680,7 +1680,7 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
   overflow: auto;
   padding: 10px 12px;
   border-radius: 8px;
-  background: var(--mx-surface-sunken, rgba(127, 127, 127, 0.12));
+  background: rgba(127, 127, 127, 0.12);
   font: 12px / 1.5 var(--mx-font-mono, ui-monospace, monospace);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1817,7 +1817,7 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
   border: 0;
   border-radius: 8px;
   color: var(--mx-text);
-  background: var(--mx-surface-raised, rgb(255 255 255 / 6%));
+  background: var(--mx-chip-bg);
   box-shadow: inset 0 0 0 1px var(--mx-border);
   font: inherit;
   cursor: pointer;
@@ -1892,7 +1892,7 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
 }
 .instruction-subhead h2 {
   margin: 0;
-  font-size: var(--mx-font-title, 16px);
+  font-size: 16px;
   font-weight: var(--mx-weight-semibold, 600);
   min-width: 0;
 }

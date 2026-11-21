@@ -1,8 +1,3 @@
-/**
- * Number shapes shared by the two usage surfaces. /usage reports the quota
- * that is LEFT and the statistics report what was SPENT; they quote the same
- * kinds of figure, so the rounding lives here rather than in both.
- */
 import { uiFormatLocale } from './i18n';
 import { uiCurrency } from './ui-format';
 
@@ -25,11 +20,7 @@ function moneyDigits(amount: number): number {
   return magnitude >= 0.0001 ? 4 : 6;
 }
 
-/**
- * "OpenAI OAuth" → "OpenAI". The plan badge sitting beside the name already
- * says which lane the spend belongs to, and the suffix is what pushed long
- * names onto a second line on a phone.
- */
+/** "OpenAI OAuth" → "OpenAI": the plan badge already names the lane. */
 export function usageProviderLabel(label: string): string {
   return label.replace(/\s+(?:API|OAuth)$/i, '');
 }

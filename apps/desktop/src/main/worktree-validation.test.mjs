@@ -16,7 +16,7 @@ test('worktree capabilities are registered on the desktop surface', () => {
   assert.equal(requiredDesktopCapabilityReadRequests([{ capability: 'getBranchMenu' }]).length, 1);
 });
 
-test('worktree capability arguments are shape-checked', () => {
+test('worktree capability arguments of the right shape are accepted', () => {
   assert.doesNotThrow(() => request('getBranchMenu'));
   assert.doesNotThrow(() => request('selectBranch', { branch: 'main', expectedRevision: 3 }));
   assert.doesNotThrow(() => request('selectBranch', { branch: 'feature/x', create: true }));
@@ -49,6 +49,9 @@ test('worktree capability arguments are shape-checked', () => {
   );
   assert.doesNotThrow(() => request('deleteWorktree', { entryId: 'fix-login' }));
   assert.doesNotThrow(() => request('deleteWorktree', { entryId: 'fix-login', force: true }));
+});
+
+test('worktree capability arguments of the wrong shape are rejected', () => {
   for (const input of [
     { projectPath: '/p', branch: 'origin/x', remote: 'yes' },
     { projectPath: '/p', branch: 'origin/x', remote: true, create: true },

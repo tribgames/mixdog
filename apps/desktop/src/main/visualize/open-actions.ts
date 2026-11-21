@@ -1,7 +1,3 @@
-/**
- * The agent's `open` (files, inline content or a web URL) and the panel's
- * reopen of a closed visual, validated exactly like an agent open.
- */
 import { randomUUID } from 'node:crypto';
 import { relative } from 'node:path';
 
@@ -58,6 +54,91 @@ type OpenContext = Pick<
 function moveToEnd(tabs: TabState[], tab: TabState): void {
   tabs.splice(tabs.indexOf(tab), 1);
   tabs.push(tab);
+}
+
+function addNewTab(
+  ctx: Pick<OpenContext, 'tabs'>,
+  state: ReturnType<OpenContext['sessionOf']>,
+  sessionId: string,
+  fields: Pick<TabState, 'label' | 'key' | 'cwd'> & Partial<TabState>
+): TabState {
+  state.counter += 1;
+  const tab: TabState = {
+    id: `v${state.counter}`,
+    revision: 0,
+    targets: [],
+    panes: [],
+    unwatch: [],
+    reloadTimer: null,
+    problems: [],
+    problemSeq: 0,
+    ...fields,
+  };
+  ctx.tabs.addTab(sessionId, tab);
+  return tab;
+}
+
+function reuseTab(
+  ctx: Pick<OpenContext, 'thumbnails'>,
+  tabs: TabState[],
+  tab: TabState,
+  label: string | undefined,
+  cwd: string,
+  panes: TabState['panes'],
+  fields: Partial<TabState>
+): void {
+  tab.label = label ?? tab.label;
+  tab.cwd = cwd;
+  tab.panes = panes;
+  Object.assign(tab, fields);
+  tab.problems = [];
+  ctx.thumbnails.invalidate(tab);
+  moveToEnd(tabs, tab);
+}
+
+/** The shared tail of a file or inline open on a committed tab: activation,
+ *  publish, placement text, load check and the result. */
+async function finishOpen(
+  ctx: Pick<
+    OpenContext,
+    'deps' | 'sessionOf' | 'sessionCwds' | 'thumbnails' | 'views' | 'publish' | 'problems' | 'holds' | 'panelSize'
+  >,
+  request: OpenRequest,
+  tab: TabState,
+  open: {
+    held: boolean;
+    versionError: Error | null;
+    what: string;
+    live: string;
+    note: () => string;
+    settle: () => Promise<void>;
+    recordsCwd: () => boolean;
+  }
+): Promise<VisualizeResult> {
+  const { sessionId, cwd } = request;
+  const { held } = open;
+  const verify = request.verify === true;
+  if (!held && !verify) ctx.sessionOf(sessionId).active = tab.id;
+  if (!verify) ctx.views.rememberTab(sessionId, tab, true);
+  ctx.publish(sessionId, verify ? undefined : tab.id, undefined, verify ? undefined : request.callId);
+  // A verify placement stays synchronous: the load check below must start before another open can replace the panes.
+  let placed: string;
+  if (verify) placed = verifyPlacement(ctx, sessionId, tab, open.what);
+  else if (held) placed = await heldPlacement(ctx.deps, sessionId, tab, open.what);
+  else placed = await placement(ctx.deps, sessionId, tab, open.what);
+  let loaded = '';
+  if (held || verify) loaded = await heldLoadCheck(ctx, sessionId, cwd, tab);
+  else await open.settle();
+  if (open.recordsCwd()) ctx.sessionCwds.set(sessionId, cwd);
+  if (!verify) ctx.thumbnails.refresh(sessionId, tab);
+  return {
+    text: withProblems(
+      tab,
+      `${placed}${open.note()}${versionNote(tab)}${versionErrorNote(open.versionError, tab, open.live)}${loaded}`
+    ),
+    ...(verify ? {} : { tabs: [summary(tab)] }),
+    ...problemsOf(tab),
+  };
 }
 
 /** Show the kept `version` a request asks for; a failure is only a note of
@@ -162,9 +243,6 @@ function describeFiles(cwd: string, files: FileTarget[]): string {
     .join(', ');
 }
 
-/** A held open's load check (nothing renders the tab until the turn ends):
- *  the problems its pages or inline content show off screen, as a section of
- *  the result; '' when there are none or nothing here can check them. */
 async function heldLoadCheck(
   ctx: Pick<OpenContext, 'deps' | 'panelSize'>,
   sessionId: string,
@@ -212,7 +290,7 @@ async function openInline(
   request: OpenRequest,
   content: VisualizeInlineContent
 ): Promise<VisualizeResult> {
-  const { sessionOf, sessionCwds } = ctx;
+  const { sessionOf } = ctx;
   const { sessionId, cwd } = request;
   const held = heldTurn(ctx, sessionId) !== null;
   const verify = request.verify === true;
@@ -221,33 +299,18 @@ async function openInline(
   const pane = await ctx.panes.inlinePaneFor(content);
   let tab = state.tabs.find((candidate) => candidate.key === key);
   if (tab) {
-    tab.label = request.label ?? tab.label;
-    tab.cwd = cwd;
-    tab.inline = content;
-    tab.panes = [pane];
-    tab.problems = [];
-    ctx.thumbnails.invalidate(tab);
-    moveToEnd(state.tabs, tab);
+    reuseTab(ctx, state.tabs, tab, request.label, cwd, [pane], { inline: content });
   } else {
-    state.counter += 1;
-    tab = {
-      id: `v${state.counter}`,
+    tab = addNewTab(ctx, state, sessionId, {
       label: request.label ?? pane.label,
       key,
       cwd,
-      revision: 0,
       inline: content,
       inlineHistory: [],
-      targets: [],
       panes: [pane],
-      unwatch: [],
-      reloadTimer: null,
-      problems: [],
-      problemSeq: 0,
       allowNetwork: true,
       ...(verify ? { verify: true } : {}),
-    };
-    ctx.tabs.addTab(sessionId, tab);
+    });
   }
   promoteVerify(ctx, sessionId, tab, verify);
   tab.rendered = new Set();
@@ -263,35 +326,19 @@ async function openInline(
   tab.versions = history.map(({ n, at, turns }) => ({ n, at, ...(turns?.length ? { turns } : {}) }));
   const versionError =
     request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
-  // A held open activates nothing: the turn's end shows its last tab. A
-  // verify open never does.
-  if (!held && !verify) state.active = tab.id;
-  if (!verify) ctx.views.rememberTab(sessionId, tab, true);
-  ctx.publish(sessionId, verify ? undefined : tab.id, undefined, verify ? undefined : request.callId);
-  const what = `inline ${content.kind}${content.title ? ` "${content.title}"` : ''}`;
-  // A verify placement stays synchronous: the load check below must start before another open can replace the panes.
-  let placed: string;
-  if (verify) placed = verifyPlacement(ctx, sessionId, tab, what);
-  else if (held) placed = await heldPlacement(ctx.deps, sessionId, tab, what);
-  else placed = await placement(ctx.deps, sessionId, tab, what);
-  // Nothing renders a held tab: it is checked off screen instead.
-  let loaded = '';
-  if (held || verify) loaded = await heldLoadCheck(ctx, sessionId, cwd, tab);
-  else {
-    await ctx.problems.awaitInlineRender(tab);
-    // A scripted page gets a moment to load, so its first errors ride this result.
-    if (displayedPanes(tab).some((candidate) => candidate.kind === 'html')) await ctx.problems.settle(tab, 1);
-  }
-  sessionCwds.set(sessionId, cwd);
-  if (!verify) ctx.thumbnails.refresh(sessionId, tab);
-  return {
-    text: withProblems(
-      tab,
-      `${placed} Open again with the same title to add a version.${versionNote(tab)}${versionErrorNote(versionError, tab, 'live content')}${loaded}`
-    ),
-    ...(verify ? {} : { tabs: [summary(tab)] }),
-    ...problemsOf(tab),
-  };
+  const target = tab;
+  return finishOpen(ctx, request, target, {
+    held,
+    versionError,
+    what: `inline ${content.kind}${content.title ? ` "${content.title}"` : ''}`,
+    live: 'live content',
+    note: () => ' Open again with the same title to add a version.',
+    settle: async () => {
+      await ctx.problems.awaitInlineRender(target);
+      if (displayedPanes(target).some((candidate) => candidate.kind === 'html')) await ctx.problems.settle(target, 1);
+    },
+    recordsCwd: () => true,
+  });
 }
 
 /** `open` of a web URL: handed to the session's browser panel; the tab
@@ -320,24 +367,12 @@ async function openUrl(
   }
   const state = sessionOf(sessionId);
   let tab = state.tabs.find((candidate) => candidate.url === target.url);
-  if (!tab) {
-    state.counter += 1;
-    tab = {
-      id: `v${state.counter}`,
-      label: request.label ?? target.label,
-      key: `url:${target.url}`,
-      cwd,
-      revision: 0,
-      url: target.url,
-      targets: [],
-      panes: [],
-      unwatch: [],
-      reloadTimer: null,
-      problems: [],
-      problemSeq: 0,
-    };
-    ctx.tabs.addTab(sessionId, tab);
-  }
+  tab ??= addNewTab(ctx, state, sessionId, {
+    label: request.label ?? target.label,
+    key: `url:${target.url}`,
+    cwd,
+    url: target.url,
+  });
   // The tab id only names this record: the browser tool's `v1` is the panel's
   // first open page, often an older one. The page's own id (`p…`) is what
   // the browser tool takes. Without a browser host nothing is awaited.
@@ -383,35 +418,18 @@ export function createOpenActions(ctx: OpenContext) {
       moveToEnd(state.tabs, tab);
     } else if (tab) {
       ctx.tabs.dispose(tab);
-      tab.label = request.label ?? tab.label;
-      // cwd and the targets' roots always come from the same open, committed together.
-      tab.cwd = cwd;
-      tab.loadedStamp = stamp;
-      tab.targets = files;
-      tab.panes = panes;
-      tab.problems = [];
-      ctx.thumbnails.invalidate(tab);
-      // Reopening moves the tab to the end, like a fresh open.
-      moveToEnd(state.tabs, tab);
+      reuseTab(ctx, state.tabs, tab, request.label, cwd, panes, { loadedStamp: stamp, targets: files });
     } else {
-      state.counter += 1;
-      tab = {
-        id: `v${state.counter}`,
+      tab = addNewTab(ctx, state, sessionId, {
         label,
         key,
         cwd,
         loadedStamp: stamp,
-        revision: 0,
         targets: files,
         panes,
-        unwatch: [],
-        reloadTimer: null,
-        problems: [],
-        problemSeq: 0,
         allowNetwork: true,
         ...(verify ? { verify: true } : {}),
-      };
-      ctx.tabs.addTab(sessionId, tab);
+      });
     }
     promoteVerify(ctx, sessionId, tab, verify);
     if (!stale) {
@@ -427,39 +445,19 @@ export function createOpenActions(ctx: OpenContext) {
     const versionError =
       request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
     const held = heldTurn(ctx, sessionId) !== null;
-    // A held open activates nothing: the turn's end shows its last tab. A
-    // verify open never does.
-    if (!held && !verify) state.active = tab.id;
-    if (!verify) ctx.views.rememberTab(sessionId, tab, true);
-    ctx.publish(sessionId, verify ? undefined : tab.id, undefined, verify ? undefined : request.callId);
-    const shown = describeFiles(cwd, files);
-    // A verify placement stays synchronous: the load check below must start before another open can replace the panes.
-    let placed: string;
-    if (verify) placed = verifyPlacement(ctx, sessionId, tab, shown);
-    else if (held) placed = await heldPlacement(deps, sessionId, tab, shown);
-    else placed = await placement(deps, sessionId, tab, shown);
-    // Give a fresh page a moment to load, so its first errors ride this result
-    // (a held tab loads nowhere yet: it is checked off screen instead).
-    let loaded = '';
-    if (held || verify) loaded = await heldLoadCheck(ctx, sessionId, cwd, tab);
-    else if (panes.some((pane) => pane.kind === 'html')) await ctx.problems.settle(tab, 1);
-    // A dropped open's cwd is as stale as its files: the session keeps the
-    // cwd of the load that committed. A later open that overtook this one
-    // during settle owns the tab's cwd now, and records its own.
-    if (!stale && tab.cwd === cwd) sessionCwds.set(sessionId, cwd);
-    if (!verify) ctx.thumbnails.refresh(sessionId, tab);
-    // A verify-only tab is not watched for reloads.
-    let reloadNote = '';
-    if (!tab.verify)
-      reloadNote = ` The tab reloads when ${files.length > 1 ? 'these files change' : 'the file changes'}.`;
-    return {
-      text: withProblems(
-        tab,
-        `${placed}${reloadNote}${versionNote(tab)}${versionErrorNote(versionError, tab, 'live files')}${loaded}`
-      ),
-      ...(verify ? {} : { tabs: [summary(tab)] }),
-      ...problemsOf(tab),
-    };
+    const target = tab;
+    return finishOpen(ctx, request, target, {
+      held,
+      versionError,
+      what: describeFiles(cwd, files),
+      live: 'live files',
+      note: () =>
+        target.verify ? '' : ` The tab reloads when ${files.length > 1 ? 'these files change' : 'the file changes'}.`,
+      settle: async () => {
+        if (panes.some((pane) => pane.kind === 'html')) await ctx.problems.settle(target, 1);
+      },
+      recordsCwd: () => !stale && target.cwd === cwd,
+    });
   }
 
   return {

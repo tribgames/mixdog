@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import type { DesktopModelSelection } from '../shared/contract';
@@ -32,48 +32,14 @@ export function commandSurfaceTitle(surface: CommandSurfaceName): string {
   }
 }
 
-export function CommandSurface({
-  surface,
-  open = true,
-  api = window.mixdogDesktop,
-  snapshot,
-  sessionId: explicitSessionId = '',
-  onInherit,
-  onOpenSettings,
-  onClose,
-}: {
-  surface: CommandSurfaceName;
-  open?: boolean;
-  api?: SurfaceApi;
-  snapshot?: unknown;
-  sessionId?: string;
-  /** /inherit only: hand the source session to the host and open the heir. */
-  onInherit?: (sourceSessionId: string, route: DesktopModelSelection, options?: { compact: boolean }) => Promise<void>;
-  /** /doctor only: open the settings page that fixes a failing check. */
-  onOpenSettings?: (section: SettingsSection) => void;
-  onClose(): void;
-}) {
-  const dialog = useRef<HTMLElement>(null);
-  const surfaceLayer = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  // The usage dialog's two questions are its tabs; the dialog keeps its name.
-  const requestsSupported = usageRequestsSupported(api);
-  const [usageMode, setUsageMode] = useUsageSurfaceMode(surface === 'stats' && open, requestsSupported);
-  const { data, loading, refreshing, pending, error, sessionId, run, requestCapability } = useCommandSurfaceLifecycle({
-    surface,
-    open,
-    api,
-    snapshot,
-    sessionId: explicitSessionId,
-    // Subscription usage reads its own history; token statistics wait for
-    // their tab instead of queueing ahead of it on the ledger worker.
-    deferLoad: surface === 'stats' && usageMode === 'quota',
-  });
-
-  useErrorToast(open && surface !== 'stats' ? error : '', `command:${surface}`);
-
+/** While open the surface isolates the app shell, takes focus, traps Tab and
+ *  closes on Escape; focus returns to what held it. */
+function useModalSurfaceFocus(
+  open: boolean,
+  dialog: RefObject<HTMLElement | null>,
+  surfaceLayer: RefObject<HTMLDivElement | null>,
+  onCloseRef: { current: () => void }
+) {
   useEffect(() => {
     if (!open) return undefined;
     const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -118,7 +84,52 @@ export function CommandSurface({
       layer.release();
       prior?.focus();
     };
-  }, [open]);
+  }, [open, dialog, surfaceLayer, onCloseRef]);
+}
+
+export function CommandSurface({
+  surface,
+  open = true,
+  api = window.mixdogDesktop,
+  snapshot,
+  sessionId: explicitSessionId = '',
+  onInherit,
+  onOpenSettings,
+  onClose,
+}: {
+  surface: CommandSurfaceName;
+  open?: boolean;
+  api?: SurfaceApi;
+  snapshot?: unknown;
+  sessionId?: string;
+  /** /inherit only: hand the source session to the host and open the heir. */
+  onInherit?: (sourceSessionId: string, route: DesktopModelSelection, options?: { compact: boolean }) => Promise<void>;
+  /** /doctor only: open the settings page that fixes a failing check. */
+  onOpenSettings?: (section: SettingsSection) => void;
+  onClose(): void;
+}) {
+  const dialog = useRef<HTMLElement>(null);
+  const surfaceLayer = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // The usage dialog's two questions are its tabs; the dialog keeps its name.
+  const requestsSupported = usageRequestsSupported(api);
+  const [usageMode, setUsageMode] = useUsageSurfaceMode(surface === 'stats' && open, requestsSupported);
+  const { data, loading, refreshing, pending, error, sessionId, run, requestCapability } = useCommandSurfaceLifecycle({
+    surface,
+    open,
+    api,
+    snapshot,
+    sessionId: explicitSessionId,
+    // Subscription usage reads its own history; token statistics wait for
+    // their tab instead of queueing ahead of it on the ledger worker.
+    deferLoad: surface === 'stats' && usageMode === 'quota',
+  });
+
+  useErrorToast(open && surface !== 'stats' ? error : '', `command:${surface}`);
+
+  useModalSurfaceFocus(open, dialog, surfaceLayer, onCloseRef);
 
   const title = commandSurfaceTitle(surface);
   if (surface === 'stats' && !open) return null;
@@ -177,14 +188,8 @@ export function CommandSurface({
             </div>
           </header>
           <div className="mixdog-settings__body">
-            {/* /inherit only waits on the context percentage before unlocking
-              the decision, and /context opens on the gauge reading it was
-              clicked from — neither belongs behind a loading cover. */}
             <PaneSurfaceGate ready={!loading || paintsFromSnapshot} label={t('Loading {{title}}…', { title })}>
               <div className="command-surface-content">
-                {/* The dialog heading already names the surface, so a visible
-              "/usage — Read-only …" restatement only pushes the content down.
-              Keep the sentence for screen readers only. */}
                 <p id="command-surface-description" className="sr-only">
                   {t('{{title}} for the active session.', { title })}
                 </p>

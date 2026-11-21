@@ -38,10 +38,6 @@ export function useStudioRouteSync({
   setOptions: Dispatch<SetStateAction<StudioOptions>>;
   spec: LaneSpec;
 }) {
-  // What this pane shows is the runtime's default: an agent `media` call that
-  // omits lane/model runs on it. Pushed once per settled (kind, lane, model)
-  // so a picker flicker never spams the daemon, and a failure never touches
-  // the pane — the draft cache is local and stays authoritative here.
   const pushedDefault = useRef('');
   useEffect(() => {
     if (!active || !lane || !activeModel || lane.id !== laneId || model !== activeModel) return;

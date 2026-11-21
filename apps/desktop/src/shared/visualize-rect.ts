@@ -1,8 +1,3 @@
-// Rectangles of the visualize feedback layer (one set, for the panel and the
-// gates). Kept apart from visualize-feedback.ts so the composer's feedback
-// store can validate stored pins without pulling the page-script sources
-// into the first screen.
-
 export interface VisualizeFeedbackRect {
   x: number;
   y: number;

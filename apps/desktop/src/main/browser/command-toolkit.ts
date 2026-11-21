@@ -1,8 +1,3 @@
-/**
- * The page-level tools agent commands act through — input, snapshots, refs,
- * screenshots, replies, dialogs, downloads, network, performance, emulation,
- * page state and credential fill — wired over one guest state store and CDP.
- */
 import type { Session, WebContents } from 'electron';
 import { join } from 'node:path';
 import { app } from 'electron';

@@ -5,18 +5,9 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-launch.mjs';
 
-// The Sessions view stays mounted behind the other rail pages, its panel
-// `hidden` (display:none). A hidden scroller reads scrollTop 0 and ignores
-// writes; Chromium puts the real scrollTop back when the panel shows again,
-// with no scroll event. A list that started windowing in between (it crossed
-// 40 rows, e.g. a page revealed by the paging observer, which fires on the
-// hidden scroller's zero rect) attached its virtualizer at offset 0, and the
-// virtualizer only learns an offset from scroll events: it kept rendering the
-// rows near the top while the viewport sat far below, so the list showed
-// blank space except its pinned rows until the reader scrolled 1px.
-// Attaching while visible wrote that same 0 offset into the scroller and threw
-// the list to its top. The real VirtualSessionRows runs in real Chrome (jsdom
-// has no display:none scroll semantics).
+// A display:none scroller reads scrollTop 0 and ignores writes; Chromium restores
+// the real scrollTop on show with no scroll event. Real Chrome is needed: jsdom
+// has no display:none scroll semantics.
 
 const ROW_PITCH = 32;
 const VIEWPORT = 300;

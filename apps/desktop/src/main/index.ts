@@ -142,6 +142,7 @@ import { assertPublicComputerRequest } from './computer/host/request-policy';
 import type { ComputerCommand } from './computer/shared/types';
 import { bridgeDiscoveryDirectory } from './bridge/discovery-file';
 import { createBridgeServer as createComputerBridge } from './computer/bridge/bridge-server';
+import { bindSavedLoginOwner } from './computer/host/saved-login-owner';
 import { defaultBrowserPermissionPolicy } from '../shared/browser-permission-policy';
 import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
@@ -211,13 +212,11 @@ import { createPaneLayoutFile, flushPaneLayoutFiles, PANE_LAYOUT_FILE } from './
 import { RENDERER_CACHE_NAMES } from '../shared/renderer-cache';
 import { displayExitCode } from './desktop-service-client';
 import { installSyncSpawnDiagnostics } from './sync-spawn-diagnostics';
+import { errorDiagnosticFields } from './diagnostic-error';
 
 const desktopProcessStartedAt = Date.now();
-// The launcher's stdio pipe can close while the app keeps running (started
-// from a terminal or script that exits). Every later console write then
-// raises EPIPE, and an unhandled stream error becomes Electron's fatal
-// "A JavaScript error occurred in the main process" dialog. Logging is never
-// worth a crash, so dead-pipe writes fail silently.
+// A closed launcher stdio pipe makes every later console write raise EPIPE, and an unhandled stream error becomes
+// Electron's fatal main-process dialog.
 for (const stream of [process.stdout, process.stderr]) {
   stream?.on?.('error', () => {
     /* dead stdio pipe: logging is best-effort */
@@ -243,8 +242,7 @@ let launchFollowsUpdate: Promise<boolean> | null = null;
 const launchVersionPath = () => join(app.getPath('userData'), LAUNCH_VERSION_FILE);
 const launchRecordWriteFailure = (error: unknown) =>
   diagnostics?.write('launch-version-write-failed', {
-    errorName: error instanceof Error ? error.name : 'Error',
-    message: String((error as Error)?.message ?? error).slice(0, 300),
+    ...errorDiagnosticFields(error),
   });
 /** Reports a profile file's read or write failure under `event`. */
 const profileFileFailure =
@@ -253,27 +251,13 @@ const profileFileFailure =
     diagnostics?.write(event, {
       ...details,
       stage,
-      errorName: error instanceof Error ? error.name : 'Error',
-      message: String((error as Error)?.message ?? error).slice(0, 300),
+      ...errorDiagnosticFields(error),
     });
 
-// Profile identity. Unpackaged shells (electron-vite dev/preview, source-mode
-// E2E) derive userData from this package's name (@mixdog/desktop), so every
-// dev run landed in a SEPARATE Chromium profile from the installed app
-// (extraMetadata.name = mixdog-desktop). Recent models, the last
-// session/project, and window state therefore started empty each time — the
-// New task composer read "Select model" even though the installed app had a
-// route. Pin the dev profile to the packaged one; MIXDOG_DESKTOP_USER_DATA
-// still isolates a run explicitly (throwaway profiles, migration tests).
+// Unpackaged Electron derives userData from the package name (@mixdog/desktop); pin it to the packaged app's profile.
 const PACKAGED_USER_DATA_DIRECTORY = 'mixdog-desktop';
 if (process.env.MIXDOG_DESKTOP_USER_DATA) {
   app.setPath('userData', resolve(process.env.MIXDOG_DESKTOP_USER_DATA));
-  // An isolated profile holds its own single-instance lock, so it can run
-  // beside the installed app. Without its own data dir it would publish its
-  // Browser/Computer Use bridges into the shared `~/.mixdog/data` and steal
-  // the running app's tool surface (observed: a probe run shadowed the live
-  // browser bridge until it exited). Namespace the discovery files with the
-  // profile instead; the daemon inherits the variable and looks there too.
   if (!process.env.MIXDOG_DATA_DIR && !process.env.MIXDOG_BRIDGE_DISCOVERY_DIR) {
     process.env.MIXDOG_BRIDGE_DISCOVERY_DIR = join(app.getPath('userData'), 'bridges');
   }
@@ -285,10 +269,6 @@ if (process.env.MIXDOG_DESKTOP_USER_DATA) {
 // probes must never register electron.exe under the installed sender identity.
 const desktopBrand = desktopIdentity(app.isPackaged ? 'installed' : 'development');
 const desktopUserData = app.getPath('userData');
-// What started the quit, for the diagnostics log: the first named entry wins,
-// and before-quit writes it as `quit-requested` (`unattributed`: an entry with
-// no name here — the application menu, the renderer's quit IPC, another
-// app.quit()).
 let quitCause: string | null = null;
 function noteQuitCause(cause: string): void {
   quitCause ??= cause;
@@ -322,13 +302,8 @@ if (process.platform === 'win32') {
     console.warn('Mixdog desktop crash handler failed to start:', error);
   }
 }
-// The Crashpad handler is a separate process and a second crashReporter.start()
-// is a silent no-op, so a handler that dies cannot be restarted in-process.
-// Children (the ELECTRON_RUN_AS_NODE daemon included) register with it through
-// the inherited CHROME_CRASHPAD_PIPE_NAME; after a loss a respawned daemon would
-// fail that registration and be killed 0xFFFF7003 without a dump on its first
-// fatal error. The watcher records the loss and drops the dead pipe so later
-// children fall back to Windows' own handler.
+// A second crashReporter.start() is a silent no-op and children inherit CHROME_CRASHPAD_PIPE_NAME, so after the Crashpad
+// handler dies the watcher drops the dead pipe and later children fall back to Windows' own handler.
 let stopCrashHandlerWatch: (() => void) | null = null;
 function startCrashHandlerWatch(): void {
   if (crashReporterStatus !== 'local' || stopCrashHandlerWatch) return;
@@ -375,12 +350,6 @@ if (app.isPackaged) {
   }
 }
 
-// The native Computer Use helper (mixdog-computer[.exe]): bundled with packaged
-// builds (prepare-runtime.mjs), built from native/mixdog-computer during
-// development. The core this app starts inherits the variable and drives the
-// desktop through the helper on every platform (run_host/native_tools.rs). On
-// Windows the app's own computer host still runs its PowerShell worker
-// (computer/backend/host-worker-process.ts) and does not read it.
 if (!process.env.MIXDOG_COMPUTER_BIN) {
   const computerHelperName = `mixdog-computer${executableSuffix}`;
   const computerBackend = app.isPackaged
@@ -410,22 +379,12 @@ if (softwareRenderingThisLaunch) {
   app.commandLine.appendSwitch('disable-gpu');
 }
 
-// Windows-only Chromium occlusion tracking can leave a RESTORED window marked
-// occluded: document.hidden stays true, requestAnimationFrame never fires, and
-// every rAF-based surface reveal (PaneSurfaceGate — terminal/editor/studio
-// panes) stalls indefinitely while timers throttle to once a minute, with a
-// visible window still reporting visibilityState "hidden". Disabling the native occlusion calculation is the
-// standard Electron workaround; genuine minimize still suspends painting.
+// Chromium's native occlusion tracking can leave a restored Windows window occluded: document.hidden stays true and
+// requestAnimationFrame never fires.
 if (process.platform === 'win32') {
   app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 }
 
-// The renderer keeps V8's own heap sizing. A fixed old-space cap paced the
-// collector against the UI's working set, but it also turned any spike past
-// the cap into a dead window while the machine had memory to spare; V8 sizes
-// against what the host can give and collects harder once the host comes
-// under pressure (the diagnostics log shows unforced 500 MB drops then).
-// MIXDOG_RENDERER_HEAP_MB still sets a cap in MB; 0 or unset leaves none.
 const configuredRendererHeapMb = Number(process.env.MIXDOG_RENDERER_HEAP_MB);
 const rendererHeapMb =
   Number.isFinite(configuredRendererHeapMb) && configuredRendererHeapMb >= 0 ? Math.floor(configuredRendererHeapMb) : 0;
@@ -480,12 +439,6 @@ function adoptLoginShellEnvironment(): Promise<void> {
     });
   });
 }
-// Several daemon connections live side by side: this PC's (`local`, the main
-// window's, always open) and one per ssh server window. Each connection owns
-// its service client, transport, RemoteSession and model proxy; desktop.init
-// paths are remapped to the server once its home is known (RemoteSession →
-// remoteSessionOptions), while sessionOptions() stays local because this
-// process still imports the local session client.
 /** Where each connection's core listens (the same resolver its own link dials with), by connection id: a window's
  *  direct port to its core (core-port/relay.ts) opens with it. */
 const coreEndpoints = new Map<string, () => Promise<WsEndpoint>>();
@@ -511,10 +464,6 @@ const connectionDependencies: DesktopConnectionDependencies = {
   // This PC's core reads the discovery file; a server's core is reached through its SSH tunnel. Both use the
   // header token and re-resolve on every dial.
   createProtocol: (connection) => {
-    // This PC's core reads the discovery file; a server's core is where this PC's core says the server's tunnel ends
-    // (`connections/endpoint`, asked on every dial). Both use the header token and re-resolve on every dial.
-    // This connection's lines in the diagnostics log: one helper (`link-log.mjs`) for its socket, client, replacement and
-    // core-watch lines. `ownerKey` is the hash this connection's own files use; it is merged last into every line.
     const linkLog = createLinkLog(writeBootDiagnostic, {
       link: 'main',
       owner: connection.kind === 'local' ? 'local' : 'ssh',
@@ -604,11 +553,6 @@ const connectionDependencies: DesktopConnectionDependencies = {
     console.error(`[mixdog:${connection.name}] ${event}`, data);
   },
   onServiceReady: (connection, { generation }) => {
-    // The FIRST attachment belongs to the deferred scheduler, so no early
-    // interaction pays for relay startup. Every later one follows a daemon
-    // replacement that dropped the relay leg with the old process, and
-    // nothing else would ever dial it again: the deferred schedule runs once
-    // per window, and this window is already open. The relay is this PC's.
     if (connection.kind !== 'local') return;
     if (generation <= 1) {
       firstLocalAttachment.resolve();
@@ -760,8 +704,7 @@ let hostRoleReady = false;
 const reportVisualizePublishFailure = (target: 'host', error: unknown): void =>
   diagnostics?.write('visualize-publish-failed', {
     target,
-    errorName: error instanceof Error ? error.name : 'Error',
-    message: String((error as Error)?.message ?? error).slice(0, 300),
+    ...errorDiagnosticFields(error),
   });
 const visualize = createDesktopVisualize({
   window: () => mainWindow,
@@ -806,10 +749,6 @@ let unsubscribeServiceSettings: (() => void) | null = null;
 let unsubscribeTakeovers: (() => void) | null = null;
 let unsubscribeUpdaterRelay: (() => void) | null = null;
 let unsubscribeCoreObservers: (() => void) | null = null;
-// OS notification on final answers and failed turns: whether one shows is this
-// PC's notification preferences from the core's live notifications config section.
-// Settings changes apply to the next toast, taskbar flash and Browser Use approval.
-// App-lifetime like keep-awake: a window hidden to the tray still wants it.
 const pcNotificationView = createPcNotificationView({ snapshot: () => localProtocol.snapshot() });
 let notificationVolume = NOTIFICATION_VOLUME_DEFAULT;
 const playNotificationSound = async (): Promise<string> => {
@@ -910,11 +849,8 @@ const applyDesktopSettings = (settings: DesktopSettings): void => {
 // `computer` tool) exists only while the setting is on. Toggling it starts or
 // tears down the host live.
 function applyComputerControlSetting(enabled: boolean): void {
-  // macOS withholds input and the accessibility tree until the user grants
-  // Accessibility, and every foreign window's pixels until it grants Screen
-  // Recording. Ask only when the user turns Computer Use on: launching the
-  // app or changing an unrelated setting re-applies every setting, and a
-  // grant missing later is named by diagnose and the capture error instead.
+  // macOS withholds input and the accessibility tree until Accessibility is granted, and other windows' pixels until Screen
+  // Recording is; ask only when Computer Use is turned on, not on every settings re-apply.
   if (enabled && !computerControlEnabled && computerControlApplied) requestComputerPermissions();
   computerControlApplied = true;
   computerControlEnabled = enabled;
@@ -940,15 +876,6 @@ function applyComputerObserveOnlySetting(enabled: boolean): void {
   computerObserveOnly = enabled;
   computerHost?.setObserveOnly(computerObserveOnly);
 }
-// This PC's daemon drives the PC-wide features: the Browser Use host, the
-// updater and trash requests of paired phones, and the desktop settings.
-// A pending takeover hands the requesting session's page or step to the user:
-// only that session's Browser Use waits (a screen takeover also holds
-// Computer Use, there being one screen). Nobody finishing it, it expires.
-// A browser takeover is the one moment the Browser Use panel opens by itself,
-// on the handed-over page, once human control is ready (the session's
-// commands stopped and drained).
-// A login takeover never reveals the panel: its card opens the sign-in window.
 const browserLogin = createBrowserLoginPopup({
   parent: () => mainWindow,
   session: () => session.fromPartition(BROWSER_PARTITION),
@@ -1016,6 +943,8 @@ computerBridge = createComputerBridge({
   isDisposed: () => quitApproved || quitAfterDispose,
   diagnose: (event, data) => diagnostics?.write(event, data),
   callCore: (method, params) => localProtocol.call(method, params),
+  attachOwner: async (ownerId, pid) =>
+    computerHost && computerControlEnabled ? bindSavedLoginOwner(computerHost.readProcessFate, ownerId, pid) : null,
 });
 applyComputerBridge();
 onProtocolAttached(localProtocol, refreshCorePageOrigin);
@@ -1057,13 +986,11 @@ const hostRole = createLocalHostRole({
   onVisualizePublishFailed: (error) => reportVisualizePublishFailure('host', error),
   onBrowserViewFailed: (error) =>
     diagnostics?.write('browser-view-frames-failed', {
-      errorName: error instanceof Error ? error.name : 'Error',
-      message: String((error as Error)?.message ?? error).slice(0, 300),
+      ...errorDiagnosticFields(error),
     }),
   onUpdaterInstallFailed: (error) =>
     diagnostics?.write('updater-install-failed', {
-      errorName: error instanceof Error ? error.name : 'Error',
-      message: String((error as Error)?.message ?? error).slice(0, 300),
+      ...errorDiagnosticFields(error),
     }),
   files: () => ({
     captureFileSnapshot: (root, rel, grant) => fileSnapshots.capture(root, rel, grant),
@@ -1099,6 +1026,7 @@ const hostRole = createLocalHostRole({
         answerBridgeCommand: (command, signal) => host.answerBridgeCommand(command as ComputerCommand, signal),
       };
     },
+    desktopHostProcessFate: () => (computerControlEnabled ? computerHost : null),
     computerSwitch,
   },
   notifications: {
@@ -1152,8 +1080,7 @@ const hostRole = createLocalHostRole({
   onHostFault: (where, error) =>
     diagnostics?.write('host-handler-failed', {
       where,
-      errorName: error instanceof Error ? error.name : 'Error',
-      message: String((error as Error)?.message ?? error).slice(0, 300),
+      ...errorDiagnosticFields(error),
     }),
 });
 hostRoleReady = true;
@@ -1863,10 +1790,8 @@ function installRendererSessionPolicy(target: Electron.Session): void {
   if (policedRendererSessions.has(target)) return;
   policedRendererSessions.add(target);
   target.webRequest.onHeadersReceived((details, callback) => {
-    // The policy governs the app's own documents: the built renderer
-    // (file:) or the dev server. Other responses keep their headers —
-    // stamped onto a previewed PDF and onto Chromium's built-in viewer
-    // page, `frame-ancestors 'none'` left the editor's PDF preview blank.
+    // Other responses keep their headers: stamped onto a previewed PDF and Chromium's PDF viewer page,
+    // `frame-ancestors 'none'` blanks the editor's PDF preview.
     const rendererOrigin = process.env.ELECTRON_RENDERER_URL;
     if (!details.url.startsWith('file:') && !(rendererOrigin && details.url.startsWith(rendererOrigin))) {
       callback({});
@@ -1877,11 +1802,6 @@ function installRendererSessionPolicy(target: Electron.Session): void {
     // core starts, which is after this document and its policy are loaded, and again each time the core restarts, so
     // the policy names the loopback host, not one port. No other http host may be framed.
     const frameSrc = `frame-src 'self' blob: ${MEDIA_SCHEME}: http://127.0.0.1:*`;
-    // GitHub avatar hosts are allowed in img-src for the onboarding /
-    // settings account cards (github.com redirects to avatars host).
-    // media-src mirrors img-src: Studio tiles load from the mixdog-media
-    // byte lane, and older paths still inline data:/blob: URLs, which
-    // default-src 'self' would otherwise block.
     const policy = development
       ? `default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; connect-src 'self' ${MEDIA_SCHEME}: ws://127.0.0.1:* ws://localhost:*; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; ${frameSrc}; style-src 'self' 'unsafe-inline'; font-src 'self' data:`
       : `default-src 'self'; script-src 'self'; connect-src 'self' ${MEDIA_SCHEME}:; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; ${frameSrc}; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`;
@@ -1892,10 +1812,6 @@ function installRendererSessionPolicy(target: Electron.Session): void {
       },
     });
   });
-  // Push-to-talk/pairing use getUserMedia; transcript copy uses clipboard
-  // writes. Only the trusted desktop renderers (routed app windows) receive
-  // these permissions. Clipboard reads and every other permission still fail
-  // closed.
   const trustedPermissionSender = (webContents: Electron.WebContents | null) =>
     webContents && !webContents.isDestroyed() && windowRoutes.has(webContents.id) ? webContents : null;
   target.setPermissionCheckHandler((webContents, permission) =>
@@ -1959,10 +1875,6 @@ function rendererDiagnosticListener(
   };
 }
 
-/** What a dead renderer costs: a silent reload while the failures are rare, a
- *  single prompt once they are not, and nothing at all while quitting. The
- *  exit that follows a lost Local Storage link (`followsStorageLoss`) is the
- *  replacement of the process, not a failure: the page is loaded again. */
 function installRendererCrashRecovery(
   window: BrowserWindow,
   reloadRenderer: () => void,
@@ -2025,13 +1937,9 @@ function installNavigationGuards(window: BrowserWindow, isAllowedNavigation: (ca
   });
 }
 
-/** When the window appears, and how the page learns that it did.
- *
- * A hidden Chromium surface can throttle requestAnimationFrame and delay
- * ready-to-show for seconds. The renderer's React layout-commit handshake
- * plus did-finish-load is therefore sufficient; ready-to-show remains the
- * preferred compositor signal when it arrives first, and an absolute deadline
- * shows the window either way. */
+/** A hidden Chromium surface can throttle requestAnimationFrame and delay ready-to-show for seconds; the renderer's
+  layout-commit handshake plus did-finish-load is sufficient, ready-to-show is used when it arrives first, and an absolute
+  deadline shows the window either way. */
 function createWindowPresentation(window: BrowserWindow, startupStartedAt: number, afterRendererReady: () => void) {
   let readyToShow = false;
   let rendererCommitted = false;
@@ -2057,13 +1965,6 @@ function createWindowPresentation(window: BrowserWindow, startupStartedAt: numbe
       })
       .catch(() => {});
   };
-  // A renderer navigation/reload wipes window.__mixdogWindowShown, and the
-  // one-shot 'mixdog:window-shown' event never repeats, so every surface gate
-  // waited out its 1.2s browser fallback instead (measured: 382ms cold first
-  // open vs 1576ms for the same open after a reload). Re-announce once the
-  // reloaded document has finished loading, gated on a window that is ALREADY
-  // visible and has published its true first frame — cold start still
-  // announces exactly once, from showWhenComposed.
   window.webContents.on('did-finish-load', () => {
     if (!visibleFrameAnnounced || window.isDestroyed() || window.webContents.isDestroyed() || !window.isVisible())
       return;
@@ -2218,11 +2119,6 @@ function createDesktopPetController(): DesktopPet {
   });
 }
 
-/** The whole-PC screen source of the WebRTC live view (Windows: its injector
- *  is the Windows input host). The secure-desktop helper plugs in through its
- *  client; when it is not installed the adapter reports so and the secure
- *  desktop stays blocked until the paired phone asks for it to be installed,
- *  after which a fresh client is built. */
 function windowsRemoteScreens() {
   const environment = {
     isPackaged: app.isPackaged,
@@ -2291,44 +2187,50 @@ function installLocalWindowFeatures(
       savedLoginEnabled: () => browserAutoSignIn,
     });
   }
-  if (computerHost && !computerUseOverlay) {
-    const overlayComputerHost = computerHost;
-    computerUseOverlay = createComputerUseOverlay(
-      createComputerPillControls({
-        core: createCoreUserControl((method, params) => localProtocol.call(method, params)),
-        mirror: hostRole.computerPill,
-        abortSession: async (sessionId) => localService.abortSession(sessionId),
-        host: {
-          // Control-renderer recovery pauses input without cancelling the task.
-          pause: async () => overlayComputerHost.takeOver('user_pause'),
-          // The user's Resume, for the pause they saw. A pause the user started
-          // (Pause, Stop, their own takeover) waits for it; an unverified input
-          // recovery, a failed observer, or a late release whose cleanup has
-          // since been confirmed resumes by itself after the configured quiet
-          // interval.
-          resume: (generation) => overlayComputerHost.resumeByUser(generation),
-          configureIdleResume: (seconds) => overlayComputerHost.configureIdleResume(seconds),
-          // Stop native input immediately, independently of the daemon's turn
-          // cancellation reply. Only both confirmations may clear the pause.
-          async stop(sessionIds) {
-            overlayComputerHost.takeOver('user_stop');
-            await overlayComputerHost.stopAllSessions(
-              confirmComputerTurnsStopped(sessionIds, async (sessionId) => localService.abortSession(sessionId))
-            );
-          },
-        },
-      }),
-      app.getLocale(),
-      {},
-      hostRole.computerPill
-    );
-  }
+  if (computerHost && !computerUseOverlay) computerUseOverlay = createLocalComputerUseOverlay(computerHost);
   computerHost?.setObserveOnly(computerObserveOnly);
   computerHost?.setBridgeEnabled(computerControlEnabled);
+  const windowBrowserHost = createLocalBrowserHost(window, onGuest);
+  browserHost = windowBrowserHost;
+  // Explicit reveals and hides reach paired clients as the core's `host/browser/surface` (failed opens are not sent).
+  const stopSurfaceReport = hostRole.host.reportBrowserSurfaces(windowBrowserHost.hostRole().surfaces);
+  windowBrowserHost.setBridgeEnabled(browserControlEnabled);
+  attachLocalWindowLifecycle(window, windowBrowserHost, stopScreenSessions, stopSurfaceReport);
+  return windowBrowserHost;
+}
+
+function createLocalComputerUseOverlay(overlayComputerHost: ComputerHost): ComputerUseOverlay {
+  return createComputerUseOverlay(
+    createComputerPillControls({
+      core: createCoreUserControl((method, params) => localProtocol.call(method, params)),
+      mirror: hostRole.computerPill,
+      abortSession: async (sessionId) => localService.abortSession(sessionId),
+      host: {
+        // Control-renderer recovery pauses input without cancelling the task.
+        pause: async () => overlayComputerHost.takeOver('user_pause'),
+        resume: (generation) => overlayComputerHost.resumeByUser(generation),
+        configureIdleResume: (seconds) => overlayComputerHost.configureIdleResume(seconds),
+        // Stop native input immediately, independently of the daemon's turn
+        // cancellation reply. Only both confirmations may clear the pause.
+        async stop(sessionIds) {
+          overlayComputerHost.takeOver('user_stop');
+          await overlayComputerHost.stopAllSessions(
+            confirmComputerTurnsStopped(sessionIds, async (sessionId) => localService.abortSession(sessionId))
+          );
+        },
+      },
+    }),
+    app.getLocale(),
+    {},
+    hostRole.computerPill
+  );
+}
+
+function createLocalBrowserHost(window: BrowserWindow, onGuest: (guest: Electron.WebContents) => void): BrowserHost {
   // Browser pane host: registers this window's browser-pane webviews. The
   // agent bridge (the runtime's `browser` tool) is opt-in and only serves
   // while the Browser Use setting is on, mirroring Computer Use.
-  const windowBrowserHost = createBrowserHost(window, {
+  return createBrowserHost(window, {
     hostId: readOrCreateHostId(desktopUserData),
     // Only this PC's own window has a browser host (server windows refuse the
     // browser pane and agent bridge), so its sessions always work locally.
@@ -2380,18 +2282,17 @@ function installLocalWindowFeatures(
           file: join(import.meta.dirname, '../renderer/remote-webrtc-sender.html'),
         };
       })(),
-      // The whole-PC screen source (Windows: its injector is the Windows input
-      // host). The secure-desktop helper plugs in through its client; when it
-      // is not installed the adapter reports so and the secure desktop stays
-      // blocked until the paired phone asks for it to be installed, after
-      // which a fresh client is built.
       screens: process.platform === 'win32' ? windowsRemoteScreens() : undefined,
     },
   });
-  browserHost = windowBrowserHost;
-  // Explicit reveals and hides reach paired clients as the core's `host/browser/surface` (failed opens are not sent).
-  const stopSurfaceReport = hostRole.host.reportBrowserSurfaces(windowBrowserHost.hostRole().surfaces);
-  windowBrowserHost.setBridgeEnabled(browserControlEnabled);
+}
+
+function attachLocalWindowLifecycle(
+  window: BrowserWindow,
+  windowBrowserHost: BrowserHost,
+  stopScreenSessions: () => void,
+  stopSurfaceReport: () => void
+): void {
   // Taskbar attention: flash/bounce when the active turn finishes while this
   // window is unfocused; focusing it clears the signal.
   turnAttention = createTurnAttention({
@@ -2436,7 +2337,6 @@ function installLocalWindowFeatures(
     mainWindow = null;
     turnAttention = null;
   });
-  return windowBrowserHost;
 }
 
 /** Opens the connection's window, or brings back the one already open (or
@@ -2498,6 +2398,25 @@ const stopHostListsFeed = watchHostListsFeed(
   (message) => console.error(`[mixdog] ${message}`)
 );
 
+function reportWindowFocusChanges(window: BrowserWindow): void {
+  window.on('show', publishWindowFocus);
+  window.on('hide', publishWindowFocus);
+  window.on('focus', publishWindowFocus);
+  window.on('blur', publishWindowFocus);
+  window.on('minimize', publishWindowFocus);
+  window.on('restore', publishWindowFocus);
+  publishWindowFocus();
+}
+
+/** Pins only the application shell; Browser Use guests keep their own zoom. */
+function pinShellZoom(window: BrowserWindow): void {
+  window.webContents.setZoomFactor(1);
+  void window.webContents.setVisualZoomLevelLimits(1, 1);
+  window.webContents.on('dom-ready', () => {
+    window.webContents.setZoomFactor(1);
+  });
+}
+
 async function createWindow(connection: DesktopConnection): Promise<void> {
   const local = connection.kind === 'local';
   // The main window measures against process start; a server window opens later.
@@ -2526,13 +2445,7 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
   windowRoutes.register(window.webContents, connection.id);
   connectionWindows.set(connection.id, window);
   // The core's server notifier asks whether a window is on screen (windowFocus).
-  window.on('show', publishWindowFocus);
-  window.on('hide', publishWindowFocus);
-  window.on('focus', publishWindowFocus);
-  window.on('blur', publishWindowFocus);
-  window.on('minimize', publishWindowFocus);
-  window.on('restore', publishWindowFocus);
-  publishWindowFocus();
+  reportWindowFocusChanges(window);
   installDesktopWindowMaterial(window, writeBootDiagnostic);
   // The user's operations in this window reach its connection's runtime.
   const inputReporter = createUserInputReporter({
@@ -2569,12 +2482,7 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
     noteQuitCause('os-session-end');
     quitApproved = true;
   });
-  // Pin only the application shell; Browser Use guests keep their own zoom.
-  window.webContents.setZoomFactor(1);
-  void window.webContents.setVisualZoomLevelLimits(1, 1);
-  window.webContents.on('dom-ready', () => {
-    window.webContents.setZoomFactor(1);
-  });
+  pinShellZoom(window);
   const reloadRenderer = () => {
     if (quitAfterDispose || window.isDestroyed() || window.webContents.isDestroyed()) return;
     window.webContents.reload();
@@ -2772,10 +2680,6 @@ function installWindowCloseCleanup(
     const current = connectionWindows.get(connection.id) === window;
     if (current) connectionWindows.delete(connection.id);
     publishWindowFocus();
-    // Closing a server window detaches: this process's connection to the server's core closes, and the core is told its
-    // window is gone (by the user unless the app is quitting): it closes the tunnel and keeps the server's daemon running,
-    // and forgets the window for the next launch only when the user closed it. The record goes first: the core may answer by
-    // opening the window again, which makes a new one.
     if (connection.kind !== 'local') {
       if (current) {
         serverWindows.release(connection.id);
@@ -2914,13 +2818,6 @@ if (!app.requestSingleInstanceLock()) {
     activatePrimaryWindow();
   });
 
-  // Fork the daemon NOW, while Chromium is still bringing the app up and the
-  // main thread is otherwise idle. Started from whenReady, the client import
-  // and the fork queued behind window creation and the renderer load (215ms
-  // for a 25ms import), and the data lane finished a full second after the
-  // window had shown. Nothing here needs Electron ready:
-  // the transport is plain Node and the daemon is a separate process. The
-  // transport holds the daemon spawn until the login-shell read settles.
   loginShellEnvironmentReady = adoptLoginShellEnvironment();
   startDaemonService();
 
@@ -2963,7 +2860,7 @@ if (!app.requestSingleInstanceLock()) {
           serviceName: details.serviceName,
           name: details.name,
         });
-        if (String(details.type).toLowerCase() === 'gpu') {
+        if (details.type === 'GPU') {
           handleGpuChildCrash(details.reason, details.exitCode);
         }
       });

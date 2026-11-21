@@ -1,12 +1,3 @@
-/**
- * The Chrome App-Bound ("v20") cookie key, kept so later cookie imports do not
- * need the elevated unwrap (a UAC prompt) again.
- *
- * The key is stored only encrypted with Electron `safeStorage` (OS user scope)
- * and is bound to the SHA-256 of the `app_bound_encrypted_key` text it was
- * unwrapped from: when Chrome rotates that blob the saved key no longer
- * belongs to it and is discarded. Without OS encryption nothing is stored.
- */
 import { createHash } from 'node:crypto';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { writeFileAtomicAsync } from '../../../../../src/runtime/shared/atomic-file.mjs';

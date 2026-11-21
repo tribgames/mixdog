@@ -1,21 +1,3 @@
-/**
- * A local, phone-free, cursor-safe self-check of the screen source's math and
- * injector wire form. It injects nothing and captures no real screen, so it can
- * never move the cursor or touch a window — it is the part of the manual check
- * that is safe to run unattended on a working PC.
- *
- * It is a script, not a test file: the test runner (`scripts/test.mjs`) only
- * picks up `*.test.mjs` / `*-test.mjs`, so run it directly, from `apps/desktop`
- * (where `tsx` resolves); exit code 0 means every check passed:
- *
- *   node --import tsx src/main/remote-screen/screen-selfcheck.mjs
- *
- * It reports the capture plan for a sample display, the exact SendInput command
- * stream a harmless move-to-test-window-centre would produce, and confirms the
- * geometry mapping and stuck-key release invariants. The full on-device check
- * (capture one real frame, inject one real move inside a window the check
- * itself creates) is the Electron procedure in docs/remote-screen.md.
- */
 import { lockScreenGeometry, mapScreenPointer, screenVideoSize } from './screen-geometry.ts';
 import { screenInputCommands } from './screen-input-dispatch.ts';
 import { formatScreenHostCommand } from './screen-input-host.ts';

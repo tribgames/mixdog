@@ -1,7 +1,3 @@
-// Background warmups are nearly free inside Electron (local disk) and costly
-// in a browser/phone, where they spend metered bytes on the same link the
-// first screen is still loading over. Every prewarm asks here instead of
-// assuming the desktop's conditions.
 import { isRemoteHostRenderer } from './remote-ui-projection';
 
 type NetworkInformation = { saveData?: boolean; effectiveType?: string };

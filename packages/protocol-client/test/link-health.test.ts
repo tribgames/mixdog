@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { connect } from '../src/client.ts';
-import { MockConn, MockNetwork } from '../src/mock.ts';
+import { type MockConn, MockNetwork } from '../src/mock.ts';
 import type { ConnectOptions } from '../src/api.ts';
 
 const options = JSON.parse(readFileSync(new URL('../conformance/options.json', import.meta.url), 'utf8'));
@@ -64,7 +64,14 @@ const rig = (extra: Partial<ConnectOptions> = {}) => {
     clock: { sleep: () => Promise.resolve() },
     random: () => options.jitterUnit,
     ladder: options.ladder,
-    health: { intervalMs: INTERVAL, windowMs: INTERVAL, gapMs: 20_000, now: () => timers.now, setTimer: timers.set, clearTimer: timers.clear },
+    health: {
+      intervalMs: INTERVAL,
+      windowMs: INTERVAL,
+      gapMs: 20_000,
+      now: () => timers.now,
+      setTimer: timers.set,
+      clearTimer: timers.clear,
+    },
     ...extra,
   });
   const handshake = async (): Promise<MockConn> => {
@@ -80,7 +87,8 @@ const rig = (extra: Partial<ConnectOptions> = {}) => {
 const closed = (conn: MockConn): string | undefined => (conn.clientClose as { reason: string } | undefined)?.reason;
 const frames = (conn: MockConn): Array<{ id: number; method: string }> => conn.sent.map((s) => JSON.parse(s));
 const probes = (conn: MockConn) => frames(conn).filter((f) => f.method === 'thread/unsubscribe');
-const read = (client: Awaited<ReturnType<typeof connect>>) => client.call('thread/read', { threadId: 't1', window: { lastItems: 1 } });
+const read = (client: Awaited<ReturnType<typeof connect>>) =>
+  client.call('thread/read', { threadId: 't1', window: { lastItems: 1 } });
 
 test('authenticated fragments that keep arriving for over 30 s keep the link: the response arrives later, nothing restarts', async () => {
   const r = rig();
@@ -353,11 +361,15 @@ test('a receipt that arrives twice does not restart the window, and one that nev
   const send = writer.send;
   let again: (() => void) | undefined;
   writer.send = (text, sent) => {
-    send(text, sent && ((promise) => {
-      calls++;
-      sent(promise);
-      again = () => sent(promise); // the same transport claims the same frame a second time
-    }));
+    send(
+      text,
+      sent &&
+        ((promise) => {
+          calls++;
+          sent(promise);
+          again = () => sent(promise); // the same transport claims the same frame a second time
+        })
+    );
   };
   read(client).catch(() => undefined);
   await conn.nextSent();

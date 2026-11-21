@@ -1,16 +1,7 @@
-// Headless update-path smoke for a packaged Linux build: the app's own updater
-// must download, verify, install and relaunch the next version (no publishing).
 //   node scripts/linux-update-smoke.mjs <executable> <feedDir> <expectedVersion> <AppImage|deb> <outDir>
-// Serves <feedDir> (latest-linux*.yml plus the N+1 packages) from a loopback
-// HTTP server with Range support and launches the older build with
-// MIXDOG_UPDATER_DEV_FEED pointing at it and MIXDOG_UPDATER_DEV_AUTO_INSTALL=1
-// (the app installs as soon as the update is `ready`, as the Settings button
-// would). Then it waits until a *different* process writes app-ready
-// diagnostics with appVersion === <expectedVersion>:
-//   AppImage: AppImageUpdater replaced the AppImage file ($APPIMAGE) and
-//             spawned the new file; its sha512 must equal the feed's.
-//   deb:      DebUpdater ran dpkg through sudo/pkexec and app.relaunch()ed the
-//             installed binary; the downloaded .deb's sha512 must equal the feed's.
+// Serves <feedDir> over loopback HTTP with Range support; the app runs with MIXDOG_UPDATER_DEV_FEED and MIXDOG_UPDATER_DEV_AUTO_INSTALL=1.
+//   AppImage: AppImageUpdater replaces the file at $APPIMAGE and spawns it; its sha512 must equal the feed's.
+//   deb:      DebUpdater runs dpkg through sudo/pkexec and app.relaunch()es; the .deb's sha512 must equal the feed's.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';

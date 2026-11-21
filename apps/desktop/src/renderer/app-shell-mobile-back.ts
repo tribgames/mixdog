@@ -59,11 +59,6 @@ export function useAppMobileBack({
     return () => window.removeEventListener('mixdog:mobile-home', onHome);
   }, [sidebarOpen]);
 
-  // Each transient mobile layer owns a history sentinel so hardware back
-  // closes that layer instead of leaving the PWA. registerMobileBack is
-  // inactive outside the projected phone surface.
-  // Closures are stored in refs to prevent re-registration and history thrash
-  // when snapshots cause renders while a layer stays open.
   useMobileBack(sidebarOpen, () => applySidebarOpen(false));
   useMobileBack(bottomPanelOpen, () => setBottomPanelOpen(false));
   useMobileBack(focusedPaneDockOpen, closeFocusedPaneDock);
@@ -106,10 +101,6 @@ export function useAppMobileInitialClose({
   setBottomPanelOpen: (open: boolean, motion?: 'animated' | 'instant') => void;
   focusedLeafIdRef: MutableRefObject<string>;
 }) {
-  // Initialize mobile with drawer, docks, and bottom panel closed once per
-  // load. Apply before first paint so a persisted desktop layout never flashes.
-  // Re-armed when the layout leaves the phone grammar, so a tablet→phone
-  // switch (rotation, split view) also starts with the layers folded.
   const mobile = useMobileRemoteSurface();
   const mobileStartedClosed = useRef(false);
   useLayoutEffect(() => {

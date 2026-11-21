@@ -19,10 +19,6 @@ export function readViewBaselineOffer(value: unknown): Set<string> | null {
   return new Set(offer.keys as string[]);
 }
 
-/** Session-memory only, bounded and discarded on unpair. Advertised entries
- * stay pinned until that recovery finishes so incoming full baselines cannot
- * evict a reference which is already in flight. Strings isolate the cached
- * baseline from downstream decoder/renderer mutation. */
 export function createRemoteViewBaselineCache(maxBytes = MAX_VIEW_BASELINE_BYTES, now: () => number = Date.now) {
   const entries = new Map<string, { text: string; expires: number }>();
   let bytes = 0;

@@ -1,9 +1,3 @@
-/**
- * Which backend last produced an accepted frame of a window in a session. The
- * next capture of that window tries it first; it still faces every frame
- * check, and any failure forgets it so the full order runs again. A window
- * handle can be reused by a new window, so an entry also expires.
- */
 import { evictOldest } from '../shared/common';
 import type { CaptureBackend } from '../shared/capture-attempts';
 

@@ -21,11 +21,8 @@ export function usePaneFileDrop(onOpenDroppedPaths?: (leafId: string, paths: str
   const [fileDropLeafId, setFileDropLeafId] = useState('');
   useEffect(() => {
     const clear = () => setFileDropLeafId('');
-    // An OS drag (Explorer) never sends this window its dragend, and Chromium
-    // can skip the dragleave when the pointer exits the window fast, which
-    // left the drop frame drawn around the pane after the drag was long gone.
-    // No pointer event is dispatched while a drag is in flight, so the first
-    // one proves the drag is over.
+    // An OS drag never sends this window dragend, and Chromium can skip dragleave
+    // on a fast exit; no pointer event fires during a drag, so the first one ends it.
     window.addEventListener('drop', clear, true);
     window.addEventListener('dragend', clear, true);
     window.addEventListener('pointermove', clear, true);
@@ -72,10 +69,6 @@ export function usePaneFileDrop(onOpenDroppedPaths?: (leafId: string, paths: str
 
 /** Marks the pane a text-selection gesture began in so CSS can fence every other pane. */
 export function usePaneSelectionFence() {
-  // Selection is ONE document-wide range, so a drag that starts in one pane
-  // and travels over another painted every row in between. Mark the pane the gesture began in; CSS
-  // suspends selection in every OTHER pane until the pointer is released, so
-  // each pane reads as its own document the way editor groups do.
   useEffect(() => {
     const root = document.documentElement;
     const release = (): void => {
@@ -111,10 +104,6 @@ export function usePaneDropPreview(
   workspace: ReturnType<typeof usePaneWorkspace>,
   onFocusSelection: (selection: WorkspaceSelection) => void
 ) {
-  // Drag-to-split: native dragover publishes target-local frames once a tab
-  // leaves the strip band; hit-test the pane under the
-  // pointer, preview the edge zone, and split on drop. Refs keep the single
-  // subscription stable across renders.
   const [dropPreview, setDropPreview] = useState<DropPreview | null>(null);
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
@@ -147,6 +136,13 @@ export function usePaneDropPreview(
       }),
     []
   );
+  usePanelDragForwarding();
+  return dropPreview;
+}
+
+/** Forwards native drag events over the main panel to the pane drag session;
+ *  a tab reordering inside its own strip and a bot-list row drag are not splits. */
+function usePanelDragForwarding() {
   useEffect(() => {
     const panel = document.querySelector<HTMLElement>('.main-panel');
     if (!panel) return undefined;
@@ -165,24 +161,22 @@ export function usePaneDropPreview(
       const target = event.target instanceof Element ? event.target : null;
       return currentPaneDrag()?.kind === 'session' && target?.closest('[data-pane-drag-zone="bot-order"]') != null;
     };
+    const cancelledByOwnReorder = (event: DragEvent): boolean => {
+      if (!isSourceStripReorder(event) && !inBotOrderZone(event)) return false;
+      cancelPaneDragPreview();
+      return true;
+    };
     const onDragEnter = (event: DragEvent): void => {
       if (!currentPaneDrag()) return;
       enterCounter += 1;
-      if (isSourceStripReorder(event) || inBotOrderZone(event)) {
-        cancelPaneDragPreview();
-        return;
-      }
+      if (cancelledByOwnReorder(event)) return;
       // dragenter coordinates can be synthetic or stale in Chromium. It only
       // admits the native drop; dragover owns every preview coordinate.
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
     };
     const onDragOver = (event: DragEvent): void => {
-      if (!currentPaneDrag()) return;
-      if (isSourceStripReorder(event) || inBotOrderZone(event)) {
-        cancelPaneDragPreview();
-        return;
-      }
+      if (!currentPaneDrag() || cancelledByOwnReorder(event)) return;
       movePaneDrag(event);
     };
     const onDragLeave = (): void => {
@@ -193,10 +187,7 @@ export function usePaneDropPreview(
     const onDrop = (event: DragEvent): void => {
       if (!currentPaneDrag()) return;
       enterCounter = 0;
-      if (isSourceStripReorder(event) || inBotOrderZone(event)) {
-        cancelPaneDragPreview();
-        return;
-      }
+      if (cancelledByOwnReorder(event)) return;
       dropPaneDrag(event);
     };
     panel.addEventListener('dragenter', onDragEnter);
@@ -210,22 +201,11 @@ export function usePaneDropPreview(
       panel.removeEventListener('drop', onDrop);
     };
   }, []);
-  return dropPreview;
 }
 
 /** Whether the tree must collapse to one full-size pane (narrow shell or floors that do not fit). */
 export function useSinglePaneMode(layout: PaneNode) {
-  // Narrow shell (≤760px, phone composition): the split grid cannot hold two
-  // panes above their floors, so the tree renders as ONE full-size pane at a
-  // time — single-session mode (user decision) — and the strip-row pager
-  // steps left/right through the panes in visual order.
   const narrowShell = useMediaBand(NARROW_SHELL_QUERY);
-  // The band check alone is not enough: on a mid-width window the panel can
-  // shrink under the TREE's aggregate floors (side panels open, column
-  // splits taller than the window) and the overflow buried panes past the
-  // right or BOTTOM edge. Track
-  // the panel box and fall back to single-pane mode whenever the floors do
-  // not fit either axis.
   const [panelSize, setPanelSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
     const panel = document.querySelector<HTMLElement>('.main-panel');

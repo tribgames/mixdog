@@ -13,6 +13,7 @@ import {
   requiredNotificationDeviceId,
   requiredNotificationPreferencesPatch,
   requiredNotificationTarget,
+  requiredPromptContent,
   requiredTranscriptHistoryRequest,
   requiredTranscriptItemLimit,
 } from './ipc-validation.ts';
@@ -654,4 +655,45 @@ test('a model route selection carries contextTokens only as a positive integer',
       /contextTokens must be a positive integer/
     );
   }
+});
+
+test('prompt content validates image and file parts and keeps their canonical form', () => {
+  assert.deepEqual(
+    requiredPromptContent([
+      { type: 'text', text: 'hi' },
+      { type: 'image', data: 'QUJD', mimeType: 'IMAGE/PNG' },
+      { type: 'file', data: 'QUJD', mimeType: 'application/pdf', filename: 'a.pdf' },
+    ]),
+    [
+      { type: 'text', text: 'hi' },
+      { type: 'image', data: 'QUJD', mimeType: 'image/png' },
+      { type: 'file', data: 'QUJD', mimeType: 'application/pdf', filename: 'a.pdf' },
+    ]
+  );
+  assert.throws(
+    () => requiredPromptContent([{ type: 'image', data: 'QUJD', mimeType: 'image/bmp' }]),
+    /image type is unsupported/
+  );
+  assert.throws(
+    () => requiredPromptContent([{ type: 'image', data: 'not base64!', mimeType: 'image/png' }]),
+    /image data is invalid/
+  );
+  assert.throws(
+    () => requiredPromptContent([{ type: 'file', data: 'QUJD', mimeType: 'x/unknown' }]),
+    /file type is unsupported/
+  );
+  assert.throws(
+    () => requiredPromptContent([{ type: 'file', data: '', mimeType: 'application/pdf' }]),
+    /file data is invalid/
+  );
+});
+
+test('Vertex AI provider settings are checked at the capability boundary', () => {
+  const save = (args) => requiredDesktopCapabilityRequest({ capability: 'saveProviderApiKey', args });
+  assert.deepEqual(save(['vertex-ai', '', { authMode: 'adc' }]).args, ['vertex-ai', '', { authMode: 'adc' }]);
+  assert.throws(() => save(['vertex-ai', 'key', { authMode: 'adc' }]), /takes no key/);
+  assert.throws(() => save(['vertex-ai', 'key', { authMode: 'oauth' }]), /authentication mode is invalid/);
+  assert.throws(() => save(['vertex-ai', 'key', { location: 'US East' }]), /location is invalid/);
+  assert.throws(() => save(['vertex-ai', 'key', { projectId: 'a b' }]), /project ID is invalid/);
+  assert.throws(() => save(['openai', 'key', {}]), /only supported for Vertex AI/);
 });

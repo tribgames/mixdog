@@ -14,7 +14,7 @@ async function mountShell(t, panes) {
   });
   window.mixdogDesktop = {};
   const { useSessionPaneSurfaces } = await import('../use-session-pane-surfaces.ts');
-  const { usePaneSideDocks } = await import('../pane-side-dock.tsx');
+  const { usePaneSideDocks } = await import('../pane-side-dock-state.ts');
   const shell = { surfaces: null, docks: null, actions: null, panes, focused: 0, opened: [], commits: [] };
   const leaves = () =>
     shell.panes.map(({ id, tabs, active }) => ({

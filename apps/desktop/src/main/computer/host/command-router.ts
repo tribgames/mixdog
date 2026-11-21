@@ -1,10 +1,3 @@
-/**
- * Command dispatch for the Computer Use host. One command comes in, its
- * guards run in a fixed order (observation-only gate, safety, exact target,
- * fresh observation), then it is routed to a read, a capture, a bounded
- * sequence, or the resident backend, and the reply carries the verdict and
- * post-action observation the runtime acts on.
- */
 import { elapsedMs } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult, PowerShellResponse } from '../shared/types';
 import type { createWindowTargeting } from '../input/targeting';

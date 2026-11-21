@@ -1,10 +1,3 @@
-/**
- * Bringing a phrase into view. The roots here are the ones the readers already
- * use — the top document, every open shadow root, and each attached frame —
- * so `scroll text` can reach a phrase that `read` and a text postcondition
- * can see. Matching and scrolling are separate passes: every frame reports its
- * own match, the host picks one, and only that frame scrolls.
- */
 import { BROWSER_DOCUMENT_ROOTS } from './documents';
 
 export interface BrowserScrollTextMatch {

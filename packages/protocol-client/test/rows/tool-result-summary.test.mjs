@@ -3,7 +3,10 @@ import test from 'node:test';
 
 import { parseLineDelta, summarizeToolResult } from '../../src/rows/tool-result-summary.mjs';
 import { formatAggregateDetail } from '../../src/rows/tool-surface.mjs';
-import { renderAgentCompletionEnvelope, renderShellCompletionEnvelope } from '../../src/shared/task-notification-envelope.mjs';
+import {
+  renderAgentCompletionEnvelope,
+  renderShellCompletionEnvelope,
+} from '../../src/shared/task-notification-envelope.mjs';
 
 test('ask_user summaries cover picks, and a composer reply compactly', () => {
   assert.equal(
@@ -136,6 +139,24 @@ test('patch summaries and card aggregation preserve only actual edit counts', ()
   assert.deepEqual(parseLineDelta(created), { added: 292, removed: 0, seen: true });
   assert.equal(formatAggregateDetail([created, modified]), '+293 lines · -2 lines');
   assert.equal(formatAggregateDetail(['Created report-20260920.md']), 'Created report-20260920.md');
+});
+
+test('aggregate detail merges counted summaries by kind in first-seen order and dedupes the rest', () => {
+  assert.equal(
+    formatAggregateDetail(['Read 3 lines', '5 lines', 'image', 'Found 48 matches', 'Found 1 match', 'Docs', 'Docs']),
+    '8 lines, 1 image, 49 matches, Docs'
+  );
+});
+
+test('aggregate detail keeps a dry-run check delta out of the real edit delta', () => {
+  assert.equal(
+    formatAggregateDetail(['Checked a.js · +7 -5', 'Checked b.js · +1 -1']),
+    'Checked 2 files · +8 lines · -6 lines'
+  );
+  assert.equal(
+    formatAggregateDetail(['Updated a.js · +1 line · -2 lines', 'Checked a.js · +7 line · -5 lines']),
+    '+1 line · -2 lines, Checked a.js'
+  );
 });
 
 test('shell exit summaries accept both wire marker spellings', () => {

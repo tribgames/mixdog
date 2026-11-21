@@ -1,10 +1,3 @@
-/**
- * Live view over WebRTC: the wire contract between the desktop (main and its
- * hidden sender renderer) and a paired phone. Signaling rides the existing
- * end-to-end encrypted relay channel; video and page input ride a direct peer
- * connection once it has proved itself, and the JPEG relay view stays up until
- * then and comes back on any failure. docs/remote-webrtc.md is the spec.
- */
 import type { DesktopRemoteBrowserPageInput } from './contract';
 import { normalizeRemoteBrowserControl } from './remote-browser';
 import { isSecureDesktopControllerKey } from './secure-desktop-grant';

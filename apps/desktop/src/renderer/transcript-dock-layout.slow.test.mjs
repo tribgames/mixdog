@@ -122,10 +122,6 @@ async function settle(page) {
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 
-// In-page probes: one geometry read, a watcher that reads it inside every
-// resize delivery (after the timeline's own observer and its pin microtask)
-// and a sampler of every frame from before a change until the dock rests,
-// which reads at that same point of every frame.
 const PAGE_PROBES = `
   window.geometry = (key) => {
     const viewport = document.querySelector('.transcript');
@@ -169,16 +165,9 @@ const PAGE_PROBES = `
       return frames;
     };
   };
-  // A task posted from a frame callback is no point of a painted frame: on a
-  // busy main thread Chromium can run it between the frame's animation
-  // callbacks and its layout, or skip that frame's lifecycle update, so its
-  // read forces a layout of an eased slot height the timeline has not
-  // observed yet (and pins only in the frame's own delivery, before paint).
-  // A probe resized from each frame callback makes every frame deliver, and
-  // the sampler reads in that delivery: after the timeline's first-round
-  // observers and their pin microtask. A later delivery round of the same
-  // frame (a deeper element the pin resized) could still change the painted
-  // state; this read does not see it.
+  // Chromium can run a posted task between a frame's animation callbacks and its layout, so a
+  // read from one forces a layout the timeline has not observed. A probe resized from each frame
+  // callback makes every frame deliver; the sampler reads in that delivery.
   const tick = document.createElement('div');
   tick.style.cssText = 'position: fixed; top: 0; left: 0; width: 1px; height: 1px; visibility: hidden; pointer-events: none;';
   document.body.append(tick);
@@ -218,11 +207,6 @@ const PAGE_PROBES = `
     });
     observer.observe(tick);
     sampler = {
-      // Every frame since arming once the dock and the transcript rest after
-      // the change began: six frames since then at one dock height, scroll
-      // offset and tail gap, with no slot motion or grace hold (a fresh mount
-      // still measures rows and re-pins the tail after its dock is still).
-      // Rejects when it does not rest within the bound.
       settle: (boundMs) => new Promise((resolve, reject) => {
         const from = frames.length;
         const timer = setTimeout(() => {
@@ -461,7 +445,7 @@ async function checkScrollFade(page) {
   return fade;
 }
 
-test('dock changes and delayed rich rows preserve real browser geometry', async (t) => {
+async function openDockPage(t) {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
   const [bundle, styles] = await Promise.all([
     build({
@@ -477,8 +461,6 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
         {
           name: 'unopened-lazy-surfaces',
           setup(builder) {
-            // Exercise the actual review chunk, but retain Vite's lazy boundary
-            // for unopened editors/dialogs. Unexpected use remains a page error.
             builder.onResolve({ filter: /.*/ }, (args) =>
               args.kind === 'dynamic-import' && args.path !== './TurnReview'
                 ? { path: args.path, external: true }
@@ -524,6 +506,11 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
   });
   await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
   await page.addScriptTag({ content: PAGE_PROBES });
+  return { page, errors };
+}
+
+test('dock changes and delayed rich rows preserve real browser geometry', async (t) => {
+  const { page, errors } = await openDockPage(t);
 
   // 640 sat between these two on the same side of the phone breakpoint
   // (data-mixdog-mobile-tabs below 500), so it only repeated the desktop run.
@@ -663,10 +650,11 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
       await page.emulateMediaFeatures([]);
     }
   }
+  assert.deepEqual(errors, []);
+});
 
-  // A short pane where a large approval and a ten-line draft together need
-  // more than the pane: the island gives up the room and scrolls inside, and
-  // the composer never leaves the pane.
+test('in a short pane the island scrolls inside and the composer never leaves the pane', async (t) => {
+  const { page, errors } = await openDockPage(t);
   for (const width of [1280, 390]) {
     await page.setViewport({ width, height: 360 });
     await page.evaluate((width) => {

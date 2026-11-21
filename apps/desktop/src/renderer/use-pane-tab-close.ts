@@ -28,6 +28,35 @@ interface PendingUnsavedClose {
   proceed?: () => void;
 }
 
+/** A tab that shows a conversation (a draft, a session or a project's). */
+function isConversationKind(kind: string): boolean {
+  return kind === 'new' || kind === 'session' || kind === 'project';
+}
+
+function tabOpenInOtherLeaf(leaves: PaneWorkspace['leaves'], leafId: string, tabKey: string): boolean {
+  return leaves.some(
+    (entry) => entry.id !== leafId && entry.tabs.some((selection) => navigationKey(selection) === tabKey)
+  );
+}
+
+function fallbackTabAfterClose(
+  leaves: PaneWorkspace['leaves'],
+  leaf: PaneWorkspace['leaves'][number],
+  tab: WorkspaceTab
+): WorkspaceTab | undefined {
+  const leafTabs: WorkspaceTab[] = leaf.tabs.map((selection) => ({
+    key: navigationKey(selection),
+    title: '',
+    selection,
+  }));
+  const groupFallback = nextWorkspaceTabAfterClose(leafTabs, tab.key);
+  if (groupFallback) return groupFallback;
+  const neighbor = leaves.find((entry) => entry.id !== leaf.id);
+  if (!neighbor) return undefined;
+  const selection = paneActiveSelection(neighbor);
+  return selection ? { key: navigationKey(selection), title: '', selection } : undefined;
+}
+
 export function usePaneTabClose({
   paneWorkspace,
   dirtyFileKeys,
@@ -68,46 +97,42 @@ export function usePaneTabClose({
   const [unsavedCloseBusy, setUnsavedCloseBusy] = useState(false);
   const [unsavedCloseError, setUnsavedCloseError] = useState('');
 
+  const releaseClosedTab = (leafId: string, tab: WorkspaceTab) => {
+    if (!tabOpenInOtherLeaf(paneWorkspace.leaves, leafId, tab.key)) {
+      if (tab.selection.kind === 'file') {
+        handleFileDirty(tab.key, false);
+        editorSaveHandles.current.delete(tab.key);
+      }
+      if (tab.selection.kind === 'terminal') void disposeTerminalPane(tab.selection.id);
+      if (tab.selection.kind === 'browser') void window.mixdogDesktop?.browserReleasePage?.(tab.selection.id);
+      setTabs((current) => current.filter((item) => item.key !== tab.key));
+    }
+    paneWorkspace.closeTab(leafId, tab.key);
+  };
+
+  const resetToNewTask = () => {
+    selectionRef.current = { kind: 'new' };
+    viewedSessionRef.current = '';
+    unreadViewedSessionRef.current = '';
+    setSelection({ kind: 'new' });
+    setRequestedSessionId('');
+    try {
+      window.localStorage.removeItem(lastSessionStorageKey);
+    } catch {
+      /* best-effort */
+    }
+  };
+
   const closeTabNow = (leafId: string, tab: WorkspaceTab) => {
     const leaf = paneWorkspace.leaves.find((entry) => entry.id === leafId);
     if (!leaf) return;
-    const openElsewhere = paneWorkspace.leaves.some(
-      (entry) => entry.id !== leafId && entry.tabs.some((selection) => navigationKey(selection) === tab.key)
-    );
-    const leafTabs: WorkspaceTab[] = leaf.tabs.map((selection) => ({
-      key: navigationKey(selection),
-      title: '',
-      selection,
-    }));
-    const groupFallback = nextWorkspaceTabAfterClose(leafTabs, tab.key);
-    const wasFocused = leafId === paneWorkspace.focusedLeafId;
-    const wasActive = wasFocused && tab.key === leaf.activeKey;
-    const closingSession =
-      tab.selection.kind === 'new' || tab.selection.kind === 'session' || tab.selection.kind === 'project';
-    const fallback =
-      groupFallback ??
-      (() => {
-        const neighbor = paneWorkspace.leaves.find((entry) => entry.id !== leafId);
-        if (!neighbor) return undefined;
-        const selection = paneActiveSelection(neighbor);
-        return selection ? { key: navigationKey(selection), title: '', selection } : undefined;
-      })();
-    const commitClose = () => {
-      if (!openElsewhere) {
-        if (tab.selection.kind === 'file') {
-          handleFileDirty(tab.key, false);
-          editorSaveHandles.current.delete(tab.key);
-        }
-        if (tab.selection.kind === 'terminal') void disposeTerminalPane(tab.selection.id);
-        if (tab.selection.kind === 'browser') void window.mixdogDesktop?.browserReleasePage?.(tab.selection.id);
-        setTabs((current) => current.filter((item) => item.key !== tab.key));
-      }
-      paneWorkspace.closeTab(leafId, tab.key);
-    };
+    const wasActive = leafId === paneWorkspace.focusedLeafId && tab.key === leaf.activeKey;
     if (!wasActive) {
-      commitClose();
+      releaseClosedTab(leafId, tab);
       return;
     }
+    const fallback = fallbackTabAfterClose(paneWorkspace.leaves, leaf, tab);
+    const closingSession = isConversationKind(tab.selection.kind);
     if (closingSession && fallback?.selection.kind === 'session') {
       if (tab.selection.kind === 'session' || tab.selection.kind === 'new') {
         const handoff: ConversationHandoff = {
@@ -118,39 +143,20 @@ export function usePaneTabClose({
         pendingConversationHandoff.current = handoff;
         setConversationHandoff(handoff);
       }
-      commitClose();
+      releaseClosedTab(leafId, tab);
       void openSession(fallback.selection.id);
       return;
     }
-    commitClose();
+    releaseClosedTab(leafId, tab);
     if (fallback) navigateTab(fallback);
-    else {
-      selectionRef.current = { kind: 'new' };
-      viewedSessionRef.current = '';
-      unreadViewedSessionRef.current = '';
-      setSelection({ kind: 'new' });
-      setRequestedSessionId('');
-      try {
-        window.localStorage.removeItem(lastSessionStorageKey);
-      } catch {
-        /* best-effort */
-      }
-    }
-    if (
-      !closingSession &&
-      fallback &&
-      (fallback.selection.kind === 'new' ||
-        fallback.selection.kind === 'session' ||
-        fallback.selection.kind === 'project')
-    ) {
+    else resetToNewTask();
+    if (!closingSession && fallback && isConversationKind(fallback.selection.kind)) {
       setComposerFocusRequest((value) => value + 1);
     }
   };
 
   const closeTab = (leafId: string, tab: WorkspaceTab) => {
-    const openElsewhere = paneWorkspace.leaves.some(
-      (entry) => entry.id !== leafId && entry.tabs.some((selection) => navigationKey(selection) === tab.key)
-    );
+    const openElsewhere = tabOpenInOtherLeaf(paneWorkspace.leaves, leafId, tab.key);
     if (!openElsewhere && tab.selection.kind === 'file' && dirtyFileKeys.has(tab.key)) {
       setUnsavedCloseError('');
       setPendingUnsavedCloses((queue) =>

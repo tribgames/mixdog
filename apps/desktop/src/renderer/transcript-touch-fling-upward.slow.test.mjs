@@ -4,37 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// Android phone, reading upward through a long session with a finger
-// (위로 스크롤하면 턱턱 막히거나 튄다). Rows mount above the reader at one learned
-// estimate and measure at their real height; every third one first paints
-// short and grows two frames later (a reply's parsed markdown). Sizes measured
-// above the reader during the fling are deferred, and a fast fling carries a
-// short row from wholly above to wholly in view between two frames, so its
-// deferred size lands while it is already on screen. Every frame of several
-// fast upward flings on a 4x-throttled CPU is sampled: the rows on screen must
-// move only by the fling itself — never against it, never a jump on top of
-// it — and every fling must run its course while older rows remain above.
-//
-// What the list can promise is bounded by how fast the main thread reports:
-// the compositor runs the fling alone, so a main-thread frame that comes late
-// finds rows on screen that it has not measured yet (they were mounted at the
-// estimate), and their sizes land with the viewport already past them. A size
-// landing in view keeps the rows under it still (compensation) and moves the
-// rows above it, which are the unmeasured ones just carried in; a markdown
-// that lands in a row already in view moves every row under it by its growth.
-// The CPU throttle is relative to the runner, so how often the main thread
-// falls behind a fling differs between runners and runs. The reference row is
-// therefore the lowest row on screen — the one a landing must never move —
-// and a frame is judged only when nothing on screen waits for its size.
-
 const HARNESS = `
   import { useEffect, useRef, useState } from 'react';
   import { createRoot } from 'react-dom/client';
   import { TranscriptList } from './TranscriptList';
   import { useTranscriptFollow } from './use-transcript-follow';
 
-  // XOR yields a signed 32-bit value: made unsigned before the modulo, so
-  // every row lands in 0..999 and takes a real height.
   const hash = (n) => { let x = (n + 1) * 2654435761 % 4294967296; x ^= x >>> 13; return (x >>> 0) % 1000; };
   // Many one-line rows (collapsed tool rounds, turn gaps, short prompts),
   // short replies, some long replies and a few very long ones, all estimated
@@ -118,12 +93,6 @@ const HARNESS = `
   createRoot(document.getElementById('root')).render(<Harness />);
 `;
 
-// Every programmatic offset write is counted with the distance it moved the
-// native offset; every frame records the native offset, where each row on
-// screen sits and whether the list has absorbed its box (the row under it
-// starts where its own box ends — a row it has not measured yet is laid out at
-// the estimate, so its neighbour starts somewhere else), and which rows on
-// screen reflowed (their markdown landed) without being absorbed yet.
 const PROBES = `
   window.armProbe = () => {
     const viewport = document.querySelector('.transcript');
@@ -179,17 +148,6 @@ async function fling(cdp, distance) {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Per frame: how far the lowest row on screen in both frames moved
- *  (`content`, positive = down, the way an upward fling moves it), how far the
- *  native offset moved by itself (`fling`, this list's writes taken out) and
- *  what moved the row besides the fling (`shift`). Two kinds of frame are not
- *  judged, their correction is still to land: one with a row at or under the
- *  reference row that was not absorbed yet (its size lands compensated and
- *  moves the rows above it), and one with a row on screen that reflowed and
- *  was not absorbed yet (the list measures the growth of a row already in
- *  view after the fact, and everything under it moves by the growth). A frame
- *  whose rows leave the top of the screen bare is not judged either: the rows
- *  that belong there are not mounted yet. */
 function frameMotion(frames) {
   const motion = [];
   for (let index = 1; index < frames.length; index += 1) {
@@ -320,11 +278,6 @@ test('on Android an upward touch fling through mis-estimated rows moves the rows
   }
 });
 
-// The phone app (APK): a fling stops "every time the transcript updates".
-// While a reply streams in at the tail (the live row grows every 60 ms, a row
-// is appended every 600 ms), each upward fling starts at the followed tail —
-// the live row on screen — and must run its course with no stop, no motion
-// against it and no jump on top of it.
 test('on Android an upward touch fling from the tail runs its course while a reply streams in', async (t) => {
   const harness = await openHarness(t);
   const { page } = harness;

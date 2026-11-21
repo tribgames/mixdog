@@ -1,7 +1,3 @@
-// The peek panel itself: a preview on the left, the rows of one direction on
-// the right, and the keyboard grammar that moves between them. It renders what
-// the hook holds and reports every intent back; no request and no state of its
-// own lives here.
 import Editor from '@monaco-editor/react';
 import { ChevronRight, X } from 'lucide-react';
 import type { Dispatch, PointerEvent as ReactPointerEvent, RefObject, SetStateAction } from 'react';

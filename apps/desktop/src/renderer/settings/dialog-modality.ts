@@ -20,21 +20,9 @@ export function portaledMenuOpen(dialog: HTMLElement | null): boolean {
   });
 }
 
-// One owner for "the page behind a modal is inert". Every open modal registers
-// its host and, at that moment, records the page it covers: every element
-// that exists then and is not an ancestor of the host (the toast region and
-// layers marked `data-modal-above`, like the guided tour that points INTO a
-// dialog, stay live). Ownership is therefore by creation: a dropdown, menu or
-// tooltip portaled to the body while a modal is open is not in that record,
-// so it belongs to the modal and is live, with no per-component marking. The
-// top-most modal's record is what is inert; opening and closing in any order
-// recomputes it, so nothing unlocks early or is restored stale, a lower
-// modal's dropdown is locked only while a modal above it is open, and the last
-// close restores everything.
-// Background UI that appears after a modal opened (an update or connection
-// banner, a pairing request) carries `data-modal-background` on its body-level
-// root: while any modal is open, such a node is covered by every open modal the
-// moment it is added, and so is unlocked only when all of them are closed.
+// Markers on body-level nodes: `data-modal-above` (the toast region, the guided tour pointing into a dialog) is never
+// made inert; `data-modal-background` (update or connection banner, pairing request) added while a modal is open is
+// covered by every open modal and unlocked only when all are closed.
 const BACKGROUND_MARK = '[data-modal-background]';
 let observer: MutationObserver | null = null;
 const listeners = new Set<() => void>();

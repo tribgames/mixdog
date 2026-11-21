@@ -1,7 +1,3 @@
-/**
- * src/tui/session/tool-result-text.mjs - flatten tool-result content shapes into
- * display text, plus collapsed-detail/grouped fallbacks and error framing.
- */
 import { presentErrorText } from './err-text.mjs';
 
 // Every shape that carries a list of parts flattens the same way: render each
@@ -144,10 +140,6 @@ export function toolErrorDisplay(value, surface = 'tool', { providerLabel } = {}
   return /^error\s*:/i.test(text) ? text : `Error: ${text}`;
 }
 
-// Display-only: a command-failure card already renders its exit state, so
-// the machine header (`[exit code: N]`, or its legacy shell-run-failed form) is
-// redundant in the body. The model-facing result keeps it; only display drops
-// the header and explanatory completion note.
 export function stripShellExitHeader(text) {
   const body = String(text ?? '');
   return body.replace(

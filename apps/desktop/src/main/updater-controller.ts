@@ -277,10 +277,6 @@ export function createUpdaterController(input: {
       if (installing) throw new Error('Update install is already in progress');
       const version = state.version;
       installing = true;
-      // Unconfirmed installs stop before touching anything while agent work
-      // runs or its status is unknown; a confirmed one is the user's decision.
-      // The core's hold is the last step before teardown: when it reports
-      // idle, new work is already deferred and stays so until the core exits.
       if (!options.confirmed) {
         // null means unknown, so only undefined falls through to the hold.
         let tasks = await viewTasks();
@@ -293,10 +289,6 @@ export function createUpdaterController(input: {
       }
       transition({ status: 'installing', version });
       try {
-        // The old core must be gone before the installer replaces its files
-        // and before the new app starts the next one: one core at a time. The
-        // wind-down refuses new work from its first step; a confirmed install
-        // also aborts the work the user was shown.
         await input.core?.stop({ abort: options.confirmed === true });
         await input.stop();
         // ipcRenderer.invoke() must receive its acknowledgement before

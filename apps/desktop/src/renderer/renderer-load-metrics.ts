@@ -10,7 +10,7 @@ let studioMetric: LoadMetric | null = null;
 const editorMetrics = new Map<string, LoadMetric>();
 let nextMetricToken = 0;
 
-function now(): number {
+export function now(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }
 

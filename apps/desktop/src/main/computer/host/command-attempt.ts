@@ -1,13 +1,3 @@
-/**
- * One attempt at one command, inside its execution context. A takeover that
- * happened since the request was queued turns a mutation into a pending
- * observation instead of replaying its input. A failure is judged before it
- * is reported: codes that mean the user has the desktop trigger a takeover,
- * a user pause parks the work (keeping only its progress), the user's own
- * input refuses just this action (and, for a foreground one, makes that
- * session wait until the user is idle), and anything else gets one recovery
- * capture so the reply carries fresh evidence.
- */
 import { beginComputerOperation } from '../../human-only-approval';
 import { type ComputerUseCoordinator, computerResultLastNumber } from '../session/coordinator';
 import { computerLogError } from '../session/log-privacy';
@@ -101,10 +91,6 @@ function userInputReply(
   return { text: JSON.stringify(yielded ? yieldedUserInputPayload(payload, manualResume(deps)) : payload) };
 }
 
-/** The recovery capture is an active operation too, so Stop and Resume
- *  cannot race a late observation into the next generation. A cancelled or
- *  failed recovery must not disguise a dispatched mutation as "cancelled
- *  before execution", or publish a stale result. */
 async function recoveryCapture(
   deps: CommandAttemptDeps,
   attempt: Attempt,

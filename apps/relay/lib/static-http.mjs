@@ -28,10 +28,7 @@ export const MIME_TYPES = {
 };
 
 export const PAIRING_COOKIE_NAME = 'mixdog_token';
-// Device route cookie: the installed web app launches at /d/<deviceId>/, and
-// the assets it pulls afterwards are plain root URLs. The cookie carries the
-// route across those requests so the shell keeps its gate without rewriting
-// every asset path per device.
+// The installed web app launches at /d/<deviceId>/ but loads plain root asset URLs; this cookie carries the route across them.
 export const DEVICE_COOKIE_NAME = 'mixdog_device';
 
 // Text assets ship uncompressed otherwise: the renderer bundle alone is ~1.3MB
@@ -100,10 +97,6 @@ export const BROWSER_SECURITY_HEADERS = Object.freeze({
   'X-Frame-Options': 'DENY',
 });
 
-/** The production renderer inlines boot.js to remove a parser-blocking relay
- *  round trip. Grant only that exact sibling source permission, and only when
- *  the served document actually contains it; every other response keeps the
- *  base self-only script policy. */
 function browserSecurityHeadersForTarget(target) {
   if (!target.endsWith('index.html')) return BROWSER_SECURITY_HEADERS;
   try {
@@ -143,14 +136,7 @@ export function parseCookieToken(header) {
   return parseCookieValue(header, PAIRING_COOKIE_NAME);
 }
 
-/** Whether a request's cookie may count as a credential. The app's own
- *  requests are same-origin (or browser-initiated, `Sec-Fetch-Site: none`),
- *  and an outside link opening the relay is a top-level document navigation.
- *  Anything else that is cross-site — notably a page in the opaque-origin
- *  preview frame, whose requests are cross-site and carry `Origin: null` —
- *  never authenticates by cookie, even in a browser that ignored SameSite.
- *  Browsers without Fetch Metadata send no `Sec-Fetch-*` and are judged by
- *  SameSite=Lax alone. */
+/** Whether a request's cookie may count as a credential: same-origin, browser-initiated (`Sec-Fetch-Site: none`) and top-level document navigations pass; any other cross-site request, and `Origin: null` (opaque-origin preview frame), never does. Browsers without Fetch Metadata are judged by SameSite=Lax alone. */
 export function cookieCredentialAllowed(headers = {}) {
   if (
     String(headers.origin ?? '')
@@ -208,12 +194,7 @@ export function mergeCookieHeaders(...headerSets) {
   return cookies.length > 0 ? { 'Set-Cookie': cookies } : {};
 }
 
-/** Device-scoped manifest for /d/<deviceId>/. start_url is what an install
- *  captures, so pointing it at the device route is what lets the installed web
- *  app say WHICH desktop it wants — the one thing an empty storage container
- *  cannot otherwise know. The route names a desktop and carries no secret; the
- *  approval on that desktop is what grants access. False when the manifest
- *  cannot be read, leaving the answer to the caller. */
+/** Device-scoped manifest for /d/<deviceId>/: id, start_url, scope and the share_target action point at the device route so an installed app knows which desktop it wants. False when the manifest cannot be read. */
 export function sendDeviceManifest(request, response, target, deviceId) {
   let body;
   try {
@@ -321,10 +302,7 @@ export function encodingAccepted(header, encoding) {
   return wildcard !== undefined && wildcard > 0;
 }
 
-/** A negotiated sibling never passes through resolveStaticTarget, so it repeats
- *  that escape check here: the sibling's real path must be exactly the resolved
- *  asset's real path plus the suffix. A symlinked `.br` beside a public file
- *  would otherwise return bytes from outside the renderer root. */
+// Repeats resolveStaticTarget's escape check: a symlinked sibling must not return bytes from outside the root.
 function precompressedSibling(target, suffix, fileExists) {
   const path = `${target}${suffix}`;
   if (!fileExists(path)) return '';
@@ -337,11 +315,7 @@ function precompressedSibling(target, suffix, fileExists) {
   return path;
 }
 
-/** Pick the precompressed sibling (`.br`/`.gz`) the client accepts.
- *  `npm run stage:web` writes them beside each text asset, so the relay ships
- *  brotli — well under on-the-fly gzip on a phone link — without spending CPU
- *  per request. Returns null when nothing suitable was staged, leaving the
- *  live gzip path in charge (LAN/dev servers run straight off a raw build). */
+/** The precompressed sibling (`.br`/`.gz`, written by `npm run stage:web`) the client accepts, or null when none was staged. */
 export function selectPrecompressed(target, acceptEncoding, fileExists = existsSync) {
   if (encodingAccepted(acceptEncoding, 'br')) {
     const path = precompressedSibling(target, '.br', fileExists);
@@ -370,12 +344,6 @@ export function sendStaticFile(request, response, target, extraHeaders = {}, { v
   const headers = {
     ...browserSecurityHeadersForTarget(target),
     'Content-Type': type,
-    // boot.js carries no content hash yet is version-locked to index.html (it
-    // picks the viewport projection and the first-paint theme). Under the
-    // generic one-day rule a phone kept an OLD boot.js while index.html
-    // (no-cache) handed it a NEW hashed bundle, and the mismatched pair
-    // rendered the PWA shrunk to a fraction of the screen. It revalidates with
-    // the document it belongs to.
     'Cache-Control': cacheControlForTarget(target, hashedAsset),
     // Hashed build assets are content-addressed, identical in every release.
     Vary: varyOnCookie && !hashedAsset ? 'Accept-Encoding, Cookie' : 'Accept-Encoding',

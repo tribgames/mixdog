@@ -1,7 +1,3 @@
-// The core's `ui/openRequested` app-feed notification, one route per Node flow it replaces: the browser surface
-// request, the terminal run reveal and the visualize open each go to the main window on the channel Node used.
-// The core re-delivers app-feed events after a reconnect, so a visualize open that names itself (`openRequestId`)
-// is handed over once; one without an id is always handed over.
 import type { UiNewTabCreatedParams, UiOpenRequestedParams } from '../../../../../packages/protocol/src/index.ts';
 import type { ConnectionClientEvent } from './connection';
 

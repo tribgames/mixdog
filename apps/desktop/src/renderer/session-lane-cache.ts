@@ -11,14 +11,6 @@ interface SessionLaneEntry {
   incoming?: WeakRef<object>;
 }
 
-/** Mounted panes pin their live frame; only inactive snapshots are evictable.
- * The byte budget therefore bounds the INACTIVE lanes only: a pinned frame is
- * held by its pane whatever this cache does, so charging it here let a few
- * large mounted transcripts push the background set past the budget, and
- * prune() then evicted every lane the user had just left (each return re-read
- * the transcript behind the loading cover). A live frame's size may be
- * sampled cheaply, but release must remeasure it before admitting it to the
- * background budget. */
 export class SessionLaneCache {
   private readonly entries = new Map<string, SessionLaneEntry>();
 

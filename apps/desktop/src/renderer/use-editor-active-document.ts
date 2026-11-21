@@ -39,10 +39,6 @@ export function useEditorActiveDocument({
   relPath: string;
   updateOutline(): Promise<void>;
 }) {
-  // Hidden→visible tab switches leave Monaco with a stale layout: the first
-  // scrollbar press then only re-measures instead of grabbing the slider.
-  // A focused file surface also takes the keyboard explicitly after mount or
-  // pane activation, so the first pointer click can immediately type.
   // biome-ignore lint/correctness/useExhaustiveDependencies: editorRef and editorLayoutSize are stable refs owned by the pane; only the listed values re-run the relayout.
   useLayoutEffect(() => {
     if (!active || !loaded) return;

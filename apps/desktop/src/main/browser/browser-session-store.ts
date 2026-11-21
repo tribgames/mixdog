@@ -1,11 +1,3 @@
-/**
- * Sign-ins across restarts. Chromium keeps the partition's persistent
- * cookies and storage on disk by itself, but a cookie without an expiry —
- * the shape most sign-in sessions take — dies with the process, so a
- * relaunch would land the agent back on a login page. This store snapshots
- * those cookies, sealed with the OS keychain, and puts them back on the next
- * start. Nothing here reads cookie values into a reply.
- */
 import { createHash } from 'node:crypto';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';

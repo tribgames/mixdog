@@ -1,7 +1,3 @@
-// The Agents pane's contacts: Mixy first, then each user-facing agent, every
-// one a messenger row over its home thread. Built only from the agent catalog,
-// the session catalog (the host stamps each home thread with its agent) and
-// the agent pool the pane already reads.
 import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { type AgentAvatarValue, agentAvatar } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import { plainPreviewText } from '../shared/core-src/runtime/shared/plain-preview.mjs';
@@ -42,11 +38,6 @@ export interface AgentContact {
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 
-/** The row's one trailing status: attention > error > running > unread. The
- *  task sessions the bot created (taskAgent) are its work too while the work
- *  there is what the bot sent (`handedBy`): its own turn often ends once it
- *  hands the work over, while the task still runs. A turn the user typed in
- *  the task session is the user's, not the bot's. */
 function contactIndicator(
   agentId: string,
   session: DesktopSessionSummary | null,
@@ -97,18 +88,31 @@ function contactPreview(
   if (disabled) return t('Off');
   if (indicator?.kind === 'attention') return asking ? t('Answer needed') : t('Waiting for approval');
   if (indicator?.kind === 'running') return t('Working');
-  // The thread's latest message; a catalog row from before that field (or a
-  // cold-scanned one) falls back to its first prompt. Mixy is the default
-  // thread: an empty one is normal, so its row shows no placeholder (the
-  // thread carries the empty state). A routine result reads in the user's
-  // language, as its transcript notice does.
-  // Every path reads as plain text: a stored preview from before the host
-  // stripped markdown still shows no `**`.
   const shown =
     plainPreviewText(
       localizedRoutinePreview(text(session?.lastMessagePreview), session?.lastMessageRoutine) || text(session?.preview)
     ) || plainPreviewText(fallback);
   return shown || (mixy ? '' : t('No messages yet'));
+}
+
+function contactApprovals(
+  session: DesktopSessionSummary | null,
+  tasks: readonly DesktopSessionSummary[],
+  indicator: AgentChatIndicator,
+  needsUser: ReadonlySet<string> | undefined,
+  asking: ReadonlySet<string> | undefined
+): { asking: boolean; approvals: number } {
+  const waiting = [session, ...tasks].filter((row): row is DesktopSessionSummary =>
+    Boolean(row && needsUser?.has(row.id))
+  );
+  const approvalIds = waiting.map((row) => row.id).filter((id) => !asking?.has(id));
+  const taskApprovals = approvalIds.filter((id) => id !== session?.id).length;
+  const approvalRows = taskApprovals > 0 ? taskApprovals : approvalIds.length;
+  const questionOnly = indicator?.kind === 'attention' && waiting.length > 0 && approvalRows === 0;
+  return {
+    asking: questionOnly,
+    approvals: indicator?.kind === 'attention' && !questionOnly ? Math.max(1, approvalRows) : 0,
+  };
 }
 
 /** Contacts in list order. `groups` are the pool's Lead groups by owner id;
@@ -135,31 +139,24 @@ export function agentContacts(
     disabled = false
   ): AgentContact => {
     const session = homes.get(agentId) ?? null;
+    const agentTasks = tasks.get(agentId) ?? [];
     const indicator = contactIndicator(
       agentId,
       session,
-      tasks.get(agentId) ?? [],
+      agentTasks,
       session ? groups.get(session.id) : undefined,
       unreadSessionIds,
       needsUser
     );
-    const waiting = [session, ...(tasks.get(agentId) ?? [])].filter((row) => row && needsUser?.has(row.id));
-    const approvalIds = waiting.map((row) => row?.id ?? '').filter((id) => !asking?.has(id));
-    // A task session's approval also docks in the home thread, so a home wait
-    // beside waiting task sessions is their copy: count the tasks alone, as
-    // the home's dock counts them ("1/N").
-    const taskApprovals = approvalIds.filter((id) => id !== session?.id).length;
-    const approvalRows = taskApprovals > 0 ? taskApprovals : approvalIds.length;
-    const questionOnly = indicator?.kind === 'attention' && waiting.length > 0 && approvalRows === 0;
+    const waits = contactApprovals(session, agentTasks, indicator, needsUser, asking);
     return {
       agentId,
       name,
       mixy,
-      asking: questionOnly,
-      approvals: indicator?.kind === 'attention' && !questionOnly ? Math.max(1, approvalRows) : 0,
+      ...waits,
       avatar: agentAvatar(agentId, storedAvatar),
       session,
-      preview: contactPreview(indicator, session, description, mixy, disabled, questionOnly),
+      preview: contactPreview(indicator, session, description, mixy, disabled, waits.asking),
       at: session ? Number(session.activityAt) || session.updatedAt : 0,
       indicator,
       unread: session ? unreadSessionIds?.has(session.id) === true : false,

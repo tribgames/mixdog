@@ -1,8 +1,3 @@
-// How far the user can see a displayed tab: the desktop window's state
-// (visible / background / covered / hidden), what each state tells the agent
-// when it opens a tab, and a paired remote device overriding the desktop's
-// non-visible states. The panel renderer is a real DOM answering the real
-// queries; only its layout (jsdom has none) and the overlay hit are stubbed.
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';

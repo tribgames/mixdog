@@ -51,22 +51,26 @@ test('a fixture copy with an extra, a missing or a changed file, or of a changed
   }
 });
 
-test('a core recording is refused unless it binds this recorder, this harness and a core build by hash, and names no private path', () => {
-  const hex = 'a'.repeat(64);
-  const good = () => ({
-    manifest: {
-      recorder: recorderHashes('live'),
-      harness: harnessHashes(),
-      binarySha256: hex,
-      builtFrom: { sources: 1, sourceSha256: hex },
-      binary: 'mixdogd.exe',
-      source: 'running mixdogd serve',
-      clientVersion: JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version,
-    },
-    projects: { a: 'C:\\mixdog-chat-record\\live-x1\\ws\\a' },
-    steps: [{ listed: { data: [{ cwd: '\\\\?\\C:\\mixdog-chat-record\\live-x1\\ws\\a' }] } }],
-  });
-  checkCoreRecording('live', '01.json', good());
+const hex = 'a'.repeat(64);
+const goodRecording = () => ({
+  manifest: {
+    recorder: recorderHashes('live'),
+    harness: harnessHashes(),
+    binarySha256: hex,
+    builtFrom: { sources: 1, sourceSha256: hex },
+    binary: 'mixdogd.exe',
+    source: 'running mixdogd serve',
+    clientVersion: JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version,
+  },
+  projects: { a: 'C:\\mixdog-chat-record\\live-x1\\ws\\a' },
+  steps: [{ listed: { data: [{ cwd: '\\\\?\\C:\\mixdog-chat-record\\live-x1\\ws\\a' }] } }],
+});
+
+test('a core recording of this recorder and harness, binding a core build, naming no private path, is accepted', () => {
+  checkCoreRecording('live', '01.json', goodRecording());
+});
+
+{
   const refused = {
     'another recorder': [
       (m) => {
@@ -118,8 +122,10 @@ test('a core recording is refused unless it binds this recorder, this harness an
     ],
   };
   for (const [kind, [change, message]] of Object.entries(refused)) {
-    const m = good();
-    change(m);
-    assert.throws(() => checkCoreRecording('live', '01.json', m), message, kind);
+    test(`a core recording with ${kind} is refused`, () => {
+      const m = goodRecording();
+      change(m);
+      assert.throws(() => checkCoreRecording('live', '01.json', m), message, kind);
+    });
   }
-});
+}

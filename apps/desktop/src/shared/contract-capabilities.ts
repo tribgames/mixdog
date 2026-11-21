@@ -4,10 +4,6 @@ import { DESKTOP_IMPORT_CAPABILITIES, DESKTOP_IMPORT_READ_CAPABILITIES } from '.
 import { DESKTOP_WORKTREE_CAPABILITIES, DESKTOP_WORKTREE_READ_CAPABILITIES } from './contract-worktree';
 import { DESKTOP_NETWORK_PROXY_CAPABILITIES, DESKTOP_NETWORK_PROXY_READ_CAPABILITIES } from './contract-network-proxy';
 
-// Public session features that are safe to expose to the renderer. Keeping this
-// list explicit prevents the desktop bridge from becoming arbitrary method
-// execution while still making the TUI's existing session capabilities
-// available to the GUI.
 export const DESKTOP_CAPABILITIES = [
   'prioritizeQueued',
   'restoreQueued',

@@ -1,16 +1,3 @@
-/**
- * Annotation marks of a visualize tab (the agent's `annotate`): outlined boxes
- * with a small label over the elements a selector matches. The marks live in
- * the tab state, per displayed pane, so the desktop window and every paired
- * device draw the same ones with the same overlay script: main injects it
- * into the desktop's pane frames, a remote client puts it inside the page it
- * runs (or, for a page that may not run scripts yet, plain CSS outlines).
- * A tab reload drops them with the revision they were made for.
- *
- * The overlay is plain ES5 text (not a stringified function) so no bundler
- * helper can leak into the page; it draws in a closed shadow root on a fixed,
- * click-through host, never changing the page's own DOM.
- */
 import { withHeadScript } from './sandbox-storage-shim';
 
 /** One mark on displayed pane `pane`. */

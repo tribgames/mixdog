@@ -1,9 +1,3 @@
-/**
- * How people see and steer pages: the remote drive of a streaming phone, the
- * session tab strip, the prompts a person answers, remote control and tabs for
- * paired clients, the page surface the pane draws, scale following, and the
- * pane's presentation reads.
- */
 import type { BrowserWindow, WebContents } from 'electron';
 import { dialog, screen } from 'electron';
 

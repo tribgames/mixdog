@@ -1,30 +1,3 @@
-/**
- * Service side of the whole-PC screen access the window process enforces
- * (screen-webrtc-sources.ts). Pairing is the approval: access is exactly
- * "this relay connection is a paired, E2EE-established client and still
- * connected", so every decision here is synchronous and reads nothing.
- *
- * Each message is bound to:
- * - its connection: an id minted per relay connection object, so a client id
- *   the relay reuses for a new connection never inherits the old one's access;
- * - a revision, monotonic within this publisher's epoch (one per service
- *   instance). The decisions are synchronous, but each message still crosses
- *   an asynchronous hop to the window; the window applies only a revision
- *   newer than the last it applied for that client, so a grant can never land
- *   after the deny that followed it, whatever the delivery order.
- *
- * A grant is sent before a client's screen `ready`, for the connection that
- * delivered it only; a deny is sent at once when the connection leaves the
- * relay registry (any path; `ended: 'left'`) or its credential is unpaired
- * (`ended: 'revoked'`).
- *
- * Unpair: the record of it is the caller's (`unpaired`, in force until the
- * relay confirms the revoke or the device is paired again, across restarts).
- * While it is in force, every connection of that credential is refused at
- * authorization, and one entering the registry is revoked on admission. At
- * the unpair itself every live connection of it (whether or not it asked for
- * a screen) is revoked too. A revoked connection is refused for its lifetime.
- */
 import { randomUUID } from 'node:crypto';
 
 import type { RemoteScreenAccess } from './screen-webrtc-sources';

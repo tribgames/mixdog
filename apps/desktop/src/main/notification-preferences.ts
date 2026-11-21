@@ -1,17 +1,7 @@
-// Notification preferences on this PC (issue #221), kept beside the other
-// desktop metadata (`notification-preferences.json` in the app profile): one
-// NotificationDevicePreferences per device (this PC under
-// NOTIFICATION_PC_DEVICE_ID, a paired device under its remote client id) and
-// the conversation overrides every device shares. The desktop service owns the
-// writes. Superseded by the core config key `notifications` (pc-notification-view.ts): only the store below
-// remains, for the tests that go with its deletion.
-//
-// First load migrates: `desktop.turnNotifications: false` becomes this PC's
-// scope 'off', and every agent the old mute list (`agent-notifications.json`)
-// named becomes a mute override with no end. A device without an entry gets
-// DEFAULT_NOTIFICATION_PREFERENCES when it was paired before that migration
-// (or is a browser), NEW_PHONE_NOTIFICATION_PREFERENCES when it is a phone app
-// paired afterwards.
+// Notification preferences (issue #221): `notification-preferences.json` in the app profile. First load migrates
+// `desktop.turnNotifications: false` to this PC's scope 'off' and the legacy mute list (`agent-notifications.json`) to
+// endless mute overrides; a device without an entry gets DEFAULT_NOTIFICATION_PREFERENCES when paired before the migration
+// (or a browser), NEW_PHONE_NOTIFICATION_PREFERENCES when a phone app paired afterwards.
 import { join } from 'node:path';
 
 import { readJsonStateSync, writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
@@ -72,12 +62,8 @@ function storedDoc(value: unknown): NotificationPreferencesDoc {
   return { version: 1, migratedAt, devices, overrides };
 }
 
-/** The file as it is on disk, or null when there is none yet. The storage
- *  helper answers `fallback` only for a missing file or a damaged one with no
- *  good backup (kept aside and reported by the helper); any other read error
- *  (a directory in its place, permissions) is thrown, never taken for "none". */
+/** The file as it is on disk, or null when there is none yet; any read error other than a missing or damaged file is thrown. */
 function readNotificationPreferencesFile(filePath: string): NotificationPreferencesDoc | null {
-  // A damaged file is kept aside and its last good copy read.
   return readJsonStateSync(filePath, { validate: storedDoc, fallback: null });
 }
 
@@ -137,12 +123,12 @@ interface NotificationPreferencesStoreOptions {
 /** One mutation: the next document to persist (null: nothing changes) and its result. */
 type Mutation<T> = (current: NotificationPreferencesDoc) => { next: NotificationPreferencesDoc | null; result: T };
 
-export function createNotificationPreferencesStore({
+function openPreferencesDocument({
   filePath,
   readLegacy,
-  now = Date.now,
+  now,
   onChange,
-}: NotificationPreferencesStoreOptions) {
+}: Pick<NotificationPreferencesStoreOptions, 'filePath' | 'readLegacy' | 'onChange'> & { now: () => number }) {
   let doc: NotificationPreferencesDoc | null = null;
   const write = (next: NotificationPreferencesDoc): Promise<void> =>
     writeJsonAtomicAsync(filePath, next, { backup: true }).then(() => undefined);
@@ -177,6 +163,16 @@ export function createNotificationPreferencesStore({
     await loading;
     return doc!;
   };
+  return { loading, mutate, current };
+}
+
+export function createNotificationPreferencesStore({
+  filePath,
+  readLegacy,
+  now = Date.now,
+  onChange,
+}: NotificationPreferencesStoreOptions) {
+  const { loading, mutate, current } = openPreferencesDocument({ filePath, readLegacy, now, onChange });
   const prunedOverrides = (overrides: readonly ConversationNotificationOverride[]) => activeOverrides(overrides, now());
   /** `entries`' preferences; each one with none stored gets its default written. */
   const withDefaults = (entries: ReadonlyArray<{ id: string; info: NotificationDeviceInfo }>) =>

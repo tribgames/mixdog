@@ -1,9 +1,4 @@
-// The pane layout kept as a main-process file in the profile. The renderer's
-// copy lives in localStorage, which Chromium can lose while the app runs (it
-// recreates a missing Local Storage database), and the next launch then opens
-// one pane. Like the launch record (launch-version.ts), this file is the copy
-// that survives; the renderer reads it only when its own copy has no valid
-// layout, and validates it the same way.
+// Chromium recreates a missing Local Storage database, losing the renderer's layout copy; this file survives.
 import { readFileSync } from 'node:fs';
 
 import { writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';

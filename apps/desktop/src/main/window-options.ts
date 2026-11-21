@@ -36,13 +36,11 @@ const titleBarZoomFactors = new WeakMap<object, number>();
 type DesktopTitleBarDim = { color: string; symbolColor: string };
 const titleBarDims = new WeakMap<object, DesktopTitleBarDim>();
 
-// DWM paints the frame pixels exposed while the user enlarges the window
-// BEFORE Chromium presents a frame there. Without a native theme hint a
-// light-OS machine fills that band with the system white brush under a dark
-// app (user-reported white frame while widening). 'system' keeps the OS in
-// charge so the renderer's prefers-color-scheme tracking stays truthful.
-// Namespace access instead of a named import: in plain-node test contexts the
-// electron package resolves to a path string and has no nativeTheme export.
+// DWM paints the frame exposed while the window is enlarged before Chromium
+// presents a frame there; without a native theme hint a light-OS machine shows
+// its white brush under a dark app.
+// Namespace import: under plain node the electron package resolves to a path
+// string with no nativeTheme export.
 const nativeTheme: NativeTheme | undefined = (electron as { nativeTheme?: NativeTheme }).nativeTheme;
 
 function pinNativeThemeSource(source: 'system' | 'light' | 'dark'): void {
@@ -52,13 +50,8 @@ function pinNativeThemeSource(source: 'system' | 'light' | 'dark'): void {
 function titleBarOverlay(light = false, zoom = 1) {
   const themeBand = light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR;
   return {
-    // TRANSPARENT caption band: the native overlay paints no pixels of its
-    // own, so the DOM titlebar — and any fullscreen scrim — shows through and
-    // the band can never sit off-theme for even a frame. Maximize/restore
-    // exposure is covered by the window backgroundColor, which tracks the
-    // theme band. Linux paints the overlay band itself and ignores alpha (it
-    // rendered solid white under the dark theme), so it gets the opaque theme
-    // band instead.
+    // Linux paints the overlay band itself and ignores alpha, so it gets the
+    // opaque theme band; elsewhere the band is transparent.
     color: process.platform === 'linux' ? themeBand : '#00000000',
     symbolColor: light ? 'black' : 'white',
     height: Math.max(DESKTOP_TITLEBAR_HEIGHT, Math.round(DESKTOP_TITLEBAR_HEIGHT * zoom)),

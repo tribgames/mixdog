@@ -1,7 +1,3 @@
-// Sidebar session actions (favorite, archive, move to project) with their one
-// argument validation, shared by the window IPC and the remote methods; the
-// runtime's `session` tool reaches favorite/archive through the
-// session-sidebar host channel.
 import type { DesktopService } from './desktop-service-contract';
 import { requiredSessionId } from './desktop-state';
 

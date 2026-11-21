@@ -1,9 +1,3 @@
-/**
- * The same pixels, sent again, teach the caller nothing and cost a full frame
- * of budget. A follow-up capture that matches the last frame delivered for the
- * same target keeps its fresh text metadata and drops the duplicate image,
- * saying so, so the caller knows the earlier frame still describes the screen.
- */
 import { createHash } from 'node:crypto';
 import { evictOldest } from '../shared/common';
 

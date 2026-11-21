@@ -12,7 +12,12 @@ import {
 } from '../../../packages/protocol-client/src/index.ts';
 import { CLOSE_DESKTOP_OFFLINE, phoneConnectionOf, terminalOfClose, type PhoneConnection } from './phone-status.ts';
 import { createScreenReporter, type ScreenReporter, type ScreenSource } from './screen-reporter.ts';
-import { createRelayConnector, type CloseInfo, type RelayConnector, type RelayConnectorDeps } from './relay-connector.ts';
+import {
+  createRelayConnector,
+  type CloseInfo,
+  type RelayConnector,
+  type RelayConnectorDeps,
+} from './relay-connector.ts';
 
 export interface PhoneClientOptions extends Omit<RelayConnectorDeps, 'closed'> {
   /** The relay-hosted desktop this phone is paired with; one reconnect ladder per target. */
@@ -151,7 +156,8 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
     ...options,
     // Every dial states the indicator again, as the page always did: a wake that dials during an outage shows it anew.
     dialing: () => {
-      if (!terminal && last && (last.state === 'connecting' || last.state === 'reconnecting')) options.onConnection(last);
+      if (!terminal && last && (last.state === 'connecting' || last.state === 'reconnecting'))
+        options.onConnection(last);
       options.dialing?.();
     },
     // The desktop came back to a socket the relay kept: the handshake starts over on it.
@@ -192,13 +198,19 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
   };
   options.linked?.(link);
   options.onConnection({ state: 'connecting' });
-  for (let attempt = 0; ; attempt++) {
+  for (;;) {
     if (options.signal?.aborted) throw new Error('aborted');
     try {
       client = await connect<SessionFold>({
         target: { id: options.deviceId },
         connector,
-        clientInfo: { name: 'mixdog-phone', title: 'Mixdog Phone', version: options.version, kind: 'phone', build: options.build },
+        clientInfo: {
+          name: 'mixdog-phone',
+          title: 'Mixdog Phone',
+          version: options.version,
+          kind: 'phone',
+          build: options.build,
+        },
         // `feedRanges`: the protocol client folds a coalesced text append (`feed.from`), so the core batches this phone's appends.
         capabilities: { optOutNotificationMethods: [], experimentalApi: false, feedRanges: true },
         threadReducer: options.threadReducer ?? sessionReducer,

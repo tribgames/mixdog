@@ -333,4 +333,3 @@ test('aggregate members preserve atomic tool identity, inputs, outputs, and orde
   assert.equal(Object.hasOwn(members[0], 'uiDiff'), false);
   assert.equal(members[1].uiDiff, 'diff --git a b');
 });
-

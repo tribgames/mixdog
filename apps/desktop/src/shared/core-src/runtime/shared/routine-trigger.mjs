@@ -1,9 +1,3 @@
-// A routine fire delivered into its bot's home thread as a turn
-// (session-runtime/routine-home-turn.mjs): the model-visible header line that
-// opens the turn's prompt, and the `routineTrigger` marker its user row
-// carries (live, persisted in meta.transcript, restored) so a chat paints it
-// as a routine marker instead of a user bubble.
-
 import { localTimestampParts } from '../../../../../../../packages/protocol-client/src/rows/time-format.mjs';
 
 const HEADER_PREFIX = '[Routine trigger]';

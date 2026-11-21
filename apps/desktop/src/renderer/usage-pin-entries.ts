@@ -236,13 +236,10 @@ function hotBar(bars: readonly UsagePinWindow[], peak: number): number {
   return holder >= 0 ? holder : hot;
 }
 
-/** Rail pin mode: one entry per brand that has quota data —
- *  its icon plus the final quota window's usage, picked by longest period:
- *  monthly (M) → weekly (7D/W) → daily/hourly. Unknown windows fall back to
- *  the provider's final entry. In `short-long` mode the shortest-duration
- *  window joins as a second bar (none for a provider without one) and the
- *  figure/tone follow the highest window. Long-only mode shows the long
- *  window's own figure: the user chose that period. */
+/** One rail pin entry per brand with quota data: the longest-period window
+ *  (monthly, weekly, then daily/hourly; unknown falls back to the provider's
+ *  final entry). `short-long` adds the shortest window as a second bar, with
+ *  figure and tone following the highest window. */
 export function usagePinEntries(dashboard: unknown, mode: UsageRailBars = 'long'): UsagePinEntry[] {
   return SUBSCRIPTIONS.flatMap((subscription) => {
     const picked = pinWindows(quotaWindows(subscriptionRow(dashboard, subscription)), subscription.provider);

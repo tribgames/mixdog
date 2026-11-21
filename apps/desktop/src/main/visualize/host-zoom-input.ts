@@ -1,10 +1,5 @@
-/**
- * Zoom gestures made inside a visualize pane's own frame (an HTML page, a PDF,
- * a Markdown page) never reach the panel's document: the frame takes the wheel
- * and the keyboard. The main window's webContents still sees them, so they are
- * handed to the renderer, which applies them to the panel under the pointer or
- * focus (visualize-zoom.ts).
- */
+// A pane's own frame takes the wheel and keyboard, so zoom gestures in it never
+// reach the panel's document; the main window's webContents still sees them.
 import * as electron from 'electron';
 import type { Input, WebContents } from 'electron';
 

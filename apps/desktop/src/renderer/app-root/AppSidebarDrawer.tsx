@@ -114,16 +114,6 @@ export function AppSidebarDrawer({
   leftViewInputs,
 }: AppSidebarDrawerProps) {
   const phone = useMobileRemoteSurface();
-  // Hidden destinations keep their last render. The idle lane pre-mounts the
-  // rail pages while they are already retained hidden; without one more
-  // hidden render the pre-mount never
-  // reached them, and the first visit mounted the page behind its placeholder.
-  // Keyed per view, so a mount renders only its own page again.
-  // The view a closed drawer opens onto renders again, hidden, whenever its
-  // inputs change, at transition priority (a deferred value: interruptible,
-  // never inside a tap). Frozen at its first render instead, a phone's drawer
-  // slid in over the boot-time list, and the opening commit then inserted the
-  // favorites, project rows and recent rows in front of the user.
   const shownViewInputs = inputsKey(useDeferredValue(leftViewInputs));
   const shownView = activeSideViews.left;
   const panelsKey = useCallback(
@@ -132,10 +122,6 @@ export function AppSidebarDrawer({
     [mountedSidebarPanels, shownView, shownViewInputs]
   );
   useEdgeSwipeDrawers({ sidebarOpen, openSidebar, applySidebarOpen });
-  // The rail and the starter guide are memoised; their handlers and items
-  // keep one identity across App commits (a session switch is several).
-  // The first Settings tap keeps the drawer in place until the dialog can
-  // render, unless the user moves on while its module loads.
   const { request: requestSettingsOpen, cancel: cancelSettingsOpen } = useSettingsOpenRequest({
     module: settingsViewModule,
     waits: () => desktopFeatureEnabled('settings'),

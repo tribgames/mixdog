@@ -1,9 +1,3 @@
-// The secure-desktop helper from the phone's side (UAC, lock and Winlogon
-// screens): what the PC's `screen-status` helper block means for the blocked
-// view, the install / update request, and the short-lived control grants the
-// phone signs for the helper's challenges. Pure and dependency-injected: the
-// key store, the viewer's channel and the pane's visibility are passed in, so
-// each rule is tested on plain objects.
 import {
   CREDUI_MAX_PASSWORD_LENGTH,
   CREDUI_MAX_USERNAME_LENGTH,

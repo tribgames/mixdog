@@ -1,8 +1,3 @@
-// "다운로드 / 공유" for a Project file shown outside the transcript (editor,
-// Explorer, Review, lightbox): a paired device downloads the host's file as
-// a `project` source of the conversation that owns the surface. Every action
-// takes that session explicitly (MarkdownSessionContext in the transcript,
-// DownloadSessionContext in the pane around the other surfaces).
 import { createContext } from 'react';
 import { showDesktopToast } from './desktop-toasts';
 import { explorerAbsolutePath } from './explorer-tree-model';

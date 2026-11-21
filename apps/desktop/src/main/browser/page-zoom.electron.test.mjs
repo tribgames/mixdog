@@ -58,10 +58,7 @@ const close = (actual, expected, label) =>
 
 /** The page window the product asks for, in DIP (OFFSCREEN_VIEWPORT). */
 const REQUESTED = [1280, 900];
-/** Windows clamps a window to the work area of the display it is created on,
- *  whatever its size (enableLargerThanScreen is macOS only): a runner whose
- *  screen is 1024x768 with a 48 px taskbar lays every page out at 1024x720.
- *  That is the intended size there, so the expectation follows the display. */
+/** Windows clamps a window to the display's work area (enableLargerThanScreen is macOS only). */
 const intendedSize = ({ workAreaSize }) => [
   Math.min(REQUESTED[0], workAreaSize.width),
   Math.min(REQUESTED[1], workAreaSize.height),

@@ -5,7 +5,8 @@ import { test } from 'node:test';
 import { ClientFailure } from '../src/client.ts';
 
 test('a refused argument names its field in the message', () => {
-  const expected = 'text without unpaired surrogates (a lone \\ud800-\\udfff escape) in thread/name/set.params/threadId';
+  const expected =
+    'text without unpaired surrogates (a lone \\ud800-\\udfff escape) in thread/name/set.params/threadId';
   const failure = new ClientFailure({
     kind: 'rpc',
     code: -32602,
@@ -17,6 +18,12 @@ test('a refused argument names its field in the message', () => {
 });
 
 test('any other failure keeps its message', () => {
-  const failure = new ClientFailure({ kind: 'rpc', code: -32601, reason: 'methodNotFound', message: 'nope', data: { reason: 'methodNotFound' } } as never);
+  const failure = new ClientFailure({
+    kind: 'rpc',
+    code: -32601,
+    reason: 'methodNotFound',
+    message: 'nope',
+    data: { reason: 'methodNotFound' },
+  } as never);
   assert.equal(failure.message, '-32601 methodNotFound nope');
 });

@@ -4,10 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// Completed replies past the synchronous parse limit (or past a frame's
-// allowance) wait for the worker. In the real virtual list they must stay
-// reserved and invisible, never paint raw markdown, and never move the
-// followed tail or a reader's anchor when the parse lands at another height.
 const HARNESS = `
   import 'virtual:slow-markdown-worker';
   import { Suspense, useLayoutEffect, useRef, useState } from 'react';
@@ -122,7 +118,7 @@ const SLOW_WORKER = `
     terminate() {}
   };
 `;
-test('pending completed replies stay invisible and never move the followed tail or a reading anchor', async (t) => {
+async function openHarness(t) {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
   const [bundle, styles] = await Promise.all([
     build({
@@ -193,22 +189,24 @@ test('pending completed replies stay invisible and never move the followed tail 
   await page.addStyleTag({ content: styles.outputFiles[0].text });
   await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
   await page.evaluate(() => window.ready);
-
   const pendingGone = () =>
     page.waitForFunction(() => {
       window.releaseWorker();
       return !document.querySelector('[data-transcript-pending]');
     });
-  // Mixed sizes: the learned estimate never equals the final height.
-  const sizes = [6000, 1500, 4500, 2500, 5500];
-
-  // Following the tail: five replies mount at once. Whatever is on screen is
-  // never source text, and once the tail is pinned it never leaves the bottom.
-  await page.evaluate((sizes) => window.fixture.add(sizes), sizes);
+  await page.evaluate((sizes) => window.fixture.add(sizes), SIZES);
   await pendingGone();
+  return { page, errors };
+}
+
+// Mixed sizes: the learned estimate never equals the final height.
+const SIZES = [6000, 1500, 4500, 2500, 5500];
+
+test('pending replies never paint raw markdown nor move the followed tail while parses land', async (t) => {
+  const { page, errors } = await openHarness(t);
+  const sizes = SIZES;
   await page.evaluate(() => window.fixture.follow());
   await page.evaluate(() => window.sample(6));
-  // Sampling starts in the commit that mounts them: the parses are still pending.
   const held = await page.evaluate((sizes) => window.heldThenReleased(() => window.fixture.add(sizes), 12, 80), sizes);
   assert.ok(
     held.pending.some((frame) => frame.pending > 0),
@@ -227,9 +225,12 @@ test('pending completed replies stay invisible and never move the followed tail 
     'the pinned tail never moves while parses land'
   );
   assert.equal(burst.at(-1).pending, 0, 'every parse landed');
+  assert.deepEqual(errors, []);
+});
 
-  // Reading: replies prepended above the reader resolve at other heights than
-  // their estimates; the anchor stays where it was.
+test('replies prepended above a reader keep the reading anchor still and paint no raw markdown', async (t) => {
+  const { page, errors } = await openHarness(t);
+  const sizes = SIZES;
   await page.evaluate(() => window.fixture.read());
   const anchorKey = await page.evaluate(async () => {
     const view = document.querySelector('.transcript');

@@ -1,7 +1,3 @@
-/**
- * card-detail.mjs — the collapsed `└ detail` row of a single tool card and
- * the agent brief it is gated by.
- */
 import { AGENT_SURFACE_BRIEF_MAX, summarizeAgentSurfaceBrief } from '../tool-surface.mjs';
 import { isAgentResponseResult, isAgentTool } from './agent-surface.mjs';
 import { backgroundTaskDetail } from './background-task.mjs';

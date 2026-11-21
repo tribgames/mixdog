@@ -1,8 +1,3 @@
-// The composer's cards for the visualize feedback queued for the next message,
-// in the shape of attachment cards: a pin shows the crop of what it is about
-// (the pane kind's registry entry says which icon stands in when there is
-// none) under its note; picked choices and tweaked values get one small card
-// each. `visualizeFeedbackCards` is the model; the component only draws it.
 import { Check, Code, File, FileText, Film, Image, Shapes, SlidersHorizontal, X } from 'lucide-react';
 import type { ComponentType } from 'react';
 

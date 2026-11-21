@@ -25,10 +25,7 @@ export const rendererInputs = [
   join(relayDir, 'scripts', 'stage-web.mjs'),
 ];
 
-// What the relay binary is built from: its crate, the workspace crates it links
-// (mixdog-js, mixdog-fsio, mixdog-rt and the workspace hack), the vendored crates
-// those patch in, and the workspace manifest and lock file. scripts/deploy-remote.ps1
-// matches a CI build against the same list.
+// What the relay binary is built from; scripts/deploy-remote.ps1 matches a CI build against the same list.
 export const relayInputs = [
   ...['mixdog-relay', 'mixdog-js', 'mixdog-fsio', 'mixdog-rt', 'mixdog-workspace-hack'].map((crate) =>
     join(repoRoot, 'native', 'core', 'crates', crate)

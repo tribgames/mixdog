@@ -1,10 +1,3 @@
-// What a server (ssh) window may not do. These features act on THIS PC — its
-// screen and input, its Browser Use pane, its phone pairing, its app updater
-// and notification sound, or its own files and OS shell — while the window's
-// sessions live on the server. A server window's own file lanes (path
-// resolution, reads, previews, uploads, downloads and the server trash) run
-// on the server through its connection and are not gated; only what would
-// implicitly hand a file to this PC's shell stays refused.
 import { DESKTOP_IPC } from '../../shared/contract';
 import type { ConnectionKind } from './contract';
 import { ConnectionError } from './errors';

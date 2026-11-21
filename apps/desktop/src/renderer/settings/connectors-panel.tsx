@@ -1,7 +1,3 @@
-// Extensions → 커넥터 (design/mockups/connectors): the catalog ("커넥터",
-// alphabetical, one-click 연결) and "커스텀 커넥터" (raw MCP servers, plugins
-// that bring MCP as expandable packages, and "커스텀 커넥터 추가"). Rows read
-// the host's MCP and plugin status as they are; nothing is renamed or merged.
 import { Blocks, ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import type { ConnectorCatalogEntry } from '../../shared/core-src/runtime/shared/connector-catalog.mjs';

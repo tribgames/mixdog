@@ -1,7 +1,3 @@
-// Shared rehype-stage helpers used by BOTH markdown pipelines (the lazy
-// react-markdown chunk and the worker AST processor) so their DOM output
-// stays identical. Keep this module free of DOM and React dependencies: it is
-// pulled into the renderer bundle and the markdown worker alike.
 import { decodeString } from 'micromark-util-decode-string';
 import { filePreviewTypeForPath } from '../shared/file-preview';
 import { isOsDocumentExtension, parseLocalFileLocation } from '../shared/local-files';
@@ -252,10 +248,6 @@ export function trimAutolinkCjkSuffix() {
   };
 }
 
-// An HTML comment is authoring metadata, never reading material. Raw HTML is
-// preserved as literal text on both pipelines, which made "<!-- note -->" show
-// up verbatim in the transcript; drop comment nodes (and comment runs inside a
-// mixed html node) before that happens.
 const HTML_COMMENT = /<!--[\s\S]*?-->/g;
 
 export function stripHtmlComments() {
@@ -281,11 +273,6 @@ export function stripHtmlComments() {
   };
 }
 
-// `<br>` is the only line break a GFM table cell can carry, and models reach
-// for it constantly. Raw HTML stays literal on both pipelines by design, so
-// that break printed the tag itself in the middle of a cell. Convert the bare
-// break element — and nothing else — into an mdast `break`, leaving every
-// other tag (`<b>`, `<details>`, `<script>`) literal as before.
 const HTML_LINE_BREAK = /^<br\s*\/?>$/i;
 
 export function htmlLineBreaksToBreaks() {
@@ -306,10 +293,7 @@ export function htmlLineBreaksToBreaks() {
   };
 }
 
-// mdast-util-to-hast terminates every fenced block with "\n". The code
-// renderer keeps the highlighted child spans instead of re-printing a
-// trimmed string, so that terminator would paint an empty closing line in
-// every pre-wrap code card; drop it from the final text node instead.
+// mdast-util-to-hast terminates every fenced block with "\n".
 export function trimTrailingCodeNewline() {
   return (tree: HastLikeNode) => {
     const visit = (node: HastLikeNode) => {
@@ -328,15 +312,6 @@ export function trimTrailingCodeNewline() {
   };
 }
 
-// Chat prose names files constantly ("see src/app.ts:42", `retry-classifier.mjs
-// (line 269)`, "산출물은 output/ 폴더에") without ever writing a markdown link.
-// Turn those mentions into local links so MarkdownLink can open them: a path
-// with folders anywhere in text, a bare file name with a known extension or
-// name inside inline code, and a folder with a trailing separator. Local
-// images become file links too (the renderer never displays local files
-// inline). Existing links, code blocks and math stay untouched. The href
-// carries `path:line[:column]` so both pipelines hand MarkdownLink the same
-// target.
 export const PATH_LINK_CLASS = 'markdown-path-link';
 /** Element standing in for a previewable local image (see markdown-local-image). */
 export const LOCAL_IMAGE_TAG = 'mx-local-image';

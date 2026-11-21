@@ -5,104 +5,68 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { useAppUiOpenRequest } from './app-shell-ui-open-request.ts';
 
-test('useAppUiOpenRequest handles sequence increasing, deduplication, TTL, and settings routing', async () => {
+async function withOpenRequestHost(run) {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><div id="root"></div>',
     jsdom: { url: 'about:blank' },
   });
-
-  let openedCommandSurface = null;
-  let openedSettings = null;
-
-  function TestHarness({ request, sessionId }) {
+  const opened = { surface: null, settings: null };
+  function TestHarness({ request }) {
     useAppUiOpenRequest({
       uiOpenRequest: request,
-      sessionId,
+      sessionId: 'session-1',
       openConversationCommandSurface: (surface) => {
-        openedCommandSurface = surface;
+        opened.surface = surface;
       },
       openSettings: (section) => {
-        openedSettings = section;
+        opened.settings = section;
       },
     });
     return null;
   }
-
   const root = createRoot(dom.window.document.getElementById('root'));
+  const show = (command, seq, at = Date.now()) =>
+    act(async () => {
+      root.render(React.createElement(TestHarness, { request: { command, seq, at } }));
+    });
   try {
-    // 1. Initial valid command surface request (raw command name without slash, e.g. "usage")
-    await act(async () => {
-      root.render(
-        React.createElement(TestHarness, {
-          request: { command: 'usage', seq: 1, at: Date.now() },
-          sessionId: 'session-1',
-        })
-      );
-    });
-    assert.equal(openedCommandSurface, 'stats');
-    openedCommandSurface = null;
-
-    // 2. Same seq: must not trigger again
-    await act(async () => {
-      root.render(
-        React.createElement(TestHarness, {
-          request: { command: 'usage', seq: 1, at: Date.now() },
-          sessionId: 'session-1',
-        })
-      );
-    });
-    assert.equal(openedCommandSurface, null);
-
-    // 3. Smaller seq: ignored
-    await act(async () => {
-      root.render(
-        React.createElement(TestHarness, {
-          request: { command: 'usage', seq: 0, at: Date.now() },
-          sessionId: 'session-1',
-        })
-      );
-    });
-    assert.equal(openedCommandSurface, null);
-
-    // 4. Stale TTL (>15s): ignored even with higher seq
-    await act(async () => {
-      root.render(
-        React.createElement(TestHarness, {
-          request: { command: 'providers', seq: 5, at: Date.now() - 30_000 },
-          sessionId: 'session-1',
-        })
-      );
-    });
-    assert.equal(openedSettings, null);
-
-    // 5. Valid higher seq with settingsRow command: routes to settings
-    await act(async () => {
-      root.render(
-        React.createElement(TestHarness, {
-          request: { command: 'providers', seq: 6, at: Date.now() },
-          sessionId: 'session-1',
-        })
-      );
-    });
-    assert.equal(openedSettings, 'providers');
-
-    // 6. Setup section target without a slash command routes to its settings section
-    await act(async () => {
-      root.render(
-        React.createElement(TestHarness, {
-          request: { command: 'developer', seq: 7, at: Date.now() },
-          sessionId: 'session-1',
-        })
-      );
-    });
-    assert.equal(openedSettings, 'developer');
+    await run({ show, opened });
   } finally {
     await act(async () => {
       root.unmount();
     });
     restore();
   }
-});
+}
+
+test('useAppUiOpenRequest routes a command-surface request once per increasing seq', () =>
+  withOpenRequestHost(async ({ show, opened }) => {
+    await show('usage', 1);
+    assert.equal(opened.surface, 'stats');
+    opened.surface = null;
+    await show('usage', 1);
+    assert.equal(opened.surface, null, 'same seq');
+    await show('usage', 0);
+    assert.equal(opened.surface, null, 'smaller seq');
+  }));
+
+test('useAppUiOpenRequest ignores a request older than the TTL even with a higher seq', () =>
+  withOpenRequestHost(async ({ show, opened }) => {
+    await show('providers', 5, Date.now() - 30_000);
+    assert.equal(opened.settings, null);
+  }));
+
+test('useAppUiOpenRequest routes a settings-row command to settings', () =>
+  withOpenRequestHost(async ({ show, opened }) => {
+    await show('providers', 6);
+    assert.equal(opened.settings, 'providers');
+  }));
+
+test('useAppUiOpenRequest routes a setup section target without a slash command to its settings section', () =>
+  withOpenRequestHost(async ({ show, opened }) => {
+    await show('developer', 7);
+    assert.equal(opened.settings, 'developer');
+  }));
 
 test('useAppUiOpenRequest routes split-pane session lane requests once per session sequence', async () => {
   const { dom, restore } = installTestDom(null, {

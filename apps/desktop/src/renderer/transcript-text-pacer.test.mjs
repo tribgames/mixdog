@@ -1,8 +1,3 @@
-/**
- * transcript-text-pacer.test.mjs — the paced reveal of the coding transcript's
- * live text: step size and cadence by backlog, catch-up, rejoin, the first
- * text, idling, and the rest showing at once when the part ends.
- */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
@@ -60,11 +55,8 @@ async function mount(t) {
 }
 
 test('a 400-character opening drains as the reference pacer does: its first step at once, the rest over about 1.5 s', async (t) => {
-  // The interval is recomputed from what is left at every step (550 x 22 /
-  // backlog, within 25..150 ms), so a lump with nothing after it slows down
-  // as it drains: 20 characters, then 19 steps of 20 taking
-  // sum(ceil(clamp(12100 / b))) for b = 380, 360, …, 20 = 1492 ms. 550 ms is
-  // the lag behind a steady stream, not the drain time of a lump.
+  // Interval per step: 550 x 22 / backlog within 25..150 ms; 19 steps of 20
+  // take sum(ceil(clamp(12100 / b))) for b = 380, 360, …, 20 = 1492 ms.
   const view = await mount(t);
   await view.render({ text: words(80) });
   assert.equal(view.shown(), 20);

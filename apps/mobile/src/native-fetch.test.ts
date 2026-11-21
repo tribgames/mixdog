@@ -7,10 +7,16 @@ test('an aborted signal rejects a native request that never answers', async () =
   const fetcher = createNativeFetch(() => new Promise(() => {}));
   const pending = new AbortController();
   setTimeout(() => pending.abort(), 20);
-  await assert.rejects(fetcher('https://r.example/x', { signal: pending.signal }), (e: Error) => e.name === 'AbortError');
+  await assert.rejects(
+    fetcher('https://r.example/x', { signal: pending.signal }),
+    (e: Error) => e.name === 'AbortError'
+  );
   const controller = new AbortController();
   controller.abort();
-  await assert.rejects(fetcher('https://r.example/x', { signal: controller.signal }), (e: Error) => e.name === 'AbortError');
+  await assert.rejects(
+    fetcher('https://r.example/x', { signal: controller.signal }),
+    (e: Error) => e.name === 'AbortError'
+  );
 });
 
 test('native requests carry connect and read timeouts and return the response', async () => {

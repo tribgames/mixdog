@@ -131,11 +131,7 @@ function pastedFiles(clipboard: DataTransfer): File[] {
 
 type ComposerAttachmentsApi = ReturnType<typeof useComposerAttachments>;
 
-/** Clipboard intake: pasted files attach, and a long text paste folds into a
- *  single chip instead of flooding the draft. Rich copies (Word, Excel,
- *  browsers) carry a rendered image beside their text: any plain text means
- *  the user copied text, so the files are attached only when there is none
- *  (screenshots, files copied in Explorer). */
+/** Rich copies (Word, Excel, browsers) carry a rendered image beside their text, so files attach only when the clipboard holds no plain text. */
 function handleComposerPaste(
   event: React.ClipboardEvent<HTMLTextAreaElement>,
   {
@@ -215,19 +211,10 @@ function switchComposerIdentity({
     previousScope,
     document.activeElement === leavingElement && leavingElement ? leavingElement.value : draftRef.current
   );
-  // Scope settles ASYNC after a session switch/promotion; when the user is
-  // ALREADY typing in the composer, the in-flight text carries over instead
-  // of being wiped. Wiping it on an asynchronous scope change would also make
-  // the scroll position jump mid-sentence, not just erase the draft.
   const typingElement = textarea.current;
   const typingLive = document.activeElement === typingElement;
   // A fresh New Task pane is the exception: it ALWAYS opens clean.
   const freshDraft = composerScopeOpensFreshDraft(identityScope);
-  // Chips attached there but not yet sent are parked with it, and the
-  // incoming tab gets back the chips it parked. A New Task promoted to the
-  // session ITS submission minted keeps them instead: the draft scope is never
-  // revisited, so a file attached while its first send was in flight vanished
-  // with it.
   const parkedAttachments = takeStashedComposerAttachments(identityScope);
   const promotingDraft = takeDraftPromotion(previousScope, identityScope);
   if (composerAttachmentsCarryOver({ freshDraft, promotingDraft, parkedCount: parkedAttachments.length })) {
@@ -241,10 +228,6 @@ function switchComposerIdentity({
   suppressImeLineBreakRef.current = false;
   palettes.invalidateSearch();
   setDraft((current) => {
-    // A remote snapshot can change scope in the same turn as a native input
-    // event. The DOM already owns the newest character while React state may
-    // still be one commit behind, so preserve the focused DOM value instead
-    // of briefly writing the stale controlled value back into the textarea.
     const next = composerDraftAfterScopeChange({
       currentDraft: current,
       liveDomDraft: typingElement?.value ?? current,
@@ -369,6 +352,74 @@ function usePersistDraftOnHide(
       window.removeEventListener('pagehide', save);
     };
   }, [identityScope, textarea, draftRef]);
+}
+
+/** A message taken back from the transcript (✕ on an unread bubble, an
+ *  answer that did not go out) returns to this editor. */
+function useComposerSteerHandoff({
+  activeIdentityScope,
+  recoveryScopeRef,
+  draftRef,
+  attachmentsRef,
+  replaceAttachments,
+  restoredAttachments,
+  mergeRestoredAttachments,
+  setDraft,
+  historyNavigation,
+  textarea,
+  showNotice,
+}: {
+  activeIdentityScope: { current: string };
+  recoveryScopeRef: { current: string };
+  draftRef: { current: string };
+  attachmentsRef: ComposerAttachmentsApi['attachmentsRef'];
+  replaceAttachments: ComposerAttachmentsApi['replaceAttachments'];
+  restoredAttachments: ComposerAttachmentsApi['restoredAttachments'];
+  mergeRestoredAttachments: ComposerAttachmentsApi['mergeRestoredAttachments'];
+  setDraft: Dispatch<SetStateAction<string>>;
+  historyNavigation: { current: { index: number; seed: string } };
+  textarea: { current: HTMLTextAreaElement | null };
+  showNotice: (notice: string) => void;
+}) {
+  const steer = useContext(SteerContext);
+  useEffect(() => {
+    if (!steer) return undefined;
+    const handoff: typeof steer.draft.current = {
+      scope: () => activeIdentityScope.current,
+      recoveryScope: () => recoveryScopeRef.current,
+      restore(value, { ifEmpty = false, replace = false, notice } = {}) {
+        if (
+          !restoreDraftHandoff(
+            { draftRef, attachmentsRef, replaceAttachments, restoredAttachments, mergeRestoredAttachments, setDraft },
+            value,
+            { ifEmpty, replace }
+          )
+        )
+          return false;
+        historyNavigation.current = { index: -1, seed: '' };
+        if (notice) showNotice(notice);
+        window.setTimeout(() => textarea.current?.focus(), 0);
+        return true;
+      },
+    };
+    steer.draft.current = handoff;
+    return () => {
+      if (steer.draft.current === handoff) steer.draft.current = null;
+    };
+  }, [
+    steer,
+    activeIdentityScope,
+    recoveryScopeRef,
+    draftRef,
+    attachmentsRef,
+    replaceAttachments,
+    restoredAttachments,
+    mergeRestoredAttachments,
+    setDraft,
+    showNotice,
+    historyNavigation,
+    textarea,
+  ]);
 }
 
 export const Composer = memo(function Composer(props: ComposerProps) {
@@ -500,10 +551,6 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     submissionRecoveryVersion,
     dropTargetRef,
   });
-  // A composer not at rest keeps the conversation: text, chips, a history
-  // recall whose original draft and chips live only in its seed, or a failed
-  // submission whose id is kept for an idempotent retry. A send in flight is
-  // the conversation's pending prompt.
   useConversationReleaseHold(
     () =>
       draftRef.current.length > 0 ||
@@ -551,42 +598,19 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     !draftMode && Array.isArray(pendingSubmissionIds)
       ? String(pendingSubmissionIds[pendingSubmissionIds.length - 1] || '').trim()
       : '';
-  // A message taken back from the transcript (✕ on an unread bubble, an
-  // answer that did not go out) returns to this editor.
-  const steer = useContext(SteerContext);
-  useEffect(() => {
-    if (!steer) return undefined;
-    const handoff: typeof steer.draft.current = {
-      scope: () => activeIdentityScope.current,
-      recoveryScope: () => recoveryScopeRef.current,
-      restore(value, { ifEmpty = false, replace = false, notice } = {}) {
-        if (
-          !restoreDraftHandoff(
-            { draftRef, attachmentsRef, replaceAttachments, restoredAttachments, mergeRestoredAttachments, setDraft },
-            value,
-            { ifEmpty, replace }
-          )
-        )
-          return false;
-        history.navigation.current = { index: -1, seed: '' };
-        if (notice) showComposerNotice(notice);
-        window.setTimeout(() => textarea.current?.focus(), 0);
-        return true;
-      },
-    };
-    steer.draft.current = handoff;
-    return () => {
-      if (steer.draft.current === handoff) steer.draft.current = null;
-    };
-  }, [
-    steer,
+  useComposerSteerHandoff({
+    activeIdentityScope,
+    recoveryScopeRef,
+    draftRef,
     attachmentsRef,
     replaceAttachments,
     restoredAttachments,
     mergeRestoredAttachments,
-    showComposerNotice,
-    history.navigation,
-  ]);
+    setDraft,
+    historyNavigation: history.navigation,
+    textarea,
+    showNotice: showComposerNotice,
+  });
   useComposerPromptRestore({
     promptRestore,
     sessionId: sessionId || '',
@@ -922,10 +946,6 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     if (!target.closest('button, input, textarea, [role="listbox"]')) textarea.current?.focus();
   };
   const goalDisabled = turnBusy || commandBusy || submitting;
-  // The coding composer's two-row card: the typing band, then the +, the model
-  // with its gauge, the mic and send; a bot's 1:1 chat too. A phone always
-  // has it; the PC, once its one-line bar cannot show every item in full. A
-  // group room keeps its one-line bar.
   const phone = useMobileRemoteSurface() && !roomMembers;
   const oneLineOverflows = useOneLineOverflow(paletteAnchor, !phone && !roomMembers);
   const card = !roomMembers && (phone || oneLineOverflows);

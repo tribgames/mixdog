@@ -2,23 +2,8 @@
  * `host/browser/cdp/send`: the core's way to send a CDP command the engine
  * has no method of its own for. It is an allowlist, not a filter: a method
  * that is not listed here is refused with -32015, whatever the domain.
- *
- * The list is the read-side commands the engine's own modules already send
- * (frame and layout metrics, node resolution and description, property
- * reads, performance metrics) and the releases that go with them. What has a
- * method of its own stays behind that method: Runtime.evaluate and
- * Runtime.callFunctionOn (`page/eval`, `ref/call`: bound to an `expect`),
- * Page.captureScreenshot (`screenshot`), the input, emulation, fetch,
- * target, tracing and debugger domains (host-owned), the cookie and body
- * readers (`cookies`, `storage`, the network ledger). Nothing the page holds
- * as a secret leaves through a result unmasked: the registry redacts every
- * string of it.
- *
- * Three more are served for the engine's `snapshot format=pdf` and `network
- * <requestId>`: Page.printToPDF runs through the page's own printer (the
- * embedded debugger does not carry it) inside the visual-output privacy check
- * a screenshot runs, and the request body readers answer as network-report.ts
- * read them.
+ * Page.printToPDF goes through the page's own printer: the embedded debugger
+ * does not carry it.
  */
 import type { WebContents } from 'electron';
 
@@ -67,10 +52,6 @@ export function cdpSendRefusal(method: string): string | undefined {
     : `CDP method ${method} is not available through host/browser/cdp/send`;
 }
 
-/**
- * The page printed as the old `snapshot format=pdf` printed it (printBackground), inside the visual-output privacy check: a page
- * holding a filled secret is refused for a PDF as for a screenshot. Inline base64 up to the inline limit, else a blob ref.
- */
 async function printToPdf(connection: HostConnection, host: CdpSendHost, signal: AbortSignal, page: EnginePageCall) {
   const finishPrivacyCheck = await host.prepareVisualOutput(page.guest, signal);
   const printed = await page.guest.printToPDF({ printBackground: true });

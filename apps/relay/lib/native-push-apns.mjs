@@ -36,6 +36,51 @@ function parseJson(text) {
   }
 }
 
+function createSessionPool() {
+  const sessions = new Map();
+  return {
+    sessionFor(origin) {
+      const existing = sessions.get(origin);
+      if (existing && !existing.closed && !existing.destroyed) return existing;
+      const session = http2.connect(origin);
+      const drop = () => {
+        if (sessions.get(origin) === session) sessions.delete(origin);
+      };
+      session.on('error', drop);
+      session.on('close', drop);
+      session.on('goaway', drop);
+      session.unref?.();
+      sessions.set(origin, session);
+      return session;
+    },
+    close() {
+      for (const session of sessions.values()) session.close();
+      sessions.clear();
+    },
+  };
+}
+
+function createProviderToken({ config, now }) {
+  let cached = { value: '', at: 0 };
+  return {
+    authorization() {
+      if (!cached.value || now() - cached.at > APNS_JWT_TTL_MS) {
+        const header = base64url(JSON.stringify({ alg: 'ES256', kid: config.keyId }));
+        const claims = base64url(JSON.stringify({ iss: config.teamId, iat: Math.floor(now() / 1000) }));
+        const signature = signBytes('sha256', Buffer.from(`${header}.${claims}`), {
+          key: config.key,
+          dsaEncoding: 'ieee-p1363',
+        });
+        cached = { value: `${header}.${claims}.${base64url(signature)}`, at: now() };
+      }
+      return `bearer ${cached.value}`;
+    },
+    discard() {
+      cached = { value: '', at: 0 };
+    },
+  };
+}
+
 /**
  * @param {object} options
  * @param {{ keyId: string, teamId: string, key: import('node:crypto').KeyObject, topic: string, sandboxDefault: boolean }} options.config
@@ -43,59 +88,28 @@ function parseJson(text) {
  * @param {{ production: string, sandbox: string }} options.origins
  */
 export function createApnsSender({ config, now, origins }) {
-  const sessions = new Map();
-  const sessionFor = (origin) => {
-    const existing = sessions.get(origin);
-    if (existing && !existing.closed && !existing.destroyed) return existing;
-    const session = http2.connect(origin);
-    const drop = () => {
-      if (sessions.get(origin) === session) sessions.delete(origin);
-    };
-    session.on('error', drop);
-    session.on('close', drop);
-    session.on('goaway', drop);
-    session.unref?.();
-    sessions.set(origin, session);
-    return session;
-  };
-  let apnsJwt = { value: '', at: 0 };
-  const apnsAuthorization = () => {
-    if (!apnsJwt.value || now() - apnsJwt.at > APNS_JWT_TTL_MS) {
-      const header = base64url(JSON.stringify({ alg: 'ES256', kid: config.keyId }));
-      const claims = base64url(JSON.stringify({ iss: config.teamId, iat: Math.floor(now() / 1000) }));
-      const signature = signBytes('sha256', Buffer.from(`${header}.${claims}`), {
-        key: config.key,
-        dsaEncoding: 'ieee-p1363',
-      });
-      apnsJwt = { value: `${header}.${claims}.${base64url(signature)}`, at: now() };
-    }
-    return `bearer ${apnsJwt.value}`;
-  };
+  const pool = createSessionPool();
+  const providerToken = createProviderToken({ config, now });
 
   async function sendApns({ token, mx, collapseKey, sandbox }) {
-    // The app reports its environment at registration (development builds are
-    // sandbox, TestFlight/App Store are production); APNS_ENVIRONMENT only
+    // The app reports its environment at registration; APNS_ENVIRONMENT only
     // decides for a subscription that did not say.
     const useSandbox = typeof sandbox === 'boolean' ? sandbox : config.sandboxDefault;
     const origin = useSandbox ? origins.sandbox : origins.production;
     const payload = {
       aps: {
-        // Shown only if the notification service extension cannot decrypt
-        // `mx`; deliberately free of any session content or language.
         alert: { title: 'Mixdog', body: '\u{1F514}' },
         'mutable-content': 1,
         sound: 'default',
-        // No action category: whether an approval offers Allow is in the
-        // encrypted content, and the phone's extension picks it from there.
       },
       mx,
     };
     const response = await http2Request(
-      sessionFor(origin),
+      pool.sessionFor(origin),
       {
         ':method': 'POST',
         ':path': `/3/device/${token}`,
-        authorization: apnsAuthorization(),
+        authorization: providerToken.authorization(),
         'apns-topic': config.topic,
         'apns-push-type': 'alert',
         'apns-priority': '10',
@@ -107,8 +121,7 @@ export function createApnsSender({ config, now, origins }) {
     );
     if (response.status === 200) return { ok: true, status: 200 };
     const failure = parseJson(response.body)?.reason;
-    // 403 means the cached provider token was refused: mint a fresh one next time.
-    if (response.status === 403) apnsJwt = { value: '', at: 0 };
+    if (response.status === 403) providerToken.discard();
     return {
       ok: false,
       status: response.status,
@@ -117,10 +130,5 @@ export function createApnsSender({ config, now, origins }) {
     };
   }
 
-  function close() {
-    for (const session of sessions.values()) session.close();
-    sessions.clear();
-  }
-
-  return { send: sendApns, close };
+  return { send: sendApns, close: pool.close };
 }

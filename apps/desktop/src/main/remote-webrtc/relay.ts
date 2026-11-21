@@ -1,13 +1,3 @@
-/**
- * Service (daemon) end of the WebRTC signaling: validates a phone's signal,
- * checks the client streams the source it names, forwards it to the window
- * process, and carries the window's signals to that one phone.
- *
- * It also mirrors the input-ownership barrier at the point where relay frames
- * are decoded in order: from a decoded `promote-ack` until the matching
- * `demote-ack`, the client's relay page input for that source is refused, and
- * its JPEG images are withheld while the channel owns the view.
- */
 import {
   REMOTE_WEBRTC_SIGNAL_EVENT,
   parseRemoteWebrtcClientSignal,
@@ -126,6 +116,8 @@ function settleAck(
   }
 }
 
+const SCREEN_NOT_ALLOWED = 'Remote screen is not allowed for this device.';
+const NOT_STREAMED = 'remote webrtc source is not streamed by this client.';
 const SCREEN_REPLAY_LIMIT = 64;
 const SCREEN_RESYNC = 'Screen signaling needs resynchronization. Reconnect before starting another screen viewer.';
 
@@ -226,6 +218,88 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
     if (entry?.owner === 'channel' && sessionId) deps.setImages(clientId, sessionId, true);
   }
 
+  async function requireScreen(clientId: string, origin: RemoteWebrtcOrigin): Promise<void> {
+    if (!(await deps.screenAuthorized(clientId, origin))) throw new TypeError(SCREEN_NOT_ALLOWED);
+  }
+
+  async function forwardAttemptClose(
+    clientId: string,
+    signal: Extract<RemoteWebrtcClientSignal, { type: 'close'; viewerAttempt: number }>,
+    origin: RemoteWebrtcOrigin
+  ): Promise<void> {
+    const sourceKey = remoteWebrtcSourceKey(signal.source);
+    const k = key(clientId, sourceKey);
+    const replay = screenReplay(clientId, origin);
+    await requireScreen(clientId, origin);
+    // The connection may have left during authorization.
+    if (screenReplays.get(clientId)?.get(origin) !== replay) return;
+    const pending = attempts.get(k);
+    const matches = pending?.origin === origin && pending?.viewerAttempt === signal.viewerAttempt;
+    replay.cancel(sourceKey, signal.viewerAttempt);
+    if (matches) attempts.delete(k);
+    await deps.forward(clientId, signal, undefined, origin);
+  }
+
+  async function forwardPeerSignal(
+    clientId: string,
+    signal: Exclude<RemoteWebrtcClientSignal, { type: 'ready' }>,
+    origin: RemoteWebrtcOrigin
+  ): Promise<void> {
+    if (signal.source.kind === 'screen') await requireScreen(clientId, origin);
+    if (
+      signal.type === 'media-ready' &&
+      signal.source.kind === 'browser' &&
+      deps.awaitingFit(clientId, signal.source.sessionId)
+    ) {
+      return;
+    }
+    await deps.forward(clientId, signal, undefined, origin);
+  }
+
+  async function forwardReady(
+    clientId: string,
+    signal: Extract<RemoteWebrtcClientSignal, { type: 'ready' }>,
+    origin: RemoteWebrtcOrigin
+  ): Promise<void> {
+    const sourceKey = remoteWebrtcSourceKey(signal.source);
+    const k = key(clientId, sourceKey);
+    // The attempt is registered before anything is awaited, so the order
+    // `ready`s were decoded in decides which one is current.
+    const attempt = { viewerAttempt: signal.viewerAttempt, origin };
+    if (
+      signal.viewerAttempt !== undefined &&
+      !screenReplay(clientId, origin).allowsReady(sourceKey, signal.viewerAttempt)
+    ) {
+      return;
+    }
+    const pending = attempts.get(k);
+    if (pending && pending.origin === origin && (pending.viewerAttempt ?? 0) > (signal.viewerAttempt ?? 0)) return;
+    attempts.set(k, attempt);
+    // The viewer may leave (a forwarded `ready` would recreate it) or a
+    // newer `ready` take over at every await: this one is then dropped.
+    const current = (): boolean => attempts.get(k) === attempt;
+    const sessionId = sessionOf(signal);
+    const authorized = async (): Promise<boolean> =>
+      sessionId === null ? deps.screenAuthorized(clientId, origin) : deps.subscribed(clientId, sessionId);
+    const refuse = (): never => {
+      attempts.delete(k);
+      throw new TypeError(sessionId === null ? SCREEN_NOT_ALLOWED : NOT_STREAMED);
+    };
+    if (sessionId === null) {
+      const allowed = await authorized();
+      if (!current()) return;
+      if (!allowed) refuse();
+    }
+    // Fresh per connection attempt (the credential cache decides reuse).
+    const iceServers = toIceServers(await deps.resolveIceServers());
+    if (!current()) return;
+    const allowed = await authorized();
+    if (!current()) return;
+    if (!allowed) refuse();
+    attempts.delete(k);
+    await deps.forward(clientId, signal, iceServers, origin);
+  }
+
   return {
     /** Decode-time step of a phone's signal (throws on an invalid or unauthorized one). */
     accept(clientId: string, raw: unknown): RemoteWebrtcClientSignal {
@@ -234,91 +308,18 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
       // A screen source is authorized in `forward`, for the connection that
       // delivered it; it has no relay input or JPEG view to gate here.
       if (sessionId === null) return signal;
-      if (!deps.subscribed(clientId, sessionId)) {
-        throw new TypeError('remote webrtc source is not streamed by this client.');
-      }
+      if (!deps.subscribed(clientId, sessionId)) throw new TypeError(NOT_STREAMED);
       settleAck(deps, ownership, key(clientId, remoteWebrtcSourceKey(signal.source)), signal, clientId, sessionId);
       return signal;
     },
 
     /** Execution step: hand the signal to the window, a `ready` with the ICE
-     *  servers. `origin` is the connection that delivered it; a screen signal
-     *  is authorized and forwarded for that connection only. A screen resync
-     *  error requires a fresh authenticated connection, not a retry on this one. */
+     *  servers. A screen signal is authorized and forwarded for `origin` only;
+     *  a screen resync error needs a fresh authenticated connection. */
     async forward(clientId: string, signal: RemoteWebrtcClientSignal, origin: RemoteWebrtcOrigin): Promise<void> {
-      const sourceKey = remoteWebrtcSourceKey(signal.source);
-      const k = key(clientId, sourceKey);
-      if (signal.type !== 'ready') {
-        if (signal.type === 'close' && 'viewerAttempt' in signal) {
-          const replay = screenReplay(clientId, origin);
-          if (!(await deps.screenAuthorized(clientId, origin))) {
-            throw new TypeError('Remote screen is not allowed for this device.');
-          }
-          // The connection may have left during authorization.
-          if (screenReplays.get(clientId)?.get(origin) !== replay) return;
-          const pending = attempts.get(k);
-          const matches = pending?.origin === origin && pending?.viewerAttempt === signal.viewerAttempt;
-          replay.cancel(sourceKey, signal.viewerAttempt);
-          if (matches) attempts.delete(k);
-          await deps.forward(clientId, signal, undefined, origin);
-          return;
-        }
-        if (signal.source.kind === 'screen' && !(await deps.screenAuthorized(clientId, origin))) {
-          throw new TypeError('Remote screen is not allowed for this device.');
-        }
-        // A take-over is promoted only after its first picture of the fitted
-        // layout went out: by then the source's current geometry is the fitted
-        // generation, and the window promotes only on a media-ready for the
-        // current one. Earlier ones are dropped; the phone re-sends.
-        if (
-          signal.type === 'media-ready' &&
-          signal.source.kind === 'browser' &&
-          deps.awaitingFit(clientId, signal.source.sessionId)
-        ) {
-          return;
-        }
-        await deps.forward(clientId, signal, undefined, origin);
-        return;
-      }
-      // The attempt is registered before anything is awaited, so the order
-      // `ready`s were decoded in decides which one is current.
-      const attempt = { viewerAttempt: signal.viewerAttempt, origin };
-      if (
-        signal.viewerAttempt !== undefined &&
-        !screenReplay(clientId, origin).allowsReady(sourceKey, signal.viewerAttempt)
-      ) {
-        return;
-      }
-      const pending = attempts.get(k);
-      if (pending && pending.origin === origin && (pending.viewerAttempt ?? 0) > (signal.viewerAttempt ?? 0)) return;
-      attempts.set(k, attempt);
-      // The viewer may leave (a forwarded `ready` would recreate it) or a
-      // newer `ready` take over at every await: this one is then dropped.
-      const current = (): boolean => attempts.get(k) === attempt;
-      const sessionId = sessionOf(signal);
-      const authorized = async (): Promise<boolean> =>
-        sessionId === null ? deps.screenAuthorized(clientId, origin) : deps.subscribed(clientId, sessionId);
-      const refuse = (): never => {
-        attempts.delete(k);
-        throw new TypeError(
-          sessionId === null
-            ? 'Remote screen is not allowed for this device.'
-            : 'remote webrtc source is not streamed by this client.'
-        );
-      };
-      if (sessionId === null) {
-        const allowed = await authorized();
-        if (!current()) return;
-        if (!allowed) refuse();
-      }
-      // Fresh per connection attempt (the credential cache decides reuse).
-      const iceServers = toIceServers(await deps.resolveIceServers());
-      if (!current()) return;
-      const allowed = await authorized();
-      if (!current()) return;
-      if (!allowed) refuse();
-      attempts.delete(k);
-      await deps.forward(clientId, signal, iceServers, origin);
+      if (signal.type === 'ready') return forwardReady(clientId, signal, origin);
+      if (signal.type === 'close' && 'viewerAttempt' in signal) return forwardAttemptClose(clientId, signal, origin);
+      return forwardPeerSignal(clientId, signal, origin);
     },
 
     /** A window signal to its phone. */
@@ -342,8 +343,7 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
 
     /** The displays a client may choose, once its connection's screen access is checked. */
     async screenDisplays(clientId: string, origin: RemoteWebrtcOrigin): Promise<unknown> {
-      if (!(await deps.screenAuthorized(clientId, origin)))
-        throw new TypeError('Remote screen is not allowed for this device.');
+      await requireScreen(clientId, origin);
       return deps.screenDisplays();
     },
 

@@ -1,7 +1,3 @@
-/**
- * A fenced code block streamed in small chunks: it arrives with its content,
- * never as a bare box, raw fence characters, or a word-by-word fade.
- */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

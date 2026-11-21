@@ -1,7 +1,3 @@
-// "Remote Access" window: one glanceable card with the phone-app QR.
-// Relay-only (works from any network — user decision: no LAN fallback).
-// Until the relay link is up the window shows a connecting note instead of
-// falling back to a device-specific client.
 import type { BrowserWindow } from 'electron';
 import QRCode from 'qrcode';
 
@@ -22,10 +18,7 @@ const qrSvg = (value: string): Promise<string> =>
 
 export async function buildRemoteAccessInfo(descriptor: RemoteAccessDescriptor): Promise<DesktopRemoteAccessInfo> {
   const { relay } = descriptor;
-  // The QR carries a ROUTE to this desktop, no credential: it opens the
-  // install guide, and access is granted by approving the request the
-  // installed app then makes. Nothing secret ever reaches an HTTP log or a
-  // photographed code.
+  // The QR carries a route to this desktop, no credential: access is granted by approving the request the installed app makes.
   const relayBrowserUrl = relay.clientUrl;
   if (descriptor.enabled === false) {
     return {

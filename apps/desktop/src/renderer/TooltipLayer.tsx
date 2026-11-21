@@ -37,11 +37,6 @@ interface TooltipPosition {
 
 const VIEWPORT_PADDING = 8;
 const TARGET_GAP = 6;
-/* Hover hints are opt-in (`data-tooltip`). The only automatic fallback is an
-   ICON-ONLY button or link, whose aria-label is the one name it has. Rows,
-   cards, tabs, text links, inputs, textareas and selects stay silent unless a
-   screen opts in: their screen-reader labels would surface as bubbles that
-   merely repeat the visible text. */
 const ICON_CONTROLS = ['button[aria-label]', 'a[href][aria-label]', '[role="button"][aria-label]'].join(',');
 /* Hover waits a beat longer than the OS default so a pointer merely passing
    over a control never summons a bubble; keyboard focus stays quick because
@@ -72,6 +67,64 @@ function tooltipTarget(value: EventTarget | null): HTMLElement | null {
   return target.closest('[inert], [aria-hidden="true"]') ? null : target;
 }
 
+function tooltipStateFor(target: HTMLElement, text: string): TooltipState {
+  const rect = target.getBoundingClientRect();
+  const sheetRect = target.closest<HTMLElement>('.workspace, .session-sidebar')?.getBoundingClientRect();
+  const requested = target.dataset.tooltipSide;
+  return {
+    text,
+    ...tooltipParts(text),
+    anchorLeft: rect.left,
+    anchorCenter: rect.left + rect.width / 2,
+    anchorRight: rect.right,
+    anchorTop: rect.top,
+    anchorBottom: rect.bottom,
+    sheetBounds:
+      sheetRect && sheetRect.width > 0 && sheetRect.height > 0
+        ? { left: sheetRect.left, top: sheetRect.top, right: sheetRect.right, bottom: sheetRect.bottom }
+        : undefined,
+    preferredSide:
+      requested === 'top' || requested === 'bottom' || requested === 'left' || requested === 'right'
+        ? requested
+        : undefined,
+  };
+}
+
+/** Where a tooltip of the measured size sits: the preferred side (else the
+ *  roomier of bottom/top), flipped when it does not fit, clamped to its bounds. */
+function placeTooltip(tooltip: TooltipState, tooltipBounds: { width: number; height: number }): TooltipPosition {
+  const bounds = tooltip.sheetBounds || {
+    left: 0,
+    top: 0,
+    right: document.documentElement.clientWidth || window.innerWidth,
+    bottom: document.documentElement.clientHeight || window.innerHeight,
+  };
+  const width = Math.min(tooltipBounds.width, Math.max(0, bounds.right - bounds.left - VIEWPORT_PADDING * 2));
+  const height = Math.min(tooltipBounds.height, Math.max(0, bounds.bottom - bounds.top - VIEWPORT_PADDING * 2));
+  const room: Record<TooltipSide, number> = {
+    top: tooltip.anchorTop - bounds.top - TARGET_GAP - VIEWPORT_PADDING,
+    bottom: bounds.bottom - tooltip.anchorBottom - TARGET_GAP - VIEWPORT_PADDING,
+    left: tooltip.anchorLeft - bounds.left - TARGET_GAP - VIEWPORT_PADDING,
+    right: bounds.right - tooltip.anchorRight - TARGET_GAP - VIEWPORT_PADDING,
+  };
+  let side: TooltipSide =
+    tooltip.preferredSide || (room.bottom >= height || room.bottom >= room.top ? 'bottom' : 'top');
+  const opposite = OPPOSITE_SIDE[side];
+  const needed = side === 'left' || side === 'right' ? width : height;
+  if (room[side] < needed && room[opposite] > room[side]) side = opposite;
+
+  const horizontal = side === 'left' || side === 'right';
+  let idealLeft = tooltip.anchorCenter - width / 2;
+  if (side === 'right') idealLeft = tooltip.anchorRight + TARGET_GAP;
+  else if (side === 'left') idealLeft = tooltip.anchorLeft - TARGET_GAP - width;
+  const left = clamp(idealLeft, bounds.left + VIEWPORT_PADDING, bounds.right - VIEWPORT_PADDING - width);
+  let idealTop = tooltip.anchorTop - TARGET_GAP - height;
+  if (horizontal) idealTop = (tooltip.anchorTop + tooltip.anchorBottom - height) / 2;
+  else if (side === 'bottom') idealTop = tooltip.anchorBottom + TARGET_GAP;
+  const top = clamp(idealTop, bounds.top + VIEWPORT_PADDING, bounds.bottom - VIEWPORT_PADDING - height);
+  return { left, top, side };
+}
+
 export function TooltipLayer() {
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [position, setPosition] = useState<TooltipPosition | null>(null);
@@ -83,50 +136,11 @@ export function TooltipLayer() {
     const node = content.current;
     if (!tooltip || !node) return;
 
-    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
-    const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
-    const bounds = tooltip.sheetBounds || {
-      left: 0,
-      top: 0,
-      right: viewportWidth,
-      bottom: viewportHeight,
-    };
-    const tooltipBounds = node.getBoundingClientRect();
-    const width = Math.min(tooltipBounds.width, Math.max(0, bounds.right - bounds.left - VIEWPORT_PADDING * 2));
-    const height = Math.min(tooltipBounds.height, Math.max(0, bounds.bottom - bounds.top - VIEWPORT_PADDING * 2));
-    const room: Record<TooltipSide, number> = {
-      top: tooltip.anchorTop - bounds.top - TARGET_GAP - VIEWPORT_PADDING,
-      bottom: bounds.bottom - tooltip.anchorBottom - TARGET_GAP - VIEWPORT_PADDING,
-      left: tooltip.anchorLeft - bounds.left - TARGET_GAP - VIEWPORT_PADDING,
-      right: bounds.right - tooltip.anchorRight - TARGET_GAP - VIEWPORT_PADDING,
-    };
-    let side: TooltipSide =
-      tooltip.preferredSide || (room.bottom >= height || room.bottom >= room.top ? 'bottom' : 'top');
-    const opposite = OPPOSITE_SIDE[side];
-    const needed = side === 'left' || side === 'right' ? width : height;
-    if (room[side] < needed && room[opposite] > room[side]) side = opposite;
-
-    const horizontal = side === 'left' || side === 'right';
-    let idealLeft = tooltip.anchorCenter - width / 2;
-    if (side === 'right') idealLeft = tooltip.anchorRight + TARGET_GAP;
-    else if (side === 'left') idealLeft = tooltip.anchorLeft - TARGET_GAP - width;
-    const left = clamp(idealLeft, bounds.left + VIEWPORT_PADDING, bounds.right - VIEWPORT_PADDING - width);
-    let idealTop = tooltip.anchorTop - TARGET_GAP - height;
-    if (horizontal) idealTop = (tooltip.anchorTop + tooltip.anchorBottom - height) / 2;
-    else if (side === 'bottom') idealTop = tooltip.anchorBottom + TARGET_GAP;
-    const top = clamp(idealTop, bounds.top + VIEWPORT_PADDING, bounds.bottom - VIEWPORT_PADDING - height);
-    setPosition({ left, top, side });
+    setPosition(placeTooltip(tooltip, node.getBoundingClientRect()));
   }, [tooltip]);
 
   useEffect(() => {
     let watchdog: number | null = null;
-    /* Help answers the person's own gesture only. Hover needs a pointer that MOVED over the control: content
-       sliding under a resting pointer — a streaming transcript, a scroll, a
-       row re-rendered by a click — fires pointerover but never pointermove.
-       Keyboard help needs focus a navigation key moved: script focus (a menu
-       or dialog handing focus back to its trigger after Escape, a closing
-       sidebar parking it on the rail, the window regaining activation) still
-       matches :focus-visible after any typing. */
     let hovered: HTMLElement | null = null;
     let navigating = false;
     const stopWatchdog = () => {
@@ -136,10 +150,6 @@ export function TooltipLayer() {
     const checkAnchor = () => {
       const anchor = active.current;
       if (!anchor) return;
-      // Layout shifts (tab-close width pinning, dock resize, list reorder)
-      // slide a still-connected anchor out from under a stationary pointer —
-      // no pointerout ever fires. Reap when the anchor lost BOTH hover and
-      // keyboard focus, not just when it unmounted.
       if (!anchor.isConnected || !(anchor.matches(':hover') || anchor.matches(':focus-visible'))) {
         cancel();
       }
@@ -166,34 +176,8 @@ export function TooltipLayer() {
           target.hasAttribute('data-tooltip') ? target.dataset.tooltip : target.getAttribute('aria-label')
         )?.trim();
         if (!text) return;
-        const parts = tooltipParts(text);
-        const rect = target.getBoundingClientRect();
-        const sheet = target.closest<HTMLElement>('.workspace, .session-sidebar');
-        const sheetRect = sheet?.getBoundingClientRect();
-        const requested = target.dataset.tooltipSide;
         setPosition(null);
-        setTooltip({
-          text,
-          ...parts,
-          anchorLeft: rect.left,
-          anchorCenter: rect.left + rect.width / 2,
-          anchorRight: rect.right,
-          anchorTop: rect.top,
-          anchorBottom: rect.bottom,
-          sheetBounds:
-            sheetRect && sheetRect.width > 0 && sheetRect.height > 0
-              ? {
-                  left: sheetRect.left,
-                  top: sheetRect.top,
-                  right: sheetRect.right,
-                  bottom: sheetRect.bottom,
-                }
-              : undefined,
-          preferredSide:
-            requested === 'top' || requested === 'bottom' || requested === 'left' || requested === 'right'
-              ? requested
-              : undefined,
-        });
+        setTooltip(tooltipStateFor(target, text));
         startWatchdog();
       }, delay);
     };

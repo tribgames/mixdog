@@ -30,12 +30,7 @@ const rootDir = resolve(desktopDir, '../..');
 const runtimeDir = join(desktopDir, '.runtime');
 const stagingDir = join(runtimeDir, 'staging');
 const runtimePackageDir = join(stagingDir, 'node_modules', 'mixdog');
-// Every file the app ships of the root package is a real file (the Rust core and the script interpreter read
-// them with plain fs; built-in skills hand their directory to the model, which runs their bundled scripts with
-// plain Node): electron-builder maps this tree to resources/runtime.asar.unpacked/node_modules, and no
-// archive of it exists. Its name is the path the core's js-runtime.json and MIXDOG_ROOT already name.
 const builderNativeModulesDir = join(runtimeDir, 'native-modules');
-// No skill script is bundled or run here.
 // The tools the app executes (native_tools.rs resolves only these): the patch engine and the process
 // manager are libraries of the core now, so their standalone binaries are neither downloaded nor packaged.
 const DESKTOP_NATIVE_TOOL_KINDS = Object.freeze(['graph']);
@@ -200,11 +195,6 @@ const mainNativeBuiltFileName = {
   linux: 'libmixdog_main_native.so',
 }[embeddingTarget.platform];
 
-/**
- * The main-process Node-API module (native/mixdog-main-native) for the target, on every platform: built by cargo and
- * cached by the digest of its sources. On Linux the glibc 2.28 build of linux-build-native-old-glibc.sh is taken from
- * MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR when that is set, and must be there.
- */
 async function prepareMainNative() {
   const sourceHashes = [];
   for (const root of mainNativeSourceRoots) sourceHashes.push(await sourceTreeHash(join(rootDir, root)));
@@ -257,11 +247,6 @@ async function prepareMainNative() {
   return { binary: output, identity };
 }
 
-/**
- * The Computer Use helper (native/mixdog-computer), built from source for the
- * target and cached by its source digest. The Rust core drives the desktop
- * through it on every platform, Windows included.
- */
 async function prepareComputerNative() {
   const sourceRoot = join(rootDir, 'native', 'mixdog-computer');
   const identity = { schemaVersion: 1, target: embeddingTarget.key, sourceHash: await sourceTreeHash(sourceRoot) };
@@ -357,12 +342,6 @@ async function prepareWindowLibrarySource() {
   });
 }
 
-/**
- * Build an in-repo Windows crate for the target through its build.ps1, into a
- * per-target cache keyed on a digest of the crate source (and any build-time
- * inputs the binary embeds): an unchanged crate (or a CI-restored cache
- * directory) skips cargo entirely.
- */
 async function buildWindowsNativeCrate({ crate, cacheName, label, schemaVersion, fileNames, buildInputs = null }) {
   if (process.platform !== 'win32') {
     throw new Error(`Building the Windows ${label} requires a Windows host.`);
@@ -430,15 +409,6 @@ async function readFileHeader(path, bytes = 4096) {
   }
 }
 
-/**
- * Refuse a compiled artifact that cannot run on the target.
- *
- * This is the guard that makes preparing a runtime for another architecture
- * survivable. A build-host binary inside a foreign-target app packages,
- * uploads, and publishes without a single warning, and only fails when the
- * user launches it — so the archive is inspected here, where the failure is
- * still a build error.
- */
 async function assertTargetArchitecture(path, label) {
   if (await nativeBinaryRunsOn(await readFileHeader(path), embeddingTarget.arch)) return;
   throw new Error(
@@ -538,15 +508,6 @@ async function canReusePreparedRuntime(fingerprint) {
   }
 }
 
-/**
- * Product-native tools for the TARGET.
- *
- * These are published, immutable release assets rather than anything compiled
- * here, so the build host never has to match the target: the manifest names one
- * verified asset per platform. Each downloaded file is still read back and
- * checked against the target architecture, because a manifest that pointed at
- * the wrong asset would otherwise travel all the way to a user's machine.
- */
 async function prepareDesktopNativeTools() {
   const downloadDataDir = join(runtimeDir, 'native-downloads');
   // Linux packaging may supply graph built against an older glibc
@@ -636,10 +597,6 @@ function runNpm(args, options = {}) {
   return execFileAsync(process.execPath, [npmCli, ...args], {
     windowsHide: true,
     ...execOptions,
-    // Local preparation keeps tarballs/logs in a disposable cache so repeated
-    // packaging cannot grow AppData by gigabytes. CI supplies its restored
-    // setup-node cache explicitly, avoiding the same dependency downloads on
-    // every platform build while leaving local cleanup behavior unchanged.
     env: mergedEnv,
   });
 }
@@ -655,13 +612,6 @@ async function prepareRuntime(manifest, fingerprint) {
 
   try {
     await timed('native-tools', () => prepareDesktopNativeTools());
-    // What the app ships of the root package is exactly what the Rust core and its script interpreter load
-    // as real files (core-layout.mjs): the package, the packages the pptxgenjs authoring script and the
-    // skill launchers reach (and what those need), and the ONNX Runtime library of the target. The same
-    // trimmed lockfile install the server bundles use (stage-js-bundle.mjs installProductionModules):
-    // a dependency of the root package that no entry point imports is not installed, and the install runs
-    // no package script, so the onnxruntime-node postinstall never downloads provider libraries the core
-    // does not register.
     await mkdir(stagingDir, { recursive: true });
     // Local preparation keeps tarballs/logs in a disposable cache (see runNpm); CI supplies its restored cache.
     process.env.npm_config_cache = npmCacheDir;
@@ -792,13 +742,6 @@ async function prepareRuntime(manifest, fingerprint) {
   }
 }
 
-// Preparation is exclusive per checkout. Every run starts by deleting and
-// rebuilding .runtime, so two overlapping deployments destroyed each other: the
-// second wiped the staging tree the first was mirroring into native-modules, which
-// surfaced as ENOENT on a different random dependency file every attempt and,
-// once the deletion won the race outright, as an archive missing /package.json.
-// A later run now waits for the holder instead, and then normally takes the
-// fingerprint reuse path rather than repeating the whole preparation.
 const runtimeLockPath = join(desktopDir, '.cache', 'prepare-runtime.lock');
 const runtimeLockTimeoutMs = 30 * 60 * 1000;
 

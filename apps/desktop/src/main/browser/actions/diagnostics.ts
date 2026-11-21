@@ -1,7 +1,3 @@
-/**
- * What the page has been doing: health status, the console ledger, and the
- * network ledger with per-request detail.
- */
 import { defineBrowserActions } from './types';
 
 export const diagnosticActions = defineBrowserActions({

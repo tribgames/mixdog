@@ -15,6 +15,7 @@ import { PullRequestRow } from './PullRequestRow';
 import { useSurfaceActive, useSurfaceNavigationReset } from './surface-activity';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import { SourceControlErrorNotice } from './SourceControlErrorNotice';
+import { usePullRequestCreate } from './use-pull-request-create';
 import { usePullRequestList } from './use-pull-request-list';
 import {
   PULL_REQUEST_LIST_VIEWS,
@@ -22,7 +23,6 @@ import {
   preferredBaseBranch,
   pullRequestMatchesFilter,
   pullRequestsWebUrl,
-  titleFromBranch,
 } from './pull-requests-model';
 import type { PullRequestListView, PullRequestOpenHandler, PullRequestViewMode } from './pull-requests-model';
 
@@ -57,30 +57,18 @@ export function PullRequestsPane({
   const [actionError, setActionError] = useState('');
   const [listView, setListView] = useState<PullRequestListView>('open');
   const [filter, setFilter] = useState('');
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createTitle, setCreateTitle] = useState('');
-  const [createBody, setCreateBody] = useState('');
-  const [createBase, setCreateBase] = useState('main');
-  const [createDraft, setCreateDraft] = useState(false);
-  const [createError, setCreateError] = useState('');
   const [busy, setBusy] = useState('');
-  // The Dock retains this pane while another tab is presented. Retained is not
-  // running: no ghPrList/gitBranches may be issued while inactive, and any
-  // in-flight list is invalidated on deactivate or project change so a late
-  // answer cannot repaint a surface the user has left. The rows already loaded
-  // stay on screen, so re-entry is instant.
   const surfaceActive = useSurfaceActive();
   useSurfaceNavigationReset(surfaceActive, () => {
     setListView('open');
-    setCreateOpen(false);
+    create.close();
   });
   const { categories, readError, loading, localBranchNames, baseBranchNames, defaultBranchName, loadList } =
     usePullRequestList(api, projectPath, currentBranch, surfaceActive, () => {
       setActionError('');
       setListView('open');
       setFilter('');
-      setCreateOpen(false);
-      setCreateError('');
+      create.close();
     });
 
   const run = useCallback(
@@ -100,6 +88,20 @@ export function PullRequestsPane({
     [loadList]
   );
 
+  const defaultBaseBranch = defaultBranchName || preferredBaseBranch(baseBranchNames);
+  const create = usePullRequestCreate({
+    api,
+    projectPath,
+    currentBranch,
+    prUrl,
+    createHint,
+    defaultBaseBranch,
+    busy,
+    setBusy,
+    loadList,
+    onCreated: (created) => onOpenPullRequest?.(projectPath, created, 'overview', false),
+  });
+
   const refreshAll = useCallback(() => {
     void loadList();
   }, [loadList]);
@@ -114,54 +116,9 @@ export function PullRequestsPane({
   );
 
   const repositoryPullsUrl = useMemo(() => pullRequestsWebUrl(repositoryUrl), [repositoryUrl]);
-  const defaultBaseBranch = defaultBranchName || preferredBaseBranch(baseBranchNames);
   const onDefaultBranch = Boolean(
     currentBranch && defaultBaseBranch && currentBranch.toLocaleLowerCase() === defaultBaseBranch.toLocaleLowerCase()
   );
-  const beginCreatePullRequest = () => {
-    setCreateTitle(titleFromBranch(currentBranch));
-    setCreateBody('');
-    setCreateBase(defaultBaseBranch);
-    setCreateDraft(false);
-    setCreateError('');
-    setCreateOpen(true);
-  };
-  const cancelCreatePullRequest = () => {
-    if (busy === 'create') return;
-    setCreateOpen(false);
-    setCreateError('');
-  };
-  const submitCreatePullRequest = async () => {
-    const title = createTitle.trim();
-    const base = createBase.trim();
-    if (!title || !base || !currentBranch || base.toLocaleLowerCase() === currentBranch.toLocaleLowerCase()) return;
-    if (!api?.ghPrCreate) {
-      setCreateError('Pull request creation is unavailable in this host.');
-      return;
-    }
-    setBusy('create');
-    setCreateError('');
-    try {
-      if (!prUrl) {
-        if (!api.gitPush) throw new Error(createHint || 'Publish or push this branch before creating a pull request.');
-        await api.gitPush(projectPath);
-      }
-      const created = await api.ghPrCreate(projectPath, {
-        base,
-        head: currentBranch,
-        title,
-        body: createBody,
-        draft: createDraft,
-      });
-      setCreateOpen(false);
-      await loadList();
-      onOpenPullRequest?.(projectPath, created, 'overview', false);
-    } catch (cause) {
-      setCreateError(errorMessage(cause));
-    } finally {
-      setBusy('');
-    }
-  };
   const openPullRequest = (
     pullRequest: DesktopPullRequestEntry,
     mode: PullRequestViewMode = 'overview',
@@ -194,7 +151,7 @@ export function PullRequestsPane({
           type="button"
           aria-label={t('Create pull request')}
           disabled={
-            createOpen ||
+            create.open ||
             onDefaultBranch ||
             !currentBranch ||
             !api?.ghPrCreate ||
@@ -203,7 +160,7 @@ export function PullRequestsPane({
           }
           title={createButtonTitle}
           data-tooltip={createButtonTitle}
-          onClick={beginCreatePullRequest}
+          onClick={create.begin}
         >
           <Plus size={14} aria-hidden="true" />
         </button>
@@ -265,19 +222,12 @@ export function PullRequestsPane({
     value: view,
     label: `${viewLabels[view]} (${pullRequestViews?.[view].length ?? 0})`,
   }));
-  const createDisabled =
-    !createTitle.trim() ||
-    !createBase.trim() ||
-    !currentBranch ||
-    createBase.trim().toLocaleLowerCase() === currentBranch.toLocaleLowerCase() ||
-    busy === 'create';
-
   return (
     <>
       {headerPortal}
       <div className="dock-pr-surface">
         {inlineHeader}
-        {!createOpen && (
+        {!create.open && (
           <>
             <div className="dock-pr-view-controls workbench-explorer-search">
               <label className="dock-pr-search workbench-search-input">
@@ -309,29 +259,29 @@ export function PullRequestsPane({
           </>
         )}
         <div className="dock-scm-scroll dock-pr-list">
-          {createOpen && (
+          {create.open && (
             <PullRequestCreateForm
               currentBranch={currentBranch}
-              title={createTitle}
-              body={createBody}
-              base={createBase}
-              draft={createDraft}
+              title={create.title}
+              body={create.body}
+              base={create.base}
+              draft={create.draft}
               baseBranchNames={baseBranchNames}
               prUrl={prUrl}
               createHint={createHint}
-              error={createError}
+              error={create.error}
               creating={busy === 'create'}
-              submitDisabled={createDisabled}
-              onTitleChange={setCreateTitle}
-              onBodyChange={setCreateBody}
-              onBaseChange={setCreateBase}
-              onDraftChange={setCreateDraft}
-              onSubmit={() => void submitCreatePullRequest()}
-              onCancel={cancelCreatePullRequest}
+              submitDisabled={create.submitDisabled}
+              onTitleChange={create.setTitle}
+              onBodyChange={create.setBody}
+              onBaseChange={create.setBase}
+              onDraftChange={create.setDraft}
+              onSubmit={() => void create.submit()}
+              onCancel={create.cancel}
               onAuthenticationHelp={() => void api?.openExternal?.(GH_AUTH_HELP_URL)}
             />
           )}
-          {!createOpen && (
+          {!create.open && (
             <>
               {actionError && (
                 <SourceControlErrorNotice
@@ -357,7 +307,7 @@ export function PullRequestsPane({
                   <b>{emptyTitle}</b>
                   <span>{emptyMessage}</span>
                   {!filter && listView === 'open' && !onDefaultBranch && currentBranch && api?.ghPrCreate && (
-                    <button type="button" onClick={beginCreatePullRequest}>
+                    <button type="button" onClick={create.begin}>
                       {t('Create pull request')}
                     </button>
                   )}

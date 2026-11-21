@@ -11,24 +11,6 @@ import {
   subscribeRemoteConnectionState,
 } from './remote-connection-state';
 
-// The shim retries every connection problem on its own, forever, so nothing
-// here is a failure: there is no error state, no cause (no internet, PC
-// offline) and nothing that blocks the screen. Every foreground return costs
-// a short reconnect gap (socket recycle, relay dial, E2EE handshake); that
-// blip gets NO surface at all (no disconnect window or popup; it reconnects
-// quietly and fast). Only an outage that outlives DISCONNECTED_AFTER_MS
-// earns one tiny status dot — no text, no card, nothing over the screen. An
-// unstable link must not flicker, so only a connection that holds for
-// RECOVERED_AFTER_MS counts as restored: that alone drops the dot and starts
-// the countdown over from zero. A shorter 'connected' blip, or
-// a 'connecting' state in between, neither hides a shown pill nor restarts a
-// running countdown.
-//
-// The cold boot is the exception (issue #134): it has nothing on screen but
-// the loading mark, so a PC that never answers would load forever. There the
-// same countdown — or, sooner, the relay's own "PC offline" answer — swaps the
-// mark for a plain state: Try again, and in the phone app the way back to
-// its PC list. The shim keeps retrying underneath; a connection ends it.
 const DISCONNECTED_AFTER_MS = 10_000;
 const RECOVERED_AFTER_MS = 3_000;
 

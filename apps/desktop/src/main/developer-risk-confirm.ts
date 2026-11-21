@@ -1,22 +1,3 @@
-/**
- * Turning ON "Allow all actions" (developer option `allowAllActions`) removes
- * the approval cards an agent would otherwise meet, so an agent must never be
- * able to do it to itself. Enabling is decided here, in the main process,
- * under the human-only approval lock (human-only-approval.ts): while the
- * question is open Computer Use (this host's and the core's) refuses every new
- * operation, as for a Browser Use approval card.
- *
- * The question is drawn on a surface main owns, not by the app's renderer: a
- * modal child window of the asking window (host-confirm-window.ts) with its
- * own static page (host-confirm-page.ts) and preload (preload/host-confirm.ts).
- * The app renderer, a phone or remote client, a guest page or a frame can
- * neither script it nor reach its channel: the answer is read only from that
- * surface's own webContents and main frame, and its preload sends it only for
- * a trusted activation of the page's own buttons. Anything that ends the
- * question without an answer (the surface failing to open or load, its crash
- * or close, the asking window's reload, navigation, crash or close) is a no,
- * so the lock is always freed. Turning the option off needs none.
- */
 import type { BrowserWindow, IpcMainEvent } from 'electron';
 import { HOST_CONFIRM_SURFACE_IPC, type HostConfirmSurfaceMessage } from '../shared/host-confirm-surface';
 import { isAllowAllActionsEnable } from '../shared/remote-blocked-capabilities';

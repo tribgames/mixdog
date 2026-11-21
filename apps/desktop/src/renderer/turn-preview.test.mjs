@@ -696,10 +696,6 @@ test('a turn keeps one running key across its re-key to the checkpoint', () => {
   assert.equal(runningTurnKeyOf([], [], 'checkpoint:cp'), 'checkpoint:cp', 'an unknown turn keeps its key');
 });
 
-// The conversation's own wiring across a real turn end (C-30): the turn's rows
-// are keyed `turn:<prompt>` while it runs and re-keyed `checkpoint:<cp>` once
-// its turndone names the checkpoint, so the running mark and the card's claim
-// must agree across that flip.
 test('a live turn end claims its running mark although the turn re-keys to its checkpoint', async (t) => {
   resetTurnChangesCache();
   resetTurnPreviews();

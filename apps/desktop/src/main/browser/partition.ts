@@ -1,12 +1,3 @@
-/**
- * The persistent partition every Browser Use page shares — visible pane tabs
- * and hidden background pages alike — so the agent stays logged in across
- * both. Three session-wide guards live here: a site holds a permission only
- * when a person granted it in the pane, every request passes the URL policy (including its resolved
- * address), and downloads land in the user's folder through a ledger the
- * `downloads` action can report. Every page keeps a zoom of its own, never
- * the one Chromium shares across a site's pages (page-zoom.ts).
- */
 import { app, ipcMain, type Session, session, type WebContents, type WebFrameMain } from 'electron';
 
 import { rememberBrowserIdentity } from './browser-identity';
@@ -24,10 +15,6 @@ let appUserAgent: string | undefined;
 /** The browser partition's session, the one session that presents Chrome. */
 let browserSession: Session | undefined;
 
-/** Gives an app-owned session the app's own agent string. Installed on
- *  `session-created` once per process and never removed: the fallback stays
- *  Chrome for the rest of the process, so a session created after a host is
- *  disposed (a window opened later) must still keep Electron. */
 function keepAppUserAgent(owned: Session): void {
   if (owned !== browserSession) owned.setUserAgent(appUserAgent as string);
 }
@@ -65,12 +52,8 @@ export function createBrowserPartition(host: BrowserPartitionHost) {
     save: host.permissionPolicy?.save,
   });
   permissions.install(partitionSession);
-  // Pages see the Chrome build that renders them, with the language list a
-  // Chrome profile seeds from the system's own languages. The string is the
-  // process-wide fallback too, so workers, service workers and out-of-process
-  // frames (which the session's string does not reach) send the same one;
-  // the brands stay the engine's own, and no request is rewritten. A site
-  // compares all of these, and Turnstile refuses a mixed identity.
+  // The session's user agent does not reach workers or out-of-process frames, so the
+  // process-wide fallback carries it too; Turnstile refuses a mixed identity.
   if (appUserAgent === undefined) {
     appUserAgent = app.userAgentFallback;
     app.on('session-created', keepAppUserAgent);
@@ -82,10 +65,6 @@ export function createBrowserPartition(host: BrowserPartitionHost) {
   app.userAgentFallback = userAgent;
   partitionSession.setUserAgent(userAgent, acceptLanguages);
   rememberBrowserIdentity({ userAgent });
-  // Every other session of the app keeps the app's own agent string: the
-  // shell detects Electron by it. The default session and the window's own
-  // exist already; a session created later (a snapshot, an export, a remote
-  // window's) is covered when it appears.
   keepAppUserAgent(session.defaultSession);
   keepAppUserAgent(host.windowSession);
   partitionSession.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {

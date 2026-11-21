@@ -1,8 +1,3 @@
-// The phone's attachment and local-file calls (list 1 unit D), answered over the protocol as Node's relay answered them (b6f10295a:
-// remote-methods.ts `localFileRemoteMethods` :1040-1051 and `resolveLocalPathEntries` :595-660, `projectRecovery` :818-824,
-// remote-session-methods.ts `readAttachmentThumbnail` :58-64 over attachment-thumbnail.ts, remote-attachments.ts `attachmentOpen`):
-// the same answers and the same failures with the error's `code` (the files adapter's `failure`). The replay compares them with the
-// recording (benchmarks/rust-core/recorders/record-phone-attachments.mjs).
 import { requiredProjectRecoveryRequest } from '../shared/project-recovery';
 import { requiredString } from '../shared/remote-arguments';
 import { rpc } from './remote-protocol-files';

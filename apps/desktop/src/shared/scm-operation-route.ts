@@ -1,8 +1,3 @@
-// The source-control operations (git, GitHub, the git/GitHub/LibreOffice installers) as protocol requests and replies, in one place
-// for both of their callers: the desktop's operation lane (main/protocol/desktop-operation-route.ts, which routes the windows and the
-// relay) and the phone's protocol adapter (renderer/remote-protocol-scm.ts). Each name takes the positional arguments of its
-// `desktop-operations.ts` handler (DS-SCM-1).
-
 export interface OperationRoute {
   method: string;
   params: Record<string, unknown>;

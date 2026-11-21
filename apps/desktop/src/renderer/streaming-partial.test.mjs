@@ -1,7 +1,3 @@
-/**
- * streaming-partial.test.mjs — the live row joins the line-gated tail with
- * the engine's unfinished line, on every renderer lane.
- */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

@@ -1,10 +1,6 @@
-// The side-view Schedules and Webhooks lists (SchedulesView/WebhooksView):
-// one single-select chip under the search field picks how the list is sorted
-// and grouped, remembered per view. Schedules: Next run (flat, soonest run
-// first, paused last), Cadence (grouped by cadence), By bot (grouped by bot).
-// Webhooks: Latest event (flat, latest event first) and By bot.
 import { useCallback, useState } from 'react';
 import type { RecordValue } from './desktop-types';
+import { stamp } from './routines-model';
 
 export type FrequencyKind = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'once';
 
@@ -56,10 +52,6 @@ export interface RoutineGroup {
 }
 
 const OWNER_DEFAULT = 'lead';
-const stamp = (value: unknown): number | null => {
-  const at = typeof value === 'string' && value ? Date.parse(value) : Number.NaN;
-  return Number.isFinite(at) ? at : null;
-};
 
 /** The bot a row belongs to; ownerless rows are Mixy's. */
 const routineOwnerOf = (row: RecordValue): string =>

@@ -1,8 +1,3 @@
-// The Bots page titles a session for its search only while there is something
-// to search for: an empty search renders the same rows without building any
-// title. `sessionTitleNormalizationStats.cleaned` counts the title builder's
-// uncached runs (the memo is keyed by the exact title text, so each title here
-// is unique to its test).
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React, { act } from 'react';

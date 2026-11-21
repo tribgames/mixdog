@@ -1,17 +1,7 @@
-// Disposable, fully isolated dev apps for parallel agents. Each instance gets
-// its own CDP and renderer ports, profile, data dir, daemon, build output and
-// Vite cache under one instance directory, plus a lease that a later start or
-// sweep reclaims when the owner died or the TTL ran out. The 9342 dev app, the
-// kept dev profiles and the installed app's ~/.mixdog are never touched.
-//
 //   npm run dev:isolated -- --name <tag> [--copy-auth] [--onboarding] [--ttl-minutes=120]
 //
-// An instance starts with onboarding and the getting-started guide marked
-// done; --onboarding keeps the first-run screens instead. --copy-auth also
-// copies the kept dev profile's sign-ins and model routes, WITHOUT their refresh
-// tokens: those rotate, so an instance that refreshed one would sign the kept
-// profile out. A copy coasts on its access token, and the start is refused when
-// a GPT access token would expire before the lease ends.
+// --copy-auth copies the kept dev profile's sign-ins and model routes without their refresh tokens: refresh tokens
+// rotate, so an instance that refreshed one would sign the kept profile out.
 //   --config-overlay=<json file>  deep-merged into the seeded config before the core starts
 //   --pass-env=NAME,NAME          MIXDOG_* names of this shell kept in the instance env (never a name the
 //                                 isolation sets itself); MIXDOGD_TEST_HOOKS and MIXDOG_DEV_COMPUTER_RUN reach
@@ -236,11 +226,9 @@ export function listProcesses() {
   });
 }
 
-/** Root pids, every process naming the instance directory, and all their descendants. */
-// `ancestors` (already killed: pid → creation time) only adopt their orphaned children;
-// a reused pid of theirs is never a target itself. A child counts only when it started
-// after its parent did: Windows keeps a dead parent's pid in ParentProcessId, so an
-// unrelated process (an editor the user left open) can name a pid this tree reused.
+/** Root pids, every process naming the instance directory, and all their descendants. `ancestors` (killed: pid →
+ *  creation time) only adopt orphans. Windows keeps a dead parent's pid in ParentProcessId, so a child counts only
+ *  when it started after its parent. */
 export function instanceProcessIds(processes, { rootPids = [], ancestors = new Map(), needle, self = process.pid }) {
   const fold = (text) => (process.platform === 'win32' ? text.toLowerCase() : text);
   const marker = needle ? fold(needle) : null;
@@ -466,10 +454,8 @@ function assertNotLink(stat, path) {
   if (stat.isSymbolicLink()) throw new Error(`--copy-auth: refusing ${path}: it is a symlink or junction.`);
 }
 
-/** lstat of `path` after proving every component from the trusted root down to it is a real
- *  entry. The trusted root is resolved first (its own ancestors may be links); below it lstat
- *  rejects symlinks and junctions, and each realpath must equal its expected location, which
- *  also catches a junction lstat did not flag. Null when optional and `path` is absent. */
+/** lstat of `path` after proving every component below the trusted root is a real entry: lstat rejects symlinks and
+ *  junctions, and each realpath must equal its expected location. Null when optional and `path` is absent. */
 async function lstatTrusted(trustedRoot, path, { optional = false } = {}) {
   const root = resolve(trustedRoot);
   const below = relative(root, resolve(path));
@@ -665,14 +651,8 @@ export async function seedReadyConfig(
   await writeFile(join(dataDir, 'mixdog-config.json'), JSON.stringify(config, null, 2));
 }
 
-// Electron's app path is the entry directory, and the unpackaged main resolves
-// the runtime as <appPath>/../../src and helpers as <appPath>/../../native. The
-// instance mirrors that layout with links into the working tree, so its main,
-// preload and daemon bundle build into the instance and the shared out/ stays
-// untouched.
-// The SSH server payload (main/ssh/remote-install-payload.ts) also reads the
-// runtime's package.json from the instance root; a file link needs elevation on
-// Windows, so it is copied.
+// The unpackaged main resolves the runtime as <appPath>/../../src and helpers as <appPath>/../../native.
+// package.json is copied, not linked: a file link needs elevation on Windows (main/ssh/remote-install-payload.ts reads it).
 export async function prepareAppDir(instanceDir) {
   const appDir = join(instanceDir, 'app', 'desktop');
   await mkdir(appDir, { recursive: true });

@@ -110,10 +110,6 @@ $slow = Wait-UntilQuiet 0.3 { $script:starts += $clock.Elapsed.TotalMilliseconds
   // no room for a second one, so the wait stops sampling and sleeps out the cap.
   assert.equal(result.slow.quiet, false);
   assert.equal(result.samples, 1);
-  // The contract is checked on what the wait itself does, not on elapsed wall
-  // time (a sample cannot be interrupted and a wake can be late, so elapsed
-  // time is scheduler luck): no sample starts at or after the cap and no sleep
-  // is scheduled to end past it.
   assertCapContract(result, 300);
   assert.deepEqual(result.sleepUntil, [300], 'only the sleep out to the cap is expected');
 });

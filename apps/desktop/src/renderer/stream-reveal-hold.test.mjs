@@ -139,6 +139,9 @@ test('paced: a streaming table never paints a partial row; prose stays word by w
     'the row appears with its newline'
   );
   assert.equal(paced('Some prose wor'), 'Some prose wor', 'prose streams');
+});
+
+test('paced: what follows a table row is held only when the parser reads it as a row', () => {
   const table = 'Intro\n\n| a | b |\n|---|---|\n| one | two |\n';
   // (a) The parser renders a line directly under a body row as a table row,
   // so it waits for its newline like one.
@@ -167,6 +170,9 @@ test('paced: a streaming table never paints a partial row; prose stays word by w
     const parsed = isRow(parseMarkdownToHast(`${source}\n`), word);
     assert.equal(paced(source) !== source, parsed, `${JSON.stringify(source)} held iff a row (parser: ${parsed})`);
   }
+});
+
+test('paced: a reveal step through a table never ends mid-row', () => {
   // A step through a table never ends mid-row.
   const text = 'Intro\n\n| a | b |\n|---|---|\n| one | two |\n\nTail words';
   let from = 0;

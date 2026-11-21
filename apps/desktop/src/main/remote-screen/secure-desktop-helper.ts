@@ -67,7 +67,7 @@
  *   or check that ends later rebuilds nothing.
  */
 import type { SecureDesktopInstallResult, SecureDesktopInstallState, SecureDesktopStatus } from '../secure-desktop';
-import type { SecureDesktopAdapter } from './secure-desktop-adapter';
+import { listen, type SecureDesktopAdapter } from './secure-desktop-adapter';
 
 /** The installer, as this module uses it (install-request.ts). */
 interface SecureDesktopInstallPort {
@@ -285,12 +285,6 @@ export function createSecureDesktopHelper(deps: SecureDesktopHelperDeps): Secure
     current.setVideoRun(epoch);
   };
 
-  /**
-   * `lease` holds the helper from now on, in this order: on a handover the
-   * helper is deactivated (it releases what it held and revokes the previous
-   * holder's grant and challenges), the new holder starts a fresh run
-   * (declared), then the helper is activated for it.
-   */
   const take = (lease: Lease, handover: boolean): Promise<void> => {
     holder = lease;
     waiting.delete(lease);
@@ -352,11 +346,6 @@ export function createSecureDesktopHelper(deps: SecureDesktopHelperDeps): Secure
     adapterSerial: () => adapterSerial,
     rebuild,
   });
-
-  const listen = <T>(set: Set<T>, listener: T): (() => void) => {
-    set.add(listener);
-    return () => set.delete(listener);
-  };
 
   const lease = (): SecureDesktopLease => {
     const held: Lease = {

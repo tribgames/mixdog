@@ -1,7 +1,3 @@
-/**
- * The tab lifecycle of a session: finding, adding (with eviction), showing,
- * disposing and closing tabs, and the agent's `close` action.
- */
 import { ACTIVATE_SETTLE_MS, type VisualizeServiceContext } from './context';
 import { summary, type TabState, type VisualizeResult } from './tab-state';
 import type { VisualizeRequest } from './targets';

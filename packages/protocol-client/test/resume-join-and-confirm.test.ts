@@ -24,7 +24,10 @@ async function setup() {
   await conn.nextSent();
   return { net, conn, client: await connecting };
 }
-const reply = (id: number, mode: 'snapshot' | 'replay', epoch = 'te', startSeq = 1, liveSeq = startSeq) => ({ id, result: { subscription: { id: 's', mode, epoch, startSeq, liveSeq } } });
+const reply = (id: number, mode: 'snapshot' | 'replay', epoch = 'te', startSeq = 1, liveSeq = startSeq) => ({
+  id,
+  result: { subscription: { id: 's', mode, epoch, startSeq, liveSeq } },
+});
 
 test('a joining resume of a thread whose snapshot is on the way sends nothing and is answered by the resume in flight', async () => {
   const { conn, client } = await setup();
@@ -88,11 +91,12 @@ test('a replay remains pending until the last missed event folds, not just until
   assert.equal(client.threadSubscription('t1').replayPending, true);
   const folds: { seq: number | undefined; complete: boolean; pending: boolean }[] = [];
   client.store.subscribe((change) => {
-    if (change.type === 'thread') folds.push({
-      seq: client.store.thread('t1')?.feed.seq,
-      complete: change.replayComplete === true,
-      pending: client.threadSubscription('t1').replayPending,
-    });
+    if (change.type === 'thread')
+      folds.push({
+        seq: client.store.thread('t1')?.feed.seq,
+        complete: change.replayComplete === true,
+        pending: client.threadSubscription('t1').replayPending,
+      });
   });
   for (const seq of [1, 2]) {
     again.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq } });
@@ -150,7 +154,10 @@ test('a legacy peer without feed heads supplies the followed tail via a fresh sn
   const asked = JSON.parse(await again.nextSent());
   again.serverSend({ id: asked.id, error: { code: -32601, message: 'method not found' } });
   const recovery = JSON.parse(await again.nextSent());
-  assert.deepEqual([recovery.method, recovery.params], ['thread/resume', { threadId: 't1', window: { lastItems: 32 } }]);
+  assert.deepEqual(
+    [recovery.method, recovery.params],
+    ['thread/resume', { threadId: 't1', window: { lastItems: 32 } }]
+  );
   assert.equal(client.threadSubscription('t1').replayPending, true);
   again.serverSend(reply(recovery.id, 'snapshot', 'te', 2));
   await tick();
@@ -168,8 +175,11 @@ test('a transient legacy head failure recovers an idle followed thread with one 
   t.after(() => client.close());
   const delivered: Array<number | undefined> = [];
   client.store.subscribe((change) => {
-    if (change.type === 'thread' && !client.threadSubscription('t1').replayPending &&
-        !client.threadSubscription('t1').snapshotPending) {
+    if (
+      change.type === 'thread' &&
+      !client.threadSubscription('t1').replayPending &&
+      !client.threadSubscription('t1').snapshotPending
+    ) {
       delivered.push(client.store.thread('t1')?.feed.seq);
     }
   });
@@ -179,7 +189,10 @@ test('a transient legacy head failure recovers an idle followed thread with one 
   await tick();
   assert.equal(again.sent.length, 1, 'one recovery request, with no incoming thread events to wake it');
   const recovery = JSON.parse(await again.nextSent());
-  assert.deepEqual([recovery.method, recovery.params], ['thread/resume', { threadId: 't1', window: { lastItems: 32 } }]);
+  assert.deepEqual(
+    [recovery.method, recovery.params],
+    ['thread/resume', { threadId: 't1', window: { lastItems: 32 } }]
+  );
   assert.equal(client.threadSubscription('t1').replayPending, true);
   again.serverSend(reply(recovery.id, 'snapshot', 'te', 2));
   await tick();
@@ -232,7 +245,10 @@ test('the automatic follow retries a refused turns window rather than substituti
       resolve();
     });
   });
-  again.serverSend({ id: restore.id, error: { code: -32000, message: 'thread missing', data: { reason: 'threadNotFound' } } });
+  again.serverSend({
+    id: restore.id,
+    error: { code: -32000, message: 'thread missing', data: { reason: 'threadNotFound' } },
+  });
   await lost;
   const retry = client.resumeThread('t1', { lastItems: 50 }, { join: true, follow: true });
   const asked = JSON.parse(await again.nextSent());
@@ -279,7 +295,16 @@ test('an ordinary equal-window resume shares the outstanding reconnect restore a
   await again.nextSent(); // initialized
   const restoring = JSON.parse(await again.nextSent());
   let departed = false;
-  const joined = client.resumeThread('t1', { lastItems: 50 }, { sent: (sent) => void sent.then(() => { departed = true; }) });
+  const joined = client.resumeThread(
+    't1',
+    { lastItems: 50 },
+    {
+      sent: (sent) =>
+        void sent.then(() => {
+          departed = true;
+        }),
+    }
+  );
   await tick();
   assert.equal(again.sent.length, 0);
   assert.equal(departed, false);
@@ -310,14 +335,24 @@ test('after a disconnect an acknowledged larger window whose snapshot never fold
   const restore = JSON.parse(await again.nextSent());
   assert.equal(restore.method, 'thread/resume');
   assert.deepEqual(restore.params.window, { lastItems: 50 }, 'the restore still asks for what the caller wants');
-  assert.deepEqual(restore.params.resumeFrom.window, { lastItems: 32 }, 'but claims the window the folded state was built from');
+  assert.deepEqual(
+    restore.params.resumeFrom.window,
+    { lastItems: 32 },
+    'but claims the window the folded state was built from'
+  );
   await client.close();
 });
 
-test('a held control thread\'s restore is the outstanding request an equal-window resume shares, with its actual departure', async () => {
+test("a held control thread's restore is the outstanding request an equal-window resume shares, with its actual departure", async () => {
   const { net, conn, client } = await setup();
   const started = client.call('thread/start', { kind: 'control' } as never);
-  conn.serverSend({ id: JSON.parse(await conn.nextSent()).id, result: { thread: { id: 'ctl' }, subscription: { id: 's', mode: 'snapshot', epoch: 'ce', startSeq: 1, liveSeq: 1 } } });
+  conn.serverSend({
+    id: JSON.parse(await conn.nextSent()).id,
+    result: {
+      thread: { id: 'ctl' },
+      subscription: { id: 's', mode: 'snapshot', epoch: 'ce', startSeq: 1, liveSeq: 1 },
+    },
+  });
   await started;
   conn.serverClose(1006);
   const again = await net.accept();
@@ -327,9 +362,21 @@ test('a held control thread\'s restore is the outstanding request an equal-windo
   again.serverSend({ id: init.id, result: { ...options.initializeResult, serverInstanceId: 's1' } });
   await again.nextSent(); // initialized
   const restore = JSON.parse(await again.nextSent());
-  assert.deepEqual([restore.method, restore.params.threadId, restore.params.window], ['thread/resume', 'ctl', { none: true }]);
+  assert.deepEqual(
+    [restore.method, restore.params.threadId, restore.params.window],
+    ['thread/resume', 'ctl', { none: true }]
+  );
   let departed = false;
-  const joined = client.resumeThread('ctl', { none: true }, { sent: (sent) => void sent.then(() => { departed = true; }) });
+  const joined = client.resumeThread(
+    'ctl',
+    { none: true },
+    {
+      sent: (sent) =>
+        void sent.then(() => {
+          departed = true;
+        }),
+    }
+  );
   await tick();
   assert.equal(again.sent.length, 0, 'no second thread/resume');
   assert.equal(departed, false, 'the restore frame has not left');
@@ -341,12 +388,16 @@ test('a held control thread\'s restore is the outstanding request an equal-windo
   await client.close();
 });
 
-test('a joiner observes the original request\'s actual departure, not the moment it joined', async () => {
+test("a joiner observes the original request's actual departure, not the moment it joined", async () => {
   const { conn, client } = await setup();
   conn.claims = 'held';
   const departures: string[] = [];
-  client.resumeThread('t1', { lastItems: 50 }, { sent: (p) => void p.then(() => departures.push('first')) }).catch(() => undefined);
-  client.resumeThread('t1', { lastItems: 50 }, { join: true, sent: (p) => void p.then(() => departures.push('joiner')) }).catch(() => undefined);
+  client
+    .resumeThread('t1', { lastItems: 50 }, { sent: (p) => void p.then(() => departures.push('first')) })
+    .catch(() => undefined);
+  client
+    .resumeThread('t1', { lastItems: 50 }, { join: true, sent: (p) => void p.then(() => departures.push('joiner')) })
+    .catch(() => undefined);
   await tick();
   assert.deepEqual(departures, [], 'the frame has not left: neither is told it has');
   conn.releaseSent();
@@ -405,10 +456,7 @@ test('a resume the core answers with the subscription it holds repeats nothing, 
   assert.deepEqual(violations, ['feed gap on t1']);
 });
 
-// The client's own tolerance of a replay that crosses frames it already has. A core that attaches a resume anew while the connection
-// still holds a subscription of the thread writes the old lane's frames first, then the answer, then the replay `(resumeFrom.seq, S]`
-// and live frames on the new lane (writer.rs write order); `resumeFrom` is the folded position, so a frame the old lane delivered
-// past it while the resume was out comes again. Only the answer and the frames matter here, not what made the core attach anew.
+// Core write order (writer.rs) on a resume that attaches anew: the old lane's frames, the answer, then the replay `(resumeFrom.seq, S]` and live frames.
 test('a replay that repeats frames the old subscription already delivered is not a gap, and nothing folds twice', async (t) => {
   const { conn, client } = await setup();
   t.after(() => client.close());
@@ -460,7 +508,8 @@ test('a repeated range that a coalesced frame only partly covers is a gap', asyn
   await tick();
   const again = client.resumeThread('t1', { lastItems: 50 });
   const request = JSON.parse(await conn.nextSent());
-  for (const seq of [1, 2]) conn.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq } });
+  for (const seq of [1, 2])
+    conn.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq } });
   conn.serverSend(reply(request.id, 'replay', 'te', 1, 3));
   conn.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq: 1 } });
   assert.deepEqual(violations, []);
@@ -482,7 +531,11 @@ async function attachedFeeds() {
   await tick();
   return { conn, client };
 }
-const answerHeads = async (conn: Awaited<ReturnType<typeof setup>>['conn'], positions: Array<{ epoch: string; seq: number } | null>, feedIds = ['app', 't1']) => {
+const answerHeads = async (
+  conn: Awaited<ReturnType<typeof setup>>['conn'],
+  positions: Array<{ epoch: string; seq: number } | null>,
+  feedIds = ['app', 't1']
+) => {
   const asked = JSON.parse(await conn.nextSent());
   conn.serverSend({ id: asked.id, result: { feedIds, positions } });
   return asked;
@@ -491,7 +544,10 @@ const answerHeads = async (conn: Awaited<ReturnType<typeof setup>>['conn'], posi
 test('a wake checks every feed in one core request and matching positions need no further request', async () => {
   const { conn, client } = await attachedFeeds();
   const confirming = client.confirmFeeds(['app', 't1']);
-  const asked = await answerHeads(conn, [{ epoch: 'ae', seq: 0 }, { epoch: 'te', seq: 0 }]);
+  const asked = await answerHeads(conn, [
+    { epoch: 'ae', seq: 0 },
+    { epoch: 'te', seq: 0 },
+  ]);
   assert.equal(asked.method, 'feed/heads');
   assert.deepEqual(asked.params, {});
   assert.equal(await confirming, true);
@@ -505,9 +561,16 @@ test('wake cannot miss the final update on a terminal feed subscribed independen
   const sub = JSON.parse(await conn.nextSent());
   conn.serverSend(reply(sub.id, 'snapshot', 'terminal'));
   await subscribed;
-  conn.serverSend({ method: 'feed/snapshot', params: { feedId: 'process:relay', state: {} }, feed: { id: 'process:relay', epoch: 'terminal', seq: 0 } });
+  conn.serverSend({
+    method: 'feed/snapshot',
+    params: { feedId: 'process:relay', state: {} },
+    feed: { id: 'process:relay', epoch: 'terminal', seq: 0 },
+  });
   const feeds = ['app', 't1', 'process:relay'];
-  const heads = [{ epoch: 'ae', seq: 0 }, { epoch: 'te', seq: 0 }];
+  const heads = [
+    { epoch: 'ae', seq: 0 },
+    { epoch: 'te', seq: 0 },
+  ];
   const healthy = client.confirmFeeds(['app', 't1']);
   await answerHeads(conn, [...heads, { epoch: 'terminal', seq: 0 }], feeds);
   assert.equal(await healthy, true);
@@ -521,7 +584,10 @@ test('a thread that missed its final update and then went quiet is not confirmed
   const { conn, client } = await attachedFeeds();
   const confirming = client.confirmFeeds(['app', 't1']);
   assert.equal(client.feedPosition('t1')?.seq, 0, 'the client still has a local position');
-  await answerHeads(conn, [{ epoch: 'ae', seq: 0 }, { epoch: 'te', seq: 1 }]);
+  await answerHeads(conn, [
+    { epoch: 'ae', seq: 0 },
+    { epoch: 'te', seq: 1 },
+  ]);
   assert.equal(await confirming, false);
   await client.close();
 });
@@ -529,7 +595,10 @@ test('a thread that missed its final update and then went quiet is not confirmed
 test('an epoch change or a missing subscription prevents confirmation', async () => {
   const { conn, client } = await attachedFeeds();
   const confirming = client.confirmFeeds(['app', 't1']);
-  await answerHeads(conn, [{ epoch: 'ae', seq: 0 }, { epoch: 'te2', seq: 0 }]);
+  await answerHeads(conn, [
+    { epoch: 'ae', seq: 0 },
+    { epoch: 'te2', seq: 0 },
+  ]);
   assert.equal(await confirming, false);
   const missing = client.confirmFeeds(['app']);
   await answerHeads(conn, [], []);

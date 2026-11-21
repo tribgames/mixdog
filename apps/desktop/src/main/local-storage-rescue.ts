@@ -1,10 +1,6 @@
 // A window whose page lost its link to the Local Storage backend (preload/local-storage-link.ts tells why and how it is
 // noticed). The page hands over everything it holds; its renderer process is replaced, because only a new process
 // connects to the backend again; the new page takes the values back before it reads its storage.
-//
-// The rescue lives in this process from the loss until the new page has written it all back, a moment later. What the
-// lost page wrote since its link went was never saved, so a quit in that moment loses what a quit a moment earlier
-// would have lost; a copy on disk would only add a stale rescue to restore over newer storage some later day.
 import type { BrowserWindow, IpcMainEvent } from 'electron';
 
 import { DESKTOP_IPC } from '../shared/contract-ipc';

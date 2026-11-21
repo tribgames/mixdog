@@ -1,18 +1,9 @@
-/**
- * The visual-only capability cache: windows whose accessibility tree keeps
- * failing or timing out are served from pixels/OCR for a while instead of
- * restarting the same stalled provider after every input.
- */
 import { computerErrorCode } from '../../../shared/core-src/runtime/computer-bridge/error-code.mjs';
 import { createVisualOnlyCapabilityStore, shouldRecordVisualOnlyCapabilityMiss } from '../input/capability-policy';
 import type { ComputerCommand } from '../shared/types';
 import type { CaptureMode } from './capture-target';
 
 const VISUAL_ONLY_CACHE_TTL_MS = 30_000;
-/** Consecutive timeouts double the wait up to this ceiling: a window that
- *  stalls the provider over and over should not cost a full timeout every
- *  half minute. An explicit mode="ax" read never consults this cache, so the
- *  caller keeps a way to ask the provider again immediately. */
 const VISUAL_ONLY_TIMEOUT_MAX_TTL_MS = 120_000;
 const VISUAL_ONLY_CACHE_MISS_THRESHOLD = 2;
 /** A cache hit asked no provider and restarted nothing, so it never repeats
@@ -25,10 +16,6 @@ function visualOnlyCapabilityKey(sessionId: string, windowId: string) {
   return `${sessionId}\u0000${windowId}`;
 }
 
-/** Only a plain read of one window may be answered from the cache. An explicit
- *  mode="ax" capture always asks the provider again, but the observation that
- *  follows an action takes the cached answer instead of spending the whole
- *  timeout and returning nothing. */
 function visualOnlyEligible(command: ComputerCommand, mode: CaptureMode, windowId: string) {
   return Boolean(
     windowId &&

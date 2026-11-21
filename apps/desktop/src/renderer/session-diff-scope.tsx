@@ -2,7 +2,7 @@ import { ArrowUpRight, Undo2 } from 'lucide-react';
 import { t } from './i18n';
 import type { SessionDiffRow } from './session-diff-model';
 import { rowListIndex } from './session-diff-row-index';
-import { DiffStats } from './session-diff-section';
+import { DiffStats } from './diff-stats';
 import { changedFilesLabel } from './source-control-support';
 import { SetiFileIcon } from './SetiFileIcon';
 import { fileBaseName } from './text-format';

@@ -329,12 +329,9 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
   }
 });
 
-// A checklist taller than the drawer's own height used to push the stop
-// confirmation past the panel's clip: the button existed and answered every
-// DOM query, but the press landed on the composer behind it, so stopping a
-// long-running Goal silently did nothing. Only a
-// real press at real coordinates proves the confirmation is reachable.
-test('stopping a Goal with a long checklist keeps its confirmation pressable', async (t) => {
+const STOP_CONFIRM = '.session-goal-confirm .session-goal-actions button:last-child';
+
+async function openStopConfirmation(t) {
   const bundle = await build({
     // Vite-only `?worker` imports carry no esbuild meaning, and the capsule
     // never reaches a Monaco worker at runtime.
@@ -427,8 +424,12 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
   await page.waitForSelector('.session-goal-controls .session-goal-control:first-child', { visible: true });
   await page.click('.session-goal-controls .session-goal-control:first-child');
   await page.waitForSelector('.session-goal-confirm');
-  const confirm = '.session-goal-confirm .session-goal-actions button:last-child';
-  const reachable = await page.$eval(confirm, (button) => {
+  return page;
+}
+
+test('stopping a Goal with a long checklist keeps its confirmation pressable', async (t) => {
+  const page = await openStopConfirmation(t);
+  const reachable = await page.$eval(STOP_CONFIRM, (button) => {
     const { x, y, width, height } = button.getBoundingClientRect();
     const hit = document.elementFromPoint(x + width / 2, y + height / 2);
     return {
@@ -440,13 +441,20 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
   });
   assert.equal(reachable.covering, '', 'the stop confirmation must receive the press itself');
   assert.equal(reachable.inside, true, 'the stop confirmation must stay inside the drawer it opened in');
-  // Cancel and confirm sit at the row's right end, as every other confirmation row does.
-  const trailingGap = await page.$eval(confirm, (button) => {
+});
+
+test('the stop confirmation buttons sit at the right end of their row', async (t) => {
+  const page = await openStopConfirmation(t);
+  const trailingGap = await page.$eval(STOP_CONFIRM, (button) => {
     const row = button.closest('.session-goal-actions').getBoundingClientRect();
     return row.right - button.getBoundingClientRect().right;
   });
   assert.ok(Math.abs(trailingGap) < 0.5, `the stop confirmation buttons are right-aligned (gap ${trailingGap})`);
-  await page.click(confirm);
+});
+
+test('confirming stop sends the stop action for the session', async (t) => {
+  const page = await openStopConfirmation(t);
+  await page.click(STOP_CONFIRM);
   const calls = await page.evaluate(() => window.__calls);
   assert.deepEqual(
     calls.at(-1),

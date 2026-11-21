@@ -1,5 +1,3 @@
-// "내 Google 키 사용": the client_secret_*.json is validated (fail closed) and
-// the apply / revert calls reach Calendar and Drive only.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 

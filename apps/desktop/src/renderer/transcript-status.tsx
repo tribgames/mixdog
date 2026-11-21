@@ -1,5 +1,15 @@
 import { ArrowLeftRight, FoldVertical, GitFork, ListTree, Network, Workflow, X } from 'lucide-react';
-import { memo, useEffect, useId, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  type ReactNode,
+  memo,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { resolveContextDisplayUsage } from './context-usage';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { useHoverPopover } from './hover-popover';
@@ -39,10 +49,9 @@ const ORCHESTRATION_MODE_LABELS: Record<string, string> = {
 // 120deg; a [dash, offset] frame puts one arc on each, as the design's
 // dashed rings did (pathLength 360, so both are in degrees).
 const LIVE_ACTIVITY_ARC_STARTS = [-120, 0, 120];
-// The arcs' 2000ms loop as [dash length, dash offset] on a 360-long ring, one
-// keyframe per 1/48 of the loop and the closing one, precomputed from the
-// design's buildFlow {dur 2000, headEnd .56, tailStart .26, pow 2.1, drift
-// .26, pop .07}.
+// [dash length, dash offset] per 1/48 of the 2000ms loop plus the closing
+// keyframe, on a 360-long ring; from the design's buildFlow {dur 2000, headEnd
+// .56, tailStart .26, pow 2.1, drift .26, pop .07}.
 const LIVE_ACTIVITY_ARC_FLOW: ReadonlyArray<readonly [number, number]> = [
   [0, 0.64],
   [0.19, -0.01],
@@ -94,10 +103,6 @@ const LIVE_ACTIVITY_ARC_FLOW: ReadonlyArray<readonly [number, number]> = [
   [0.11, -118.6],
   [0, -119.36],
 ];
-// Frame 0 is the static logo pose (reduced or paused motion); frames 1..96
-// draw the loop at 48 fps: every keyframe and the midpoint to the next one.
-// 14-live-activity.css steps through every second one at 24 fps (the odd
-// frames, the keyframes themselves).
 export const LIVE_ACTIVITY_ARC_FRAMES: ReadonlyArray<readonly [number, number]> = [
   [80, -20],
   ...LIVE_ACTIVITY_ARC_FLOW.slice(0, -1).flatMap(([dash, offset], index) => {
@@ -108,15 +113,10 @@ export const LIVE_ACTIVITY_ARC_FRAMES: ReadonlyArray<readonly [number, number]> 
     ] as const;
   }),
 ];
-/** One frame's arcs as explicit circular arcs: a dash of `dash` degrees
- *  starting `-offset` degrees past each ring's start (a zero-length dash is
- *  a round dot). Exact geometry, not a dash on a ring path: Chromium places
- *  dashes through the ring's measured length, which is uneven along the path
- *  (up to ~1.4deg) and doubles the cap of a dash at the path's start/end
- *  point. The loop's last pose (offset -119.36, past the middle of one arc)
- *  and its first (offset 0.64, by the ring's start point) are the same
- *  arrangement turned by the 120deg between rings, but drew 2.6deg apart
- *  with 38% more ink: the mark jumped back and swelled at every loop seam. */
+/** One frame's arcs as explicit circular arcs, not a dash on a ring path:
+ *  Chromium places dashes through the ring's measured length, uneven along
+ *  the path (up to ~1.4deg), and doubles the cap of a dash at its start/end
+ *  point. A zero-length dash is a round dot. */
 export function liveActivityArcPath(dash: number, offset: number): string {
   const point = (degrees: number) => {
     const radians = (degrees * Math.PI) / 180;
@@ -127,11 +127,9 @@ export function liveActivityArcPath(dash: number, offset: number): string {
     return dash > 0 ? `M${from}A8.5 8.5 0 0 1 ${point(ring - offset + dash)}` : `M${from}L${from}`;
   }).join('');
 }
-/** Every arc frame side by side, 24 viewBox units apart, as one mask image.
- *  Stroke dashes cannot animate on the compositor: animated in place they
- *  repainted the mark on the main thread at the display's refresh rate for
- *  as long as a turn ran. The strip is rasterized once and a stepped
- *  transform slides it behind the mark's 14px window instead. */
+/** Every arc frame side by side, 24 viewBox units apart, as one mask image:
+ *  stroke dashes cannot animate on the compositor, so a stepped transform
+ *  slides this once-rasterized strip behind the mark's 14px window. */
 const LIVE_ACTIVITY_ARC_STRIP = (() => {
   const frames = LIVE_ACTIVITY_ARC_FRAMES.map(
     ([dash, offset], index) => `<path transform="translate(${index * 24} 0)" d="${liveActivityArcPath(dash, offset)}"/>`
@@ -185,6 +183,28 @@ function contextMetrics(snapshot: Snapshot) {
   return usage;
 }
 
+function useCompactAction(snapshot: Snapshot): { busy: boolean; compact: () => Promise<void> } {
+  const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
+  const state = asRecord(snapshot);
+  const sessionId = String(state?.sessionId || '').trim();
+  const busy = pending || Boolean(state?.busy) || Boolean(state?.commandBusy);
+  const compact = async () => {
+    if (!sessionId || busy || inFlight.current) return;
+    inFlight.current = true;
+    setPending(true);
+    try {
+      await window.mixdogDesktop.invokeCapability({ capability: 'compact', sessionId });
+    } catch (reason) {
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
+    } finally {
+      inFlight.current = false;
+      setPending(false);
+    }
+  };
+  return { busy, compact };
+}
+
 export function ContextUsageIndicator({
   snapshot,
   open: controlledOpen,
@@ -206,24 +226,7 @@ export function ContextUsageIndicator({
   let tone = '';
   if (context && contextPercent >= 90) tone = 'danger';
   else if (context && contextPercent >= 70) tone = 'warning';
-  const [actionPending, setActionPending] = useState(false);
-  const actionInFlight = useRef(false);
-  const state = asRecord(snapshot);
-  const sessionId = String(state?.sessionId || '').trim();
-  const actionBusy = actionPending || Boolean(state?.busy) || Boolean(state?.commandBusy);
-  const compact = async () => {
-    if (!sessionId || actionBusy || actionInFlight.current) return;
-    actionInFlight.current = true;
-    setActionPending(true);
-    try {
-      await window.mixdogDesktop.invokeCapability({ capability: 'compact', sessionId });
-    } catch (reason) {
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
-    } finally {
-      actionInFlight.current = false;
-      setActionPending(false);
-    }
-  };
+  const { busy: actionBusy, compact } = useCompactAction(snapshot);
   const cost = Math.max(0, Number(asRecord(snapshot.stats)?.costUsd || 0));
   return (
     <div
@@ -320,22 +323,12 @@ function ContextUsagePopover({
   );
 }
 
-/** Does a running command (no turn) paint the activity band? A session
- *  resume — including the quiet viewer-follow re-resume, which carries no
- *  status — paints nothing (LiveActivity returns null for it), so the thread
- *  must not reserve the band's 24px for it either: first entry into a stored
- *  session flashed an empty band under the settled tail and bounced the whole
- *  transcript 36px up and back. */
 export function commandShowsActivity(snapshot: Snapshot): boolean {
   if (snapshot.spinner && snapshot.spinner.active !== false) return true;
   const command = snapshot.commandStatus && snapshot.commandStatus.active !== false ? snapshot.commandStatus : null;
   return Boolean(command) && String(command?.mode || '') !== 'resuming';
 }
 
-/** The running mark. Both loops are compositor animations on HTML boxes: the
- *  arcs' frame strip steps behind a 14px window that spins. The star at the
- *  centre holds its static logo pose.
- *  Memoized: the band re-renders on every lane frame and clock tick. */
 const LiveActivityIcon = memo(function LiveActivityIcon({ gradientId }: { gradientId: string }) {
   return (
     <span className="live-activity-icon" aria-hidden="true" ref={lockDecorativeLoops}>
@@ -386,6 +379,137 @@ function thinkingPartsLabel(
   return thinkingEffortLabel(effortWord, language);
 }
 
+/** Time the turn spent waiting on a tool approval, which its elapsed clock
+ *  excludes: closed spans accumulate in `pause.total`, an open one runs from
+ *  `pause.since`. A new turn (`startedAt`) starts from zero. */
+function approvalPausedMs(
+  pause: { turn: number; total: number; since: number },
+  startedAt: number,
+  approvalPaused: boolean,
+  nowMs: number
+): number {
+  if (pause.turn !== startedAt) {
+    pause.turn = startedAt;
+    pause.total = 0;
+    pause.since = 0;
+  }
+  if (approvalPaused && !pause.since) {
+    pause.since = nowMs;
+  } else if (!approvalPaused && pause.since) {
+    pause.total += Math.max(0, nowMs - pause.since);
+    pause.since = 0;
+  }
+  return pause.total + (pause.since ? Math.max(0, nowMs - pause.since) : 0);
+}
+
+/** The entrance belongs to work that starts on screen, once per turn: a
+ *  remount of the band finds its turn already entered, and once decided it
+ *  holds for the mount so a later frame never cuts a running entrance. */
+function useActivityEntrance(liveKey: string, startedAt: number): boolean {
+  const mountedAt = useRef(Date.now());
+  useLayoutEffect(() => {
+    if (liveKey) liveActivityTurns.add(liveKey);
+  }, [liveKey]);
+  const enterRef = useRef(false);
+  if (
+    !enterRef.current &&
+    startedAt > 0 &&
+    startedAt >= mountedAt.current &&
+    !(liveKey && enteredActivityTurns.has(liveKey))
+  ) {
+    enterRef.current = true;
+  }
+  const animateEnter = enterRef.current;
+  useLayoutEffect(() => {
+    if (liveKey && (animateEnter || enteredActivityTurns.has(liveKey))) markActivityTurnEntered(liveKey);
+  });
+  return animateEnter;
+}
+
+/** The painted phase for the published one: a new phase paints once it has
+ *  lasted PHASE_SWITCH_DELAY_MS and the painted one has stood
+ *  PHASE_MIN_DWELL_MS. With none published the last painted phase stays. */
+function usePacedPhase(phase: string): { shown: string; nowMs: number } {
+  const phaseRef = useRef({ target: '', targetSince: 0, shown: '', shownAt: 0 });
+  const nowMs = Date.now();
+  const known = phaseRef.current;
+  if (phase && phase !== 'resuming' && phase !== known.target) {
+    known.target = phase;
+    known.targetSince = nowMs;
+  } else if (!phase || phase === 'resuming') {
+    known.target = known.shown;
+  }
+  const switchIn = settlePhase(known, nowMs);
+  const [, wake] = useReducer((count: number) => count + 1, 0);
+  useEffect(() => {
+    if (switchIn <= 0) return;
+    const timer = setTimeout(wake, switchIn);
+    return () => clearTimeout(timer);
+  });
+  return { shown: known.shown, nowMs };
+}
+
+function liveActivityMeta({
+  activity,
+  snapshot,
+  elapsedMs,
+  autoShown,
+  quiet,
+  nowMs,
+  language,
+}: {
+  activity: NonNullable<Snapshot['spinner'] | Snapshot['commandStatus']> | null;
+  snapshot: Snapshot;
+  elapsedMs: number;
+  autoShown: ReturnType<typeof useAutoEffortShown>;
+  quiet: ReturnType<typeof useLaneSpinnerQuiet>;
+  nowMs: number;
+  language: Parameters<typeof thinkingEffortLabel>[1];
+}): { line: ReactNode; quietParts: QuietProgressParts | null } {
+  const elapsed = formatElapsed(elapsedMs);
+  const outputTokens = Math.max(0, Number(activity?.outputTokens || activity?.tokens || 0));
+  const activityRecord = asRecord(activity) || {};
+  const meta = buildSpinnerMeta({
+    elapsedMs,
+    outputTokens,
+    thinking: Boolean(activityRecord.thinking || snapshot.thinking),
+    thinkingSince: Number(activityRecord.thinkingSegmentStartedAt || 0),
+    thinkingMs: Number(activityRecord.thinkingAccumulatedMs || 0),
+    // What the runtime actually resolved this turn/step (Auto judge); the saved
+    // level when nothing was recorded (Auto off, or a model without it).
+    effort: String(snapshot.turnEffort || (autoShown ? '' : snapshot.effort) || ''),
+    quiet,
+    now: nowMs,
+  });
+  const quietParts = meta.quietParts as QuietProgressParts | null;
+  // The TUI formats these parts as lowercase English; the desktop translates them.
+  const thinkingLabel = thinkingPartsLabel(
+    meta.thinkingParts as { kind: 'thinking'; effort: string } | { kind: 'thought'; seconds: number } | null,
+    language
+  );
+  // While the quiet cue shows nothing counted moves, so the token readout
+  // yields its room to the cue and the line stays one row (#326).
+  const tokensLabel = meta.showTokens && !quietParts ? t('{{tokens}} tokens', { tokens: meta.tokensCount }) : '';
+  if (!elapsed && !tokensLabel && !thinkingLabel) return { line: null, quietParts };
+  const tokensSeparator = elapsed ? ' · ' : '';
+  const afterSeparator = elapsed || tokensLabel ? ' · ' : '';
+  // The token readout is its own span: html[data-pet-over-transcript] hides it
+  // (14-live-activity.css) so the row ends before the pinned bot overlay.
+  const line = (
+    <span>
+      {elapsed}
+      {tokensLabel ? (
+        <span className="live-activity-tokens">
+          {tokensSeparator}
+          {tokensLabel}
+        </span>
+      ) : null}
+      {thinkingLabel ? `${afterSeparator}${thinkingLabel}` : ''}
+    </span>
+  );
+  return { line, quietParts };
+}
+
 export function LiveActivity({
   snapshot,
   optimisticStartedAt = 0,
@@ -411,58 +535,15 @@ export function LiveActivity({
   if (submitStartedAt > 0 && (earliest === 0 || submitStartedAt < earliest)) earliest = submitStartedAt;
   if (earliest > 0 && (clockRef.current === 0 || earliest < clockRef.current)) clockRef.current = earliest;
   const startedAt = clockRef.current;
-  const mountedAt = useRef(Date.now());
   const liveSessionId = String(snapshot.sessionId || '').trim();
   const liveKey = liveSessionId && turnKey ? liveTurnKey(liveSessionId, turnKey) : '';
-  useLayoutEffect(() => {
-    if (liveKey) liveActivityTurns.add(liveKey);
-  }, [liveKey]);
-  // The entrance belongs to work that starts on screen, once per turn: a
-  // remount of the band (a recycled virtual row, a re-keyed working row)
-  // finds its turn already entered. Once decided, it holds for the mount, so
-  // a later frame never cuts a running entrance.
-  const enterRef = useRef(false);
-  if (
-    !enterRef.current &&
-    startedAt > 0 &&
-    startedAt >= mountedAt.current &&
-    !(liveKey && enteredActivityTurns.has(liveKey))
-  ) {
-    enterRef.current = true;
-  }
-  const animateEnter = enterRef.current;
-  // Every commit of an entered band renews its turn, so a working turn stays
-  // among the most recent ones the bounded record keeps.
-  useLayoutEffect(() => {
-    if (liveKey && (animateEnter || enteredActivityTurns.has(liveKey))) markActivityTurnEntered(liveKey);
-  });
+  const animateEnter = useActivityEntrance(liveKey, startedAt);
   // The phase the activity names; '' when it publishes none (between two
   // phases, before the runtime's first one).
   let phase = '';
   if (activity) phase = String(activity.mode || (snapshot.thinking ? 'thinking' : 'responding'));
   else if (snapshot.thinking) phase = 'thinking';
-  // The painted phase is paced: a newly published phase is painted once it
-  // has lasted PHASE_SWITCH_DELAY_MS and the painted one has stood
-  // PHASE_MIN_DWELL_MS, so a phase one publication long never flashes. While
-  // none is published (between phases, a resume mid-turn) the last painted
-  // phase stays.
-  const phaseRef = useRef({ target: '', targetSince: 0, shown: '', shownAt: 0 });
-  const nowMs = Date.now();
-  const known = phaseRef.current;
-  if (phase && phase !== 'resuming' && phase !== known.target) {
-    known.target = phase;
-    known.targetSince = nowMs;
-  } else if (!phase || phase === 'resuming') {
-    // A withdrawn phase never paints: drop a pending switch, keep the painted one.
-    known.target = known.shown;
-  }
-  const switchIn = settlePhase(known, nowMs);
-  const [, wake] = useReducer((count: number) => count + 1, 0);
-  useEffect(() => {
-    if (switchIn <= 0) return;
-    const timer = setTimeout(wake, switchIn);
-    return () => clearTimeout(timer);
-  });
+  const { shown: shownPhase, nowMs } = usePacedPhase(phase);
   // Keep the first timestamp for a turn so thinking/tool/response transitions
   // do not restart the phrase rotation.
   const anchorRef = useRef(0);
@@ -474,22 +555,20 @@ export function LiveActivity({
     String(snapshot.effort || ''),
     snapshot.autoEffort
   );
-  const pauseTurnRef = useRef(0);
-  const pausedTotalRef = useRef(0);
-  const pauseStartRef = useRef(0);
+  const pauseRef = useRef({ turn: 0, total: 0, since: 0 });
   const clockPaused = String(activity?.mode || '') === 'resuming';
   // The readout below reads Date.now() itself; the shared clock only
   // re-renders the band once a second while the turn's clock runs.
   useClock(Boolean(startedAt) && !clockPaused);
   const quiet = useLaneSpinnerQuiet(liveSessionId, asRecord(activity)?.quiet);
-  if (!known.shown && !activity && !optimisticActivity && !snapshot.thinking && !startedAt) {
+  if (!shownPhase && !activity && !optimisticActivity && !snapshot.thinking && !startedAt) {
     anchorRef.current = 0;
     return null;
   }
   let fallbackMode = 'responding';
   if (snapshot.thinking) fallbackMode = 'thinking';
   else if (optimisticActivity || !activity) fallbackMode = 'requesting';
-  const mode = known.shown || String(activity?.mode || fallbackMode);
+  const mode = shownPhase || String(activity?.mode || fallbackMode);
   if (mode === 'resuming') {
     anchorRef.current = 0;
     return null;
@@ -508,65 +587,17 @@ export function LiveActivity({
     now: nowMs,
     language,
   });
-  if (pauseTurnRef.current !== startedAt) {
-    pauseTurnRef.current = startedAt;
-    pausedTotalRef.current = 0;
-    pauseStartRef.current = 0;
-  }
-  const approvalPaused = Boolean(snapshot.toolApproval);
-  if (approvalPaused && !pauseStartRef.current) {
-    pauseStartRef.current = nowMs;
-  } else if (!approvalPaused && pauseStartRef.current) {
-    pausedTotalRef.current += Math.max(0, nowMs - pauseStartRef.current);
-    pauseStartRef.current = 0;
-  }
-  const pausedMs = pausedTotalRef.current + (pauseStartRef.current ? Math.max(0, nowMs - pauseStartRef.current) : 0);
+  const pausedMs = approvalPausedMs(pauseRef.current, startedAt, Boolean(snapshot.toolApproval), nowMs);
   const elapsedMs = startedAt ? Math.max(0, nowMs - startedAt - pausedMs) : 0;
-  const elapsed = formatElapsed(elapsedMs);
-  const outputTokens = Math.max(0, Number(activity?.outputTokens || activity?.tokens || 0));
-  const activityRecord = asRecord(activity) || {};
-  const meta = buildSpinnerMeta({
+  const { line: activityMeta, quietParts } = liveActivityMeta({
+    activity,
+    snapshot,
     elapsedMs,
-    outputTokens,
-    thinking: Boolean(activityRecord.thinking || snapshot.thinking),
-    thinkingSince: Number(activityRecord.thinkingSegmentStartedAt || 0),
-    thinkingMs: Number(activityRecord.thinkingAccumulatedMs || 0),
-    // What the runtime actually resolved this turn/step (Auto judge); the saved
-    // level when nothing was recorded (Auto off, or a model without it).
-    effort: String(snapshot.turnEffort || (autoShown ? '' : snapshot.effort) || ''),
-    // The turn's published quiet state: the quiet-time cue below.
+    autoShown,
     quiet,
-    now: nowMs,
+    nowMs,
+    language,
   });
-  const quietParts = meta.quietParts as QuietProgressParts | null;
-  // The TUI formats these parts as lowercase English; the desktop translates them.
-  const thinkingLabel = thinkingPartsLabel(
-    meta.thinkingParts as { kind: 'thinking'; effort: string } | { kind: 'thought'; seconds: number } | null,
-    language
-  );
-  // While the quiet cue shows nothing counted moves, so the token readout
-  // yields its room to the cue and the line stays one row (#326).
-  const tokensLabel = meta.showTokens && !quietParts ? t('{{tokens}} tokens', { tokens: meta.tokensCount }) : '';
-  // The token readout is its own span: where the pinned bot overlay stands
-  // over the transcript's column (a narrow window) it hides, so the row ends
-  // before the bot (html[data-pet-over-transcript], 14-live-activity.css).
-  const beforeTokens = elapsed;
-  const afterTokens = thinkingLabel;
-  const tokensSeparator = beforeTokens ? ' · ' : '';
-  const afterSeparator = beforeTokens || tokensLabel ? ' · ' : '';
-  const hasActivityMeta = Boolean(beforeTokens || tokensLabel || afterTokens);
-  const activityMeta = hasActivityMeta && (
-    <span>
-      {beforeTokens}
-      {tokensLabel ? (
-        <span className="live-activity-tokens">
-          {tokensSeparator}
-          {tokensLabel}
-        </span>
-      ) : null}
-      {afterTokens ? `${afterSeparator}${afterTokens}` : ''}
-    </span>
-  );
   const reasoning = publicThinkingSummary(snapshot.thinking);
   return (
     <div className="live-activity" data-mode={mode}>
@@ -634,12 +665,6 @@ function translateStatusDetail(detail: unknown): string {
   return localizedTurnFailureReason(text);
 }
 
-// A completion is durable history, not an entrance event. Focus, history
-// hydration and virtual-row remounts must paint it in its final state.
-// The core stamps no completion time on turndone rows, so "completed while the
-// user was watching" is decided by identity: a LiveActivity mounted for a session + turn records
-// that pair, and only the completion of that same pair animates. Rows restored
-// by opening or re-entering a session never had a live band in this view.
 const liveActivityTurns = new Set<string>();
 const completedActivityTurns = new Set<string>();
 /** Turns whose live band already played its entrance in this view, oldest
@@ -691,10 +716,6 @@ function backgroundWaitingLabel({ shell, agent }: BackgroundWorkCounts): string 
   return t('Waiting on {{agent}} agents', { agent });
 }
 
-/** `animateComplete` is the caller's explicit decision (see hadLiveActivity);
- *  consume the turn on commit, not during a render React may discard.
- *  `backgroundWork` is passed only to the latest completion: while it holds
- *  work the line shows a waiting state in the same row, then settles in place. */
 function AnimatedCompletionMark() {
   return (
     <span className="turn-status-mark" aria-hidden="true">
@@ -741,6 +762,103 @@ export function ModelSwitchDivider({ label }: { label: string }) {
   );
 }
 
+/** The divider a session-level change (fork, model, workflow or delegation
+ *  switch) draws in the transcript, or null for any other status. */
+function sessionChangeDivider(item: TranscriptItem): ReactNode {
+  if (item.status === 'inherited') {
+    return (
+      <div className="compaction-divider" role="status">
+        <GitFork className="compaction-icon" size={16} aria-hidden="true" />
+        <span>{t('Session forked')}</span>
+        <small>{t('Continuing with the previous context.')}</small>
+      </div>
+    );
+  }
+  if (item.status === 'model-switched') {
+    return (
+      <ModelSwitchDivider
+        label={t('Switched to {{model}}', {
+          model: modelDisplayName(String(item.modelId || ''), String(item.provider || '')),
+        })}
+      />
+    );
+  }
+  if (item.status === 'workflow-switched') {
+    return (
+      <div className="compaction-divider" role="status">
+        <Workflow className="compaction-icon" size={16} aria-hidden="true" />
+        <span>
+          {item.unavailable === true
+            ? t('Workflow {{to}} is no longer available; this conversation keeps {{from}}', {
+                from: String(item.from || ''),
+                to: String(item.to || ''),
+              })
+            : t('Switched the workflow {{from}} → {{to}}', {
+                from: String(item.from || ''),
+                to: String(item.to || ''),
+              })}
+        </span>
+      </div>
+    );
+  }
+  if (item.status === 'orchestration-mode-switched') {
+    const modeLabel = (mode: unknown) => t(ORCHESTRATION_MODE_LABELS[String(mode)] || String(mode || ''));
+    return (
+      <div className="compaction-divider" role="status">
+        <Network className="compaction-icon" size={16} aria-hidden="true" />
+        <span>
+          {t('Switched the delegation mode {{from}} → {{to}}', { from: modeLabel(item.from), to: modeLabel(item.to) })}
+        </span>
+      </div>
+    );
+  }
+  return null;
+}
+
+function stoppedStatus(item: TranscriptItem, tone: 'failed' | 'interrupted', label: string): ReactNode {
+  const elapsed = formatElapsed(item.elapsedMs);
+  // A turn a restart or crash cut reads "Interrupted"; only one the user stopped reads "Cancelled".
+  const cut = item.cause === 'restart';
+  let fallback = cut ? t('Interrupted') : t('Cancelled');
+  if (tone === 'failed') fallback = t('Failed');
+  else if (elapsed) {
+    fallback = cut ? t('Interrupted after {{elapsed}}', { elapsed }) : t('Cancelled after {{elapsed}}', { elapsed });
+  }
+  const translated = translateStatusLabel(label);
+  const visible =
+    tone === 'failed' && !/^(done|complete|completed)$/i.test(label) ? translated || label || fallback : fallback;
+  return (
+    <div className={`turn-status ${tone}`} role="status">
+      <X className="turn-status-icon" size={16} aria-hidden="true" />
+      <span>{visible}</span>
+    </div>
+  );
+}
+
+function compactionDivider(item: TranscriptItem, label: string): ReactNode {
+  const displayLabel = translateStatusLabel(label) || label || t('Conversation compacted');
+  const displayDetail = translateStatusDetail(item.detail);
+  return (
+    <div className="compaction-divider" role="status">
+      <FoldVertical className="compaction-icon" size={16} aria-hidden="true" />
+      <span>{displayLabel}</span>
+      {displayDetail && <small>{displayDetail}</small>}
+    </div>
+  );
+}
+
+function completedLabel(item: TranscriptItem, label: string): string {
+  if (item.kind !== 'turndone') return translateStatusLabel(label) || label || t('Complete');
+  const elapsed = formatElapsed(item.elapsedMs);
+  const elapsedMs = Math.max(0, Number(item.elapsedMs || 0));
+  if (Number(item.toolCount || 0) > 0) {
+    return elapsed ? t('Work complete in {{elapsed}}', { elapsed }) : t('Work complete');
+  }
+  if (elapsedMs > 0 && elapsedMs < 10_000) return t('Response complete');
+  const doneVerb = String(item.verb || item.label || 'Thought').trim() || 'Thought';
+  return elapsed ? t('{{verb}} for {{elapsed}}', { verb: t(doneVerb), elapsed }) : t(doneVerb);
+}
+
 export function CompletionStatus({
   item,
   animateComplete: animate = false,
@@ -760,99 +878,11 @@ export function CompletionStatus({
   }, [activityKey]);
   const tone = completionTone(item);
   const label = String(item.label || item.status || '');
-  if (item.kind === 'statusdone' && item.status === 'inherited') {
-    return (
-      <div className="compaction-divider" role="status">
-        <GitFork className="compaction-icon" size={16} aria-hidden="true" />
-        <span>{t('Session forked')}</span>
-        <small>{t('Continuing with the previous context.')}</small>
-      </div>
-    );
-  }
-  if (item.kind === 'statusdone' && item.status === 'model-switched') {
-    return (
-      <ModelSwitchDivider
-        label={t('Switched to {{model}}', {
-          model: modelDisplayName(String(item.modelId || ''), String(item.provider || '')),
-        })}
-      />
-    );
-  }
-  if (item.kind === 'statusdone' && item.status === 'workflow-switched') {
-    return (
-      <div className="compaction-divider" role="status">
-        <Workflow className="compaction-icon" size={16} aria-hidden="true" />
-        <span>
-          {item.unavailable === true
-            ? t('Workflow {{to}} is no longer available; this conversation keeps {{from}}', {
-                from: String(item.from || ''),
-                to: String(item.to || ''),
-              })
-            : t('Switched the workflow {{from}} → {{to}}', {
-                from: String(item.from || ''),
-                to: String(item.to || ''),
-              })}
-        </span>
-      </div>
-    );
-  }
-  if (item.kind === 'statusdone' && item.status === 'orchestration-mode-switched') {
-    const modeLabel = (mode: unknown) => t(ORCHESTRATION_MODE_LABELS[String(mode)] || String(mode || ''));
-    return (
-      <div className="compaction-divider" role="status">
-        <Network className="compaction-icon" size={16} aria-hidden="true" />
-        <span>
-          {t('Switched the delegation mode {{from}} → {{to}}', { from: modeLabel(item.from), to: modeLabel(item.to) })}
-        </span>
-      </div>
-    );
-  }
-  if (tone === 'failed' || tone === 'interrupted') {
-    const elapsed = formatElapsed(item.elapsedMs);
-    // A turn a restart or crash cut reads "Interrupted"; only one the user stopped reads "Cancelled".
-    const cut = item.cause === 'restart';
-    let fallback = cut ? t('Interrupted') : t('Cancelled');
-    if (tone === 'failed') fallback = t('Failed');
-    else if (elapsed) {
-      fallback = cut ? t('Interrupted after {{elapsed}}', { elapsed }) : t('Cancelled after {{elapsed}}', { elapsed });
-    }
-    const translated = translateStatusLabel(label);
-    const visible =
-      tone === 'failed' && !/^(done|complete|completed)$/i.test(label) ? translated || label || fallback : fallback;
-    return (
-      <div className={`turn-status ${tone}`} role="status">
-        <X className="turn-status-icon" size={16} aria-hidden="true" />
-        <span>{visible}</span>
-      </div>
-    );
-  }
-  if (tone === 'compaction') {
-    const displayLabel = translateStatusLabel(label) || label || t('Conversation compacted');
-    const displayDetail = translateStatusDetail(item.detail);
-    return (
-      <div className="compaction-divider" role="status">
-        <FoldVertical className="compaction-icon" size={16} aria-hidden="true" />
-        <span>{displayLabel}</span>
-        {displayDetail && <small>{displayDetail}</small>}
-      </div>
-    );
-  }
-  const elapsed = formatElapsed(item.elapsedMs);
-  const toolCount = Number(item.toolCount || 0);
-  const elapsedMs = Math.max(0, Number(item.elapsedMs || 0));
-  const doneVerb = String(item.verb || item.label || 'Thought').trim() || 'Thought';
-  let completionLabel: string;
-  if (item.kind === 'turndone') {
-    if (toolCount > 0) {
-      completionLabel = elapsed ? t('Work complete in {{elapsed}}', { elapsed }) : t('Work complete');
-    } else if (elapsedMs > 0 && elapsedMs < 10_000) {
-      completionLabel = t('Response complete');
-    } else {
-      completionLabel = elapsed ? t('{{verb}} for {{elapsed}}', { verb: t(doneVerb), elapsed }) : t(doneVerb);
-    }
-  } else {
-    completionLabel = translateStatusLabel(label) || label || t('Complete');
-  }
+  const divider = item.kind === 'statusdone' ? sessionChangeDivider(item) : null;
+  if (divider) return divider;
+  if (tone === 'failed' || tone === 'interrupted') return stoppedStatus(item, tone, label);
+  if (tone === 'compaction') return compactionDivider(item, label);
+  const completionLabel = completedLabel(item, label);
   if (backgroundWork && backgroundWork.shell + backgroundWork.agent > 0) {
     return (
       <div className="turn-status complete waiting" role="status">

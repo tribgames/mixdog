@@ -7,10 +7,6 @@ export function paneSize(leafId: string): { width: number; height: number } | un
   return rect ? { width: rect.width, height: rect.height } : undefined;
 }
 
-/** Trimmed project and slash-normalised relative path of a diff target; null when either is empty. */
-/** A session with no registered Project (a task, a bot's home thread) runs in
- *  its own folder; the pane's project path is then only the tool-project
- *  fallback, which is some other folder (or a big tree) entirely. */
 export function sessionOwnsWorkspace(
   sessions: ReadonlyArray<{ id?: string; projectPath?: string | null } | null | undefined>,
   registeredProjectPath: (path: string) => string,

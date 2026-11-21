@@ -1,14 +1,3 @@
-// Desktop-leg handlers for native push. A token is a delivery destination, not
-// something one desktop owns: one phone paired with several PCs hands the same
-// installation token to each of them. Every desktop therefore holds its OWN
-// association (token -> {deviceId, clientId, platform}), made over its
-// authenticated leg for one of ITS OWN paired clients and checked against the
-// device store on every send. A desktop sends only through an association it
-// holds, and unbind/revoke only ever removes that desktop's associations.
-//
-// Shape: Map<token, Map<associationKey, { deviceId, clientId, platform }>>.
-// The single-binding shape (Map<token, { deviceId, clientId, platform }>) is
-// still read: it is upgraded in place the first time its token is touched.
 import { MAX_MX_CHARS, NATIVE_PUSH_REASONS, validNativeToken } from './native-push.mjs';
 
 const MAX_NATIVE_BINDINGS_PER_DEVICE = 64;
@@ -83,32 +72,39 @@ export function unbindNativeToken({ deviceId, nativeBindings }, message) {
   dropAssociations(nativeBindings, deviceId, { clientId, token: message.token });
 }
 
-export function sendNativePush(leg, message) {
-  const { store, deviceId, socket, sendJson, nativeBindings, nativePush, nativeLimiter } = leg;
-  if (!nativePush || !nativeBindings) return;
-  const { platform, token, mx, reason, collapseKey } = message;
-  const reply = (fields) => sendJson(socket, { type: 'native-push-result', platform, token, collapseKey, ...fields });
-  if (
-    !nativePushPlatforms(leg).includes(platform) ||
-    !validNativeToken(platform, token) ||
-    typeof mx !== 'string' ||
-    mx.length === 0 ||
-    mx.length > MAX_MX_CHARS ||
-    !NATIVE_PUSH_REASONS.has(reason) ||
-    typeof collapseKey !== 'string' ||
-    !COLLAPSE_KEY.test(collapseKey)
-  ) {
-    reply({ ok: false, error: 'invalid-message' });
-    return;
-  }
+function validPushMessage(leg, { platform, token, mx, reason, collapseKey }) {
+  return (
+    nativePushPlatforms(leg).includes(platform) &&
+    validNativeToken(platform, token) &&
+    typeof mx === 'string' &&
+    mx.length > 0 &&
+    mx.length <= MAX_MX_CHARS &&
+    NATIVE_PUSH_REASONS.has(reason) &&
+    typeof collapseKey === 'string' &&
+    COLLAPSE_KEY.test(collapseKey)
+  );
+}
+
+function holdsBinding({ store, deviceId, nativeBindings }, platform, token) {
   const associations = associationsOf(nativeBindings, token);
-  const bound = [...(associations?.values() ?? [])].some(
+  return [...(associations?.values() ?? [])].some(
     (association) =>
       association.deviceId === deviceId &&
       association.platform === platform &&
       owns(store, deviceId, association.clientId)
   );
-  if (!bound) {
+}
+
+export function sendNativePush(leg, message) {
+  const { deviceId, socket, sendJson, nativeBindings, nativePush, nativeLimiter } = leg;
+  if (!nativePush || !nativeBindings) return;
+  const { platform, token, mx, reason, collapseKey } = message;
+  const reply = (fields) => sendJson(socket, { type: 'native-push-result', platform, token, collapseKey, ...fields });
+  if (!validPushMessage(leg, message)) {
+    reply({ ok: false, error: 'invalid-message' });
+    return;
+  }
+  if (!holdsBinding(leg, platform, token)) {
     reply({ ok: false, error: 'unbound-token' });
     return;
   }

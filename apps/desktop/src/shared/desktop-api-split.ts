@@ -1,14 +1,3 @@
-// Which half of DesktopApi each member lives on once the renderer talks to the core directly.
-//
-// DIRECT_KEYS are composed in the renderer over its own core connection. HOST_KEYS stay on the
-// preload (Electron and OS methods, plus members another area moves later). OPTIONAL_UNPROVIDED
-// are the members of DesktopApi the Electron preload does not supply (remote-surface members and
-// the two boot values that are injected beside the table).
-//
-// Completeness is a type error: DESKTOP_API_COMPLETE fails to compile when a DesktopApi member is
-// in no group, or a listed key is not a DesktopApi member. A key in two groups is caught by the
-// test, not by the type system.
-
 import type {
   DesktopApi,
   DesktopCapabilityReadRequest,

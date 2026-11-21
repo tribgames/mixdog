@@ -1,8 +1,3 @@
-/**
- * card-status.mjs — the terminal status of a single tool card and the
- * status-derived fragments (shell status, header failure, agent completion)
- * the detail and header rows are built from.
- */
 import { backgroundTaskFailureStatusLabel } from '../err-text.mjs';
 import { agentTerminalDetail, isAgentTool } from './agent-surface.mjs';
 import { backgroundTaskElapsed, backgroundTaskFailureDetail, isBackgroundTaskTool } from './background-task.mjs';

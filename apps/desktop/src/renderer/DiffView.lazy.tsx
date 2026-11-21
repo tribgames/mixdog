@@ -4,12 +4,7 @@ import { type ComponentProps, useEffect, useMemo, useState } from 'react';
 
 type DiffData = ComponentProps<typeof DiffView>['data'];
 
-// Surfaces that print the `@@ … @@` header themselves — the Git diff pane's
-// sticky hunk row that carries Stage Hunk — would show a SECOND copy of it
-// from the library, which renders every hunk header as an in-table row. Parse
-// the patch exactly as the library would and drop only the hunk ROWS: line
-// numbers, add/remove classification and hunk boundaries all come from that
-// same parse, so the rendered diff is otherwise byte-identical.
+// The library renders every hunk header as an in-table row; surfaces that print `@@ … @@` themselves drop only those rows from the library's own parse.
 function hunkHeaderFreeFile(data: DiffData): DiffFile | null {
   try {
     const source = DiffFile.createInstance({

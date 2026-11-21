@@ -1,9 +1,3 @@
-/**
- * Per-session secrets of the window process (secret-input.ts): every value
- * filled for a session, redacted from its later replies, and whether a secret
- * field of it may still hold focus (captures are withheld meanwhile).
- */
-
 import { REDACTED_MARKER, redactSecrets } from './secret-markers';
 
 export function createSessionSecrets() {
@@ -14,12 +8,6 @@ export function createSessionSecrets() {
     /** Register `value` for redaction in every later reply of `sessionId`:
      *  every non-empty value, of any length, until `forget(sessionId)`. */
     remember(sessionId: string, value: string): void {
-      // Passwords, one-time codes and ask_user/agent-typed secrets only; a
-      // username is no secret and is never registered. In memory only, and
-      // never dropped or evicted: the value was typed into the page, so it
-      // must be hidden from every later reply, however short or numerous.
-      // An empty value hides nothing (replacing it would mark every
-      // character boundary), so it is not kept.
       if (!sessionId || !value) return;
       const set = sessionSecrets.get(sessionId) ?? new Set<string>();
       set.add(value);

@@ -1,7 +1,3 @@
-/**
- * `data-choice` picks need a real gesture in their pane (gestures.ts),
- * observed from the main window's own input, outside page control.
- */
 import type { BrowserWindow, WebContents } from 'electron';
 
 import { leasePrefix } from './host-frames';

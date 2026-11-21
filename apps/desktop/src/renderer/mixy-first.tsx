@@ -1,9 +1,3 @@
-// "대표 에이전트 먼저": a fresh profile has no agents until it creates Mixy.
-// Whether Mixy exists is the host's answer to getLeadStatus (main/mixy-first.ts
-// decides an undecided profile once: existing users count as created). While
-// Mixy does not exist the Agents pane is empty, the new-agent dialog opens in
-// 대표 에이전트 mode when asked (the empty state's button, "+", the automation
-// picker); the starter guide's last step completes when Mixy is created.
 import { useEffect, useState } from 'react';
 import { MIXY_AGENT_ID } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { MIXY_AVATAR } from '../shared/core-src/runtime/shared/agent-avatar.mjs';

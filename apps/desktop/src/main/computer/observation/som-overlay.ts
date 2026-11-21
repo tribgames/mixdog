@@ -1,9 +1,3 @@
-/**
- * The set-of-marks overlay: the captured frame with one numbered badge per
- * element, drawn by an offscreen renderer because the marks must land in the
- * same pixels the model will point at. It reads nothing but its arguments, so a
- * failed render degrades to the original image instead of failing the capture.
- */
 import { BrowserWindow, type NativeImage } from 'electron';
 import { tagRendererSurface } from '../../process-memory-diagnostics';
 

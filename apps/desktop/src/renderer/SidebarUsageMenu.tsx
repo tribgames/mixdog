@@ -11,6 +11,29 @@ import type { UsageRailBars, UsageRailSlots } from './SidebarUsage';
 
 const ENABLED_ITEM = "[role='menuitemcheckbox']:not(:disabled), [role='menuitemradio']:not(:disabled)";
 
+function RadioItem({
+  checked,
+  disabled,
+  label,
+  attrs,
+  onSelect,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  label: string;
+  attrs: Record<string, string>;
+  onSelect(): void;
+}) {
+  return (
+    <button type="button" role="menuitemradio" aria-checked={checked} disabled={disabled} {...attrs} onClick={onSelect}>
+      <span className="row-overflow-check" aria-hidden="true">
+        {checked && <Check size={14} />}
+      </span>
+      <span className="row-overflow-label">{label}</span>
+    </button>
+  );
+}
+
 /** The usage flyout's `···` menu: rail pin switch plus the rail bar mode.
  *  Same open/dismiss/roving-focus conventions as RowOverflowMenu; the panel is
  *  portaled because the flyout clips its own overflow. */
@@ -78,36 +101,23 @@ export function SidebarUsageMenu({
   };
 
   const radio = (value: UsageRailBars, label: string, hint: string) => (
-    <button
-      type="button"
-      role="menuitemradio"
-      aria-checked={railBars === value}
+    <RadioItem
+      checked={railBars === value}
       disabled={!pinned}
-      data-rail-bars={value}
-      data-tooltip={hint}
-      onClick={() => onRailBarsChange?.(value)}
-    >
-      <span className="row-overflow-check" aria-hidden="true">
-        {railBars === value && <Check size={14} />}
-      </span>
-      <span className="row-overflow-label">{label}</span>
-    </button>
+      label={label}
+      attrs={{ 'data-rail-bars': value, 'data-tooltip': hint }}
+      onSelect={() => onRailBarsChange?.(value)}
+    />
   );
 
   const slotsRadio = (value: UsageRailSlots, label: string) => (
-    <button
-      type="button"
-      role="menuitemradio"
-      aria-checked={railSlots === value}
+    <RadioItem
+      checked={railSlots === value}
       disabled={!pinned}
-      data-rail-slots={value}
-      onClick={() => onRailSlotsChange?.(value)}
-    >
-      <span className="row-overflow-check" aria-hidden="true">
-        {railSlots === value && <Check size={14} />}
-      </span>
-      <span className="row-overflow-label">{label}</span>
-    </button>
+      label={label}
+      attrs={{ 'data-rail-slots': value }}
+      onSelect={() => onRailSlotsChange?.(value)}
+    />
   );
 
   const placement = positionRowMenu(open ? anchorBounds.current : null, 8, 1, window.innerWidth, window.innerHeight);

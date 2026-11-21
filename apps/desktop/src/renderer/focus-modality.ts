@@ -1,11 +1,6 @@
-// Focus rings are keyboard chrome. Chromium re-applies :focus-visible to
-// whatever held focus when the window comes BACK — the composer "+" returning
-// from a native file dialog, a trigger the app re-focuses when its menu
-// closes — so a control pressed with the MOUSE kept wearing the ring long
-// after its action finished.
-// The root records the modality of the last interaction; 02-base.css drops
-// button focus frames while that modality is the pointer. Text fields are
-// deliberately untouched: a caret still needs its field outlined.
+// Chromium re-applies :focus-visible to whatever held focus when the window
+// comes back, so a mouse-pressed control would keep its ring; 02-base.css drops
+// button focus frames while the root's modality is the pointer.
 type FocusModality = 'pointer' | 'keyboard';
 
 const ROOT_ATTRIBUTE = 'data-mx-input';

@@ -86,6 +86,74 @@ export interface SequenceRefScope {
   continuationRef?: boolean;
 }
 
+type AuthorizeDispatch = () => Promise<DispatchAuthority>;
+
+async function dispatchToRenderer(
+  host: DispatchHost,
+  command: ComputerCommand,
+  action: string,
+  target: ResolvedInputTarget,
+  renderer: ElectronTextDispatch['renderer'],
+  authorizeDispatch: AuthorizeDispatch
+): Promise<PowerShellResponse> {
+  const endpoint = currentEndpoint();
+  if (!endpoint)
+    throw new Error('computer_scope_unavailable: renderer input runs only under a command endpoint; no input was sent');
+  const { scope, close } = rendererScope(endpoint, action, host.assertExecutionNotAborted);
+  const electronInput = {
+    host,
+    command,
+    target,
+    renderer,
+    authorizeDispatch,
+    scope,
+    showCursor: ({ action, ...cursor }: Parameters<NonNullable<ElectronTextDispatch['showCursor']>>[0]) =>
+      computerUseCoordinator.showCursor({ ...cursor, action, effect: action, mode: 'background' }),
+  };
+  try {
+    return await (command.action === 'type'
+      ? dispatchElectronText(electronInput)
+      : dispatchElectronInput(electronInput));
+  } finally {
+    close();
+  }
+}
+
+async function dispatchSavedLoginFill(
+  host: DispatchHost,
+  command: ComputerCommand,
+  powerShellRequest: Record<string, unknown>,
+  authorizeDispatch: AuthorizeDispatch
+): Promise<PowerShellResponse> {
+  const step = command.saved_login_step;
+  if (step) {
+    const request =
+      step === 'check'
+        ? { action: 'saved_login_check', field: command.field, text: null }
+        : {
+            action: 'saved_login_type',
+            field: command.field,
+            text: command.saved_login_text,
+            expected: command.saved_login_expected,
+          };
+    const authority = await authorizeDispatch();
+    assertObservationInputAllowed(command, host.isObserveOnly());
+    if (step === 'type') assertSavedLoginAvailable(command, host.savedLogins);
+    return await host.callPowerShell({ ...powerShellRequest, ...authority, ...request });
+  }
+  return await fillSavedLogin(
+    command,
+    host.savedLogins,
+    async (request, beforeSend) => {
+      const authority = await authorizeDispatch();
+      assertObservationInputAllowed(command, host.isObserveOnly());
+      beforeSend?.();
+      return await host.callPowerShell({ ...powerShellRequest, ...authority, ...request });
+    },
+    { assertRunnable: host.assertExecutionNotAborted }
+  );
+}
+
 export function createInputDispatch(host: DispatchHost, policy: ComputerExecutionPolicy) {
   const {
     callPowerShell,
@@ -134,32 +202,7 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     };
     const electronTarget = canUseAppOwnedInput(command) ? electronWindowForNativeId(targetWindowId) : null;
     if (electronTarget && !electronTarget.webContents.isDestroyed()) {
-      // The renderer's port admits each event through the command's own endpoint and the run's abort (`rendererScope`); input
-      // outside a command endpoint has no scope to run under and is refused.
-      const endpoint = currentEndpoint();
-      if (!endpoint)
-        throw new Error(
-          'computer_scope_unavailable: renderer input runs only under a command endpoint; no input was sent'
-        );
-      const { scope, close } = rendererScope(endpoint, action, assertExecutionNotAborted);
-      const electronInput = {
-        host,
-        command,
-        target,
-        renderer: electronTarget,
-        authorizeDispatch,
-        scope,
-        // The agent's arrow while the desktop's own host runs Computer Use (s3-21 moved the coordinator out of the Electron dispatchers).
-        showCursor: ({ action, ...cursor }: Parameters<NonNullable<ElectronTextDispatch['showCursor']>>[0]) =>
-          computerUseCoordinator.showCursor({ ...cursor, action, effect: action, mode: 'background' }),
-      };
-      try {
-        return await (command.action === 'type'
-          ? dispatchElectronText(electronInput)
-          : dispatchElectronInput(electronInput));
-      } finally {
-        close();
-      }
+      return await dispatchToRenderer(host, command, action, target, electronTarget, authorizeDispatch);
     }
     const powerShellRequest = {
       ...powerShellInputRequest(command, action, target, sessionIdFor(command), inputObservation),
@@ -170,40 +213,8 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     const usePrivilegedWorker = integrity.known && integrity.higher;
     assertExecutionNotAborted();
     if (action === 'fill_saved_login') {
-      // Never through a UAC one-shot worker; each worker request is authorized
-      // again, so a policy change or Stop between them sends nothing more. The
-      // fill's own last check (Auto login) runs after that authorization with
-      // no await before the request is written; past it nothing is recalled.
       if (usePrivilegedWorker) throw new Error('saved_login_refused: the browser runs elevated; no input was sent');
-      const step = command.saved_login_step;
-      if (step) {
-        // The core runs the fill and asks for one worker step, authorized as a fill's own request is. A value is
-        // written only after the same last check (Auto login), with no await before the request.
-        const request =
-          step === 'check'
-            ? { action: 'saved_login_check', field: command.field, text: null }
-            : {
-                action: 'saved_login_type',
-                field: command.field,
-                text: command.saved_login_text,
-                expected: command.saved_login_expected,
-              };
-        const authority = await authorizeDispatch();
-        assertObservationInputAllowed(command, host.isObserveOnly());
-        if (step === 'type') assertSavedLoginAvailable(command, host.savedLogins);
-        return await callPowerShell({ ...powerShellRequest, ...authority, ...request });
-      }
-      return await fillSavedLogin(
-        command,
-        host.savedLogins,
-        async (request, beforeSend) => {
-          const authority = await authorizeDispatch();
-          assertObservationInputAllowed(command, host.isObserveOnly());
-          beforeSend?.();
-          return await callPowerShell({ ...powerShellRequest, ...authority, ...request });
-        },
-        { assertRunnable: assertExecutionNotAborted }
-      );
+      return await dispatchSavedLoginFill(host, command, powerShellRequest, authorizeDispatch);
     }
     if (usePrivilegedWorker) {
       policy.assertElevated();

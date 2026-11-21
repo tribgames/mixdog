@@ -1,8 +1,3 @@
-/**
- * Runtime problems of displayed visualize pages: which tab and pane a page
- * report belongs to, recording it on the tab, and waiting for a page (or an
- * inline render) to settle so its problems ride a tool result.
- */
 import type { VisualizeProblem } from '../../shared/visualize';
 import { blockedNetworkMessage, isOutsideNetworkUrl } from '../../shared/visualize-network-policy';
 import type { VisualizeServiceContext } from './context';
@@ -84,10 +79,6 @@ export function createProblemTracker(ctx: Pick<VisualizeServiceContext, 'session
     );
   };
 
-  /** A paired device's page frame refused an outside request (its CSP is the
-   *  policy there): recorded as the same `blocked-network` problem the desktop
-   *  files, unless the address is no outside network address. A tab that allows
-   *  network is reported too: the frame's CSP still refuses some requests there. */
   const reportRemoteBlockedNetwork = (
     sessionId: string,
     tab: TabState,

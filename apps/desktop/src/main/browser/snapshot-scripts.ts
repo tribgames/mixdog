@@ -1,9 +1,3 @@
-/**
- * Page-context scripts the host evaluates through CDP: the semantic snapshot
- * that assigns generation-bound refs, and the ref-to-point resolver that turns
- * one of those refs back into a safe click coordinate. Both are plain strings
- * so they can be unit-tested in a DOM without Electron.
- */
 import { BROWSER_SEMANTIC_MATCH_SOURCE } from './semantic-query';
 import { BROWSER_STABLE_RECT } from './stable-rect';
 

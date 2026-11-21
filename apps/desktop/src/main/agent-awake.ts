@@ -1,7 +1,3 @@
-// Agent keep-awake: while the engine reports live work, hold
-// an Electron powerSaveBlocker so the OS never suspends mid-turn; release it
-// the moment the work stops. `prevent-app-suspension` keeps the machine and
-// network alive while still letting the display sleep.
 import type { SessionSnapshot } from '../shared/contract';
 
 // A crashed engine can freeze the last snapshot on "working". Never hold the

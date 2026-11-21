@@ -48,32 +48,57 @@ function readBase64(file: File): Promise<string> {
   });
 }
 
-export function FeedbackDialog({
-  submit,
-  onClose,
-}: {
-  submit: DesktopApi['submitFeedback'] | undefined;
-  onClose(): void;
-}) {
-  const uid = useId();
-  const [kind, setKind] = useState<FeedbackKind>('bug');
-  const [message, setMessage] = useState('');
-  const [email, setEmail] = useState('');
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [attempted, setAttempted] = useState(false);
-  const messageRef = useRef<HTMLTextAreaElement>(null);
-  const emailRef = useRef<HTMLInputElement>(null);
-  const pendingRef = useRef(false);
-  const attemptRef = useRef<{ key: string; id: string } | null>(null);
-  const mountedRef = useRef(true);
+/** The picked files that fit the count and size limits next to the current attachments, and the last refusal's message. */
+function acceptAttachments(
+  current: readonly AttachmentItem[],
+  files: readonly File[]
+): { accepted: File[]; error: string } {
+  const accepted: File[] = [];
+  let total = current.reduce((sum, item) => sum + item.size, 0);
+  let error = '';
+  for (const file of files) {
+    if (!IMAGE_TYPES.includes(file.type as DesktopFeedbackAttachment['mimeType'])) {
+      error = t('{{name}}: only PNG, JPEG or WebP images can be attached.', { name: file.name });
+    } else if (current.length + accepted.length >= FEEDBACK_ATTACHMENT_MAX_COUNT) {
+      error = t('You can attach up to {{max}} images.', { max: FEEDBACK_ATTACHMENT_MAX_COUNT });
+    } else if (file.size > FEEDBACK_ATTACHMENT_MAX_BYTES) {
+      error = t('{{name}}: each image must be {{max}} MB or smaller.', {
+        name: file.name,
+        max: FEEDBACK_ATTACHMENT_MAX_BYTES / MIB,
+      });
+    } else if (total + file.size > FEEDBACK_ATTACHMENT_MAX_TOTAL_BYTES) {
+      error = t('Images must total {{max}} MB or less.', { max: FEEDBACK_ATTACHMENT_MAX_TOTAL_BYTES / MIB });
+    } else {
+      accepted.push(file);
+      total += file.size;
+    }
+  }
+  return { accepted, error };
+}
+
+function validateFeedbackFields(message: string, email: string) {
+  const trimmedMessage = message.trim();
+  const trimmedEmail = email.trim();
+  let messageError = '';
+  if (!trimmedMessage) messageError = t('Enter a message.');
+  else if (trimmedMessage.length > FEEDBACK_MESSAGE_MAX) {
+    messageError = t('Message must be {{max}} characters or fewer.', { max: FEEDBACK_MESSAGE_MAX });
+  }
+  let emailError = '';
+  if (!trimmedEmail) emailError = t('Enter an email address so we can reply.');
+  else if (trimmedEmail.length > FEEDBACK_EMAIL_MAX || !FEEDBACK_REPLY_EMAIL_PATTERN.test(trimmedEmail)) {
+    emailError = t('Enter a valid email address.');
+  }
+  return { trimmedMessage, trimmedEmail, messageError, emailError };
+}
+
+function useFeedbackAttachments(pendingRef: { readonly current: boolean }, mountedRef: { readonly current: boolean }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const attachmentsRef = useRef<AttachmentItem[]>([]);
   const readingRef = useRef(false);
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [reading, setReading] = useState(false);
   const [attachError, setAttachError] = useState('');
-  const pending = phase === 'pending';
-  const busy = pending || reading;
 
   const updateAttachments = (next: AttachmentItem[]) => {
     attachmentsRef.current = next;
@@ -84,27 +109,7 @@ export function FeedbackDialog({
     const files = list ? Array.from(list) : [];
     if (fileRef.current) fileRef.current.value = '';
     if (!files.length || pendingRef.current || readingRef.current) return;
-    const current = attachmentsRef.current;
-    const accepted: File[] = [];
-    let total = current.reduce((sum, item) => sum + item.size, 0);
-    let error = '';
-    for (const file of files) {
-      if (!IMAGE_TYPES.includes(file.type as DesktopFeedbackAttachment['mimeType'])) {
-        error = t('{{name}}: only PNG, JPEG or WebP images can be attached.', { name: file.name });
-      } else if (current.length + accepted.length >= FEEDBACK_ATTACHMENT_MAX_COUNT) {
-        error = t('You can attach up to {{max}} images.', { max: FEEDBACK_ATTACHMENT_MAX_COUNT });
-      } else if (file.size > FEEDBACK_ATTACHMENT_MAX_BYTES) {
-        error = t('{{name}}: each image must be {{max}} MB or smaller.', {
-          name: file.name,
-          max: FEEDBACK_ATTACHMENT_MAX_BYTES / MIB,
-        });
-      } else if (total + file.size > FEEDBACK_ATTACHMENT_MAX_TOTAL_BYTES) {
-        error = t('Images must total {{max}} MB or less.', { max: FEEDBACK_ATTACHMENT_MAX_TOTAL_BYTES / MIB });
-      } else {
-        accepted.push(file);
-        total += file.size;
-      }
-    }
+    const { accepted, error } = acceptAttachments(attachmentsRef.current, files);
     setAttachError(error);
     if (!accepted.length) return;
     readingRef.current = true;
@@ -139,18 +144,41 @@ export function FeedbackDialog({
     setAttachError('');
   };
 
-  const trimmedMessage = message.trim();
-  const trimmedEmail = email.trim();
-  let messageError = '';
-  if (!trimmedMessage) messageError = t('Enter a message.');
-  else if (trimmedMessage.length > FEEDBACK_MESSAGE_MAX) {
-    messageError = t('Message must be {{max}} characters or fewer.', { max: FEEDBACK_MESSAGE_MAX });
-  }
-  let emailError = '';
-  if (!trimmedEmail) emailError = t('Enter an email address so we can reply.');
-  else if (trimmedEmail.length > FEEDBACK_EMAIL_MAX || !FEEDBACK_REPLY_EMAIL_PATTERN.test(trimmedEmail)) {
-    emailError = t('Enter a valid email address.');
-  }
+  return {
+    fileRef,
+    attachmentsRef,
+    readingRef,
+    attachments,
+    reading,
+    attachError,
+    pickFiles,
+    removeAttachment,
+  };
+}
+
+export function FeedbackDialog({
+  submit,
+  onClose,
+}: {
+  submit: DesktopApi['submitFeedback'] | undefined;
+  onClose(): void;
+}) {
+  const uid = useId();
+  const [kind, setKind] = useState<FeedbackKind>('bug');
+  const [message, setMessage] = useState('');
+  const [email, setEmail] = useState('');
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [attempted, setAttempted] = useState(false);
+  const messageRef = useRef<HTMLTextAreaElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const pendingRef = useRef(false);
+  const attemptRef = useRef<{ key: string; id: string } | null>(null);
+  const mountedRef = useRef(true);
+  const { fileRef, attachmentsRef, readingRef, attachments, reading, attachError, pickFiles, removeAttachment } =
+    useFeedbackAttachments(pendingRef, mountedRef);
+  const pending = phase === 'pending';
+  const busy = pending || reading;
+  const { trimmedMessage, trimmedEmail, messageError, emailError } = validateFeedbackFields(message, email);
 
   const close = () => {
     if (!pendingRef.current) onClose();

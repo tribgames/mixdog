@@ -1,10 +1,3 @@
-/**
- * Renders one visualize page (a local page-server lease URL) off screen for an
- * export: the whole page as a PNG, or a PDF. The page runs in its own
- * throw-away window at an origin of its own on the off-screen in-memory
- * session, cut off from the app, and — unless its tab allowed network — from
- * every address but its own origin's.
- */
 import type { Session } from 'electron';
 import { tagRendererSurface } from '../process-memory-diagnostics';
 import { isOffscreenOriginUrl, type OffscreenOrigins, offscreenOrigins } from './offscreen-origins';
@@ -232,21 +225,6 @@ interface OffscreenRendering {
   network: Session;
 }
 
-/** Every off-screen render runs on this one in-memory session (see
- *  offscreen-origins for why one, and why an origin per render). Neither it
- *  nor `network` keeps an HTTP cache: a response one render fetched is no
- *  other's to reuse.
- *
- *  A request is judged by the render whose window made it (`webContentsId`,
- *  which a page's dedicated workers carry too); one without a window — a
- *  service worker's or a shared worker's — has no render to answer for it
- *  and is refused, so no service worker registers.
- *
- *  Cookies stay inside a render as they did with a session per render: no
- *  request carries or sets one (both sessions are shared), and a frame from
- *  any other origin runs sandboxed in an opaque origin, without
- *  `document.cookie`. A page keeps the script cookies of its own origin,
- *  which no other render ever has. */
 const OFFSCREEN_PARTITION = 'visualize-offscreen';
 const OFFSCREEN_NETWORK_PARTITION = 'visualize-offscreen-network';
 /** What a frame from another origin runs under: everything but its origin. */
@@ -297,11 +275,6 @@ function offscreen(session: typeof import('electron').session): OffscreenRenderi
   return offscreenRendering;
 }
 
-/** Loads `pageUrl` in a throw-away hidden window (the shared off-screen
- *  session, at an origin of its own served from the page's, the origin-only
- *  request filter unless `allowNetwork`), lets it settle and runs `work` on
- *  it, collecting the page's problems meanwhile. One deadline covers the whole
- *  run; the window is always destroyed and the origin released. */
 async function withOffscreenPage<T>(
   pageUrl: string,
   allowNetwork: boolean,

@@ -135,7 +135,7 @@ test('a window the host restarted from a shorter tail pages again, with no item 
   }
 });
 
-test('background output reads stay held after a page ACK until the page is applied, and not past a failure or a leave', async () => {
+async function withHeldReader(body) {
   const env = installHistoryDom();
   const { requests } = env;
   resetFullToolOutputs();
@@ -152,6 +152,17 @@ test('background output reads stay held after a page ACK until the page is appli
     });
   const earlier = () => act(async () => document.querySelector('button').click());
   try {
+    await body({ requests, render, earlier, root });
+  } finally {
+    await act(async () => {
+      for (const request of requests) request.resolve(false);
+    });
+    env.restore();
+  }
+}
+
+test('background output reads stay held after a page ACK until the page rows are applied', () =>
+  withHeldReader(async ({ requests, render, earlier }) => {
     await render(8);
     await earlier();
     assert.equal(historyPagePending(), true, 'held while the page is asked for');
@@ -161,28 +172,43 @@ test('background output reads stay held after a page ACK until the page is appli
     assert.equal(historyPagePending(), true, 'a frame without the page keeps the hold');
     await render(40);
     assert.equal(historyPagePending(), false, 'released once the page rows are applied');
-    // A page that lands before its ACK releases as it lands.
+  }));
+
+test('a page that lands before its ACK releases the background output reads as it lands', () =>
+  withHeldReader(async ({ requests, render, earlier }) => {
+    await render(8);
     await earlier();
     await render(60);
     assert.equal(historyPagePending(), false);
-    await act(async () => requests[1].resolve(true));
+    await act(async () => requests[0].resolve(true));
     assert.equal(historyPagePending(), false);
-    // The host saying nothing older exists ends the wait too.
+  }));
+
+test('the host saying nothing older exists releases the background output reads', () =>
+  withHeldReader(async ({ requests, render, earlier }) => {
+    await render(8);
     await earlier();
-    await act(async () => requests[2].resolve(true));
-    await render(60, false);
+    await act(async () => requests[0].resolve(true));
+    await render(8, false);
     assert.equal(historyPagePending(), false);
-    // A failed or refused read releases at once.
-    await render(70, true);
+  }));
+
+test('a failed or refused page read releases the background output reads at once', () =>
+  withHeldReader(async ({ requests, render, earlier }) => {
+    await render(70);
     await earlier();
-    await act(async () => requests[3].reject(new Error('connection lost')));
+    await act(async () => requests[0].reject(new Error('connection lost')));
     assert.equal(historyPagePending(), false, 'a failure releases');
     await earlier();
-    await act(async () => requests[4].resolve(false));
+    await act(async () => requests[1].resolve(false));
     assert.equal(historyPagePending(), false, 'a refusal releases');
-    // Leaving the session cancels the wait.
+  }));
+
+test('a session switch or unmount cancels the wait for the page', () =>
+  withHeldReader(async ({ requests, render, earlier, root }) => {
+    await render(8);
     await earlier();
-    await act(async () => requests[5].resolve(true));
+    await act(async () => requests[0].resolve(true));
     assert.equal(historyPagePending(), true);
     await render(8, true, 'b');
     assert.equal(historyPagePending(), false, 'a session switch releases');
@@ -190,14 +216,7 @@ test('background output reads stay held after a page ACK until the page is appli
     assert.equal(historyPagePending(), true);
     await act(async () => root.unmount());
     assert.equal(historyPagePending(), false, 'unmounting releases');
-  } finally {
-    await act(async () => {
-      for (const request of requests) request.resolve(false);
-    });
-    env.restore();
-  }
-});
-
+  }));
 test('a scroll asks for older history screens before the top, so a fling never runs out of rows first', () => {
   // #104: a phone fling crosses hundreds of px per frame; asked for only at
   // the old 320px band, it hit the top edge and died before the page landed.

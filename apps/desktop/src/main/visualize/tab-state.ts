@@ -1,8 +1,3 @@
-/**
- * The visualize service's tab model: the per-session and per-tab state main
- * keeps, and the pure views of it (the renderer's tab view, tool-result
- * summaries and notes, remote-safe paths and labels).
- */
 import { createHash } from 'node:crypto';
 import { basename, isAbsolute, relative, sep } from 'node:path';
 

@@ -1,7 +1,3 @@
-// The first launch after an update announces that version's notes once. The
-// version is marked seen, and main's pending update acknowledged, only once
-// the notice is on screen (or the version has no notes to show) — never while
-// the starter guide's welcome is open above it.
 import { type ComponentType, useCallback, useEffect, useRef, useState } from 'react';
 
 import { isMobileDeviceSurface } from '../mobile-surface';
@@ -53,10 +49,6 @@ export function useWhatsNewNotice(
   const [status] = useState(() => readWhatsNewStatus(version));
   const [notice, setNotice] = useState<{ Dialog: NoticeDialog; release: ChangelogRelease } | null>(null);
   const closeNotice = useCallback(() => setNotice(null), []);
-  // The starter welcome covers the window; the notice would sit hidden under
-  // it and be consumed unseen, so it waits until the welcome is dismissed.
-  // Any open modal (a confirm, Settings) does the same, and the notice would
-  // otherwise open and take focus underneath or over it.
   const guideOpen = useStarterGuideBlocking();
   const modalOpen = useAnyModalOpen();
   const covered = guideOpen || modalOpen;

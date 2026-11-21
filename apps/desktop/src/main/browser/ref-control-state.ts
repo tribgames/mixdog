@@ -1,9 +1,3 @@
-/**
- * Native control state read from the element itself: the options a <select>
- * offers (which the accessibility tree hides until it opens), and a checkbox
- * or radio button's checked state — changed by clicking it once, then read
- * back, never toggled blindly.
- */
 import type { WebContents } from 'electron';
 
 import { checkedBrowserRefResult, type createBrowserRefAccess } from './ref-access';
@@ -46,10 +40,6 @@ const READ_CHECKED = `function() {
 export function createRefControlState(host: RefControlStateHost, callRef: CallRef) {
   const { resolveRefPoint, input: browserInput } = host;
 
-  /** What a control offers, without choosing anything. A native <select> keeps
-   *  its options out of the accessibility tree, so they are read from the
-   *  element itself; a custom dropdown puts its options in the page once it is
-   *  open, where a snapshot already sees them. */
   async function listSelectOptions(
     guest: WebContents,
     ref: string,

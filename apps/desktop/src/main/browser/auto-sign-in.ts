@@ -1,75 +1,3 @@
-/**
- * Saved-login sign-in: when a page asks for a password and the Browser Use
- * profile holds a saved login for exactly that origin (HTTPS, no lookalikes:
- * profile-import.ts credentialSuggestions), the host signs in by itself with
- * the existing stored-credential fill (credential-autofill.ts), then submits.
- * The password goes into the page from this process only; the model, the
- * transcript and the logs see "signed in to <site>" and nothing more.
- *
- * Human check (best effort): a sign-in page often carries a Turnstile,
- * reCAPTCHA or hCaptcha widget that solves itself a few seconds after load.
- * Its token lands in a hidden response field and its frame may sit in a closed
- * shadow root, so the probe reads only light-DOM markers, hidden ones too, in
- * every frame and open shadow root, each element on its own: a response field
- * (cf-turnstile-response, g-recaptcha-response, h-captcha-response) that is
- * empty, or a provider container (.cf-turnstile, .g-recaptcha, .h-captcha)
- * with no filled field inside it, is pending. Nothing suppresses anything
- * else: an unresolved `execute`/invisible widget is pending too and ends in a
- * hand-off. A reCAPTCHA badge, a bare site key, a script and widget frames
- * are not evidence; a visible challenge frame (image grid, generic CAPTCHA)
- * is an immediate hand-off. The host fills only after the check holds its
- * token (the token is bound to the widget, not to the form values), waits at
- * most ~20 s, polling, and probes again right before the fill and right
- * before the submit, whatever the first probe saw. A page with no widget gets
- * a short grace to render one. A token that resets, a challenge that mounts,
- * or a widget that vanishes without a token means no submit and a hand-off.
- * Known misses: explicit render into an unmarked container with a custom
- * field name, and a widget that appears after the grace.
- *
- * Steps: a sign-in page with a password field is filled and submitted; a page
- * that shows only a username/email field (on a page that says sign-in, with
- * that one text field alone) gets the username, Enter, and then, once the
- * next page shows its password field, the password and Enter. When the step
- * after the password shows a one-time-code field (one input or one box per
- * digit) and the vault holds an authenticator key for the account, the host
- * makes the current code, types it into that field and presses Enter. All of
- * it is one attempt of at most three steps (username, password, code); the
- * code is a secret like the password and never reaches the model.
- *
- * The answer: many sites submit through their own script (an encrypted form,
- * a key fetch) and answer with a redirect chain, so a page right after Enter
- * still shows the filled form. After the password (and after the code) the
- * host waits for the site's answer, up to ~15 s, polling: it ends at once on
- * a challenge or the next step's field, on a sign-in error the page did not
- * show before the submit, or on the form sent back as a new document, and
- * once the page has left the sign-in form (at a new address, or the same
- * formless page on two readings), nothing loading. Signed in means that page
- * holds no sign-in form, code field or challenge, and no challenge wording
- * where its address still says sign-in (an account page may well mention
- * 2-step or passkeys). The reply's snapshot is taken of that page.
- *
- * Accounts: with several saved logins for the site the host uses the one whose
- * username is the identifier already prefilled on the page, else the one used or
- * saved most recently: the latest of its last sign-in here (auto sign-in or an
- * explicit `savedAccount` fill the form took), its last save (a login typed in
- * chat, 설정, a re-saved password) and, for a Chrome import, Chrome's own last
- * use of it. When that identifier fits
- * several logins that differ only by username case and none exactly, none is
- * guessed: nothing is filled and the sign-in is handed to the user. The agent's
- * explicit `savedAccount` fill is a separate path and always wins. A successful
- * sign-in records the account as last used (vault metadata, never a secret).
- *
- * Guardrails: on by the `browserAutoSignIn` setting (default on); HTTPS only;
- * one attempt per site per turn (a routine run is one turn), never a retry
- * loop; a page that already shows a challenge is left alone; a CAPTCHA, a
- * passkey, an SMS or email code, a code without a stored key, or any step
- * that does not finish stops here and the reply hands the sign-in to the user
- * (the takeover card, or a routine's "sign-in required"). Every fill and
- * submit re-checks the page address first. The submit follows the bot's
- * browser approval policy (`approveSubmit`) with the saved login as the
- * user's consent: a policy that would only ask lets it through, a block (or a
- * denied action) sends nothing and hands the sign-in to the user.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserCommandResult } from './host-types';
@@ -82,10 +10,6 @@ import type { BrowserCredentialValue } from './profile-import';
 import { redactBrowserText } from './redaction';
 import { pause } from './settle';
 
-/** The sign-in's own decision to stop and hand over to the user (a human
- *  check that did not finish or changed, a page that moved before a fill or
- *  submit, a submit the approval policy refused). It is the expected end of
- *  an attempt, not a failure to report. */
 class SignInStopped extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -108,12 +32,6 @@ function reportFailure(
   deps.onDiagnostic?.(event, { error: redactBrowserText(error instanceof Error ? error.message : String(error)) });
 }
 
-/** What the page shows: a sign-in password field, a challenge input or frame
- *  (one-time code, an interactive CAPTCHA), challenge wording (2FA, passkey),
- *  and the human-check state: `pending` when any response field is empty or
- *  any provider container holds no filled field of its own, `solved` when
- *  such elements exist and none is pending, `none` without any. Each element
- *  is judged alone; the reCAPTCHA badge and its contents are skipped. */
 export const SIGN_IN_STATE = `(() => {
   const visible = (element) => {
     const rect = element.getBoundingClientRect();
@@ -183,12 +101,6 @@ export const SIGN_IN_STATE = `(() => {
     challenge = true;
     code = true;
   }
-  // A username-only first step: no password field, and one text field alone
-  // on the page that is a username/email field with real sign-in evidence:
-  // autocomplete "username", or an email/text field whose own form says
-  // sign in (its controls, headings, id/action) or whose page does (URL path,
-  // title, headings) — and a form that says subscribe/sign up never. An email
-  // field alone (autocomplete "email", a newsletter box) is no evidence.
   const SIGN_IN_WORDS = /sign.?in|log.?in|log.?on|sign.?on|로그인|ログイン|登录|登入/i;
   const NOT_SIGN_IN = /subscri|newsletter|sign.?up|register|join|구독|뉴스레터|가입/i;
   const words = (nodes) => Array.from(nodes).map((node) => String(node.value || node.textContent || '')).join(' ');
@@ -464,10 +376,6 @@ function createSignInWaits(
   deps: Pick<BrowserAutoSignInDeps, 'humanCheck'>,
   { state, readMoving }: Pick<SignInReader, 'state' | 'readMoving'>
 ) {
-  /** Waits for the page's human check: up to the wait bound while a token is
-   *  missing, or a short grace for a late-rendered widget when none is there
-   *  yet. False when it never finishes, vanishes without a token, a challenge
-   *  appears or the form is gone; a cancelled command throws. */
   async function humanCheckCleared(
     guest: WebContents,
     signal: AbortSignal | undefined,
@@ -512,13 +420,6 @@ function createSignInWaits(
     }
   }
 
-  /** Waits for the site's answer to a submitted password or code, up to the
-   *  bound while the step's own form stands unanswered. It ends at once on a
-   *  challenge or another step's field, on an error the page did not show
-   *  before the submit, or on the form sent back as a new document; and once
-   *  the page has left the form with nothing loading: at a new address at
-   *  once, at the submitted one after the same formless document reads so
-   *  again. The last reading, or null without any. */
   async function submitAnswered(
     guest: WebContents,
     signal: AbortSignal | undefined,
@@ -596,10 +497,6 @@ function firstPhase(now: SignInState): Phase | null {
  *  page showed a sign-in error right before the submit. */
 type Submitted = { url: string; document: string; error: boolean };
 
-/** One step of an attempt with saved login `account` on `guest`: on `url`,
- *  wait out its human check, give the page this step's secret and press
- *  Enter. The page as it stood right before the submit, or null when there
- *  was nothing to send. */
 function createSignInStep(
   deps: Pick<BrowserAutoSignInDeps, 'code' | 'withCredential' | 'fill' | 'invalidate' | 'approveSubmit' | 'submit'>,
   state: SignInReader['state'],
@@ -670,10 +567,6 @@ function createSignInStep(
     if (!mayGoOn(ready, seen, phase) || guest.isDestroyed() || guest.getURL() !== url) {
       throw new SignInStopped('The human check changed before the submit; nothing was submitted.');
     }
-    // The submit is a form submit: it follows the bot's approval policy, and
-    // a block hands the sign-in to the user like any other. approveSubmit
-    // rejects only to refuse (a bot's block, a denied action, an operator
-    // decline), so a rejection is the expected stop; cancellation propagates.
     if (deps.approveSubmit) {
       try {
         await deps.approveSubmit(guest, signal);
@@ -688,10 +581,6 @@ function createSignInStep(
   };
 }
 
-/** One attempt on `guest`, started on `origin`: its steps, at most
- *  MAX_STEPS in all. It makes the attempt's record: the site's answer to the
- *  last submitted password or code (`outcome`, read at `url`), and that step:
- *  its phase and what it was submitted on. */
 function createSignInRun(
   {
     step,
@@ -834,10 +723,6 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
       deps
     );
     await runSteps(first, startUrl, before, initial.document);
-    // The page the attempt ended on. The answer stands only if the page still
-    // reads the same after it was observed (same document, same verdict): a
-    // redirect or a code page that renders meanwhile is waited for again and
-    // answered as the attempt would (a code step goes on, a challenge hands off).
     let after = await input.observe();
     let signedIn = false;
     for (let check = 0; attempt.outcome && attempt.last; check += 1) {

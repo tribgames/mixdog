@@ -1,8 +1,3 @@
-// The side Webhooks list (WebhooksView): routine rows with the owner bot's
-// face, sort chips (최근 이벤트 / 봇별) remembered per view, and the editor.
-// Stored webhook rows may carry no parser (the column is nullable and the
-// store's reader substitutes 'github'); the editor must read that legacy row as
-// the same parser, or the next save silently rewrites it.
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React, { act } from 'react';
@@ -421,12 +416,13 @@ test('Send test is disabled once a secret has been regenerated', async (t) => {
   );
 });
 
-test('an editor opened before the workspace answers shows No project once it arrives; edits and untouched saves keep their cwd', async (t) => {
-  const INTERNAL = 'C:\\Users\\u\\AppData\\Roaming\\mixdog-desktop\\workspace\\unclassified';
+const WORKSPACE_INTERNAL = 'C:\\Users\\u\\AppData\\Roaming\\mixdog-desktop\\workspace\\unclassified';
+
+async function mountEditorBeforeWorkspace(t) {
   const calls = [];
   let resolveWorkspace;
   const workspace = new Promise((resolve) => {
-    resolveWorkspace = () => resolve(INTERNAL);
+    resolveWorkspace = () => resolve(WORKSPACE_INTERNAL);
   });
   const api = {
     getTaskWorkspace: () => workspace,
@@ -438,7 +434,7 @@ test('an editor opened before the workspace answers shows No project once it arr
   };
   const setup = {
     webhook: { publicUrl: 'https://hooks.mixdog.test' },
-    webhooks: [{ name: 'hook', instructions: 'Triage', enabled: true, secretSet: true, cwd: INTERNAL }],
+    webhooks: [{ name: 'hook', instructions: 'Triage', enabled: true, secretSet: true, cwd: WORKSPACE_INTERNAL }],
   };
   resetSidebarReferenceCache();
   adoptSidebarReferenceHost(api);
@@ -458,22 +454,35 @@ test('an editor opened before the workspace answers shows No project once it arr
   });
   await act(async () => root.render(React.createElement(WebhooksPane, { api, active: true })));
   await act(async () => host.querySelector('.routines-open').click());
-  const shown = () => document.querySelector('[aria-label="Webhook project"] .mx-select-value').textContent;
-  const submit = () => act(async () => document.querySelector('.webhooks-editor-dialog form').requestSubmit());
-  const lastSave = () => calls.findLast((call) => call.capability === 'saveWebhook').args[0];
+  return {
+    resolveWorkspace: () => act(async () => resolveWorkspace()),
+    shown: () => document.querySelector('[aria-label="Webhook project"] .mx-select-value').textContent,
+    submit: () => act(async () => document.querySelector('.webhooks-editor-dialog form').requestSubmit()),
+    lastSave: () => calls.findLast((call) => call.capability === 'saveWebhook').args[0],
+  };
+}
 
-  assert.equal(shown(), INTERNAL, 'unknown workspace: nothing is guessed');
-  await act(async () => resolveWorkspace());
-  assert.equal(shown(), 'No project');
-  await submit();
-  assert.equal(lastSave().cwd, INTERNAL, 'an untouched draft writes its cwd back unchanged');
+test('an editor opened before the workspace answers guesses nothing, then shows No project', async (t) => {
+  const editor = await mountEditorBeforeWorkspace(t);
+  assert.equal(editor.shown(), WORKSPACE_INTERNAL, 'unknown workspace: nothing is guessed');
+  await editor.resolveWorkspace();
+  assert.equal(editor.shown(), 'No project');
+});
 
-  await act(async () => host.querySelector('.routines-open').click());
-  assert.equal(shown(), 'No project');
+test('an untouched save writes the webhook’s cwd back unchanged', async (t) => {
+  const editor = await mountEditorBeforeWorkspace(t);
+  await editor.resolveWorkspace();
+  await editor.submit();
+  assert.equal(editor.lastSave().cwd, WORKSPACE_INTERNAL);
+});
+
+test('picking a project in the editor saves that project as the cwd', async (t) => {
+  const editor = await mountEditorBeforeWorkspace(t);
+  await editor.resolveWorkspace();
   await act(async () => document.querySelector('[aria-label="Webhook project"]').click());
   const alpha = [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent.trim() === 'alpha');
   await act(async () => alpha.click());
-  assert.equal(shown(), 'alpha');
-  await submit();
-  assert.equal(lastSave().cwd, '/repos/alpha');
+  assert.equal(editor.shown(), 'alpha');
+  await editor.submit();
+  assert.equal(editor.lastSave().cwd, '/repos/alpha');
 });

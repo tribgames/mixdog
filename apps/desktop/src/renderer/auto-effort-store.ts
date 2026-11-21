@@ -3,10 +3,6 @@ import type { RecordValue } from './desktop-types';
 import { readCachedModelCatalog } from './model-catalog-cache';
 import { subscribeSetupChanges } from './setup-change-refresh';
 
-// The app-wide Auto reasoning MASTER switch (Settings → Built-in). It is read
-// once on demand (only a model that supports it asks), re-read when a sheet
-// opens or a setting changes anywhere, and published by Settings when it changes. Each route keeps its own
-// `autoEffort` flag (absent = on); the master gates whether routes show Auto.
 export type AutoEffortState = { installed: boolean; enabled: boolean; supported: boolean };
 
 let current: AutoEffortState | null = null;

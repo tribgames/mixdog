@@ -91,64 +91,41 @@ async function isolatedEnvFor(profile, parent) {
   return env;
 }
 
-// macOS and Linux drive the desktop through the native mixdog-computer
-// backend, which the dev app runs from native/mixdog-computer/target/release
-// (src/main/index.ts). Windows drives it through PowerShell and needs none.
-// Cargo rebuilds only what changed, so an up-to-date backend costs nothing.
+async function cargoBuildRelease(args, options, failure) {
+  const code = await new Promise((resolve) => {
+    const child = spawn('cargo', ['build', '--locked', '--release', ...args], { stdio: 'inherit', ...options });
+    child.once('error', () => resolve(null));
+    child.once('exit', resolve);
+  });
+  if (code !== 0) console.warn(`${failure} (cargo failed or Rust is not installed).`);
+}
+
+const nativeCrateDir = (name) => join(desktopDir, '..', '..', 'native', name);
+
 async function buildComputerBackend() {
   if (process.platform === 'win32') return;
-  const manifest = join(desktopDir, '..', '..', 'native', 'mixdog-computer', 'Cargo.toml');
-  const code = await new Promise((resolve) => {
-    const child = spawn('cargo', ['build', '--locked', '--release', '--manifest-path', manifest], {
-      stdio: 'inherit',
-    });
-    child.once('error', () => resolve(null));
-    child.once('exit', resolve);
-  });
-  if (code !== 0) {
-    console.warn('Computer Use backend was not built (cargo failed or Rust is not installed); it stays unavailable.');
-  }
+  await cargoBuildRelease(
+    ['--manifest-path', join(nativeCrateDir('mixdog-computer'), 'Cargo.toml')],
+    {},
+    'Computer Use backend was not built; it stays unavailable'
+  );
 }
 
-// The dev app loads the main-process Node-API module (the Browser Use URL and redaction rules) from
-// native/mixdog-main-native/target/release (src/main/native-module.ts), on every platform; the first call without it
-// is a fatal error naming the file. Cargo rebuilds only what changed.
 export async function buildMainNativeModule() {
-  const code = await new Promise((resolve) => {
-    // The crate's linker setup (.cargo/config.toml) applies from its directory.
-    const child = spawn('cargo', ['build', '--locked', '--release'], {
-      cwd: join(desktopDir, '..', '..', 'native', 'mixdog-main-native'),
-      stdio: 'inherit',
-    });
-    child.once('error', () => resolve(null));
-    child.once('exit', resolve);
-  });
-  if (code !== 0) {
-    console.warn(
-      'The main-process native module was not built (cargo failed or Rust is not installed); Browser Use stops at its first call.'
-    );
-  }
+  await cargoBuildRelease(
+    [],
+    { cwd: nativeCrateDir('mixdog-main-native') },
+    'The main-process native module was not built; Browser Use stops at its first call'
+  );
 }
 
-// The Windows dev app loads the Mica window Node-API module from
-// native/mixdog-window/target/release (src/main/window-mica.ts); without it the
-// frame is painted inactive while another window has the focus.
 export async function buildWindowLibrary() {
   if (process.platform !== 'win32') return;
-  const code = await new Promise((resolve) => {
-    // The crate's linker setup (.cargo/config.toml) applies from its directory.
-    const child = spawn('cargo', ['build', '--locked', '--release'], {
-      cwd: join(desktopDir, '..', '..', 'native', 'mixdog-window'),
-      stdio: 'inherit',
-    });
-    child.once('error', () => resolve(null));
-    child.once('exit', resolve);
-  });
-  if (code !== 0) {
-    console.warn(
-      'Mica window library was not built (cargo failed or Rust is not installed); the frame is painted inactive while another window has the focus.'
-    );
-  }
+  await cargoBuildRelease(
+    [],
+    { cwd: nativeCrateDir('mixdog-window') },
+    'Mica window library was not built; the frame is painted inactive while another window has the focus'
+  );
 }
 
 async function main() {

@@ -7,15 +7,6 @@ export interface TurnMemory {
   add(key: string): boolean;
 }
 
-/** What a session remembers per turn (a line already given, a sign-in
- *  already tried). A finished turn never runs commands again (a turn id at or
- *  below a finished one is refused: task-lifecycle.ts `begin`), so its
- *  entries go when it finishes, and a released session's with the session —
- *  there is no count to cap. A turn's memory is taken once, before the
- *  command's first await; the teardown detaches it, so a command still
- *  running when the session is released or the turn finished cannot write
- *  into the memory afterwards, and a new turn of the same session starts
- *  empty. */
 export function createTurnMemory() {
   const bySession = new Map<string, Map<number, Set<string>>>();
   return {

@@ -1,8 +1,3 @@
-/**
- * Guest viewport emulation over the local surface: the dimensions the pane
- * picker offers must reach the page, the encoded frame must carry the native
- * pixels unchanged, and the guest must be handed back its original metrics.
- */
 import assert from 'node:assert/strict';
 import { nativeImage, type WebContents } from 'electron';
 import type { BrowserHost } from './host-types';

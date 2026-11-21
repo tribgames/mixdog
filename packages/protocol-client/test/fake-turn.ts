@@ -1,7 +1,3 @@
-// A deterministic stand-in for the fold's turn clock (`ConnectOptions.turn`). Every `now()` call charges `COST` fake
-// milliseconds: the client checks its budget once per unit of work (a section staged, a change announced, a reducer step,
-// 64 stub-scan nodes), so fake time is proportional to the work done and independent of the machine. A turn ends at each
-// `yieldTurn`; the test counts what happened in it.
 import type { TurnOptions } from '../src/api.ts';
 
 export const BUDGET = 8;
@@ -47,4 +43,3 @@ export class FakeTurn {
     this.turns.length = 0;
   }
 }
-

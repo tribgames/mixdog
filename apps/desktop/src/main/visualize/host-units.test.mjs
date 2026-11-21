@@ -190,8 +190,10 @@ test('exportTabBytes refuses a PDF of a non-HTML pane and captures the panel for
   assert.equal((await exportTabBytes(capture, tab, 'png', 0)).toString(), 'shot');
 });
 
-test('zoom gestures inside a pane frame are forwarded to the renderer, once per window', () => {
-  const key = (key, extra = {}) => ({ type: 'keyDown', key, control: true, meta: false, alt: false, ...extra });
+const zoomKey = (key, extra = {}) => ({ type: 'keyDown', key, control: true, meta: false, alt: false, ...extra });
+
+test('visualizeZoomKey maps Ctrl/Cmd zoom keys and ignores the rest', () => {
+  const key = zoomKey;
   assert.equal(visualizeZoomKey(key('=')), 'in');
   assert.equal(visualizeZoomKey(key('+')), 'in');
   assert.equal(visualizeZoomKey(key('-')), 'out');
@@ -200,7 +202,10 @@ test('zoom gestures inside a pane frame are forwarded to the renderer, once per 
   assert.equal(visualizeZoomKey(key('=', { alt: true })), null);
   assert.equal(visualizeZoomKey(key('=', { type: 'keyUp' })), null);
   assert.equal(visualizeZoomKey(key('a')), null);
+});
 
+test('zoom gestures inside a pane frame are forwarded to the renderer, once per window', () => {
+  const key = zoomKey;
   // Every registration is recorded: a Map keyed by event name would hide a
   // second listener for the same event.
   const registrations = [];

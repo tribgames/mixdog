@@ -269,16 +269,9 @@ const parsing = new WeakMap<object, Promise<ParsedSessionDiff>>();
 const fingerprints = new WeakMap<object, string>();
 const NO_RESULT = {};
 
-/** Work done between yields to the event loop, in characters handled
- *  (patch text scanned or parsed, file metadata hashed). Every unit of work
- *  is at most one chunk of patch or one file, so no task grows with the
- *  whole result. */
 const SESSION_DIFF_PARSE_BUDGET = 64 * 1024;
-/** What one listed file counts for besides its patch text. */
 const FILE_UNIT = 256;
-/** Patch text scanned (and hashed) per unit. */
 const SCAN_CHUNK = 16 * 1024;
-/** A file header line read past a chunk's end, so a header crossing it is found. */
 const HEADER_REACH = 8 * 1024;
 
 const FNV_OFFSET = 0x811c9dc5;
@@ -478,25 +471,13 @@ function* sectionRanges(patch: string, gitStarts: number[]): Generator<number, A
   return ranges;
 }
 
-/** The parse as steps, each a bounded unit of work that yields the characters
- *  it handled: the content digest (a chunk of patch or a file each, finding
- *  the file sections on the way), then one file section each, then one listed
- *  file each. */
-function* sessionDiffParseSteps(
-  result: SessionDiffResult | null,
-  held: SessionDiffResult | null
-): Generator<number, ParsedSessionDiff, void> {
-  const patch = typeof result?.patch === 'string' ? result.patch : '';
-  const { fingerprint, starts } = yield* fingerprintSteps(result, patch);
-  fingerprints.set(result ?? NO_RESULT, fingerprint);
-  // The same content as the held answer: its parse serves this one too.
-  const heldParse = held ? parsedResults.get(held) : undefined;
-  if (heldParse && held && result && fingerprints.get(held) === fingerprint && (yield* exactDiffSteps(held, result))) {
-    return heldParse;
-  }
+function* patchPartSteps(
+  patch: string,
+  starts: number[]
+): Generator<number, { partsByPath: Map<string, SessionDiffPart[]>; retainedPatchChars: number }, void> {
   let ranges: Array<[number, number]> = [];
   try {
-    ranges = yield* sectionRanges(patch, starts ?? []);
+    ranges = yield* sectionRanges(patch, starts);
   } catch {
     ranges = [];
   }
@@ -512,8 +493,6 @@ function* sessionDiffParseSteps(
     }
     const path = partPath(part);
     if (!path) continue;
-    // The rows and path index share these parts. Ranged patches also share
-    // their display string; synthetic ranges produce a separate string.
     retainedPatchChars += part.patch.length;
     if (part.renderPatch !== part.patch) retainedPatchChars += part.renderPatch.length;
     for (const hunk of part.hunks) retainedPatchChars += hunk.length;
@@ -521,12 +500,18 @@ function* sessionDiffParseSteps(
     parts.push(part);
     partsByPath.set(path, parts);
   }
+  return { partsByPath, retainedPatchChars };
+}
+
+function* rowSteps(
+  result: SessionDiffResult | null,
+  partsByPath: ReadonlyMap<string, SessionDiffPart[]>
+): Generator<number, Pick<ParsedSessionDiff, 'rows' | 'digests' | 'index'>, void> {
   const rows: SessionDiffRow[] = [];
   const index = rowListIndexBuilder();
   const digests = new Map<string, string>();
   const seen = new Set<string>();
   const listedPaths = new Set<string>();
-  /** A file's unit: its metadata plus the patch text it digests. */
   const fileUnit = (parts: readonly SessionDiffPart[]) =>
     FILE_UNIT + parts.reduce((total, part) => total + part.patch.length, 0);
   for (const file of Array.isArray(result?.files) ? result.files : []) {
@@ -577,5 +562,21 @@ function* sessionDiffParseSteps(
     index.add(rows[rows.length - 1] as SessionDiffRow, rows.length - 1);
     yield fileUnit(parts);
   }
-  return { rows, partsByPath, retainedPatchChars, digests, fingerprint, index: index.finish(rows) };
+  return { rows, digests, index: index.finish(rows) };
+}
+
+function* sessionDiffParseSteps(
+  result: SessionDiffResult | null,
+  held: SessionDiffResult | null
+): Generator<number, ParsedSessionDiff, void> {
+  const patch = typeof result?.patch === 'string' ? result.patch : '';
+  const { fingerprint, starts } = yield* fingerprintSteps(result, patch);
+  fingerprints.set(result ?? NO_RESULT, fingerprint);
+  const heldParse = held ? parsedResults.get(held) : undefined;
+  if (heldParse && held && result && fingerprints.get(held) === fingerprint && (yield* exactDiffSteps(held, result))) {
+    return heldParse;
+  }
+  const { partsByPath, retainedPatchChars } = yield* patchPartSteps(patch, starts ?? []);
+  const { rows, digests, index } = yield* rowSteps(result, partsByPath);
+  return { rows, partsByPath, retainedPatchChars, digests, fingerprint, index };
 }

@@ -171,96 +171,104 @@ test('a group room keeps one typing slot row through its turns; the typing rows 
   assert.equal(keys.filter((key) => key.includes('room-typing')).length, 0, 'no typing row of its own');
 });
 
-test('the island files segment appears only once the session diff read finds changes, including an empty final diff', async (t) => {
+async function settleIslandReview(t, hasDiff) {
   const { root, document, window } = mount(t);
   // ComposerDock loads the review module lazily; with the chunk cached it
   // mounts in the first commit.
   await import('./TurnReview');
-  for (const hasDiff of [true, false]) {
-    // The island segment summarizes the whole session from the runtime's
-    // session diff; the turn review read still backs the expanded file list.
-    const pending = [];
-    const sessionPending = [];
-    window.mixdogDesktop.invokeCapability = (request) => {
-      const queue = { getTurnReviewDiff: pending, getSessionReviewDiff: sessionPending }[request.capability];
-      assert.ok(queue, `unexpected capability ${request.capability}`);
-      return new Promise((resolve) => queue.push(resolve));
-    };
-    const sessionId = `review-completion-${hasDiff}`;
-    const items = [
-      { kind: 'user', id: 'prompt', text: 'Change a file' },
-      { kind: 'tool', id: 'edit', name: 'apply_patch', args: {}, result: 'Updated demo.ts' },
-    ];
-    const scope = turnReviewScope(items).key;
-    rememberAgentReviews(`${sessionId}:${scope}`, [], '', [], 'worktree', scope);
-    const props = {
-      // The island mounts once the session's first lane snapshot has named it.
-      sessionId,
-      goalSubmissionId: '',
-      showProjectSelector: false,
-      reviewActive: true,
-      reviewSessionId: sessionId,
-      reviewCwd: 'C:/work',
-      children: React.createElement('textarea'),
-    };
-    const render = (busy, reviewItems) =>
-      act(async () => root.render(React.createElement(ComposerDock, { ...props, reviewItems, reviewBusy: busy })));
-    const segment = () => document.querySelector('.turn-review-segment');
-    const islandSlot = () => document.querySelector('.composer-island-slot');
-    await render(true, items);
-    const slot = islandSlot();
-    assert.equal(pending.length, 1);
-    assert.equal(segment(), null, 'an in-flight read shows no files segment');
-    await render(false, [...items, { kind: 'turndone', id: 'done', status: 'complete' }]);
-    assert.equal(segment(), null);
-    const response = (files) => ({
-      value: {
-        supported: true,
-        authoritative: true,
-        snapshotKind: 'worktree',
-        checkpointId: scope,
-        patch: '',
-        files,
-        agents: [],
-      },
+  // The island segment summarizes the whole session from the runtime's
+  // session diff; the turn review read still backs the expanded file list.
+  const pending = [];
+  const sessionPending = [];
+  window.mixdogDesktop.invokeCapability = (request) => {
+    const queue = { getTurnReviewDiff: pending, getSessionReviewDiff: sessionPending }[request.capability];
+    assert.ok(queue, `unexpected capability ${request.capability}`);
+    return new Promise((resolve) => queue.push(resolve));
+  };
+  const sessionId = `review-completion-${hasDiff}`;
+  const items = [
+    { kind: 'user', id: 'prompt', text: 'Change a file' },
+    { kind: 'tool', id: 'edit', name: 'apply_patch', args: {}, result: 'Updated demo.ts' },
+  ];
+  const scope = turnReviewScope(items).key;
+  rememberAgentReviews(`${sessionId}:${scope}`, [], '', [], 'worktree', scope);
+  const props = {
+    // The island mounts once the session's first lane snapshot has named it.
+    sessionId,
+    goalSubmissionId: '',
+    showProjectSelector: false,
+    reviewActive: true,
+    reviewSessionId: sessionId,
+    reviewCwd: 'C:/work',
+    children: React.createElement('textarea'),
+  };
+  const render = (busy, reviewItems) =>
+    act(async () => root.render(React.createElement(ComposerDock, { ...props, reviewItems, reviewBusy: busy })));
+  const segment = () => document.querySelector('.turn-review-segment');
+  const islandSlot = () => document.querySelector('.composer-island-slot');
+  await render(true, items);
+  const slot = islandSlot();
+  assert.equal(pending.length, 1);
+  assert.equal(segment(), null, 'an in-flight read shows no files segment');
+  await render(false, [...items, { kind: 'turndone', id: 'done', status: 'complete' }]);
+  assert.equal(segment(), null);
+  const response = (files) => ({
+    value: {
+      supported: true,
+      authoritative: true,
+      snapshotKind: 'worktree',
+      checkpointId: scope,
+      patch: '',
+      files,
+      agents: [],
+    },
+  });
+  const answerSession = (files) =>
+    act(async () => {
+      for (const resolve of sessionPending.splice(0))
+        resolve({ value: { ...response(files).value, checkpointId: '' } });
     });
-    const answerSession = (files) =>
-      act(async () => {
-        for (const resolve of sessionPending.splice(0))
-          resolve({ value: { ...response(files).value, checkpointId: '' } });
-      });
-    await act(async () => pending.shift()(response([])));
-    assert.equal(pending.length, 1);
-    assert.equal(segment(), null, 'an empty response renders nothing');
-    const finalFiles = hasDiff ? [{ path: 'demo.ts', status: 'M', additions: 1, deletions: 1 }] : [];
-    await act(async () => pending.shift()(response(finalFiles)));
-    await answerSession(finalFiles);
+  await act(async () => pending.shift()(response([])));
+  assert.equal(pending.length, 1);
+  assert.equal(segment(), null, 'an empty response renders nothing');
+  const finalFiles = hasDiff ? [{ path: 'demo.ts', status: 'M', additions: 1, deletions: 1 }] : [];
+  await act(async () => pending.shift()(response(finalFiles)));
+  await answerSession(finalFiles);
+  return { root, document, window, segment, islandSlot, slot, pending };
+}
+
+for (const hasDiff of [true, false]) {
+  test(`the island files segment ${hasDiff ? 'appears' : 'stays absent'} once the session diff read finds ${hasDiff ? 'changes' : 'an empty final diff'}`, async (t) => {
+    const { root, document, segment, islandSlot, slot, pending } = await settleIslandReview(t, hasDiff);
     assert.equal(document.querySelector('.turn-review-bar'), null, 'the review bar left the composer stack');
     assert.equal(Boolean(segment()), hasDiff);
     if (hasDiff) assert.equal(segment().closest('.composer-island-pill')?.parentElement?.className, 'composer-island');
     assert.ok(slot);
     assert.equal(islandSlot(), slot, 'the island slot stays mounted whatever it shows');
     assert.equal(pending.length, 0);
-    if (hasDiff) {
-      assert.match(segment().textContent, /\+1 −1$/, 'a space separates the line counts');
-      assert.match(segment().textContent, /^1 file\+1/, 'the count in words, singular for one file');
-      assert.ok(segment().firstElementChild.classList.contains('composer-island-seg-icon'), 'the file glyph leads');
-      assert.equal(segment().querySelector('.composer-island-seg-num').dataset.count, '1');
-      // No side dock here (no onOpenSessionDiff): the segment's View changes
-      // expands the island to the turn's file list in place, and Escape
-      // collapses it.
-      await act(async () => segment().click());
-      await act(async () => document.querySelector('.turn-review-files-menu [role="menuitem"]').click());
-      assert.equal(document.querySelector('.composer-island').dataset.expanded, 'files');
-      const bar = document.querySelector('.composer-island-pill > .turn-review-bar');
-      assert.equal(bar?.dataset.expanded, 'true');
-      assert.match(bar.querySelector('.turn-review-files').textContent, /demo\.ts/);
-      await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
-      assert.equal(document.querySelector('.composer-island').dataset.expanded, undefined);
-      assert.ok(segment(), 'collapsing returns to the segment');
-    }
     await act(async () => root.render(null));
-  }
+  });
+}
+
+test('the island segment shows its counts and expands to the turn file list until Escape', async (t) => {
+  const { root, document, window, segment } = await settleIslandReview(t, true);
+  assert.match(segment().textContent, /\+1 −1$/, 'a space separates the line counts');
+  assert.match(segment().textContent, /^1 file\+1/, 'the count in words, singular for one file');
+  assert.ok(segment().firstElementChild.classList.contains('composer-island-seg-icon'), 'the file glyph leads');
+  assert.equal(segment().querySelector('.composer-island-seg-num').dataset.count, '1');
+  // No side dock here (no onOpenSessionDiff): the segment's View changes
+  // expands the island to the turn's file list in place, and Escape
+  // collapses it.
+  await act(async () => segment().click());
+  await act(async () => document.querySelector('.turn-review-files-menu [role="menuitem"]').click());
+  assert.equal(document.querySelector('.composer-island').dataset.expanded, 'files');
+  const bar = document.querySelector('.composer-island-pill > .turn-review-bar');
+  assert.equal(bar?.dataset.expanded, 'true');
+  assert.match(bar.querySelector('.turn-review-files').textContent, /demo\.ts/);
+  await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+  assert.equal(document.querySelector('.composer-island').dataset.expanded, undefined);
+  assert.ok(segment(), 'collapsing returns to the segment');
+  await act(async () => root.render(null));
 });
 
 test('the island slot belongs to one session: a switch starts a fresh slot instead of animating the old one', async (t) => {

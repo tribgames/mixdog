@@ -1,7 +1,4 @@
-// A server (ssh) window reads its providers from the desktop through the model
-// proxy. While that proxy reconnects, the SSH transport can stay up, so no
-// reconnect event arrives: every surface waiting on desktop providers shares
-// this one retry cadence and this one "unavailable" check.
+// While the model proxy reconnects, the SSH transport can stay up, so no reconnect event arrives: surfaces waiting on desktop providers retry on this cadence.
 import { useEffect, useRef } from 'react';
 
 import { record } from './record-utils';

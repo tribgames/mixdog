@@ -197,47 +197,48 @@ function statusOf(value: unknown): CoreStatus {
   };
 }
 
+async function discoverCore(discoveryPath: string): Promise<DaemonDiscovery | null> {
+  try {
+    const raw = await readFile(discoveryPath, 'utf8');
+    const found = parseDaemonDiscovery(raw);
+    if (found) return found;
+    // A record without a control listener is a 1.4.5 daemon's: no core when its process is gone. Anything else that cannot be
+    // read is a core that cannot be asked, not an idle one.
+    let legacy: {
+      pid?: unknown;
+      protocol?: unknown;
+      core?: unknown;
+      endpoints?: { session?: { port?: unknown; token?: unknown } };
+    } | null = null;
+    try {
+      legacy = JSON.parse(raw);
+    } catch {
+      // Malformed: unknown below.
+    }
+    const session = legacy?.endpoints?.session;
+    const validLegacy =
+      legacy !== null &&
+      typeof legacy === 'object' &&
+      legacy.core === undefined &&
+      legacy.protocol === 1 &&
+      typeof legacy.pid === 'number' &&
+      Number.isSafeInteger(legacy.pid) &&
+      legacy.pid > 0 &&
+      port(session?.port) !== null &&
+      typeof session?.token === 'string';
+    if (validLegacy && pidGone(legacy!.pid as number)) return null;
+    throw new Error('core discovery record is unreadable');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
 export function createCoreControl(deps: CoreControlDeps = {}): CoreControl {
   const discoveryPath = deps.discoveryPath ?? join(resolveRuntimeRoot(), 'daemon.json');
-  const discover = async (): Promise<DaemonDiscovery | null> => {
-    try {
-      const raw = await readFile(discoveryPath, 'utf8');
-      const found = parseDaemonDiscovery(raw);
-      if (found) return found;
-      // A record without a control listener is a 1.4.5 daemon's: no core when its process is gone. Anything else that cannot be
-      // read is a core that cannot be asked, not an idle one.
-      let legacy: {
-        pid?: unknown;
-        protocol?: unknown;
-        core?: unknown;
-        endpoints?: { session?: { port?: unknown; token?: unknown } };
-      } | null = null;
-      try {
-        legacy = JSON.parse(raw);
-      } catch {
-        // Malformed: unknown below.
-      }
-      const session = legacy?.endpoints?.session;
-      const validLegacy =
-        legacy !== null &&
-        typeof legacy === 'object' &&
-        legacy.core === undefined &&
-        legacy.protocol === 1 &&
-        typeof legacy.pid === 'number' &&
-        Number.isSafeInteger(legacy.pid) &&
-        legacy.pid > 0 &&
-        port(session?.port) !== null &&
-        typeof session?.token === 'string';
-      if (validLegacy && pidGone(legacy!.pid as number)) return null;
-      throw new Error('core discovery record is unreadable');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      throw error;
-    }
-  };
   /** The discovery of the running core, or null; a refused connection is no core. */
   const running = async <T>(use: (discovery: DaemonDiscovery) => Promise<T>): Promise<T | null> => {
-    const discovery = await discover();
+    const discovery = await discoverCore(discoveryPath);
     if (!discovery) return null;
     try {
       return await use(discovery);

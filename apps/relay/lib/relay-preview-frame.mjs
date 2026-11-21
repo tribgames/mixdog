@@ -4,26 +4,6 @@
 // it. The response CSP repeats that sandbox (never allow-same-origin, top
 // navigation or popups): the page runs in an opaque origin and cannot reach
 // the app's storage, pairing token or relay socket.
-//
-// Outside network is on, over https only, like a visualize page on the
-// desktop: CDN scripts/styles, web fonts, images, media, live fetches and
-// https embeds load. `form-action`, `base-uri` and `object-src` stay 'none'.
-// The relay's own origin is covered by `https:` (CSP cannot exclude it); it
-// is unreachable WITH credentials, which is what matters:
-//  - the relay's cookies are SameSite=Lax, and a request from an opaque
-//    origin is cross-site, so no relay cookie is attached to its fetches,
-//    subresources or nested frame navigations (Lax only rides top-level
-//    navigations, which this sandbox forbids);
-//  - as defence in depth the relay ignores cookie credentials on any
-//    cross-site request that is not a top-level navigation, and on any
-//    `Origin: null` request (static-http.mjs `cookieCredentialAllowed`);
-//  - the other credentials (Authorization bearer, `?token=`) live in the
-//    app's storage, which the opaque frame cannot read;
-//  - relay responses carry `Cross-Origin-Resource-Policy: same-origin` and
-//    no CORS grant, so the frame cannot read them either.
-// The app also answers a page's requests for its own project files over
-// postMessage (the page bridge). The page is static and public: no cookies
-// are read or set, and nothing in it is user data.
 export const PREVIEW_FRAME_PATH = '/preview-frame';
 
 export const PREVIEW_FRAME_CSP = [

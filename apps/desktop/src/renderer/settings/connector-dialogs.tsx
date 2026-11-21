@@ -239,10 +239,6 @@ export function ConnectorKeySheet({
   );
 }
 
-/** Gmail with a Google app password (IMAP/SMTP) instead of the Google
- *  sign-in. The host checks the password with Gmail before anything is saved
- *  and keeps it in the keychain; the field is read once on submit and
- *  emptied after a failure, never held in React state. */
 export function GmailAppPasswordDialog({
   entry,
   account,

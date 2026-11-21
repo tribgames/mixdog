@@ -26,18 +26,27 @@ test('scoped-feed notifications arrive as ordered notification events; sendBinar
   const events: ClientEvent[] = [];
   client.on((e) => events.push(e));
 
-  const feed = (method: string, params: unknown, id: string, seq: number) => conn.serverSend({ method, params, feed: { id, epoch: 'e', seq } });
+  const feed = (method: string, params: unknown, id: string, seq: number) =>
+    conn.serverSend({ method, params, feed: { id, epoch: 'e', seq } });
   feed('fs/changed', { watchId: 'w', changedPaths: ['a'] }, 'fs:w', 0);
   feed('system/ports/updated', { section: 'ports', key: null, revision: 1, value: [] }, 'ports', 0);
   feed('fs/changed', { watchId: 'w', changedPaths: ['b'] }, 'fs:w', 1);
   for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
-  const got = events.filter((e) => e.type === 'notification').map((e) => (e as { notification: { method: string; feed?: { id: string } } }).notification);
-  assert.deepEqual(got.map((n) => `${n.feed?.id}:${n.method}`), ['fs:w:fs/changed', 'ports:system/ports/updated', 'fs:w:fs/changed']);
+  const got = events
+    .filter((e) => e.type === 'notification')
+    .map((e) => (e as { notification: { method: string; feed?: { id: string } } }).notification);
+  assert.deepEqual(
+    got.map((n) => `${n.feed?.id}:${n.method}`),
+    ['fs:w:fs/changed', 'ports:system/ports/updated', 'fs:w:fs/changed']
+  );
 
   const frame = new Uint8Array(20);
   client.sendBinary(frame);
   assert.deepEqual(conn.binary, [frame]);
-  assert.throws(() => client.sendBinary(new Uint8Array(options.initializeResult.limits.maxMediaFrameBytes + 17)), /protocolViolation|maxMediaFrameBytes/);
+  assert.throws(
+    () => client.sendBinary(new Uint8Array(options.initializeResult.limits.maxMediaFrameBytes + 17)),
+    /protocolViolation|maxMediaFrameBytes/
+  );
 
   feed('fs/changed', { watchId: 'w', changedPaths: ['c'] }, 'fs:w', 5);
   for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
@@ -63,7 +72,11 @@ test('a frame standing for a run of positions (feed.from) continues the feed; on
   const events: ClientEvent[] = [];
   client.on((e) => events.push(e));
   const send = (seq: number, from?: number) =>
-    conn.serverSend({ method: 'fs/changed', params: { watchId: 'w', changedPaths: [String(seq)] }, feed: { id: 'fs:w', epoch: 'e', seq, ...(from === undefined ? {} : { from }) } });
+    conn.serverSend({
+      method: 'fs/changed',
+      params: { watchId: 'w', changedPaths: [String(seq)] },
+      feed: { id: 'fs:w', epoch: 'e', seq, ...(from === undefined ? {} : { from }) },
+    });
   send(0);
   send(3, 1);
   send(4);
@@ -72,5 +85,9 @@ test('a frame standing for a run of positions (feed.from) continues the feed; on
   assert.equal(conn.clientClose, undefined, 'a range that starts right after the last position is no gap');
   send(7, 6);
   for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
-  assert.equal((conn.clientClose as MockConn['clientClose'])?.code, 1002, 'a range that starts past the next position is a gap');
+  assert.equal(
+    (conn.clientClose as MockConn['clientClose'])?.code,
+    1002,
+    'a range that starts past the next position is a gap'
+  );
 });

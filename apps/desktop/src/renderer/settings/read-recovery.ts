@@ -103,6 +103,26 @@ export function startSettingsReadRecovery(
   };
 }
 
+/** A replaceable read that also follows the host connection and re-reads when the window regains focus.
+ *  `replace` re-reads now; `stop` ends all three. */
+export function watchSettingsRead(
+  api: Partial<Pick<DesktopApi, 'sections'>> | undefined,
+  read: (signal: AbortSignal) => void | Promise<unknown>,
+  delay: number
+) {
+  const recovery = startSettingsReadRecovery(read, delay, true, true);
+  const stopLink = followSettingsReadConnection(api, recovery);
+  window.addEventListener('focus', recovery.replace);
+  return {
+    replace: recovery.replace,
+    stop() {
+      stopLink?.();
+      recovery.stop();
+      window.removeEventListener('focus', recovery.replace);
+    },
+  };
+}
+
 export function followSettingsReadConnection(
   api: Partial<Pick<DesktopApi, 'sections'>> | undefined,
   recovery: Pick<ReturnType<typeof startSettingsReadRecovery>, 'setConnected'>

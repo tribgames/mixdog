@@ -1,13 +1,3 @@
-/**
- * Version history for visualize tabs. Each open and auto-reload snapshots the
- * tab's pane files when their content changed (HTML pages together with the
- * local styles, scripts and media they reference, so an old version renders
- * as it was). Snapshots live under the app's data folder, never the project,
- * each file at its path relative to its root (the cwd, or an outside page's
- * own folder) inside the version's folder (under the root's index when the
- * panes come from several roots). Tabs do not survive a restart, so the
- * folder starts empty every run.
- */
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';

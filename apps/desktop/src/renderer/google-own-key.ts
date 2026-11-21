@@ -1,7 +1,3 @@
-// "내 Google 키 사용": the user's own Google OAuth client for Gmail, Calendar
-// and Drive, as a fallback when Mixdog's shared client is full. The downloaded
-// client_secret_*.json is parsed here; the secret goes to the host only in the
-// apply call (saveMcpServer → keychain), never into config or renderer state.
 import { CONNECTOR_CATALOG } from '../shared/core-src/runtime/shared/connector-catalog.mjs';
 import { connectorAccountRows } from './connectors-model';
 

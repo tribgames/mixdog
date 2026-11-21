@@ -1,9 +1,3 @@
-/**
- * What the S48 focus watch reports, and the one-line account of the keyboard
- * and mouse input its hooks saw around a step, which a user-input refusal is
- * judged against.
- */
-
 export interface FocusWatchInput {
   at: number;
   kind: 'key' | 'pointer';
@@ -94,10 +88,7 @@ export interface FocusLockRun {
   repliedAt: number;
 }
 
-/** The target fixture saying it was focused: an activation whose
- *  BrowserWindow.isFocused() answered true, or a BrowserWindow focus event.
- *  Electron reports both for an activation local to the target's own thread
- *  that never makes it the foreground window, so only the OS watch decides. */
+/** Electron reports isFocused() and focus events for an activation local to the target's thread that never makes it the foreground window, so only the OS watch decides. */
 export interface FocusClaim {
   label: string;
   at: number;
@@ -112,12 +103,6 @@ export function describeFocusWindow(hwnd: number, sentinel: number, target: numb
   return `0x${hwnd.toString(16)}`;
 }
 
-/** S48's verdict from the OS watch: every excursion from the sentinel belongs
- *  to an action, ends with the sentinel holding both foreground and focus
- *  again, and lasts at most `boundMs`. A fixture focus claim inside an
- *  excursion is covered by that; outside one it fails only when the watch
- *  shows the target holding the foreground or focus around it, and is
- *  otherwise reported as a note. */
 export function judgeFocusLock(input: {
   watch: Pick<FocusWatch, 'armed_at' | 'changes' | 'typed' | 'withheld'>;
   sentinel: number;
@@ -194,11 +179,7 @@ export function judgeFocusLock(input: {
   return { excursions, exposure, notes, failures };
 }
 
-/** The exposure one action's foreground_lock facts show. Times are on the
- *  QueryPerformanceCounter clock the worker and the host's lease thread share,
- *  so each is given against the lock's acquisition: when the action was
- *  dispatched and returned, the deadline, and when the hold ended, with how
- *  it ended and what the restore did. */
+/** Times are on the QueryPerformanceCounter clock the worker and the host's lease thread share. */
 export function describeForegroundLock(facts: unknown): string {
   if (!facts || typeof facts !== 'object') return 'no foreground_lock facts';
   const worker = facts as Record<string, unknown>;
@@ -230,10 +211,6 @@ export function describeForegroundLock(facts: unknown): string {
   ].join(', ');
 }
 
-/** One action's lock against the harness's own wall-clock evidence: the
- *  worker's `requested_epoch_ms` anchors its clock, so the target's own
- *  activation attempts (whether each got the foreground), the foreground
- *  changes and the keys the watch typed are placed against the hold. */
 export function describeLockTimeline(
   facts: unknown,
   watch: Pick<FocusWatch, 'typed' | 'changes'>,

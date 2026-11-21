@@ -79,10 +79,6 @@ export function boundedFullPageRect(contentSize: {
   return rect;
 }
 
-/** Whether a page of `rect` CSS px, at `pixelRatio` image px per CSS px, is
- *  past the image limits. The ratio is the capture's estimate, so a page within
- *  a rounding of the limits counts as past them: the banded capture measures
- *  the real ratio and keeps such a page at full size if it does fit. */
 export function fullPageExceedsLimits(rect: BrowserScreenshotRect, pixelRatio: number): boolean {
   const slack = 1.002;
   return (
@@ -191,10 +187,6 @@ export function fullPageOutputSize(width: number, height: number): { width: numb
   return { width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)), scale };
 }
 
-/** Fixed and sticky elements are positioned against the viewport, so a
- *  full-page clip paints a header over the middle of the document. Anchoring
- *  them in flow for the capture keeps them where the reader expects; the
- *  inline style is put back exactly as it was. */
 export const FULL_PAGE_LAYOUT_PREPARE = `(() => {
   if (window.__mixdogFullPageLayout) return 0;
   const changed = [];

@@ -1,8 +1,3 @@
-/**
- * Session unload and restore. Unloading a session saves what its pages were
- * and closes them; the next use of the session recreates them from those
- * descriptors. Deleting a session forgets them.
- */
 import type { WebContents } from 'electron';
 
 import { OFFSCREEN_VIEWPORT } from './host-types';

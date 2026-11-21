@@ -4,7 +4,6 @@ import { materializeDroppedFiles } from './file-drag';
 import type { QueuedMediaRequest, StudioMediaJob, StudioReference } from './studio-media-state';
 import {
   callCapability,
-  errorText,
   type MediaJob,
   type MediaKind,
   type MediaLane,
@@ -13,6 +12,7 @@ import {
   type StudioApi,
   type StudioOptions,
 } from './studio-support';
+import { errorMessage } from './editor-pane-session-errors';
 
 // Composer-side actions: reference images in, queued generation runs out.
 export function createStudioGenerationActions({
@@ -50,7 +50,7 @@ export function createStudioGenerationActions({
     try {
       await api?.openAttachmentImage?.(reference.url, `reference-${index + 1}.${extension}`);
     } catch (reason) {
-      setError(errorText(reason));
+      setError(errorMessage(reason));
     }
   };
 
@@ -110,7 +110,7 @@ export function createStudioGenerationActions({
       // Generate looking like a dead button with nothing to read anywhere.
       setError(t('Generation did not start — the runtime returned no job.'));
     } catch (reason) {
-      setError(errorText(reason));
+      setError(errorMessage(reason));
     }
     return false;
   };
@@ -138,7 +138,7 @@ export function createStudioGenerationActions({
       // A cancel is deliberate: drop the slot instead of leaving a dead tile.
       dismissJob(id);
     } catch (reason) {
-      setError(errorText(reason));
+      setError(errorMessage(reason));
     }
   };
 

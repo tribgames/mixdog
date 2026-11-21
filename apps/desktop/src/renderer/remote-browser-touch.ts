@@ -51,15 +51,8 @@ export function createRemoteTouchController(options: {
 }) {
   type Touch = { x: number; y: number; startX: number; startY: number };
   const touches = new Map<number, Touch>();
-  /** Every contact's position read in one event (`contacts`), since the set
-   *  of contacts last changed; null until one arrives. */
   let snapshot: Point[] | null = null;
-  /** This two-finger gesture's touch lists arrive: it moves only by them. */
   let snapshotSeen = false;
-  /** Fingers whose pointer moved since the last touch list. A touch list
-   *  follows each frame's pointer moves, so once every finger has reported
-   *  and one reports again with no list between, the lists stopped (only a
-   *  `touchstart` came). One finger's repeated reports alone may be batching. */
   const movedSinceSnapshot = new Set<number>();
   const now = options.now ?? (() => Date.now());
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -164,12 +157,6 @@ export function createRemoteTouchController(options: {
       touch.x = x;
       touch.y = y;
       if (mode === 'two' || mode === 'pinch' || mode === 'scroll') {
-        // One pointer event carries one finger. A gesture whose touch lists
-        // arrive moves only through `contacts`, which reads them all at once;
-        // without them (no touch events) pointer reports scroll the page, and
-        // never zoom, which partial reports cannot tell from a scroll. Both
-        // move one shared centroid, so no motion is dispatched twice. Lists
-        // that stop coming hand the gesture back to the pointer reports.
         if (snapshotSeen) {
           if (!movedSinceSnapshot.has(id) || movedSinceSnapshot.size < touches.size) {
             movedSinceSnapshot.add(id);
@@ -261,14 +248,7 @@ export function createRemoteTouchController(options: {
       release();
       mode = touches.size ? 'ended' : 'idle';
     },
-    /**
-     * Every contact's current position, read in one event (a TouchEvent's
-     * touches on the picture). Pointer events carry one finger each, and a
-     * finger's report can arrive frames after another's, so two-finger
-     * motion — the pinch-or-scroll decision included — is read only from
-     * these synchronized snapshots, never from a partial set of reports. A
-     * snapshot of another set of contacts than the pointers down is ignored.
-     */
+    /** Every contact's position from one event (a TouchEvent's touches on the picture); a snapshot of another set of contacts than the pointers down is ignored. */
     contacts(points: Point[]): void {
       if (mode !== 'two' && mode !== 'pinch' && mode !== 'scroll') return;
       if (!points.length || points.length !== touches.size) return;

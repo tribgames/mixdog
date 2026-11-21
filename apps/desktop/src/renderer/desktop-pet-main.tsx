@@ -36,11 +36,6 @@ type PetPicture = { state: 'none' } | { state: 'loading' } | { state: 'ready'; s
 const NO_PICTURE: PetPicture = { state: 'none' };
 const LOADING_PICTURE: PetPicture = { state: 'loading' };
 
-/** A GIF or WebP that came without its stored first frame (an older single
- *  upload): its first frame drawn once to a still PNG, so an animated picture
- *  never repaints the transparent overlay every frame (the pet draws only its
- *  still idle look; it shows no typing/message motion). '' if it cannot be
- *  decoded. A PNG (and every stored first frame) is used as it is. */
 function petStillFrame(src: string): Promise<string> {
   if (!/^data:image\/(gif|webp)[;,]/.test(src)) return Promise.resolve(src);
   return new Promise((resolve) => {
@@ -98,10 +93,6 @@ function shownBubble(view: DesktopPetView | null, dismissedKey: string): Compani
   return 'key' in bubble && bubble.key === dismissedKey ? { kind: 'idle' } : bubble;
 }
 
-/** Empty rows (of the mascot's 12) under the one bot's lowest drawn row: the
- *  sprite is lowered by them so its visible feet are the box's bottom, the
- *  line main stands the bot on. None under a picture (it fills the box),
- *  nor while it loads (the box stands empty in its geometry). */
 function petFeetGap(view: DesktopPetView | null, picture: PetPicture = NO_PICTURE): number {
   if (picture.state === 'ready' || picture.state === 'loading') return 0;
   const rows = petMascotCells(view?.face, true).map((cell) => cell.y);
@@ -150,10 +141,7 @@ function rectMinus(a: DesktopPetRect, b: DesktopPetRect): DesktopPetRect[] {
   return parts;
 }
 
-/** The whole window less the cut-outs, as a clip-path for #root
- *  (desktop-pet.css): CSS, so it holds on every platform (no window shape),
- *  and clipped-out parts are not hit by the pointer either. The holes are
- *  made disjoint first: two overlapping ones would cancel out under evenodd. */
+/** The clip-path for #root: the whole window less the cut-outs. The holes are made disjoint first: overlapping ones would cancel out under evenodd. */
 function petClipPath(cutouts: readonly DesktopPetRect[]): string {
   if (!cutouts.length) return '';
   const holes: DesktopPetRect[] = [];
@@ -166,10 +154,6 @@ function petClipPath(cutouts: readonly DesktopPetRect[]): string {
   return `path(evenodd, "M-1 -1H99999V99999H-1z${rings}")`;
 }
 
-/** Clicks pass through every transparent pixel: only the pet, its bubble
- *  and the quick message catch the pointer (main forwards mouse moves),
- *  and not where an app layer is cut out of them (the click is that
- *  layer's). */
 function usePointerPassThrough(cutouts: readonly DesktopPetRect[]) {
   const cuts = useRef(cutouts);
   const recheck = useRef(() => {});
@@ -201,10 +185,6 @@ function usePointerPassThrough(cutouts: readonly DesktopPetRect[]) {
       )
         pet.focusInput(true);
     };
-    // The window took focus with nothing in it focused (the system focused
-    // it, not a click on the bot): the bot takes the keys (Enter, Shift+F10,
-    // the ContextMenu key, arrows), without a ring: the key that switched
-    // windows was not pressed here.
     const focused = () => {
       setPetKeyboardUse(false);
       if (document.activeElement && document.activeElement !== document.body) return;

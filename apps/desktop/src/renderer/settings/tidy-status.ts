@@ -221,6 +221,37 @@ export function engineRowState({
 
 const TIDY_PROBING_RECHECK_MS = 700;
 
+function useTidyInstallProgress(api: PanelContext['api'], installing: boolean): TidyInstallProgress | null {
+  const [progressRead, setProgressRead] = useState<TidyInstallProgress | null>(null);
+  useEffect(() => {
+    setProgressRead(null);
+    if (!installing) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      try {
+        const next = installStatusOf(await readTidyCapability(api, 'getTidyInstallStatus'));
+        if (!disposed && next) {
+          setProgressRead(next);
+        }
+      } catch {
+        /* a status read failure is not an installation failure */
+      }
+      if (!disposed) {
+        timer = setTimeout(poll, 500);
+      }
+    };
+
+    void poll();
+    return () => {
+      disposed = true;
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [api, installing]);
+  return progressRead;
+}
+
 export function useTidyEngineStatus(
   api: PanelContext['api'],
   active: boolean,
@@ -232,7 +263,6 @@ export function useTidyEngineStatus(
     status: TidyEngineSnapshot | null;
     progress: TidyInstallProgress | null;
   }>();
-  const [progressRead, setProgressRead] = useState<TidyInstallProgress | null>(null);
   const latest = useRef(0);
   const held = snapshot?.api === api ? snapshot : undefined;
   const status = held?.status ?? null;
@@ -273,35 +303,7 @@ export function useTidyEngineStatus(
     return () => clearTimeout(timer);
   }, [active, probing, status, refresh]);
 
-  useEffect(() => {
-    if (!installing) {
-      setProgressRead(null);
-      return;
-    }
-    setProgressRead(null);
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const poll = async () => {
-      try {
-        const next = installStatusOf(await readTidyCapability(api, 'getTidyInstallStatus'));
-        if (!disposed && next) {
-          setProgressRead(next);
-        }
-      } catch {
-        /* a status read failure is not an installation failure */
-      }
-      if (!disposed) {
-        timer = setTimeout(poll, 500);
-      }
-    };
-
-    void poll();
-    return () => {
-      disposed = true;
-      if (timer !== undefined) clearTimeout(timer);
-    };
-  }, [api, installing]);
+  const progressRead = useTidyInstallProgress(api, installing);
 
   return {
     status,

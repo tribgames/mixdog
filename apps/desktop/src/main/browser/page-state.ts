@@ -1,9 +1,3 @@
-/**
- * Cookies and web storage: the two page-state surfaces a command reads or
- * rewrites. They live outside the host because each one needs only the guest,
- * the browser partition, and the way this app evaluates a page script — never
- * the tab graph, the CDP sessions, or the command queue.
- */
 import type { Session, WebContents } from 'electron';
 
 import type { BrowserCommand, BrowserCommandResult } from './host-types';

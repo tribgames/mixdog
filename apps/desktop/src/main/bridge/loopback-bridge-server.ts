@@ -1,10 +1,3 @@
-/**
- * Loopback command server behind a runtime tool that the desktop app serves
- * (the read-only `terminal` tool, the `visualize` tool). Same shape as the
- * browser bridge: publishes its port/token through the shared bridge discovery
- * file and keeps ownership of that file, reclaiming it from a dead foreign
- * writer on the next heartbeat.
- */
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
@@ -180,22 +173,7 @@ export class LoopbackBridgeServer<TCommand extends object> {
     const startedAt = Date.now();
     this.token = randomBytes(24).toString('base64url');
     const server = createServer((request, response) => {
-      void (async () => {
-        const authorization = String(request.headers.authorization || '');
-        if (request.method === 'GET' && request.url === '/health') {
-          this.handleHealth(response, authorization, generation);
-          return;
-        }
-        if (request.method !== 'POST' || request.url !== '/command') {
-          this.respond(response, 404, { ok: false, error: 'not found' });
-          return;
-        }
-        if (authorization !== `Bearer ${this.token}`) {
-          this.respond(response, 401, { ok: false, error: 'unauthorized' });
-          return;
-        }
-        await this.handleCommand(request, response);
-      })().catch(() => {
+      void this.route(request, response, generation).catch(() => {
         try {
           response.destroy();
         } catch {
@@ -213,36 +191,53 @@ export class LoopbackBridgeServer<TCommand extends object> {
       if (this.server === server) this.server = null;
       this.deactivate();
     });
-    listenOnFetchSafePort(
-      server,
-      '127.0.0.1',
-      () => {
-        const address = server.address();
-        const port = address && typeof address === 'object' ? address.port : 0;
-        if (!port || this.server !== server) return;
-        const record = createBridgeDiscoveryRecord({ port, token: this.token, generation, startedAt });
-        this.record = record;
-        void this.discovery
-          .writeDiscovery(record)
-          .then((ownership) => {
-            if (this.server !== server || !sameBridgeDiscovery(this.record, record)) return;
-            if (ownership !== 'owned') {
-              console.warn(`${label} bridge discovery ${ownership}; heartbeat will retry`);
-            }
-            this.heartbeat = setInterval(() => {
-              void this.maintain(record, server).catch((error) => {
-                console.error(`${label} bridge discovery heartbeat failed:`, error);
-              });
-            }, this.options.heartbeatMs || HEARTBEAT_MS);
-            this.heartbeat.unref?.();
-            this.options.onReady?.();
-          })
-          .catch((error) => {
-            console.error(`${label} bridge discovery write failed:`, error);
+    listenOnFetchSafePort(server, '127.0.0.1', () => this.publish(server, generation, startedAt), {
+      isCurrent: () => this.server === server,
+    });
+  }
+
+  private async route(request: IncomingMessage, response: ServerResponse, generation: number): Promise<void> {
+    const authorization = String(request.headers.authorization || '');
+    if (request.method === 'GET' && request.url === '/health') {
+      this.handleHealth(response, authorization, generation);
+      return;
+    }
+    if (request.method !== 'POST' || request.url !== '/command') {
+      this.respond(response, 404, { ok: false, error: 'not found' });
+      return;
+    }
+    if (authorization !== `Bearer ${this.token}`) {
+      this.respond(response, 401, { ok: false, error: 'unauthorized' });
+      return;
+    }
+    await this.handleCommand(request, response);
+  }
+
+  private publish(server: Server, generation: number, startedAt: number): void {
+    const { label } = this.identity;
+    const address = server.address();
+    const port = address && typeof address === 'object' ? address.port : 0;
+    if (!port || this.server !== server) return;
+    const record = createBridgeDiscoveryRecord({ port, token: this.token, generation, startedAt });
+    this.record = record;
+    void this.discovery
+      .writeDiscovery(record)
+      .then((ownership) => {
+        if (this.server !== server || !sameBridgeDiscovery(this.record, record)) return;
+        if (ownership !== 'owned') {
+          console.warn(`${label} bridge discovery ${ownership}; heartbeat will retry`);
+        }
+        this.heartbeat = setInterval(() => {
+          void this.maintain(record, server).catch((error) => {
+            console.error(`${label} bridge discovery heartbeat failed:`, error);
           });
-      },
-      { isCurrent: () => this.server === server }
-    );
+        }, this.options.heartbeatMs || HEARTBEAT_MS);
+        this.heartbeat.unref?.();
+        this.options.onReady?.();
+      })
+      .catch((error) => {
+        console.error(`${label} bridge discovery write failed:`, error);
+      });
   }
 
   async stop(internal = false): Promise<void> {

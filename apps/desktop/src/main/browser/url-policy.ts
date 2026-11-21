@@ -1,12 +1,3 @@
-/**
- * URL admission rules: scheme, embedded credentials, agent-input secret
- * tokens (but in a link the runtime read in a mail for the session), cloud
- * metadata endpoints, private networks, and the optional domain allowlist.
- * The rules are Rust (native/core/crates/mixdog-browser-rules), served
- * synchronously through mixdog_main_native.node (redaction.ts names it); this file
- * holds the types and the exports, no rule. url-admission wraps these with
- * DNS resolution; navigation and request filtering both call through here.
- */
 import { type BrowserMailLink, type BrowserUrlPolicy, browserPolicy } from './redaction';
 
 export type { BrowserMailLink, BrowserUrlPolicy };

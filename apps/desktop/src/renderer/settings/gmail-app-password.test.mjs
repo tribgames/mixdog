@@ -1,7 +1,3 @@
-// Extensions → 커넥터 → Gmail → 앱 비밀번호로 연결: the dialog sends the
-// address and the space-stripped password to the host once, shows Gmail's
-// refusal in words, empties the password field after it, and closes once the
-// host reports the connection.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 

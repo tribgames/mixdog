@@ -170,6 +170,35 @@ function ProblemSeverityIcon({ severity }: { severity: number }) {
   return <Info size={16} aria-hidden="true" />;
 }
 
+/** The problems the panel's filter keeps, ordered by file, then by the filter's sort. */
+function visibleProblems(
+  problems: readonly EditorProblem[],
+  filter: ProblemsPanelFilter,
+  activeFileRel: string
+): EditorProblem[] {
+  const needle = filter.query.trim().toLocaleLowerCase();
+  return problems
+    .filter((problem) => {
+      if (problem.severity === 1 && !filter.showErrors) return false;
+      if (problem.severity === 2 && !filter.showWarnings) return false;
+      if (problem.severity >= 3 && !filter.showInfos) return false;
+      if (filter.activeFileOnly && normalizedPath(problem.relPath) !== normalizedPath(activeFileRel)) {
+        return false;
+      }
+      return (
+        !needle ||
+        `${problem.message} ${problem.relPath} ${problem.source} ${problem.code}`.toLocaleLowerCase().includes(needle)
+      );
+    })
+    .sort(
+      (left, right) =>
+        left.relPath.localeCompare(right.relPath) ||
+        (filter.sort === 'severity'
+          ? left.severity - right.severity || left.startLineNumber - right.startLineNumber
+          : left.startLineNumber - right.startLineNumber || left.severity - right.severity)
+    );
+}
+
 export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({
   projectPath,
   active,
@@ -188,29 +217,10 @@ export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({
   onQuickFix?(problem: EditorProblem): void;
 }) {
   const language = useProblems(active);
-  const rows = useMemo(() => {
-    const needle = filter.query.trim().toLocaleLowerCase();
-    return projectProblems(projectPath, language.problems)
-      .filter((problem) => {
-        if (problem.severity === 1 && !filter.showErrors) return false;
-        if (problem.severity === 2 && !filter.showWarnings) return false;
-        if (problem.severity >= 3 && !filter.showInfos) return false;
-        if (filter.activeFileOnly && normalizedPath(problem.relPath) !== normalizedPath(activeFileRel)) {
-          return false;
-        }
-        return (
-          !needle ||
-          `${problem.message} ${problem.relPath} ${problem.source} ${problem.code}`.toLocaleLowerCase().includes(needle)
-        );
-      })
-      .sort(
-        (left, right) =>
-          left.relPath.localeCompare(right.relPath) ||
-          (filter.sort === 'severity'
-            ? left.severity - right.severity || left.startLineNumber - right.startLineNumber
-            : left.startLineNumber - right.startLineNumber || left.severity - right.severity)
-      );
-  }, [activeFileRel, filter, language.problems, projectPath]);
+  const rows = useMemo(
+    () => visibleProblems(projectProblems(projectPath, language.problems), filter, activeFileRel),
+    [activeFileRel, filter, language.problems, projectPath]
+  );
   const groups = useMemo(() => {
     const grouped = new Map<string, EditorProblem[]>();
     for (const problem of rows) {

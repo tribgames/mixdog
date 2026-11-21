@@ -1,7 +1,3 @@
-/**
- * agent-surface.mjs — the agent tool family: action/response titles, the
- * parenthesized summary and the bridge-envelope response detection.
- */
 import { displayModelName } from '../tool-surface.mjs';
 import { titleWord } from '../tool-primitives.mjs';
 import { backgroundTaskFailureStatusLabel } from '../err-text.mjs';
@@ -73,10 +69,6 @@ export function agentResponseTitle(args, count = 1, resultText = '') {
   const total = Math.max(1, Number(count) || 1);
   if (total > 1) return `Responses ${total} agents`;
   const name = agentDisplayName(args, resultText) || 'Agent';
-  // The agent + model identify the responder; the response summary itself
-  // is hidden in the collapsed card (expanding still shows the full body).
-  // Keep the surface identifiable even when a failed/legacy completion has no
-  // concrete agent identity.
   return withModelAndTag(joinActionAgent('Response', name), args);
 }
 
@@ -121,10 +113,6 @@ export function agentActionSummary(args, summary) {
   const action = String(args?.type || args?.action || '').trim();
   if (action && rest === action) return '';
   if (action && rest.startsWith(`${action} · `)) rest = rest.slice(action.length + 3).trim();
-  // The agent/model/tag surface summary ("Heavy Worker · Opus 4.8") is now folded
-  // into the header label itself ("Spawn Heavy Worker (Opus 4.8, tag)"), so drop
-  // the model and tag tokens from the parenthesized summary to avoid showing
-  // them twice.
   const model = agentModelLabel(args);
   if (model && rest === model) return '';
   const tag = agentTagLabel(args);

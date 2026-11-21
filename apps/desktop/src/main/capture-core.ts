@@ -1,35 +1,3 @@
-// The capture window's core. The window is a client of a core like any other: this starts an isolated mixdogd whose
-// profile lives under the capture's user-data directory, seeded from capture-host.ts (settings, Lead route, a project to
-// edit) and answering its model calls from a scripted local endpoint, and hands the window its port through the same
-// CorePortRelay a main window uses. Nothing here reads or writes the person's own profile: every location the core
-// reads is one of the profile's folders.
-//
-// What serves each call the window makes
-//   call                                           served by
-//   listSessions / listProjects / listAgentPool    the core (empty profile; a new task is a real thread)
-//   getSnapshot / subscribe* / setVisibleSessions  the core over the window's port (core-direct sessions)
-//   submitNewTask / startTask / abortSession       the core: thread/start, turn/start on the scripted endpoint
-//   listProviderModels                             the core, from the scripted provider's one model
-//   readCapabilities / invokeCapability values     the core's config: heartbeat, reactions, AI titles, cache warming,
-//                                                  recap, onboarding done (captureAgentConfig); the rest of the
-//                                                  settings a fresh profile answers by itself
-//   getTheme / setTheme                            the core's capability lane
-//   getUpdaterState / checkForDesktopUpdate        host method of the capture process (capture-window.ts)
-//   pane layout, screen sessions, title bar theme  host methods of the capture process (capture-window.ts)
-//   publishProbeSnapshot (tool showcase)           a real turn on the scripted endpoint (captureShowcaseAnswers)
-//   transcribeAudio / voice status                 the core's voice runtime: present only where one is installed
-//   prepareJitter* / publishProbeSnapshot (probe)  none: see capture-window.ts (the probe has no seam on a core)
-//   every other call is whatever the core answers from its empty profile.
-//
-// DECISION (reused submission id): the capture window runs the real core, so the receipt gate (mixdog-core-session
-// new_task.rs) is the product's own behaviour: a request that arrives twice under one clientSubmissionId starts one
-// task, and other content under the id is refused. The capture scripts submit with a fresh id each time, and a second
-// gate in the capture profile would be a fork of the product's.
-//
-// assertions (capture-assertions.ts): readDesktopAssertions, readLightThemeAssertions, readMobileClosedAssertions,
-// readMobileOpenAssertions, readModalStackAssertions, readPhoneSettingsAssertions and readSettingsPlacement read the
-// renderer's DOM and measure rects; the core feeds them only the rows the renderer paints (sessions, settings), which the
-// profile above gives.
 import type { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
