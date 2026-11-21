@@ -27,6 +27,7 @@ export const CATEGORY_ORDER = [
   'Agent',
   'Task',
   'Setup',
+  'Goal',
   'Browser',
   'Computer',
   'Terminal',
@@ -90,11 +91,13 @@ const TOOL_CATEGORY = new Map([
   ['cwd', 'Setup'], // legacy: old transcripts
   ['session', 'Setup'],
   ['setup', 'Setup'],
-  ['goal', 'Setup'],
+  ['goal', 'Goal'],
   ['request_user_input', 'Setup'],
   ['ask_user', 'Setup'],
   ['handoff_user', 'Setup'],
   ['update_plan', 'Setup'],
+  ['todo', 'Setup'],
+  ['react', 'Setup'],
   ['skill', 'Skill'],
   ['skill_execute', 'Skill'],
   ['skill_view', 'Skill'],
@@ -125,6 +128,7 @@ const CATEGORY_COPY = new Map([
   ['Agent', { active: 'Calling', done: 'Called', noun: 'agent' }],
   ['Task', { active: 'Checking', done: 'Checked', noun: 'task' }],
   ['Setup', { active: 'Setting up', done: 'Set up', noun: 'item' }],
+  ['Goal', { active: 'Updating', done: 'Updated', noun: 'goal' }],
   ['Browser', { active: 'Browsing', done: 'Browsed', noun: 'action' }],
   ['Computer', { active: 'Operating', done: 'Operated', noun: 'action' }],
   ['Terminal', { active: 'Reading', done: 'Read', noun: 'terminal output' }],
@@ -366,9 +370,20 @@ function visualizeUnit(a) {
 }
 
 function terminalUnit(a) {
-  return String(a.action || '').toLowerCase() === 'list'
-    ? unitDescriptor('Terminal', { count: 1, active: 'Listing', done: 'Listed', noun: 'terminal tab' })
-    : unitDescriptor('Terminal', { count: 1, active: 'Reading', done: 'Read', noun: 'terminal output' });
+  const action = String(a.action || '').toLowerCase();
+  if (action === 'list') {
+    return unitDescriptor('Terminal', { count: 1, active: 'Listing', done: 'Listed', noun: 'terminal tab' });
+  }
+  if (action === 'run') {
+    return unitDescriptor('Terminal', {
+      count: 1,
+      active: 'Running',
+      done: 'Ran',
+      noun: 'terminal command',
+      effect: true,
+    });
+  }
+  return unitDescriptor('Terminal', { count: 1, active: 'Reading', done: 'Read', noun: 'terminal output' });
 }
 
 const GITHUB_VERBS = new Map([
@@ -425,7 +440,7 @@ function goalUnit(a) {
     complete: ['Completing', 'Completed'],
     block: ['Blocking', 'Blocked'],
   }[action] || ['Updating', 'Updated'];
-  return unitDescriptor('Setup', {
+  return unitDescriptor('Goal', {
     count: 1,
     active: verbs[0],
     done: verbs[1],
@@ -649,6 +664,12 @@ function sessionUnit(a) {
   if (action === 'delete') {
     return unitDescriptor('Setup', { active: 'Deleting', done: 'Deleted', noun: 'session', effect: true });
   }
+  if (action === 'close') {
+    return unitDescriptor('Setup', { active: 'Closing', done: 'Closed', noun: 'session', effect: true });
+  }
+  if (action === 'list-worktrees') {
+    return unitDescriptor('Setup', { active: 'Listing', done: 'Listed', noun: 'worktree' });
+  }
   if (/^(?:list|bots|read|suggest)$/.test(action)) {
     return unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'session' });
   }
@@ -766,8 +787,20 @@ const TOOL_UNITS = new Map([
   ['code_graph', codeGraphUnit],
   ['request_user_input', () => unitDescriptor('Setup', { active: 'Asking', done: 'Asked', noun: 'user' })],
   ['ask_user', () => unitDescriptor('Setup', { active: 'Asking', done: 'Asked', noun: 'user' })],
-  ['handoff_user', () => unitDescriptor('Setup', { active: 'Asking', done: 'Asked', noun: 'user' })],
+  [
+    'handoff_user',
+    () => unitDescriptor('Setup', { active: 'Handing over', done: 'Handed over', noun: 'step to user' }),
+  ],
   ['update_plan', () => unitDescriptor('Setup', { active: 'Updating', done: 'Updated', noun: 'plan' })],
+  // One call updates one plan, whatever number of steps it carries.
+  [
+    'todo',
+    (a) =>
+      String(a.op || '').toLowerCase() === 'view'
+        ? unitDescriptor('Setup', { active: 'Viewing', done: 'Viewed', noun: 'plan' })
+        : unitDescriptor('Setup', { active: 'Updating', done: 'Updated', noun: 'plan' }),
+  ],
+  ['react', () => unitDescriptor('Setup', { active: 'Reacting', done: 'Reacted', noun: 'message', effect: true })],
   ['list_mcp_resources', () => unitDescriptor('Setup', { active: 'Listing', done: 'Listed', noun: 'MCP resource' })],
   [
     'list_mcp_resource_templates',

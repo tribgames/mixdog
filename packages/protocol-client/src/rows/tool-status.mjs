@@ -57,11 +57,12 @@ export function toolResultEnvelopeStatus(text) {
   return normalizeToolTerminalStatus(inline);
 }
 
-/** Bodies the runtime itself writes when a call is stopped or aborted. */
-export function toolResultControlStatus(text) {
+/** How a body the runtime itself writes says its call was cut short (current +
+ *  legacy): `interrupted` in so many words, `cancelled` for the bare word a
+ *  cancel action also answers when it did its work, '' for any other body. */
+export function toolResultStopKind(text) {
   const body = String(text || '');
-  if (isUserControlCancellation(body)) return 'cancelled';
-  // Bare control bodies written on cancel/crash (current + legacy).
+  if (isUserControlCancellation(body)) return 'interrupted';
   const trimmed = body.trim();
   if (/^(?:cancelled|canceled)$/i.test(trimmed)) return 'cancelled';
   if (
@@ -69,10 +70,33 @@ export function toolResultControlStatus(text) {
       trimmed
     )
   ) {
-    return 'cancelled';
+    return 'interrupted';
   }
-  if (/^the user doesn't want to proceed with this tool use\b/i.test(trimmed)) return 'cancelled';
+  if (/^the user doesn't want to proceed with this tool use\b/i.test(trimmed)) return 'interrupted';
   return '';
+}
+
+/** Bodies the runtime itself writes when a call is stopped or aborted. */
+export function toolResultControlStatus(text) {
+  return toolResultStopKind(text) ? 'cancelled' : '';
+}
+
+/** A call whose own work is a cancel: `task cancel`, `run.cancel`, `cancel_quota_resume`. */
+export function isCancelAction(args) {
+  const a = args && typeof args === 'object' ? args : {};
+  return [a.action, a.type, a.op].some((value) => /(?:^|[._-])cancel(?:$|[._-])/i.test(String(value ?? '')));
+}
+
+/** Whether a call whose result says "cancelled" was itself stopped. A command,
+ *  an errored call and an explicit interruption were, whatever the call asked
+ *  for; the bare word is a stop unless the call's own work is a cancel, which
+ *  answers it when that work is done. A status an envelope reports is the
+ *  job's, not the call's. */
+export function cancelledCallWasStopped(text, { args, errored = false, command = false } = {}) {
+  if (errored || command) return true;
+  const kind = toolResultStopKind(text);
+  if (kind !== 'cancelled') return kind === 'interrupted';
+  return !isCancelAction(args);
 }
 
 export function toolResultTerminalStatus(text) {

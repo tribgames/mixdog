@@ -449,6 +449,11 @@ html[data-mixdog-mobile-tabs] :is(.markdown .markdown-path-link, .tool-path-link
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* A tool row is one line: its file name ellipsizes like the rest of the row. */
+html[data-mixdog-mobile-tabs] .tool-activity-item-title .tool-path-link {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
 
 /* Browser sheet toolbar: one 44dp row holding 36dp navigation slots, so the
    40dp buttons no longer overhang the 34px desktop row and the address field

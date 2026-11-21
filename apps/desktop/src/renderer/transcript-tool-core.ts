@@ -12,6 +12,10 @@ import { parseMcpToolName, titleCaseMcpServer, toolCallDisplayIdentity } from '.
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { bridgeDescribeResult, deriveToolOutcomeTone, resultTerminalStatus } from '../../../../packages/protocol-client/src/rows/tool-card-model.mjs';
+// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
+import { cancelledCallWasStopped, toolResultControlStatus } from '../../../../packages/protocol-client/src/rows/tool-status.mjs';
+// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
+import { isEmptyLookupResult } from '../../../../packages/protocol-client/src/rows/tool-result-summary.mjs';
 
 export interface ToolCardModel {
   pending: boolean;
@@ -73,6 +77,8 @@ export interface ToolOutputBasics {
   hookDenied: boolean;
   /** A bridge load_tool's described / missing / blocked names. */
   described: { described: string[]; missing: string[]; blocked: string[] } | null;
+  /** The output is the runtime's note for a lookup that returned no entry. */
+  foundNothing: boolean;
 }
 
 /** The output facts of `toolOutputFacts` that tone and summary read: from the
@@ -91,6 +97,7 @@ export function toolOutputBasicsOf(item: TranscriptItem): ToolOutputBasics {
       /^Error:\s*tool\s*"[^"]*"\s*(?:denied by hook|was not approved)\b/im.test(text) ||
       /denied by hook:\s*approval required but no approval UI is available/i.test(text),
     described: desktopToolDescribeResult(item.name, item.args, item.result ?? item.rawResult),
+    foundNothing: isEmptyLookupResult(item.result ?? item.rawResult),
   };
 }
 
@@ -160,175 +167,232 @@ export function toolItemDone(item: TranscriptItem): boolean {
   );
 }
 
-export function toolActivityItemTone(item: TranscriptItem): 'error' | 'warning' | 'neutral' {
-  const count = Math.max(1, Math.round(Number(item.count || 1)));
-  const callFailedCount = Math.max(0, Number(item.callErrorCount || 0));
-  const exitFailedCount = Math.max(0, Number(item.exitErrorCount || 0));
-  const partialMutation = callFailedCount > 0 && toolItemHasDiff(item);
-  let terminalStatus = '';
-  const basics = toolOutputBasics(item);
-  if (item.isError && basics.hookDenied) terminalStatus = 'denied';
-  else if (basics.resultStatus === 'cancelled') terminalStatus = 'cancelled';
-  const tone = deriveToolOutcomeTone({
-    pending: !toolItemDone(item),
-    groupCount: count,
-    callFailedCount,
-    exitFailedCount,
-    terminalStatus,
-    partialMutation,
-  });
-  return tone === 'error' || tone === 'warning' ? tone : 'neutral';
+export type ToolCallTone = 'error' | 'warning' | 'neutral';
+
+/** How one call ended, the one answer its row and its group both read. */
+export interface ToolCallOutcome {
+  state: 'running' | 'done' | 'failed' | 'stopped';
+  tone: ToolCallTone;
 }
 
-function localizedToolActivityCategory(category: string): string {
-  if (category === 'Read') return t('File reading');
-  if (category === 'Search') return t('Search');
-  if (category === 'Load') return t('Tool loading');
-  if (category === 'MCP') return t('MCP tools');
-  if (category === 'Skill') return t('Skills');
-  if (category === 'Web Research') return t('Web research');
-  if (category === 'Memory') return t('Memory');
-  if (category === 'Explore') return t('Code exploration');
-  if (category === 'Patch') return t('File editing');
-  if (category === 'Git') return t('Git');
-  if (category === 'Shell') return t('Command execution');
-  if (category === 'Agent') return t('Agents');
-  if (category === 'Task') return t('Tasks');
-  if (category === 'Setup') return t('Setup');
-  if (category === 'Browser') return t('Browser Use');
-  if (category === 'Computer') return t('Computer Use');
-  if (category === 'Terminal') return t('Terminal');
-  if (category === 'Office') return t('Document work');
-  if (category === 'Media') return t('Media generation');
-  if (category === 'Tidy') return t('Code Tidy');
-  if (category === 'Visualize') return t('Visualize');
-  return t('External tools');
+const COMMAND_TOOLS = /^(?:shell|bash|bash_session|shell_command|job_wait)$/;
+
+/** A call's outcome. A stop is its own outcome, never a failure: a call whose
+ *  result says "cancelled" was stopped unless the word is a cancel action's
+ *  own answer or the status of a job it only reports (`cancelledCallWasStopped`).
+ *  A call that neither ran to its end nor was stopped failed: its error flag,
+ *  a failing exit, a hook's denial. */
+export function toolCallOutcome(item: TranscriptItem): ToolCallOutcome {
+  if (!toolItemDone(item)) return { state: 'running', tone: 'neutral' };
+  const basics = toolOutputBasics(item);
+  const errored = Boolean(item.isError) || Number(item.errorCount || 0) > 0;
+  const text = String(item.result ?? item.rawResult ?? '');
+  let reportedJobStatus = '';
+  if (basics.resultStatus === 'cancelled') {
+    const surface = desktopToolActivitySurface(item.name, item.args);
+    const stopped = cancelledCallWasStopped(text, {
+      args: surface.args,
+      errored,
+      command: COMMAND_TOOLS.test(surface.normalizedName),
+    });
+    if (stopped) return { state: 'stopped', tone: 'warning' };
+    // The call went through: it cancelled what it was asked to, or read a cancelled job's status.
+    reportedJobStatus = toolResultControlStatus(text) ? '' : 'cancelled';
+  }
+  const callFailedCount = Math.max(0, Number(item.callErrorCount || 0));
+  const settled = deriveToolOutcomeTone({
+    pending: false,
+    groupCount: Math.max(1, Math.round(Number(item.count || 1))),
+    callFailedCount,
+    exitFailedCount: Math.max(0, Number(item.exitErrorCount || 0)),
+    terminalStatus: item.isError && basics.hookDenied ? 'denied' : reportedJobStatus,
+    partialMutation: callFailedCount > 0 && toolItemHasDiff(item),
+  });
+  const tone: ToolCallTone = settled === 'error' || settled === 'warning' ? settled : 'neutral';
+  if (reportedJobStatus) return { state: 'done', tone };
+  if (errored || tone !== 'neutral') return { state: 'failed', tone: tone === 'neutral' ? 'error' : tone };
+  return { state: 'done', tone };
+}
+
+export function toolActivityItemTone(item: TranscriptItem): ToolCallTone {
+  return toolCallOutcome(item).tone;
+}
+
+/** A label's settled form: a catalog may give a label a `_done` variant
+ *  ("메모리 저장" → "메모리 저장함"); one without it reads the same either way. */
+const SETTLED = { context: 'done' } as const;
+
+function localizedToolActivityCategory(category: string, past = false): string {
+  const options = past ? SETTLED : undefined;
+  if (category === 'Read') return t('File reading', options);
+  if (category === 'Search') return t('Search', options);
+  if (category === 'Load') return t('Tool loading', options);
+  if (category === 'MCP') return t('MCP tools', options);
+  if (category === 'Skill') return t('Skills', options);
+  if (category === 'Web Research') return t('Web research', options);
+  if (category === 'Memory') return t('Memory', options);
+  if (category === 'Explore') return t('Code exploration', options);
+  if (category === 'Patch') return t('File editing', options);
+  if (category === 'Git') return t('Git', options);
+  if (category === 'Shell') return t('Command execution', options);
+  if (category === 'Agent') return t('Agents', options);
+  if (category === 'Task') return t('Tasks', options);
+  if (category === 'Setup') return t('Setup', options);
+  if (category === 'Goal') return t('Goal', options);
+  if (category === 'Browser') return t('Browser Use', options);
+  if (category === 'Computer') return t('Computer Use', options);
+  if (category === 'Terminal') return t('Terminal', options);
+  if (category === 'Office') return t('Document work', options);
+  if (category === 'Media') return t('Media generation', options);
+  if (category === 'Tidy') return t('Code Tidy', options);
+  if (category === 'Visualize') return t('Visualize', options);
+  return t('External tools', options);
 }
 
 function toolActivityUnitKey(category: string, done: string, noun: string): string {
   return category === 'MCP' ? 'MCP' : `${category}|${done}|${noun}`;
 }
 
-function localizedToolActivityUnit(category: string, done: string, noun: string): string {
+function localizedToolActivityUnit(category: string, done: string, noun: string, past = false): string {
+  const options = past ? SETTLED : undefined;
   switch (toolActivityUnitKey(category, done, noun)) {
     case 'Read|Read|file':
-      return t('File reading');
+      return t('File reading', options);
     case 'Read|Read|image':
-      return t('Image viewing');
+      return t('Image viewing', options);
     case 'Read|Read|resource':
-      return t('MCP resource reading');
+      return t('MCP resource reading', options);
     case 'Read|Read|code map':
-      return t('Code structure');
+      return t('Code structure', options);
     case 'Search|Searched|pattern':
-      return t('Content search');
+      return t('Content search', options);
     case 'Search|Found|glob':
-      return t('File lookup');
+      return t('File lookup', options);
     case 'Search|Found|query':
-      return t('Path lookup');
+      return t('Path lookup', options);
     case 'Search|Listed|directory':
-      return t('Folder listing');
+      return t('Folder listing', options);
     case 'Search|Mapped|symbol':
-      return t('Symbol lookup');
+      return t('Symbol lookup', options);
     case 'Patch|Created|file':
-      return t('File creation');
+      return t('File creation', options);
     case 'Patch|Edited|file':
-      return t('File editing');
+      return t('File editing', options);
     case 'Patch|Deleted|file':
-      return t('File deletion');
+      return t('File deletion', options);
     case 'Patch|Changed|file':
-      return t('File changes');
+      return t('File changes', options);
     case 'Patch|Checked|file':
-      return t('Patch check');
+      return t('Patch check', options);
     case 'Load|Loaded|tool':
     case 'Load|Loaded|query':
-      return t('Tool loading');
+      return t('Tool loading', options);
     case 'Skill|Loaded|skill':
-      return t('Skills');
+      return t('Skills', options);
     case 'MCP':
-      return t('MCP tool use');
+      return t('MCP tool use', options);
     case 'Web Research|Researched|query':
-      return t('Web search');
+      return t('Web search', options);
     case 'Web Research|Fetched|URL':
-      return t('Page fetching');
+      return t('Page fetching', options);
     case 'Web Research|Fetched|message':
-      return t('Message fetching');
+      return t('Message fetching', options);
     case 'Memory|Checked|memory item':
-      return t('Memory lookup');
+      return t('Memory lookup', options);
     case 'Memory|Wrote|memory item':
-      return t('Memory saving');
+      return t('Memory saving', options);
     case 'Memory|Deleted|memory item':
-      return t('Memory deletion');
+      return t('Memory deletion', options);
     case 'Memory|Listed|memory item':
-      return t('Memory listing');
+      return t('Memory listing', options);
     case 'Shell|Ran|command':
-      return t('Command execution');
+      return t('Command execution', options);
     case 'Git|Ran|Git command':
-      return t('Git commands');
+      return t('Git commands', options);
     case 'Git|Staged|change':
-      return t('Git staging');
+      return t('Git staging', options);
     case 'Agent|Called|agent':
-      return t('Agent calls');
+      return t('Agent calls', options);
     case 'Agent|Checked|agent':
-      return t('Agent status');
+      return t('Agent status', options);
     case 'Agent|Completed|agent':
-      return t('Agent responses');
+      return t('Agent responses', options);
     case 'Agent|Failed|agent':
-      return t('Agent failures');
+      return t('Agent failures', options);
     case 'Agent|Cancelled|agent':
-      return t('Agent cancellations');
+      return t('Agent cancellations', options);
     case 'Agent|Ended|agent':
-      return t('Ended agents');
+      return t('Ended agents', options);
     case 'Task|Checked|task':
-      return t('Task status');
+      return t('Task status', options);
     case 'Task|Waited for|task':
-      return t('Task waiting');
+      return t('Task waiting', options);
     case 'Task|Listed|task':
-      return t('Task listing');
+      return t('Task listing', options);
     case 'Task|Cancelled|task':
-      return t('Task cancellation');
+      return t('Task cancellation', options);
     case 'Setup|Selected|project':
-      return t('Project selection');
+      return t('Project selection', options);
     case 'Setup|Listed|project':
-      return t('Project listing');
+      return t('Project listing', options);
     case 'Terminal|Listed|terminal tab':
-      return t('Terminal tabs');
+      return t('Terminal tabs', options);
     case 'Terminal|Read|terminal output':
-      return t('Terminal output');
+      return t('Terminal output', options);
+    case 'Terminal|Ran|terminal command':
+      return t('Terminal commands', options);
     case 'Media|Generated|image':
-      return t('Image generation');
+      return t('Image generation', options);
     case 'Media|Generated|video':
-      return t('Video generation');
+      return t('Video generation', options);
     case 'Media|Checked|media job':
-      return t('Media status');
+      return t('Media status', options);
     case 'Media|Cancelled|media job':
-      return t('Media cancellation');
+      return t('Media cancellation', options);
     case 'Media|Listed|media catalog':
-      return t('Media catalog');
+      return t('Media catalog', options);
     case 'Office|Read|document action':
-      return t('Document reading');
+      return t('Document reading', options);
     case 'Tidy|Previewed|cleanup pass':
-      return t('Tidy preview');
+      return t('Tidy preview', options);
     case 'Tidy|Installed|cleanup engine':
-      return t('Tidy install');
+      return t('Tidy install', options);
+    case 'Tidy|Scanned|project':
+      return t('Tidy scan', options);
+    case 'Tidy|Checked|cleanup action':
+      return t('Tidy check', options);
+    case 'Tidy|Read|cleanup rules':
+      return t('Tidy rules', options);
+    case 'Tidy|Read|cleanup results':
+      return t('Tidy results', options);
     case 'Setup|Checked|working directory':
-      return t('Project check');
+      return t('Project check', options);
     case 'Setup|Asked|user':
-      return t('Questions');
+      return t('Questions', options);
     case 'Setup|Updated|plan':
-      return t('Plan updates');
+      return t('Plan updates', options);
+    case 'Setup|Viewed|plan':
+      return t('Plan view', options);
+    case 'Setup|Reacted|message':
+      return t('Reaction', options);
+    case 'Setup|Handed over|step to user':
+      return t('Hand off to user', options);
+    case 'Setup|Listed|worktree':
+      return t('Worktree management', options);
     case 'Setup|Listed|MCP resource':
-      return t('MCP resource listing');
+      return t('MCP resource listing', options);
     case 'Setup|Listed|MCP resource template':
-      return t('MCP template listing');
+      return t('MCP template listing', options);
     case 'Git|Managed|worktree':
-      return t('Worktree management');
+      return t('Worktree management', options);
     case 'Setup|Created|session':
-      return t('Session creation');
+      return t('Session creation', options);
     case 'Setup|Sent to|session':
-      return t('Session message');
+      return t('Session message', options);
     case 'Setup|Checked|session':
-      return t('Session status');
+      return t('Session status', options);
     case 'Setup|Renamed|session':
+    case 'Setup|Closed|session':
     case 'Setup|Forked|session':
     case 'Setup|Cancelled|session':
     case 'Setup|Deleted|session':
@@ -337,9 +401,9 @@ function localizedToolActivityUnit(category: string, done: string, noun: string)
     case 'Setup|Archived|session':
     case 'Setup|Unarchived|session':
     case 'Setup|Scheduled|compaction':
-      return t('Session management');
+      return t('Session management', options);
     default:
-      return localizedToolActivityCategory(category);
+      return localizedToolActivityCategory(category, past);
   }
 }
 
@@ -409,7 +473,6 @@ const DESKTOP_TOOL_ACTIVITY_ALIASES = new Map([
   ['write', 'edit'],
   ['question', 'request_user_input'],
   ['ask_user', 'request_user_input'],
-  ['handoff_user', 'request_user_input'],
   ['todowrite', 'update_plan'],
 ]);
 
@@ -527,8 +590,10 @@ function toolActivityRowVerb(category: string, done: string, noun: string): stri
     case 'Read|Read|file':
     case 'Read|Read|image':
     case 'Read|Read|resource':
-    case 'Read|Read|code map':
       return t('Read');
+    // The row names the work as its group does; "Read" hid a structure pass.
+    case 'Read|Read|code map':
+      return t('Code structure');
     case 'Search|Searched|pattern':
       return t('Search');
     case 'Search|Found|glob':
@@ -541,6 +606,12 @@ function toolActivityRowVerb(category: string, done: string, noun: string): stri
       return t('List tabs');
     case 'Terminal|Read|terminal output':
       return t('Read output');
+    case 'Terminal|Ran|terminal command':
+      return t('Run');
+    case 'Setup|Updated|plan':
+      return t('Plan');
+    case 'Setup|Reacted|message':
+      return t('React');
     case 'Patch|Created|file':
       return t('Write');
     case 'Patch|Edited|file':
@@ -563,6 +634,7 @@ function toolActivityRowVerb(category: string, done: string, noun: string): stri
     case 'Browser|Browsed|action':
       return t('Browser');
     case 'Agent|Called|agent':
+    case 'Agent|Checked|agent':
     case 'Agent|Completed|agent':
     case 'Agent|Failed|agent':
     case 'Agent|Cancelled|agent':
@@ -749,16 +821,20 @@ export function desktopToolComputerWindowSuccessAt(items: readonly TranscriptIte
   }
   return at;
 }
-function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, count: number, past: boolean): string {
+function toolActivitySummaryPhrase(unit: SummaryUnit, count: number, past: boolean): string {
+  const settled = past ? SETTLED : undefined;
   switch (unit.unitKey) {
     case 'Read|Read|file':
-      return count === 1 ? t('Read file') : t('Read {{count}} files', { count });
+      return count === 1 ? t('Read file', settled) : t('Read {{count}} files', { count, ...settled });
     case 'Search|Searched|pattern':
       if (count === 1) return past ? t('Searched code') : t('Search code');
       return past ? t('Searched {{count}} patterns', { count }) : t('Search {{count}} patterns', { count });
+    // A glob call counts its patterns: how many files they matched is the row's outcome.
     case 'Search|Found|glob':
       if (count === 1) return past ? t('Found files') : t('Find files');
-      return past ? t('Found {{count}} files', { count }) : t('Find {{count}} files', { count });
+      return past
+        ? t('Found files for {{count}} patterns', { count })
+        : t('Find files for {{count}} patterns', { count });
     case 'Search|Found|query':
       if (count === 1) return past ? t('Found path') : t('Find path');
       return past ? t('Found {{count}} paths', { count }) : t('Find {{count}} paths', { count });
@@ -800,21 +876,21 @@ function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, cou
     // Browser and Computer calls are one unit keyed by the category itself
     // (namedToolActivityUnit).
     case 'Browser':
-      return count === 1 ? t('Browser action') : t('Browser {{count}} actions', { count });
+      return count === 1 ? t('Browser action', settled) : t('Browser {{count}} actions', { count, ...settled });
     case 'Computer':
-      return count === 1 ? t('Computer action') : t('Computer {{count}} actions', { count });
+      return count === 1 ? t('Computer action', settled) : t('Computer {{count}} actions', { count, ...settled });
     case 'Office|Edited|document action':
-      return count === 1 ? t('Office action') : t('Office {{count}} actions', { count });
+      return count === 1 ? t('Office action', settled) : t('Office {{count}} actions', { count, ...settled });
     case 'Media|Generated|image':
     case 'Media|Generated|video':
-      return count === 1 ? t('Generate media') : t('Generate {{count}} media', { count });
+      return count === 1 ? t('Generate media', settled) : t('Generate {{count}} media', { count, ...settled });
     case 'Tidy|Tidied|cleanup pass':
-      return count === 1 ? t('Tidy code') : t('Tidy code {{count}} times', { count });
+      return count === 1 ? t('Tidy code', settled) : t('Tidy code {{count}} times', { count, ...settled });
     case 'Agent|Called|agent':
       if (count === 1) return past ? t('Called agent') : t('Call agent');
       return past ? t('Called {{count}} agents', { count }) : t('Call {{count}} agents', { count });
     case 'Agent|Completed|agent':
-      return count === 1 ? t('Agent response') : countedUnitLabel(unit.label, count);
+      return count === 1 ? t('Agent response') : countedUnitLabel(unit.label, count, past);
     case 'Task|Checked|task':
       if (count === 1) return past ? t('Checked task') : t('Check task');
       return past ? t('Checked {{count}} tasks', { count }) : t('Check {{count}} tasks', { count });
@@ -827,15 +903,15 @@ function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, cou
       if (count === 1) return past ? t('Cancelled task') : t('Cancel task');
       return past ? t('Cancelled {{count}} tasks', { count }) : t('Cancel {{count}} tasks', { count });
     default:
-      return countedUnitLabel(unit.label, count);
+      return count > 1 ? countedUnitLabel(unit.label, count, past) : past ? unit.pastLabel : unit.label;
   }
 }
 
 /** A unit without a count phrase of its own: its name, then how many it covers
  *  ("Visualize ×3", Korean "워크트리 관리 4회" like the other counted labels).
  *  A bare trailing number read as part of the name. */
-function countedUnitLabel(label: string, count: number): string {
-  return count > 1 ? t('{{label}} ×{{count}}', { label, count }) : label;
+function countedUnitLabel(label: string, count: number, past = false): string {
+  return count > 1 ? t('{{label}} ×{{count}}', { label, count, ...(past ? SETTLED : undefined) }) : label;
 }
 
 /** Units that read as one phrase share one summary entry: a viewed image and a
@@ -845,42 +921,183 @@ function summaryUnitKey(unitKey: string): string {
   return unitKey === 'Read|Read|image' || unitKey === 'Read|Read|resource' ? 'Read|Read|file' : unitKey;
 }
 
+type SummaryUnit = ReturnType<typeof desktopToolActivityUnit> & { pastLabel: string };
+
+/** A unit's name in its settled form; a named target (an MCP server, a skill,
+ *  GitHub) reads the same either way. */
+function settledUnitLabel(unit: ReturnType<typeof desktopToolActivityUnit>): string {
+  if (unit.unitKey === 'Load|Described|tool') return t('Tool description', SETTLED);
+  if (unit.unitKey === 'Browser' || unit.unitKey === 'Computer' || unit.unitKey === 'Visualize') {
+    return localizedToolActivityCategory(unit.category, true);
+  }
+  if (unit.unitKey !== toolActivityUnitKey(unit.category, unit.done, unit.noun) || unit.category === 'MCP') {
+    return unit.label;
+  }
+  return localizedToolActivityUnit(unit.category, unit.done, unit.noun, true);
+}
+
+/** What a lookup whose settled phrase claims a find ("Found files") says when
+ *  none of its calls found anything; null for every other unit. */
+function emptyLookupPhrase(unitKey: string): string | null {
+  switch (unitKey) {
+    case 'Search|Found|glob':
+      return t('Found no files');
+    case 'Search|Found|query':
+      return t('Found no paths');
+    case 'Search|Mapped|symbol':
+      return t('Found no symbols');
+    default:
+      return null;
+  }
+}
+
+/** What one call adds to its group's count, the one rule for every unit. A
+ *  call still running counts what it set out to do, and a finished one what
+ *  it did, though a lookup that returned nothing found none (`empty`). A
+ *  failed or stopped call did not do its work (`none`), except a command that
+ *  ran to a failing exit. A completion notice is counted under the unit that
+ *  names how its agent ended ("Agent failures"), whatever that end was. */
+function countedCall(
+  item: TranscriptItem,
+  unit: ReturnType<typeof desktopToolActivityUnit>
+): { state: ToolCallOutcome['state']; work: 'counted' | 'empty' | 'none' } {
+  if (unit.category === 'Agent' && desktopToolActivitySurface(item.name, item.args).args.type === 'result') {
+    return { state: toolItemDone(item) ? 'done' : 'running', work: 'counted' };
+  }
+  const { state } = toolCallOutcome(item);
+  if (state === 'running') return { state, work: 'counted' };
+  if (state === 'done') {
+    const empty =
+      emptyLookupPhrase(unit.unitKey) !== null &&
+      (toolOutputBasics(item).foundNothing || !String(item.result ?? item.rawResult ?? '').trim());
+    return { state, work: empty ? 'empty' : 'counted' };
+  }
+  const ranToFailingExit =
+    state === 'failed' && Number(item.exitErrorCount || 0) > 0 && !Number(item.callErrorCount || 0);
+  return { state, work: ranToFailingExit ? 'counted' : 'none' };
+}
+
+const EDIT_TOOLS = /^(?:edit|write|strreplace|str_replace|str_replace_editor|search_replace)$/;
+
+/** The files a change call names: one path, or each file section of a patch;
+ *  empty when it names none. */
+function changedFiles(name: unknown, args: unknown): string[] {
+  const surface = desktopToolActivitySurface(name, args);
+  if (EDIT_TOOLS.test(surface.normalizedName)) {
+    const path = surface.args.file_path ?? surface.args.filePath ?? surface.args.path ?? surface.args.file;
+    return typeof path === 'string' && path.trim() ? [path.trim()] : [];
+  }
+  const patch = typeof surface.args.patch === 'string' ? surface.args.patch : '';
+  const files = [...patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$/gm)].map((match) => match[1]);
+  if (files.length) return files;
+  // A path may hold spaces: an unrenamed file names the same path twice, a
+  // renamed one its new path on the `+++` line.
+  return patch
+    .split(/^(?=diff --git )/m)
+    .filter((section) => section.startsWith('diff --git '))
+    .map(
+      (section) =>
+        section.match(/^diff --git a\/(.+) b\/\1[ \t]*$/m)?.[1] ??
+        section.match(/^\+\+\+ b\/(.+?)[ \t]*$/m)?.[1] ??
+        ''
+    );
+}
+
+/** A unit whose every call failed or stopped: what was tried, and that it did
+ *  not happen, its failures first. */
+function unfinishedPhrase(unit: SummaryUnit, failed: number, stopped: number): string {
+  const phrases: string[] = [];
+  if (failed > 0) {
+    let phrase: string;
+    if (unit.unitKey === 'Shell|Ran|command') phrase = t('Command failed');
+    else if (unit.unitKey === 'Git|Ran|Git command') phrase = t('Git command failed');
+    else if (unit.unitKey === 'Agent|Called|agent') phrase = t('Agent call failed');
+    else phrase = t('{{label}} failed', { label: unit.label });
+    phrases.push(countedUnitLabel(phrase, failed));
+  }
+  if (stopped > 0) phrases.push(countedUnitLabel(t('{{label}} stopped', { label: unit.label }), stopped));
+  return phrases.join(', ');
+}
+
+interface SummaryEntry {
+  unit: SummaryUnit;
+  calls: number;
+  failed: number;
+  stopped: number;
+  /** What the calls that count cover (`countedCall`). */
+  count: number;
+  /** The part of `count` from finished lookups that found nothing. */
+  empty: number;
+  /** A change unit's distinct files, from the calls that count. */
+  files: Set<string>;
+  /** Units of counted change calls that name no file. */
+  unnamed: number;
+}
+
+/** The phrase one unit adds: its work counted over the calls that did it, or,
+ *  when none did, what failed or stopped. A settled group claims nothing for a
+ *  lookup that found nothing. */
+function summaryEntryPhrase(entry: SummaryEntry, past: boolean): string {
+  const { unit, calls, failed, stopped } = entry;
+  if (calls > 0 && failed + stopped === calls) return unfinishedPhrase(unit, failed, stopped);
+  let count = past ? entry.count - entry.empty : entry.count;
+  if (unit.category === 'Patch' && entry.files.size) count = entry.files.size + entry.unnamed;
+  if (count === 0) return emptyLookupPhrase(unit.unitKey) ?? '';
+  return toolActivitySummaryPhrase(unit, count, past);
+}
+
 /** The group summary: each work unit summarized as a natural verb phrase, file
  *  changes first, then the rest in call order, as one list ("Edit 2 files,
- *  Read 6 files, Run 4 commands"). A command that failed says so: a lone one
- *  as "Command failed", otherwise as a closing "N failed". */
+ *  Read 6 files, Run 4 commands"). A unit whose every call failed reads as its
+ *  failure ("Command failed", "File editing failed"); failures among calls
+ *  that did their work close the list as "N failed". */
 export function desktopToolActivitySummary(items: readonly TranscriptItem[], settled = false): string {
-  const groups = new Map<string, { unit: ReturnType<typeof desktopToolActivityUnit>; count: number }>();
+  const groups = new Map<string, SummaryEntry>();
   const calls = flattenedToolActivityItems(items);
-  let failedCommands = 0;
   for (const item of calls) {
     const basics = toolOutputBasics(item);
     const unit = desktopToolActivityUnit(item.name, item.args, Boolean(basics.described));
-    // A stopped command was not a failure: the stop is its own outcome.
-    if (
-      unit.category === 'Shell' &&
-      toolItemDone(item) &&
-      basics.resultStatus !== 'cancelled' &&
-      toolActivityItemTone(item) !== 'neutral'
-    ) {
-      failedCommands += 1;
-    }
     const unitKey = summaryUnitKey(unit.unitKey);
-    const prev = groups.get(unitKey);
     const added = Math.max(1, Math.round(Number(item.count || 1))) * unit.count;
-    if (prev) {
-      prev.count += added;
-    } else {
-      groups.set(unitKey, { unit: { ...unit, unitKey }, count: added });
+    let entry = groups.get(unitKey);
+    if (!entry) {
+      const shown = { ...unit, unitKey };
+      entry = {
+        unit: { ...shown, pastLabel: settledUnitLabel(shown) },
+        calls: 0,
+        failed: 0,
+        stopped: 0,
+        count: 0,
+        empty: 0,
+        files: new Set(),
+        unnamed: 0,
+      };
+      groups.set(unitKey, entry);
+    }
+    const { state, work } = countedCall(item, unit);
+    entry.calls += 1;
+    if (state === 'failed') entry.failed += 1;
+    if (state === 'stopped') entry.stopped += 1;
+    if (work === 'none') continue;
+    entry.count += added;
+    if (work === 'empty') entry.empty += added;
+    else if (unit.category === 'Patch') {
+      const files = changedFiles(item.name, item.args).filter(Boolean);
+      for (const file of files) entry.files.add(file);
+      // Sections whose path could not be read still changed a file each.
+      entry.unnamed += Math.max(0, unit.count - files.length);
     }
   }
   const changesFiles = (unitKey: string) => (unitKey.startsWith('Patch|') ? 0 : 1);
-  const phrases = [...groups.values()]
-    .sort((left, right) => changesFiles(left.unit.unitKey) - changesFiles(right.unit.unitKey))
-    .map(({ unit, count }) => toolActivitySummaryPhrase(unit, count, settled))
-    .filter(Boolean);
-  if (failedCommands > 0 && calls.length === 1) return t('Command failed');
-  if (failedCommands > 0) phrases.push(t('{{count}} failed', { count: failedCommands }));
+  const entries = [...groups.values()].sort(
+    (left, right) => changesFiles(left.unit.unitKey) - changesFiles(right.unit.unitKey)
+  );
+  const phrases = entries.map((entry) => summaryEntryPhrase(entry, settled)).filter(Boolean);
+  const partly = entries.filter((entry) => entry.failed + entry.stopped < entry.calls);
+  const partlyFailed = partly.reduce((total, entry) => total + entry.failed, 0);
+  const partlyStopped = partly.reduce((total, entry) => total + entry.stopped, 0);
+  if (partlyFailed > 0) phrases.push(t('{{count}} failed', { count: partlyFailed }));
+  if (partlyStopped > 0) phrases.push(t('{{count}} stopped', { count: partlyStopped }));
   // A plain enumeration comma; Japanese and Chinese write theirs as "、".
   return phrases.join(/^(?:ja|zh)/.test(uiFormatLocale()) ? '、' : ', ');
 }

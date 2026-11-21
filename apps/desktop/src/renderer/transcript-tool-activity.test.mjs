@@ -185,6 +185,54 @@ test('Goal and load control tools stay hidden while ordinary tools remain visibl
   assert.equal(project(hidden).rows.length, 0);
 });
 
+test('a live-only notice or compaction marker follows the group a reload shows whole', () => {
+  const first = { kind: 'tool', id: 'first', name: 'read', result: 'ok' };
+  const notice = { kind: 'notice', id: 'notice', text: 'Prompt cache expired', tone: 'info' };
+  const marker = { kind: 'statusdone', id: 'marker', label: 'Compact checked' };
+  const second = { kind: 'tool', id: 'second', name: 'shell', result: 'ok' };
+  const settled = project([first, notice, marker, second]);
+  assert.deepEqual(
+    settled.rows.map((row) => row._tag),
+    ['ToolActivity', 'AssistantPart', 'AssistantPart']
+  );
+  assert.deepEqual(settled.rows[0].items, [first, second]);
+  assert.deepEqual(
+    settled.rows.slice(1).map((row) => row.item),
+    [notice, marker]
+  );
+  assert.equal(settled.rows[0].key, project([first, second]).rows[0].key);
+  const live = appendLiveTranscriptRows({ sessionKey: 'session', settled, turnRunning: true });
+  assert.equal(live[0].open, true, 'the next call still lands in the group');
+});
+
+test('a whitespace-only reply segment does not split the group, as after a reload', () => {
+  const first = { kind: 'tool', id: 'first', name: 'read', result: 'ok' };
+  const blank = { kind: 'assistant', id: 'blank', text: '\n\n' };
+  const second = { kind: 'tool', id: 'second', name: 'shell', result: 'ok' };
+  const rows = project([first, blank, second]).rows;
+  assert.deepEqual(
+    rows.map((row) => row._tag),
+    ['ToolActivity']
+  );
+  assert.deepEqual(rows[0].items, [first, second]);
+});
+
+test('a failed turn with no completion marker shows its failure even when its last item shows nothing', () => {
+  const notice = { kind: 'notice', id: 'notice', text: 'Provider retry', tone: 'warn' };
+  const blank = { kind: 'assistant', id: 'blank', text: '\n' };
+  const { rows } = projectSettledTranscriptRows({
+    sessionKey: 'session',
+    items: [notice, blank],
+    turnKeys: ['turn', 'turn'],
+    failedTurns: new Set(['turn']),
+  });
+  assert.deepEqual(
+    rows.map((row) => row._tag),
+    ['AssistantPart', 'Error']
+  );
+  assert.equal(rows[1].item, notice);
+});
+
 test('a visible assistant message seals the current tool activity run', () => {
   const first = { kind: 'tool', id: 'first', name: 'read', result: 'ok' };
   const message = { kind: 'assistant', id: 'message', text: 'Next check.' };
@@ -503,7 +551,7 @@ test('desktop activity lists every call as one row under the summary, without ca
     const group = document.querySelector('.tool-activity');
     assert.equal(
       group?.querySelector('.tool-activity-title')?.textContent?.trim(),
-      'Searched 2 patterns, Ran 1 command'
+      'Searched 2 patterns, Command failed'
     );
     assert.equal(group?.querySelector('.tool-activity-failed'), null);
 
@@ -1200,7 +1248,7 @@ test('desktop labels keep a batch read entry its own window', () => {
 
 test('desktop labels keep the code_graph direction and the overview file', () => {
   const callers = desktopToolActivityItemPresentation(item('code_graph', { mode: 'callers', symbols: ['run'] }));
-  assert.equal(callers.subject, 'callers · run');
+  assert.equal(callers.subject, 'Callers · run');
   const overview = desktopToolActivityItemPresentation(item('code_graph', { mode: 'overview', files: 'src/a.ts' }));
   assert.equal(overview.subject, 'src/a.ts');
   assert.equal(overview.title, 'Code structure');
@@ -1628,7 +1676,7 @@ test('the group line says when a command failed, and a stop is not a failure', a
   );
   assert.equal(
     desktopToolActivitySummary([shell('a', 'ok'), shell('b', 'cancelled', { isError: true })]),
-    'Run 2 commands'
+    'Run 1 command, 1 stopped'
   );
   // Still running: nothing has failed yet.
   assert.equal(

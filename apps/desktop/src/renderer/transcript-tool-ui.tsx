@@ -1019,6 +1019,13 @@ function ToolActivityPreview({
   );
 }
 
+/** A call a server window lost the result of with its link: it says so
+ *  instead of running forever, and is never run again. Unknown is not failed:
+ *  the row takes the warning tone. */
+export function outcomeUnknownPresentation(base: ToolActivityPresentation): ToolActivityPresentation {
+  return { ...base, pending: false, tone: 'warning', resultLabel: t('Outcome unknown'), outcomeReason: '' };
+}
+
 function ToolActivityItem({
   item: shownItem,
   disclosureKey,
@@ -1039,11 +1046,7 @@ function ToolActivityItem({
   const visualizeTabTitle = visualizeCallTabTitle(scope, item);
   const presentation = useMemo(() => {
     const base = desktopToolActivityItemPresentation(item, undefined, { visualizeTabTitle });
-    // A server window lost this call's result with its link: say so instead of
-    // running forever. It is never run again.
-    return outcomeUnknown && base.pending
-      ? { ...base, pending: false, tone: 'failed', resultLabel: t('Outcome unknown'), outcomeReason: '' }
-      : base;
+    return outcomeUnknown && base.pending ? outcomeUnknownPresentation(base) : base;
   }, [item, outcomeUnknown, visualizeTabTitle]);
   // A settled file change opens in place; its path line also opens the side
   // diff pane on that file (with the way back to the list), where a session

@@ -13,6 +13,7 @@ import {
   truncateSingleLine,
   truncateToolText,
 } from './tool-primitives.mjs';
+import { isCancelAction } from './tool-status.mjs';
 import { parseTaskNotification } from '../shared/task-notification-envelope.mjs';
 import { gitResultError, gitResultExitCode } from './tool-card-model/git-result.mjs';
 import { mediaResultSummary } from './tool-card-model/media-result.mjs';
@@ -72,6 +73,13 @@ function localizeStatus(raw, translate) {
   return titleStatus(raw);
 }
 
+const BARE_CANCELLED_RE = /^(?:cancelled|canceled)[.!]?$/i;
+const BARE_STATUS_WORD_RE = /^(?:cancelled|canceled|failed|timed out|timeout)[.!]?$/i;
+
+function bareStatusWord(word, translate) {
+  return localizeStatus(word.replace(/[.!]$/, ''), translate);
+}
+
 // Explicit source ownership for catalogs: these keys describe UI authored by
 // this module, never tool output or interpolated identifiers.
 export const TOOL_RESULT_UI_KEYS = Object.freeze([
@@ -107,6 +115,27 @@ function countNonEmptyLines(text) {
   return String(text ?? '')
     .split('\n')
     .filter((line) => line.trim()).length;
+}
+
+// What the runtime writes for a lookup that returned no entry: a parenthesized
+// note, with its arguments after it. A listed path is never one of these.
+const EMPTY_LOOKUP_NOTE_RE =
+  /^\((?:(?:no files found(?: yet)?|no matches|no symbols|no references|no callers|no call sites|no entries match filter|empty directory)\)(?=\s|$)|no fuzzy match for "|no symbol matches |no symbols matching |no entries after offset=)/;
+// Lines the runtime adds around a note: another note, a `# section` or comment,
+// a `...`/`[warning]` marker, a `graph: …` field.
+const LOOKUP_ANNOTATION_RE = /^(?:\(|#|\.\.\.|…|\[|[a-z][a-z ]*: )/;
+
+/** Whether a lookup's output (glob, find, list, a symbol search) is the
+ *  runtime's own note that it found nothing, and no entry follows it. */
+export function isEmptyLookupResult(text) {
+  const trimmed = String(text ?? '').trim();
+  // A note is short; a listing this long holds entries.
+  if (!trimmed || trimmed.length > 4000) return false;
+  const lines = trimmed
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return EMPTY_LOOKUP_NOTE_RE.test(lines[0]) && lines.every((line) => LOOKUP_ANNOTATION_RE.test(line));
 }
 
 function looksLikeZeroResultText(text) {
@@ -247,7 +276,8 @@ function stripInlineMarkdown(value) {
   return String(value ?? '')
     .replace(/^\s{0,3}(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/, '')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
+    // `mcp__gmail__send_email` is a name, not bold: emphasis opens and closes at a word edge.
+    .replace(/(?<!\w)__([^_]+)__(?!\w)/g, '$1')
     .replace(/(?<!\*)\*(?!\*)([^*]+)\*(?!\*)/g, '$1')
     .replace(/`([^`]+)`/g, '$1')
     .trim();
@@ -354,10 +384,11 @@ function summarizeGenericResult(text, translate = keepOriginal) {
 export function extractErrorCause(resultText) {
   const text = String(resultText ?? '').trim();
   if (!text) return '';
-  // JSON envelope: prefer explicit error-ish keys.
-  if (text.startsWith('{') || text.startsWith('[')) {
+  // JSON envelope, bare or after the runtime's "Error: ": prefer explicit error-ish keys.
+  const body = text.replace(/^error\s*:\s*/i, '');
+  if (body.startsWith('{') || body.startsWith('[')) {
     try {
-      const parsed = JSON.parse(text);
+      const parsed = JSON.parse(body);
       const obj = Array.isArray(parsed) ? parsed[0] : parsed;
       if (obj && typeof obj === 'object') {
         const cause = firstText(
@@ -378,24 +409,33 @@ export function extractErrorCause(resultText) {
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
+  // A line that only names what failed (`Error: [https://…]`) is not why it failed.
+  const statements = lines.filter((l) => !/^(?:error\s*:\s*)?\[[^\]]*\]$/i.test(l));
   // Prefer the first line that looks like an error statement.
-  const errorish = lines.find((l) =>
+  const errorish = statements.find((l) =>
     /\b(error|failed|failure|denied|refused|timed?\s*out|timeout|not\s+found|missing|invalid|cannot|can't|exception|exit\s+(?:code\s+)?[1-9])\b/i.test(
       l
     )
   );
-  const picked = errorish || lines[0] || '';
-  // The card already says Failed; "Error: " in front of the cause is noise.
-  return truncateSingleLine(stripInlineMarkdown(picked).replace(/^error\s*:\s*/i, ''), AGENT_SURFACE_BRIEF_MAX);
+  const picked = errorish || statements[0] || lines[0] || '';
+  // The card already says Failed; "Error: " in front of the cause is noise,
+  // and so are the parentheses around a "(error: HTTP 500)" note.
+  return truncateSingleLine(
+    stripInlineMarkdown(picked)
+      .replace(/^\((.*)\)$/, '$1')
+      .replace(/^error\s*:\s*/i, ''),
+    AGENT_SURFACE_BRIEF_MAX
+  );
 }
 
 // ── Per-tool result summarizers ─────────────────────────────────────────────
 // Each receives { text, trimmed, args, normalized } and returns a one-liner or
 // null when nothing reliable can be derived.
 
+// A listing's rows are paths: only the runtime's own note says there are none.
 function summarizeLineCount({ text, trimmed, translate }, { singular, plural }) {
   if (!trimmed || !looksLineOriented(text)) return null;
-  if (looksLikeZeroResultText(text)) return countLabel(translate, 0, singular, plural);
+  if (isEmptyLookupResult(text)) return countLabel(translate, 0, singular, plural);
   const n = countNonEmptyLines(text);
   if (n === 0) return null;
   return countLabel(translate, n, singular, plural);
@@ -608,7 +648,7 @@ function summarizeAgentResult({ text, trimmed, translate }) {
   if (counts) return counts;
   // A cancel call answers with the one word; a task list opens with its total;
   // a read of a live job says it has no new lines yet.
-  if (/^(?:cancelled|canceled)[.!]?$/i.test(trimmed)) return translate('Cancelled', trimmed, {});
+  if (BARE_CANCELLED_RE.test(trimmed)) return translate('Cancelled', trimmed, {});
   const listed = /^background tasks:\s*(\d+)\s*$/im.exec(trimmed);
   if (listed && trimmed.startsWith('background tasks:')) {
     return translate('Background tasks: {{count}}', `background tasks: ${listed[1]}`, { count: Number(listed[1]) });
@@ -688,11 +728,15 @@ export function summarizeToolResult(name, args, resultText, isError = false, tra
   if (isError) {
     // Errors surface the extracted cause so the collapsed card answers "why"
     // without ctrl+o, instead of a raw first line or a bare "Failed".
-    return extractErrorCause(resultText) || null;
+    const cause = extractErrorCause(resultText);
+    // A bare status word ("Cancelled") is UI, not the tool's own text.
+    return (BARE_STATUS_WORD_RE.test(cause) ? bareStatusWord(cause, translate) : cause) || null;
   }
   const text = String(resultText ?? '');
   const trimmed = text.trim();
   if (/^(?:undefined|null)$/i.test(trimmed)) return null;
+  // A cancel action answers the one word when it did its work: the runtime's status, whatever the tool.
+  if (BARE_CANCELLED_RE.test(trimmed) && isCancelAction(parseToolArgs(args))) return bareStatusWord(trimmed, translate);
   if (isMcpToolName(name)) return trimmed ? firstAgentResultLine(text) || null : null;
   const normalized = normalizeToolName(name);
   const summarize = TOOL_RESULT_SUMMARIZERS.get(normalized);

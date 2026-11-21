@@ -149,6 +149,11 @@ i18next.addResourceBundle('en', 'translation', {
   'Preview badge: New': 'New',
   'Session send: Sent to {{name}}': 'Sent to {{name}}',
   'Turn changes: {{count}} files changed_other': '{{count}} files changed',
+  // A settled tool group's past tense where English spells it apart (context "done").
+  'Generate media_done': 'Generated media',
+  'Generate {{count}} media_done': 'Generated {{count}} media',
+  'Tidy code_done': 'Tidied code',
+  'Tidy code {{count}} times_done': 'Tidied code {{count}} times',
   // The English singular of a counted sentence whose key is its plural.
   'The app on the server restarts, and {{count}} running sessions stop._one':
     'The app on the server restarts, and {{count}} running session stops.',

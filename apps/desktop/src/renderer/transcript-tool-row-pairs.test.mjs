@@ -5,7 +5,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import i18n from './i18n';
 import { desktopToolActivityItemPresentation } from './transcript-tool-model.ts';
-import { ToolRowOutcome, toolActivityOutcomeText } from './transcript-tool-ui.tsx';
+import { outcomeUnknownPresentation, ToolRowOutcome, toolActivityOutcomeText } from './transcript-tool-ui.tsx';
 
 i18n.addResourceBundle(
   'ko',
@@ -158,7 +158,7 @@ test(
     assert.equal(row({ action: 'pr.create', repo: 'a/b', title: 'New PR' }).subject, 'PR 만들기 · a/b · New PR');
     assert.equal(row({ action: 'issue.list', repo: 'a/b' }).subject, '이슈 목록 · a/b');
     assert.equal(row({ action: 'pr.view', repo: 'a/b', number: 7 }).subject, 'PR 보기 · #7 · a/b');
-    assert.equal(row({ action: 'issue.comments', repo: 'a/b', number: 3 }).subject, '댓글 · #3 · a/b');
+    assert.equal(row({ action: 'issue.comments', repo: 'a/b', number: 3 }).subject, '댓글 읽기 · #3 · a/b');
     const labels = row({ action: 'pr.create', repo: 'a/b', title: 'New PR' }).fields.map((field) => field.label);
     assert.deepEqual(labels, ['저장소', '제목']);
   })
@@ -264,3 +264,279 @@ test('a task wait envelope loses its cue; the same envelope from a task read kee
     assert.ok(read.outputText.includes(text), text);
   }
 });
+
+// ── outcomes the row must state ─────────────────────────────────────────────
+test(
+  'a call the user stopped reads "stopped" whatever the tool, and a cancelled question no progress',
+  inLanguage('ko', () => {
+    const takeover = present({
+      id: 'c',
+      name: 'computer',
+      args: { action: 'launch', input: { app: 'https://example.com' } },
+      result: 'Error: computer_user_control_active: Computer Use is paused while the user has control',
+      isError: true,
+    });
+    assert.equal(takeover.tone, 'warning');
+    assert.equal(takeover.resultLabel, '중지됨');
+    const grep = present({ id: 'g', name: 'grep', args: { pattern: 'x' }, result: 'Cancelled', isError: true });
+    assert.equal(grep.resultLabel, '중지됨');
+    const asked = present({
+      id: 'q',
+      name: 'ask_user',
+      args: { questions: [{ question: 'Scope?' }, { question: 'Storage?' }] },
+      result: 'Cancelled',
+      isError: true,
+    });
+    assert.equal(asked.resultLabel, '중지됨');
+  })
+);
+
+test('a fetch that failed on its address reads the reason below it', () => {
+  const raw = 'Error: [https://corporate.example/kr/header.do]\n(error: HTTP 500)\nerrorCode: HTTP_ERROR';
+  const row = present({
+    id: 'w',
+    name: 'web_fetch',
+    args: { url: 'https://corporate.example/kr/header.do' },
+    result: 'Error: [https://corporate.example/kr/header.do]',
+    rawResult: raw,
+    isError: true,
+  });
+  assert.equal(row.resultLabel, 'HTTP 500');
+});
+
+// ── each row names its action in the active language, once ────────────────
+test(
+  'a bridge tool names its action though its arguments ride in `input`',
+  inLanguage('ko', () => {
+    const browser = present({
+      id: 'b',
+      name: 'browser',
+      args: { action: 'navigate', input: { url: 'https://www.example.com/a', tab: 't1' } },
+      result: 'ok',
+    });
+    assert.equal(browser.subject, '이동 · example.com/a (탭 t1)');
+    const bridged = present({
+      id: 'bb',
+      name: 'call_tool',
+      args: { name: 'browser', arguments: { action: 'close_tab', input: { tab: 't1' } } },
+      result: 'ok',
+    });
+    assert.equal(bridged.subject, '탭 닫기 (탭 t1)');
+    const computer = present({
+      id: 'c',
+      name: 'computer',
+      args: { action: 'wait_for_user', input: { timeout_ms: 20000 } },
+      result: '{"ok":true}',
+    });
+    assert.equal(computer.subject, '사용자 대기');
+  })
+);
+
+test(
+  'memory, terminal, tidy, office, setup, goal, visualize and GitHub actions read in Korean',
+  inLanguage('ko', () => {
+    const row = (name, args) => present({ id: name, name, args, result: '{"ok":true}' });
+    assert.deepEqual(
+      [row('memory', { op: 'add', summary: 'tabs' }).verb, row('memory', { op: 'add', summary: 'tabs' }).subject],
+      ['메모리 저장', 'tabs']
+    );
+    const run = row('terminal', { action: 'run', command: 'npm run dev' });
+    assert.deepEqual([run.verb, run.subject], ['실행', 'npm run dev']);
+    assert.equal(row('tidy', { action: 'scan', paths: ['.'] }).subject, '.');
+    assert.equal(row('office', { action: 'finalize', session: 'office_1' }).subject, '마무리 · office_1');
+    assert.equal(row('setup', { action: 'save_automation' }).subject, '자동화 저장');
+    const goal = row('goal', { action: 'update_tasks' });
+    assert.deepEqual([goal.verb, goal.subject], ['목표', '작업 업데이트']);
+    assert.equal(row('visualize', { action: 'act', input: { tab: 'v1' } }).subject, '조작함');
+    assert.equal(row('github', { action: 'release.list' }).subject, '릴리스 목록');
+    assert.equal(row('github', { action: 'workflow.run', workflow: 'ci.yml' }).subject, '워크플로우 실행 · ci.yml');
+    assert.equal(row('github', { action: 'pr.comments', number: 4 }).subject, '댓글 읽기 · #4');
+  })
+);
+
+test('todo, react and a handoff read as their own rows', () => {
+  const row = (name, args) => present({ id: name, name, args, result: 'ok' });
+  const todo = row('todo', { op: 'advance', note: 'shot taken' });
+  assert.deepEqual([todo.verb, todo.subject], ['Plan', 'Advance · shot taken']);
+  const react = row('react', { emoji: '👍' });
+  assert.deepEqual([react.verb, react.subject], ['React', '👍']);
+  const handoff = row('handoff_user', {
+    handoff: { kind: 'takeover', surface: 'computer', need: 'sign_in', target: 'GitHub Device Activation' },
+  });
+  assert.deepEqual([handoff.verb, handoff.subject], ['Hand off to user', 'Sign in · GitHub Device Activation']);
+});
+
+test('a structure pass reads as its group does, and a call walk names its direction', () => {
+  const row = (args) => present({ id: 'cg', name: 'code_graph', args, result: '' });
+  assert.equal(row({ mode: 'imports', files: 'src/a.ts' }).verb, 'Code structure');
+  assert.equal(row({ mode: 'callees', symbols: ['run'] }).subject, 'Callees · run');
+});
+
+test('an MCP row names its tool in words', () => {
+  const row = present({
+    id: 'm',
+    name: 'mcp__gmail__search_emails',
+    args: { query: 'from:boss' },
+    result: 'No emails.',
+  });
+  assert.equal(row.subject, 'Search emails · from:boss');
+});
+
+test(
+  'a row never says its action twice',
+  inLanguage('ko', () => {
+    const row = (name, args) => {
+      const presentation = present({ id: name, name, args, result: '{"ok":true}' });
+      return [presentation.verb, presentation.subject].filter(Boolean).join(' ');
+    };
+    assert.equal(row('ask_user', { questions: [{ header: '범위', question: 'Scope?' }] }), '질문 범위');
+    assert.equal(row('agent', { type: 'list' }), '에이전트 목록');
+    assert.equal(row('session', { action: 'status' }), '세션 상태');
+    assert.equal(row('session', { action: 'list-projects' }), '프로젝트 목록 조회');
+    assert.equal(row('media', { action: 'list', kind: 'image' }), '미디어 목록 이미지');
+    assert.equal(row('media', { action: 'generate', kind: 'image', path: 'a.png' }), '이미지 생성 a.png');
+    assert.equal(row('media', { action: 'cancel', job: 'j1' }), '미디어 취소 j1');
+    assert.equal(row('tidy', { action: 'install', engines: ['biome'] }), '정리 도구 설치 biome');
+    assert.equal(row('tidy', { action: 'scan', paths: ['.'] }), '정리 검사 .');
+    assert.equal(row('tidy', { action: 'check' }), '정리 확인');
+    assert.equal(row('todo', { op: 'view' }), '계획 보기');
+    assert.equal(row('computer', { action: 'list', input: { kind: 'windows' } }), '컴퓨터 유즈 목록 · 창');
+    assert.equal(row('computer', { action: 'list', input: { kind: 'history' } }), '컴퓨터 유즈 목록 · 기록');
+  })
+);
+
+test('a row never says its action twice in English either', () => {
+  const row = (name, args) => {
+    const presentation = present({ id: name, name, args, result: '{"ok":true}' });
+    return [presentation.verb, presentation.subject].filter(Boolean).join(' ');
+  };
+  assert.equal(row('tidy', { action: 'scan', paths: ['.'] }), 'Tidy scan .');
+  assert.equal(row('todo', { op: 'view' }), 'Plan view');
+});
+
+test(
+  'a cancel action that did its work reads its status in the active language; an interrupted one stopped',
+  inLanguage('ko', () => {
+    const cancel = (name, args, result) => present({ id: name, name, args, result });
+    const run = cancel('github', { action: 'run.cancel', id: 7 }, 'Cancelled');
+    assert.deepEqual([run.tone, run.resultLabel, run.outputText], ['neutral', '취소됨', '']);
+    assert.equal(cancel('media', { action: 'cancel', job: 'j1' }, 'Cancelled').resultLabel, '취소됨');
+    assert.equal(cancel('setup', { action: 'cancel_quota_resume' }, 'Cancelled').tone, 'neutral');
+    const interrupted = cancel('task', { action: 'cancel', task_id: 't1' }, 'Interrupted by process restart');
+    assert.deepEqual([interrupted.tone, interrupted.resultLabel], ['warning', '중지됨']);
+  })
+);
+
+test('a lookup row counts a file whose name opens like an empty-result message', () => {
+  const glob = (result) => toolActivityOutcomeText(present({ id: 'g', name: 'glob', args: { pattern: '*.md' }, result }));
+  assert.equal(glob('No files.md'), '1 file');
+  assert.equal(glob('(no files found) pattern="*.md" path=.; .: path exists (dir)'), '0 files');
+});
+
+test(
+  'recall, load_tool, media kinds and long task ids read in Korean',
+  inLanguage('ko', () => {
+    const row = (name, args, result = 'ok') => present({ id: name, name, args, result });
+    assert.equal(row('recall', { query: ['a', 'b'], limit: 8 }).subject, '검색어 2개');
+    assert.equal(row('load_tool', { names: 'github' }, 'Already active: github').subject, 'github');
+    assert.equal(row('media', { action: 'list', kind: 'video' }).subject, '영상');
+    assert.equal(row('task', { action: 'wait', task_id: 'task-toolu_01GhcuCTMDNAR4Dy3qeW1Sk2' }).subject, '대기 · eW1Sk2');
+  })
+);
+
+// ── layout: one line that keeps its chevron ────────────────────────────────
+test('an outcome the reconnect lost takes the warning colour a neutral row does not', async () => {
+  const { installTestDom } = await import('./test-support/test-dom.mjs');
+  const { restore } = installTestDom(null, { jsdom: { url: 'http://localhost/' } });
+  try {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(new URL('./desktop/13-tool-cards.css', import.meta.url), 'utf8');
+    document.head.append(style);
+    const base = present({ id: 'r', name: 'read', args: { file_path: 'a.ts' } });
+    const verbColours = (tone) => {
+      const article = document.createElement('article');
+      article.className = `tool-activity-item ${tone}`;
+      article.innerHTML =
+        '<div class="tool-header tool-activity-item-header"><span class="tool-title tool-activity-item-title"><b>Read</b></span></div>';
+      document.body.append(article);
+      const verb = article.querySelector('b');
+      return [...style.sheet.cssRules]
+        .filter((rule) => rule.selectorText && verb.matches(rule.selectorText))
+        .map((rule) => rule.style.getPropertyValue('color'))
+        .filter(Boolean);
+    };
+    const tone = outcomeUnknownPresentation(base).tone;
+    assert.ok(verbColours(tone).includes('var(--mx-warning)'), tone);
+    assert.equal(verbColours(base.tone).includes('var(--mx-warning)'), false);
+  } finally {
+    restore();
+  }
+});
+
+test('a long outcome gives way inside the row instead of pushing the chevron out', async () => {
+  const { installTestDom } = await import('./test-support/test-dom.mjs');
+  const { restore } = installTestDom(null, { jsdom: { url: 'http://localhost/' } });
+  try {
+    const style = document.createElement('style');
+    style.textContent = ['./desktop/13-tool-cards.css', './desktop/shell-overrides.css']
+      .map((path) => readFileSync(new URL(path, import.meta.url), 'utf8'))
+      .join('\n');
+    document.head.append(style);
+    document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
+    const row = present({
+      id: 'e',
+      name: 'edit',
+      args: { file_path: 'src/17-settings.css', old_string: 'a', new_string: 'b' },
+      result: `Error: edit failed (old_string not found; nearest match on line 165: ${'x'.repeat(200)})`,
+      isError: true,
+    });
+    const header = document.createElement('div');
+    header.className = 'tool-header tool-activity-item-header';
+    header.innerHTML =
+      '<span class="tool-title tool-activity-item-title"><b></b><small data-kind="target"><button class="tool-path-link">17-settings.css</button></small></span>' +
+      renderToStaticMarkup(React.createElement(ToolRowOutcome, { presentation: row }));
+    document.body.append(header);
+    const declared = (element, property) =>
+      [...style.sheet.cssRules]
+        .filter((rule) => rule.selectorText && element.matches(rule.selectorText))
+        .map((rule) => rule.style.getPropertyValue(property))
+        .filter(Boolean)
+        .at(-1);
+    const outcome = header.querySelector('.tool-activity-item-result');
+    assert.notEqual(Number.parseFloat(declared(outcome, 'flex').split(' ')[1]), 0, 'the outcome can shrink');
+    assert.equal(Number.parseFloat(declared(outcome, 'min-width')), 0);
+    assert.equal(declared(outcome, 'text-overflow'), 'ellipsis');
+    // A phone's file link stays on the row's one line.
+    assert.equal(declared(header.querySelector('.tool-path-link'), 'white-space'), 'nowrap');
+  } finally {
+    restore();
+  }
+});
+
+test(
+  'a stopped edit reads "stopped" without an error flag; a cancel that did its work does not',
+  inLanguage('ko', () => {
+    const edit = present({
+      id: 'e',
+      name: 'edit',
+      args: { file_path: 'a.css', old_string: 'x', new_string: 'y' },
+      result: 'Cancelled',
+    });
+    assert.equal(edit.resultLabel, '중지됨');
+    const cancel = present({ id: 't', name: 'task', args: { action: 'cancel', task_id: 't1' }, result: 'Cancelled' });
+    assert.notEqual(cancel.resultLabel, '중지됨');
+  })
+);
+
+test(
+  'setup, window and code structure actions read in Korean',
+  inLanguage('ko', () => {
+    const row = (name, args, result = '{"ok":true}') => present({ id: name, name, args, result });
+    assert.equal(row('setup', { action: 'set_workflow', workflow: 'a' }).subject, '워크플로우 설정 · a');
+    assert.equal(
+      row('computer', { action: 'window', input: { operation: 'maximize', window_id: 'w' } }).subject,
+      '창 · 최대화 · w'
+    );
+    assert.equal(row('code_graph', { mode: 'overview' }, '').subject, '개요');
+  })
+);

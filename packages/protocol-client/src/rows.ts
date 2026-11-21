@@ -393,6 +393,30 @@ function toolMetaField(value: unknown): Obj {
   };
 }
 
+/** A tool row the transcript does not show: a control tool, a task wait or a built-in skill load, a `call_tool` bridge request
+ * judged as the tool it runs. An unfinished skill load is hidden until its result lands: only the result tells a built-in load
+ * from one that shows, so a call that shows does so once, and a built-in one never counts in its group. */
+export function isTranscriptHiddenToolRow(row: {
+  name?: unknown;
+  args?: unknown;
+  result?: unknown;
+  count?: unknown;
+  completedCount?: unknown;
+}): boolean {
+  const target = node.toolCallDisplayIdentity(row.name, row.args);
+  if (node.isTranscriptHiddenToolItem({ name: target.name, result: row.result })) return true;
+  if (node.isTaskWaitToolCall(String(target.name ?? ''), target.args)) return true;
+  const unfinished = !(Number(row.completedCount) >= Number(row.count ?? 1));
+  return node.isTranscriptSkillToolName(target.name) && (row.result === undefined || row.result === null) && unfinished;
+}
+
+/** A row only the live turn shows, which a reload does not restore: a run notice (restored notices carry their routine,
+ * held request or room) and a compaction pass's marker (a restored status row states its status). */
+export function isLiveOnlyTranscriptRow(row: { kind?: unknown; status?: unknown }): boolean {
+  if (row.kind === 'statusdone') return !row.status;
+  return row.kind === 'notice' && !('routine' in row || 'heldRequest' in row || 'room' in row);
+}
+
 /** One tool call's row: restore.mjs `restoredToolCallItems` for the call, `attachRestoredToolResult` once it has finished. */
 function toolRow(
   item: Obj,
@@ -402,7 +426,9 @@ function toolRow(
   output: string | undefined,
   failed: boolean
 ): Obj | null {
-  if (node.isTranscriptHiddenControlToolName(name) || node.isTaskWaitToolCall(name, args)) return null;
+  const target = node.toolCallDisplayIdentity(name, args);
+  if (node.isTranscriptHiddenControlToolName(target.name) || node.isTaskWaitToolCall(String(target.name), target.args))
+    return null;
   const ext = asObj(m.ext);
   const finished = typeof m.status === 'string' && FINISHED.has(m.status);
   // A live turn's card starts when its call shows and completes when its result lands (turn-tool-cards.mjs `startedAt: Date.now()`,
@@ -503,8 +529,15 @@ const sealed = (card: Obj, headerFinalized: boolean): Obj => {
 export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[], void> {
   const merged: Obj[] = [];
   let run: { bucket: string; live: boolean; members: { item: Obj; category: string }[] } | null = null;
+  // Live-only rows met inside a run: a reload has none to end it, so they follow it.
+  let held: Obj[] = [];
   // A run of any length aggregates in steps too: one step per `ROWS_PER_STEP` of its members.
   function* flush(): Generator<void, void, void> {
+    yield* flushRun();
+    merged.push(...held);
+    held = [];
+  }
+  function* flushRun(): Generator<void, void, void> {
     if (!run) return;
     const { members, live } = run;
     run = null;
@@ -531,7 +564,11 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
   let seen = 0;
   for (const item of rows) {
     if (++seen % ROWS_PER_STEP === 0) yield;
-    if (item.kind === 'tool' && node.isTranscriptHiddenToolItem(item)) continue;
+    if (item.kind === 'tool' && isTranscriptHiddenToolRow(item)) continue;
+    if (run && isLiveOnlyTranscriptRow(item)) {
+      held.push(item);
+      continue;
+    }
     const live = liveRows.has(item);
     if (!(live ? liveMergeable(item) : mergeable(item))) {
       yield* flush();
@@ -565,7 +602,7 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
   }
   yield* flush();
   let lastOther = merged.length - 1;
-  while (lastOther >= 0 && merged[lastOther]!.kind === 'tool') lastOther--;
+  while (lastOther >= 0 && (merged[lastOther]!.kind === 'tool' || isLiveOnlyTranscriptRow(merged[lastOther]!))) lastOther--;
   for (const { at, stopped } of liveCards) merged[at] = sealed(merged[at]!, stopped || at < lastOther);
   return merged;
 }

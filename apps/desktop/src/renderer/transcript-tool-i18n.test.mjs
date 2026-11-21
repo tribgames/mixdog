@@ -109,7 +109,7 @@ test('imported tool use reads as one native activity line with per-kind counts',
     await i18n.changeLanguage('en');
     assert.equal(desktopToolActivitySummary(calls, true), 'Edited 1 file, Ran 2 commands, Read file');
     await i18n.changeLanguage('ko');
-    assert.equal(desktopToolActivitySummary(calls, true), '파일 1개 수정함, 명령 2회 실행함, 파일 읽기');
+    assert.equal(desktopToolActivitySummary(calls, true), '파일 1개 수정함, 명령 2회 실행함, 파일 읽음');
     const row = desktopToolActivityItemPresentation(calls[0]);
     assert.equal(row.outputNote, t('Results were not imported'));
     assert.equal(row.headerSubject, '×2');
@@ -573,7 +573,8 @@ test(
       ['browser', 'screenshot', '스크린샷'],
       ['browser', 'scroll', '스크롤'],
       ['office', 'docx_edit', '문서 편집'],
-      ['media', 'generate_image', '이미지 생성'],
+      // The row verb already says "이미지 생성": the subject never repeats it.
+      ['media', 'generate_image', ''],
       ['github', 'something_new', 'something new'],
     ];
     for (const [name, action, text] of expected) assert.equal(subject(name, action), text, action);

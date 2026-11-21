@@ -1,5 +1,5 @@
 import { VISUALIZE_INLINE_KINDS } from '../shared/visualize';
-import { t, tExisting } from './i18n';
+import { t } from './i18n';
 import { asRecord, formatElapsed, oneLine } from './text-format';
 import { boundedTextOf } from './transcript-tool-core';
 import { visualizeInlineKindLabel } from './visualize-card-model';
@@ -164,12 +164,14 @@ export function toolActivityIsOperationalArg(normalizedName: string, key: string
 }
 
 const MACHINE_ID = /\b[a-z]+_\d{10,}_([0-9a-f]{4,})\b/gi;
+const TOOL_USE_ID = /\b(?:task-)?toolu_[A-Za-z0-9]{10,}([A-Za-z0-9]{6})\b/g;
 
-/** `job_1790959235138_971b88` reads as `971b88`: the timestamp is noise and
- *  the suffix is what tells two background tasks apart. Short ids (`a1`) are
- *  already readable and stay as they are. */
+/** `job_1790959235138_971b88` reads as `971b88`, and a tool-use task id
+ *  (`task-toolu_01Ghcu…W1Sk2`) by its last six characters: the prefix is
+ *  noise and the suffix is what tells two background tasks apart. Short ids
+ *  (`a1`) are already readable and stay as they are. */
 export function shortMachineId(text: string): string {
-  return text.replace(MACHINE_ID, '$1');
+  return text.replace(MACHINE_ID, '$1').replace(TOOL_USE_ID, '$1');
 }
 
 /** Raw action names the rows of github, browser, office, computer and media
@@ -187,9 +189,23 @@ const TOOL_ACTION_LABELS: Record<string, () => string> = {
   close_issue: () => t('Close issue'),
   comment: () => t('Comment'),
   issue_comment: () => t('Comment'),
-  issue_comments: () => t('Comment'),
+  issue_comments: () => t('Read comments'),
   pr_comment: () => t('Comment'),
-  pr_comments: () => t('Comment'),
+  pr_comments: () => t('Read comments'),
+  issue_reopen: () => t('Reopen issue'),
+  pr_checkout: () => t('Check out PR'),
+  repo_create: () => t('Create repo'),
+  repo_clone: () => t('Clone repo'),
+  repo_fork: () => t('Fork repo'),
+  workflow_run: () => t('Run workflow'),
+  run_cancel: () => t('Cancel run'),
+  run_rerun: () => t('Rerun'),
+  release_list: () => t('List releases'),
+  release_view: () => t('View release'),
+  release_create: () => t('Create release'),
+  release_edit: () => t('Edit release'),
+  notification_list: () => t('List notifications'),
+  notification_read: () => t('Mark notification read'),
   pr_list: () => t('List PRs'),
   list_prs: () => t('List PRs'),
   pr_view: () => t('View PR'),
@@ -237,6 +253,200 @@ const TOOL_ACTION_LABELS: Record<string, () => string> = {
   launch: () => t('Launch'),
   diagnose: () => t('Diagnose'),
   verify: () => t('Verify'),
+  // browser / browser_devtools
+  locate: () => t('Locate element'),
+  evaluate: () => t('Run script'),
+  select: () => t('Select option'),
+  drag: () => t('Drag'),
+  upload: () => t('Upload file'),
+  handle_dialog: () => t('Answer dialog'),
+  sequence: () => t('Run steps'),
+  extract: () => t('Extract'),
+  console: () => t('Console logs'),
+  network: () => t('Network requests'),
+  downloads: () => t('Downloads'),
+  hide: () => t('Hide panel'),
+  emulate: () => t('Emulate device'),
+  cookies: () => t('Cookies'),
+  storage: () => t('Storage'),
+  intercept: () => t('Intercept requests'),
+  init_script: () => t('Init script'),
+  performance: () => t('Performance'),
+  get: () => t('Get'),
+  set: () => t('Set'),
+  clear: () => t('Clear'),
+  add: () => t('Add'),
+  // computer
+  wait_for_user: () => t('Wait for user'),
+  act: () => t('Operate'),
+  window: () => t('Window'),
+  menu: () => t('Menu'),
+  clipboard: () => t('Clipboard'),
+  saved_login: () => t('Saved login'),
+  focus: () => t('Focus'),
+  // terminal / tidy
+  run: () => t('Run'),
+  fix: () => t('Fix'),
+  scan: () => t('Scan'),
+  check: () => t('Check'),
+  rules: () => t('Rules'),
+  results: () => t('Results'),
+  // office
+  detect: () => t('Detect'),
+  transactions: () => t('Transactions'),
+  recover: () => t('Recover'),
+  describe: () => t('Describe'),
+  author: () => t('Write document'),
+  create: () => t('Create'),
+  attach: () => t('Attach'),
+  secure: () => t('Secure'),
+  begin: () => t('Begin'),
+  query: () => t('Search'),
+  batch: () => t('Batch edit'),
+  diff: () => t('Compare'),
+  commit: () => t('Commit'),
+  rollback: () => t('Roll back'),
+  issues: () => t('Issues'),
+  qa: () => t('Review'),
+  validate: () => t('Validate'),
+  render: () => t('Render'),
+  finalize: () => t('Finalize'),
+  // goal
+  complete: () => t('Complete'),
+  block: () => t('Block'),
+  extend: () => t('Extend'),
+  abandon: () => t('Abandon'),
+  update_tasks: () => t('Update tasks'),
+  set_tasks: () => t('Set tasks'),
+  // todo
+  init: () => t('Start'),
+  advance: () => t('Advance'),
+  done: () => t('Mark done'),
+  start: () => t('Start'),
+  drop: () => t('Drop'),
+  append: () => t('Add steps'),
+  rm: () => t('Remove'),
+  view: () => t('View'),
+  unblock: () => t('Unblock'),
+  // setup
+  set_route: () => t('Set route'),
+  list_models: () => t('List models'),
+  add_mcp_server: () => t('Add MCP server'),
+  save_automation: () => t('Save automation'),
+  delete_automation: () => t('Delete automation'),
+  run_automation: () => t('Run automation'),
+  set_automation_enabled: () => t('Turn automation on or off'),
+  read_definition: () => t('Read definition'),
+  save_definition: () => t('Save definition'),
+  set_appearance: () => t('Set appearance'),
+  install_builtin: () => t('Install built-in'),
+  set_disabled_skills: () => t('Set disabled skills'),
+  save_project: () => t('Save project'),
+  // session
+  bots: () => t('Bots'),
+  suggest: () => t('Suggestions'),
+  list_worktrees: () => t('List worktrees'),
+  // setup
+  set_agent_route: () => t('Set agent route'),
+  set_web_search_route: () => t('Set web search route'),
+  set_workflow: () => t('Set workflow'),
+  set_output_style: () => t('Set output style'),
+  set_profile: () => t('Set profile'),
+  set_autoclear: () => t('Set auto clear'),
+  set_compaction: () => t('Set compaction'),
+  set_memory_enabled: () => t('Turn memory on or off'),
+  set_recap_enabled: () => t('Turn recap on or off'),
+  set_web_search_enabled: () => t('Turn web search on or off'),
+  set_instruction_files: () => t('Set instruction files'),
+  set_auto_effort_base: () => t('Set auto effort'),
+  set_builtin_enabled: () => t('Turn built-in on or off'),
+  install_local_model: () => t('Install local model'),
+  start_local_installation: () => t('Start local install'),
+  cancel_local_installation: () => t('Cancel local install'),
+  set_local_idle_ttl: () => t('Set local model idle time'),
+  search_local_models: () => t('Search local models'),
+  inspect_hf_model: () => t('Inspect Hugging Face model'),
+  register_hf_model: () => t('Register Hugging Face model'),
+  local_model_details: () => t('Local model details'),
+  maintain_local_model: () => t('Maintain local model'),
+  delete_local_model: () => t('Delete local model'),
+  set_system_shell: () => t('Set system shell'),
+  set_auto_update: () => t('Set auto update'),
+  set_ai_session_titles: () => t('Set AI session titles'),
+  set_quota_auto_resume: () => t('Set quota auto resume'),
+  set_model_preferences: () => t('Set model preferences'),
+  set_heartbeat_enabled: () => t('Turn heartbeat on or off'),
+  set_heartbeat_interval: () => t('Set heartbeat interval'),
+  set_reactions_enabled: () => t('Turn reactions on or off'),
+  forget_provider_auth: () => t('Forget provider sign-in'),
+  set_provider_account: () => t('Set provider account'),
+  save_mcp_server: () => t('Save MCP server'),
+  remove_mcp_server: () => t('Remove MCP server'),
+  set_mcp_enabled: () => t('Turn MCP server on or off'),
+  reconnect_mcp: () => t('Reconnect MCP server'),
+  set_extension_scope: () => t('Set extension scope'),
+  add_plugin: () => t('Add plugin'),
+  update_plugin: () => t('Update plugin'),
+  set_plugin_enabled: () => t('Turn plugin on or off'),
+  remove_plugin: () => t('Remove plugin'),
+  enable_plugin_mcp: () => t('Enable plugin MCP'),
+  connect_connector: () => t('Connect connector'),
+  set_worktree_settings: () => t('Set worktree settings'),
+  set_network_proxy: () => t('Set network proxy'),
+  reset_route_fallback: () => t('Reset route fallback'),
+  continue_in_model: () => t('Continue in another model'),
+  schedule_quota_resume: () => t('Schedule quota resume'),
+  cancel_quota_resume: () => t('Cancel quota resume'),
+  set_cache_warming_enabled: () => t('Turn cache warming on or off'),
+  read_agent_settings: () => t('Read agent settings'),
+  read_project_connectors: () => t('Read project connectors'),
+  set_agent_permission: () => t('Set agent permission'),
+  set_agent_connector: () => t('Set agent connector'),
+  set_agent_connector_tool: () => t('Set agent connector tool'),
+  set_project_connector: () => t('Set project connector'),
+  restore_definition: () => t('Restore definition'),
+  set_bot_order: () => t('Set bot order'),
+  set_local_context: () => t('Set local context'),
+  set_orchestration_mode: () => t('Set orchestration mode'),
+  get_mcp_server: () => t('Read MCP server'),
+  create_definition: () => t('Create definition'),
+  delete_definition: () => t('Delete definition'),
+  set_webhook_config: () => t('Set webhook'),
+  set_desktop_settings: () => t('Set desktop settings'),
+  remove_project: () => t('Remove project'),
+  revoke_linked_device: () => t('Revoke linked device'),
+  set_activity_rail_pins: () => t('Set activity bar pins'),
+  set_developer_option: () => t('Set developer option'),
+  add_hook_rule: () => t('Add hook rule'),
+  set_hook_rule_enabled: () => t('Turn hook rule on or off'),
+  delete_hook_rule: () => t('Delete hook rule'),
+  set_media_default: () => t('Set media default'),
+  // computer window operations and list kinds
+  maximize: () => t('Maximize'),
+  minimize: () => t('Minimize'),
+  move: () => t('Move'),
+  restore: () => t('Restore'),
+  terminate: () => t('Terminate'),
+  windows: () => t('Windows'),
+  apps: () => t('Apps'),
+  history: () => t('History'),
+  // code_graph modes
+  overview: () => t('Overview'),
+  imports: () => t('Imports'),
+  dependents: () => t('Dependents'),
+  impact: () => t('Impact'),
+  related: () => t('Related files'),
+  symbols: () => t('Symbols'),
+  find_symbol: () => t('Find symbol'),
+  symbol_search: () => t('Symbol search'),
+  references: () => t('References'),
+  // visualize
+  annotate: () => t('Annotate'),
+  export: () => t('Export'),
+  inspect: () => t('Inspect'),
+  // code_graph
+  callers: () => t('Callers'),
+  callees: () => t('Callees'),
 };
 
 const actionKey = (action: string): string => action.toLowerCase().replace(/[.\s-]+/g, '_');
@@ -325,6 +535,145 @@ function githubSubject(args: Record<string, unknown>, fallback: string): string 
     toolActivityFirstText(args, 'repo'),
     title.length > 60 ? `${title.slice(0, 59)}…` : title,
   ]);
+}
+
+const WEB_SCHEME = /\bhttps?:\/\/(?:www\.)?/g;
+
+/** "Navigate · example.com/a (tab capcheck)": the action, its devtools
+ *  operation, the page or element it acted on, and the tab. */
+function browserSubject(args: Record<string, unknown>, fallback: string): string {
+  const action = toolActivityFirstText(args, 'action');
+  if (!action) return localizeActionSubject(args, fallback.replace(WEB_SCHEME, ''));
+  const operation = toolActivityFirstText(args, 'operation');
+  const target = toolActivityInline(toolActivityFirstText(args, 'url', 'ref', 'selector'), 300).replace(WEB_SCHEME, '');
+  const tab = toolActivityFirstText(args, 'tab');
+  const subject = toolActivityCompact([
+    toolActivityActionLabel(action),
+    operation ? toolActivityActionLabel(operation) : '',
+    target,
+  ]);
+  return tab ? `${subject} (${t('Tab {{value0}}', { value0: tab })})` : subject;
+}
+
+/** "Window · Close · hwnd:0x1020076": the action, then its one target. */
+function computerSubject(args: Record<string, unknown>, fallback: string): string {
+  const action = toolActivityFirstText(args, 'action');
+  if (!action) return localizeActionSubject(args, fallback);
+  const operation = toolActivityFirstText(args, 'operation');
+  const detail = operation || toolActivityFirstText(args, 'kind');
+  return toolActivityCompact([
+    toolActivityActionLabel(action),
+    detail ? toolActivityActionLabel(detail) : '',
+    toolActivityInline(toolActivityFirstText(args, 'ref', 'window_id', 'app'), 300),
+  ]);
+}
+
+const SUBJECT_TEXT_MAX = 80;
+
+function clippedText(value: string): string {
+  return value.length > SUBJECT_TEXT_MAX ? `${value.slice(0, SUBJECT_TEXT_MAX - 1)}…` : value;
+}
+
+/** Each memory op has its own row verb ("Memory saving"), so the subject is
+ *  what was saved, looked up or deleted. */
+function memorySubject(args: Record<string, unknown>): string {
+  const id = toolActivityFirstText(args, 'id');
+  return toolActivityCompact([
+    id ? `#${id}` : '',
+    clippedText(toolActivityInline(toolActivityFirstText(args, 'summary', 'text', 'query', 'value', 'key', 'name'))),
+  ]);
+}
+
+/** A recall names its ids and queries; its result limit is a knob, not the work. */
+function recallSubject(args: Record<string, unknown>): string {
+  const ids = (Array.isArray(args.id) ? args.id : [args.id])
+    .filter((id) => id != null && String(id).trim())
+    .map((id) => String(id).trim());
+  return toolActivityCompact([
+    ids.map((id) => `#${id}`).join(', '),
+    toolActivityOneOrCount(toolActivityValues(args.query ?? args.text ?? args.input), 'query', toolActivityQuoted),
+  ]);
+}
+
+/** Every media action has its own row verb ("Image generation", "Media
+ *  catalog"), so the subject names only what it acted on. */
+function mediaSubject(args: Record<string, unknown>): string {
+  const action = toolActivityFirstText(args, 'action').toLowerCase();
+  const kind = toolActivityFirstText(args, 'kind').toLowerCase();
+  const kindLabel = kind === 'video' ? t('Video') : kind === 'image' ? t('Image') : kind;
+  return toolActivityCompact([
+    // A generation's verb already names its kind.
+    /^generate/.test(action) ? '' : kindLabel,
+    toolActivityFirstText(args, 'path', 'job', 'job_id', 'id'),
+  ]);
+}
+
+/** The tidy actions whose row verb is the action itself ("Tidy scan", "Tidy install"). */
+const TIDY_VERB_ACTIONS = new Set(['install', 'fix', 'scan', 'check', 'rules', 'results']);
+
+/** "biome · src": the engines and paths. The row verb names the action; only
+ *  one it has no verb for is said here. */
+function tidySubject(args: Record<string, unknown>): string {
+  const action = toolActivityFirstText(args, 'action').toLowerCase();
+  return toolActivityCompact([
+    !action || TIDY_VERB_ACTIONS.has(action) ? '' : toolActivityActionLabel(action),
+    toolActivityStringList(args.engines).join(', '),
+    toolActivityOneOrCount(toolActivityStringList(args.paths), 'path'),
+  ]);
+}
+
+/** "Run · npm run dev", "Tab 2": a run names its command, a read its tab. */
+function terminalSubject(args: Record<string, unknown>): string {
+  const action = toolActivityFirstText(args, 'action').toLowerCase();
+  if (action === 'run') return toolActivityInline(toolActivityFirstText(args, 'command'), 1_000);
+  const tab = toolActivityFirstText(args, 'tab');
+  return action === 'read' && tab ? t('Tab {{value0}}', { value0: tab }) : '';
+}
+
+/** "Complete", "Create · <objective>": the goal action and what it states. */
+function goalSubject(args: Record<string, unknown>): string {
+  const action = toolActivityFirstText(args, 'action');
+  return toolActivityCompact([
+    action ? toolActivityActionLabel(action) : '',
+    clippedText(toolActivityInline(toolActivityFirstText(args, 'objective', 'blocker'))),
+  ]);
+}
+
+/** "Advance · <note>", "Set · 7 steps": the plan operation and the step it
+ *  names. A view's row verb ("Plan view") already is the operation. */
+function todoSubject(args: Record<string, unknown>): string {
+  const op = toolActivityFirstText(args, 'op');
+  const items = Array.isArray(args.items) ? args.items : [];
+  const only = items.length === 1 ? asRecord(items[0]) : null;
+  const step = only ? toolActivityFirstText(only, 'content', 'text') : items.length === 1 ? String(items[0]) : '';
+  const target = toolActivityFirstText(args, 'item', 'note', 'reason') || step;
+  return toolActivityCompact([
+    op && op.toLowerCase() !== 'view' ? toolActivityActionLabel(op) : '',
+    target ? clippedText(toolActivityInline(target)) : items.length > 1 ? t('{{count}} steps', { count: items.length }) : '',
+  ]);
+}
+
+/** "Sign in · GitHub Device Activation": what the user is asked to do, and where. */
+function handoffSubject(args: Record<string, unknown>): string {
+  const handoff = asRecord(args.handoff) ?? {};
+  const kind = toolActivityFirstText(handoff, 'kind');
+  const need = toolActivityFirstText(handoff, 'need');
+  let ask = '';
+  if (kind === 'secret') ask = t('Enter a secret');
+  else if (need === 'sign_in' || toolActivityFirstText(handoff, 'purpose') === 'login') ask = t('Sign in');
+  else if (need === 'confirmation') ask = t('Confirm identity');
+  else if (kind) ask = t('Human step');
+  return toolActivityCompact([
+    ask,
+    clippedText(toolActivityInline(toolActivityFirstText(handoff, 'target', 'field', 'app', 'url'))),
+  ]);
+}
+
+/** `search_emails · from:boss` reads "Search emails · from:boss". */
+export function mcpToolSubject(tool: string, fallback: string): string {
+  const name = tool.replace(/[_-]+/g, ' ').trim();
+  if (!tool || !fallback.startsWith(tool) || !name) return fallback;
+  return `${name[0].toUpperCase()}${name.slice(1)}${fallback.slice(tool.length)}`;
 }
 
 export const TOOL_ACTIVITY_BULK_ARGS = new Set([
@@ -507,12 +856,12 @@ function findSubject(args: Record<string, unknown>): string {
 function codeGraphSubject(args: Record<string, unknown>): string {
   const mode = toolActivityInline(args.mode ?? args.action ?? '');
   // callers/callees name the direction of the walk; the target alone hides it.
-  const direction = /^(?:callers|callees)$/.test(mode) ? mode : '';
+  const direction = /^(?:callers|callees)$/.test(mode) ? toolActivityActionLabel(mode) : '';
   const targets = toolActivityCompact([
     toolActivityOneOrCount(toolActivityValues(args.symbols ?? args.symbol), 'symbol'),
     toolActivityOneOrCount(toolActivityValues(args.files ?? args.file ?? args.path), 'file'),
   ]);
-  return toolActivityCompact([direction, targets || toolActivityQuoted(args.query)]) || mode;
+  return toolActivityCompact([direction, targets || toolActivityQuoted(args.query)]) || toolActivityActionLabel(mode);
 }
 
 function commandSubject(args: Record<string, unknown>): string {
@@ -521,11 +870,13 @@ function commandSubject(args: Record<string, unknown>): string {
   return toolActivityInline(toolActivityCommand(args), 1_000);
 }
 
+/** The row verb already says "Questions": the subject is what was asked. */
 function questionsSubject(args: Record<string, unknown>): string {
   const questions = Array.isArray(args.questions) ? args.questions : [];
-  if (!questions.length) return '';
-  const count = `${questions.length} ${questions.length === 1 ? 'question' : 'questions'}`;
-  return tExisting('{{count}} questions', count, { count: questions.length });
+  const asked = questions
+    .map((entry) => (asRecord(entry) ? toolActivityFirstText(asRecord(entry) ?? {}, 'header', 'question') : ''))
+    .filter(Boolean);
+  return clippedText(asked.join(', '));
 }
 
 const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
@@ -572,7 +923,7 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
   [
     ['load_tool'],
     (args, _path, fallback) => {
-      const names = [...toolActivityStringList(args.names), ...toolActivityStringList(args.select)];
+      const names = [...toolActivityValues(args.names), ...toolActivityValues(args.select)];
       return names.join(', ') || fallback;
     },
   ],
@@ -593,11 +944,18 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
   [['github'], (args, _path, fallback) => githubSubject(args, fallback)],
   [['session'], (args, _path, fallback) => sessionSubject(args, fallback)],
   [['request_user_input'], questionsSubject],
-  // "open · example.com/path": the scheme says nothing on a browser row.
-  [
-    ['browser', 'browser_devtools'],
-    (args, _path, fallback) => localizeActionSubject(args, fallback.replace(/\bhttps?:\/\/(?:www\.)?/g, '')),
-  ],
+  // "Open · example.com/path": the scheme says nothing on a browser row.
+  [['browser', 'browser_devtools'], (args, _path, fallback) => browserSubject(args, fallback)],
+  [['computer'], (args, _path, fallback) => computerSubject(args, fallback)],
+  [['memory', 'remember', 'save_memory', 'update_memory'], memorySubject],
+  [['recall', 'recall_memory', 'search_memories'], recallSubject],
+  [['media'], mediaSubject],
+  [['tidy'], tidySubject],
+  [['terminal'], terminalSubject],
+  [['goal'], goalSubject],
+  [['todo'], todoSubject],
+  [['react'], (args) => toolActivityFirstText(args, 'emoji')],
+  [['handoff_user'], handoffSubject],
   // "주문 처리 흐름", "mockup.html", "shots/home.png": the tab's title, else
   // what the call acted on. The arguments arrive as the unwrapped `input`
   // (the action rides beside it), so an action shows only when flat.
@@ -606,20 +964,7 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
     (args, _path, fallback) => visualizeRowSubject(toolActivityFirstText(args, 'action'), args, '') || fallback,
   ],
   [
-    [
-      'setup',
-      'tidy',
-      'office',
-      'computer',
-      'media',
-      'memory',
-      'remember',
-      'save_memory',
-      'update_memory',
-      'recall_memory',
-      'recall',
-      'search_memories',
-    ],
+    ['setup', 'office'],
     (args, _path, fallback) => localizeActionSubject(args, fallback),
   ],
 ]);
@@ -631,8 +976,13 @@ function sessionSubject(args: Record<string, unknown>, fallback: string): string
   const title = toolActivityFirstText(args, 'title');
   const path = toolActivityFirstText(args, 'path');
   switch (action) {
+    // The row verb ("Session status", "Project listing", "Project selection",
+    // "Session creation") already is the action.
     case 'status':
-      return t('Session status');
+    case 'list-projects':
+      return '';
+    case 'create':
+      return title;
     case 'rename':
       return title ? `${t('Rename session')}: ${title}` : t('Rename session');
     case 'compact':
@@ -640,9 +990,7 @@ function sessionSubject(args: Record<string, unknown>, fallback: string): string
     case 'fork':
       return t('Fork into new session');
     case 'set-project':
-      return path || t('Set project');
-    case 'list-projects':
-      return t('List projects');
+      return path;
     case 'favorite':
       return args.value === false ? t('Remove from favorites') : t('Add to favorites');
     case 'archive':
@@ -690,6 +1038,8 @@ function visualizeActionLabel(action: string): string {
       return t('Exported tab');
     case 'inspect':
       return t('Inspected tab');
+    case 'act':
+      return t('Operated tab');
     default:
       return action ? toolActivityActionLabel(action) : '';
   }
