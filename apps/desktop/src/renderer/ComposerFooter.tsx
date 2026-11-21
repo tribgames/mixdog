@@ -136,7 +136,7 @@ export const ComposerModelLine = memo(function ComposerModelLine({
   return (
     <div className="composer-model-line" data-card={card ? style : undefined}>
       {lead}
-      {card && route && <ComposerRouteLabel parts={route} />}
+      {card && route && <ComposerRouteLabel parts={route} choices={controlProps.sessionChoices} />}
       {/* At the line's right end the pill grows leftwards: its sheet shares its right edge. */}
       {!card && <ComposerModelControls {...controlProps} routeLabel={route} sheetAlign="end" />}
     </div>

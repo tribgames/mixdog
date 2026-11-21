@@ -26,20 +26,19 @@ import i18n from './i18n';
 import ko from './locales/ko.json';
 import { LiveActivity } from './transcript-status';
 
-(window as any).runLiveActivityProbe = async (widths: number[]) => {
+// 'quiet': the report's quiet turn in Korean; 'long': an English runtime
+// status far wider than a phone's column, with its clock and token count.
+(window as any).runLiveActivityProbe = async (widths: number[], kind = 'quiet') => {
   i18n.addResourceBundle('ko', 'translation', ko);
-  await i18n.changeLanguage('ko');
+  await i18n.changeLanguage(kind === 'quiet' ? 'ko' : 'en');
   document.documentElement.style.setProperty('--mx-ui-scale', '1.15');
   const now = Date.now();
+  const spinner = kind === 'quiet'
+    ? { mode: 'requesting', quiet: { since: now - 150_000, wait: 'model', warnMs: 0 } }
+    : { mode: 'reconnecting', verb: 'Sign-in expired — switching to the next account' };
   const snapshot = {
     busy: true,
-    spinner: {
-      active: true,
-      mode: 'requesting',
-      startedAt: now - 275_000,
-      outputTokens: 12_400,
-      quiet: { since: now - 150_000, wait: 'model', warnMs: 0 },
-    },
+    spinner: { active: true, startedAt: now - 275_000, outputTokens: 12_400, ...spinner },
   };
   const results = [];
   for (const width of widths) {
@@ -58,7 +57,18 @@ import { LiveActivity } from './transcript-status';
         const range = document.createRange();
         range.selectNodeContents(element);
         const ink = range.getBoundingClientRect();
-        return { name: element.className || element.tagName, text: element.textContent, left: box.left, top: box.top, inkRight: ink.right };
+        // Text an ellipsis cuts paints only up to its clipping box.
+        const clips = [element, ...element.querySelectorAll('*')]
+          .filter((node) => getComputedStyle(node).overflowX === 'hidden')
+          .map((node) => node.getBoundingClientRect().right);
+        return {
+          name: element.className || element.tagName,
+          text: element.textContent,
+          left: box.left,
+          top: box.top,
+          inkRight: Math.min(ink.right, ...clips),
+          cut: ink.right > Math.min(...clips, Infinity) + 0.5,
+        };
       });
     results.push({ width, columnRight: host.getBoundingClientRect().right, items });
     root.unmount();
@@ -68,7 +78,7 @@ import { LiveActivity } from './transcript-status';
 };
 `;
 
-test('the live status line never paints one item over the next while the quiet cue shows', {
+test('the live status line stays one row and never paints one item over the next while the quiet cue shows', {
   timeout: 45_000,
   skip: headlessLinux && 'no display server for Electron',
 }, async (t) => {
@@ -108,7 +118,10 @@ test('the live status line never paints one item over the next while the quiet c
           webPreferences: { offscreen: true, backgroundThrottling: false, nodeIntegration: false },
         });
         await win.loadFile(join(__dirname, "index.html"));
-        const results = await win.webContents.executeJavaScript("window.runLiveActivityProbe([391, 300])");
+        const results = {
+          quiet: await win.webContents.executeJavaScript("window.runLiveActivityProbe([391, 300], 'quiet')"),
+          long: await win.webContents.executeJavaScript("window.runLiveActivityProbe([360, 300], 'long')"),
+        };
         writeFileSync(join(__dirname, "result.json"), JSON.stringify(results));
         win.destroy();
         app.quit();
@@ -134,13 +147,30 @@ test('the live status line never paints one item over the next while the quiet c
       child.once('close', resolve);
     });
     assert.equal(code, 0, output);
-    const results = JSON.parse(await readFile(join(scratch, 'result.json'), 'utf8'));
-    assert.equal(results.length, 2);
-    for (const { width, columnRight, items } of results) {
+    const { quiet, long } = JSON.parse(await readFile(join(scratch, 'result.json'), 'utf8'));
+    assert.equal(quiet.length, 2);
+    assert.equal(long.length, 2);
+    // A status too long for the row ellipsizes; the clock after it is drawn whole.
+    for (const { width, items } of long) {
       const layout = JSON.stringify(items);
+      const meta = items.find((item) => item.name === 'live-activity-meta');
+      assert.ok(meta && !meta.cut && /\d/.test(meta.text), `${width}px: the clock was pushed out: ${layout}`);
+      assert.ok(
+        items.find((item) => item.name !== 'live-activity-meta')?.cut,
+        `${width}px: the status did not give way: ${layout}`
+      );
+    }
+    for (const { width, items } of quiet) {
       assert.ok(
         items.some((item) => /live-activity-quiet/.test(item.name)),
-        `${width}px: no quiet cue: ${layout}`
+        `${width}px: no quiet cue: ${JSON.stringify(items)}`
+      );
+    }
+    for (const { width, columnRight, items } of [...quiet, ...long]) {
+      const layout = JSON.stringify(items);
+      assert.ok(
+        items.every((item) => Math.abs(item.top - items[0].top) <= 2),
+        `${width}px: the line wrapped: ${layout}`
       );
       for (const [index, item] of items.entries()) {
         assert.ok(item.inkRight <= columnRight + 0.5, `${width}px: ${item.name} runs past the column: ${layout}`);

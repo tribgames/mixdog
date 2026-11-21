@@ -683,6 +683,28 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   align-items: center;
   min-width: 0;
 }
+/* Agent rows (AgentPoolRow) share their list's columns — mark, name over
+   model, step progress, state — so the step mark sits at the same place in
+   every row. The progress column exists while a listed agent has steps. */
+.agent-pool-list {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.agent-pool-list:has(.agent-todo-mark) {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+.agent-pool-list:not(:has(.agent-todo-mark)) .agent-pool-progress {
+  display: none;
+}
+.agent-pool-list > .agent-pool-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+}
+.agent-pool-progress {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
 .utility-dock .agent-activity-page .agent-pool-name {
   min-width: 0;
   overflow: hidden;

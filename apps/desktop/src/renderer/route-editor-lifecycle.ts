@@ -4,7 +4,7 @@ import { OPEN_MODEL_PICKER_EVENT } from './model-picker-event';
 import { useRouteDismissal } from './route-editor-effects';
 import { useRouteFlyoutFit, useRouteLayout } from './route-editor-layout';
 import type { RoutePanelBox, RouteSheetPane } from './route-editor-logic';
-import { currentViewport, naturalTriggerWidth, ROUTE_CLOSE_DURATION } from './route-editor-panes';
+import { currentViewport, ROUTE_CLOSE_DURATION } from './route-editor-panes';
 
 type RouteSheetRefs = {
   trigger: RefObject<HTMLButtonElement | null>;
@@ -13,15 +13,8 @@ type RouteSheetRefs = {
   optionFlyout: RefObject<HTMLDivElement | null>;
 };
 
-function restingTriggerWidth(trigger: HTMLButtonElement | null, fallback: number | null): number | null {
-  if (!trigger) return fallback;
-  const lane = trigger.parentElement?.getBoundingClientRect().width;
-  return Math.min(naturalTriggerWidth(trigger), lane || Infinity);
-}
-
 /** The sheet's open/close state machine: which pane is open, the boxes the
- *  sheet and flyout occupy, the trigger pill's morph, and the refs the
- *  panes share. */
+ *  sheet and flyout occupy, and the refs the panes share. */
 export function useRouteSheet({
   dropdown,
   placement,
@@ -47,9 +40,6 @@ export function useRouteSheet({
   // Narrow surface (phone): the pane takes over the sheet's footprint and the
   // sheet steps aside, instead of stacking a detached second panel.
   const [drill, setDrill] = useState(false);
-  // While open, the trigger pill expands to the sheet width.
-  // null = natural (auto) width; a number drives the width transition.
-  const [triggerWidth, setTriggerWidth] = useState<number | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
   const modelFlyout = useRef<HTMLDivElement>(null);
@@ -61,8 +51,8 @@ export function useRouteSheet({
   // pill's size at open time drives the starting transform.
   const morphFrom = useRef<{ width: number; height: number } | null>(null);
   // The pill's natural (unclipped) label width, measured once per opening:
-  // the sheet — and the pill morphing into it — never comes out narrower
-  // than the label it shows, so a long model name stays whole while open.
+  // the sheet never comes out narrower than the label it shows, so a long
+  // model name stays whole while open.
   const labelWidth = useRef<number | null>(null);
 
   const finishClose = useCallback(() => {
@@ -72,21 +62,15 @@ export function useRouteSheet({
     setSheetBox(null);
     setFlyoutBox(null);
     setDrill(false);
-    setTriggerWidth(null);
   }, []);
 
   const closeAll = useCallback(
     (restoreFocus = false, immediate = false) => {
       if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
       setOpen(false);
-      const closeWidth = restingTriggerWidth(trigger.current, morphFrom.current?.width ?? null);
-      if (closeWidth !== null) {
-        morphFrom.current = {
-          width: closeWidth,
-          height: morphFrom.current?.height ?? trigger.current?.getBoundingClientRect().height ?? 28,
-        };
-      }
-      if (!dropdown) setTriggerWidth(closeWidth);
+      // The sheet shrinks back into the pill as it is now.
+      const rect = trigger.current?.getBoundingClientRect();
+      if (rect) morphFrom.current = { width: rect.width, height: rect.height };
       if (immediate) {
         finishClose();
       } else {
@@ -100,7 +84,7 @@ export function useRouteSheet({
         window.setTimeout(() => trigger.current?.focus({ preventScroll: true }), 0);
       }
     },
-    [dropdown, finishClose]
+    [finishClose]
   );
 
   const closePane = useCallback((closedPane: RouteSheetPane, restoreFocus = false) => {
@@ -130,6 +114,8 @@ export function useRouteSheet({
   const paneRow = () => (pane ? rowButtons.current[pane] : null);
   useRouteFlyoutFit(modelFlyout, pane === 'model' ? flyoutBox : null, setFlyoutBox, paneRow);
   useRouteFlyoutFit(optionFlyout, pane && pane !== 'model' ? flyoutBox : null, setFlyoutBox, paneRow);
+  // A drilled pane is hosted by the sheet itself.
+  useRouteFlyoutFit(sheet, drill && pane ? flyoutBox : null, setFlyoutBox);
 
   const show = (focusRow: 'first' | 'last' | null = null) => {
     onOpenSheet?.();
@@ -144,15 +130,7 @@ export function useRouteSheet({
     if (triggerRect) {
       const viewport = currentViewport(trigger.current);
       // Fresh label measure per opening: the model may have changed since.
-      const nextSheet = measureSheet(triggerRect, viewport, true);
-      setSheetBox(nextSheet);
-      // Two-step width: pin the current numeric width first, then widen to
-      // the sheet width on the next frame so the transition can run. A
-      // dropdown already has the trigger's width.
-      if (!dropdown) {
-        setTriggerWidth(triggerRect.width);
-        window.requestAnimationFrame(() => setTriggerWidth(nextSheet.width));
-      }
+      setSheetBox(measureSheet(triggerRect, viewport, true));
     }
     setPane(null);
     setOpen(true);
@@ -195,7 +173,6 @@ export function useRouteSheet({
     drill,
     sheetBox,
     flyoutBox,
-    triggerWidth,
     refs: { trigger, sheet, modelFlyout, optionFlyout, rowButtons, hoverLock, morphFrom },
     layoutFor,
     show,

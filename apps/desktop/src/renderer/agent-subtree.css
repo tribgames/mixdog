@@ -67,12 +67,16 @@ html[data-mixdog-mobile-tabs] .agent-subtree {
     --agent-contact-avatar-size: 32px;
   }
 }
-/* The state is as wide as its own text, so the name takes the rest; only a very
-   long state (Waiting for approval) wraps, capped at 38%. */
+/* The state column is as wide as its longest text, so the name takes the rest;
+   only a very long state (Waiting for approval) wraps, capped at 38%. */
+.agent-subtree .agent-pool-list {
+  grid-template-columns: auto minmax(0, 1fr) fit-content(38%);
+}
+.agent-subtree .agent-pool-list:has(.agent-todo-mark) {
+  grid-template-columns: auto minmax(0, 1fr) auto fit-content(38%);
+}
 .agent-activity-page .agent-subtree .agent-pool-row .agent-activity-status {
-  flex: 0 1 auto;
   min-width: 0;
-  max-width: 38%;
   margin-right: 0;
   text-align: right;
 }

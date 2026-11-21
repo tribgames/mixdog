@@ -1,6 +1,7 @@
 import { type Dispatch, type RefObject, type SetStateAction, useCallback, useLayoutEffect, useRef } from 'react';
 import {
   ROUTE_PANEL_WIDTH,
+  routeContentFit,
   routeDrillBox,
   routeDrillHeight,
   routeDropdownBox,
@@ -23,13 +24,14 @@ type RouteViewportBox = { left: number; top: number; width: number; height: numb
 /** One geometry for every pane opening: a second column beside the sheet
  *  where it fits — on its row, sized to its content up to `maxHeight` — and a
  *  drilled pane inside the sheet's own footprint where it does not (phones),
- *  so the menu never breaks into two detached panels. The flyout is placed
- *  at its cap here; useRouteFlyoutFit re-places it for its content before
- *  it paints. */
+ *  so the menu never breaks into two detached panels. Either is placed at
+ *  its cap here; useRouteFlyoutFit re-places it for its content before it
+ *  paints. A drilled model catalog (`catalog`) keeps its cap, so filtering
+ *  the list does not move the search field. */
 export function routePaneLayout(
   nextSheet: RoutePanelBox,
   viewport: RouteViewportBox,
-  size: { maxHeight: number; width?: number },
+  size: { maxHeight: number; width?: number; catalog?: boolean },
   rowTop: number | undefined
 ): { box: RoutePanelBox; drilled: boolean } {
   if (routeFlyoutFitsBeside(nextSheet, viewport, size.width)) {
@@ -38,10 +40,8 @@ export function routePaneLayout(
       drilled: false,
     };
   }
-  return {
-    box: routeDrillBox(nextSheet, routeDrillHeight(size.maxHeight, viewport), viewport),
-    drilled: true,
-  };
+  const box = routeDrillBox(nextSheet, routeDrillHeight(size.maxHeight, viewport), viewport);
+  return { box: size.catalog ? box : routeContentFit(box), drilled: true };
 }
 
 /** An element's settled viewport top: its layout offsets, ignoring CSS
@@ -183,13 +183,18 @@ export function useRouteLayout({
       if (dropdown && triggerRect) {
         const bounds = dropdownViewport(viewport);
         const height = routeDrillHeight(preferredFlyoutHeight(next, effortCount), bounds);
-        return { box: dropdownBox(triggerRect, height, bounds, preferredFlyoutWidth(next)), drilled: true };
+        const box = dropdownBox(triggerRect, height, bounds, preferredFlyoutWidth(next));
+        return { box: next === 'model' ? box : routeContentFit(box), drilled: true };
       }
       const row = rowButtons.current[next];
       return routePaneLayout(
         nextSheet,
         viewport,
-        { maxHeight: preferredFlyoutHeight(next, effortCount), width: preferredFlyoutWidth(next) },
+        {
+          maxHeight: preferredFlyoutHeight(next, effortCount),
+          width: preferredFlyoutWidth(next),
+          catalog: next === 'model',
+        },
         row ? settledTop(row) : undefined
       );
     },

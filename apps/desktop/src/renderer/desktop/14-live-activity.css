@@ -19,9 +19,9 @@
   max-width: 100%;
   min-height: 24px;
   display: flex;
-  /* A column still too narrow for the line moves the quiet cue to a second
-     row: shrunk items would paint their unclipped text over the next (#326). */
-  flex-wrap: wrap;
+  /* One row in any column: the quiet cue clips its own text with an ellipsis
+     (below), as a shrunk item with unclipped text painted over the next (#326). */
+  flex-wrap: nowrap;
   /* Same contract as the settled footer: verb and readout run at one size, so
      centring the boxes centres the text too. */
   align-items: center;
@@ -245,6 +245,46 @@
   content: "\00B7";
   margin-right: 7px;
   color: var(--mx-text-faint);
+}
+/* On the one-row band the verb and the quiet cue give way first, ending in
+   an ellipsis; the clock (the meta's first part) is the last thing to go: the
+   meta only shrinks once they are gone, and loses its tail before its start. */
+.live-activity-status > [data-component="text-shimmer"] {
+  flex: 0 1 auto;
+  line-height: 24px;
+}
+/* Block spans, so the verb ellipsizes (the glint's copy does in its own box). */
+.live-activity-status > [data-component="text-shimmer"],
+.live-activity-status > [data-component="text-shimmer"] [data-slot="text-shimmer-char"] {
+  min-width: 0;
+  max-width: 100%;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.live-activity-meta {
+  flex: 0 0.001 auto;
+  display: block;
+  line-height: 24px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The quiet cue takes the room the line has left; its text ellipsizes, its
+   Stop control stays whole. */
+.live-activity-quiet {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.live-activity-quiet::before,
+.live-activity-quiet > .quiet-cue-stop {
+  flex: none;
+}
+.live-activity-quiet > span:first-of-type {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* The pinned bot overlay stands over the transcript's column (a narrow

@@ -47,8 +47,13 @@ export function authTypeLabel(authType: unknown): string {
 }
 
 /** Height caps; a side flyout sizes to its content below them. */
-export function studioFlyoutSize(id: string, rows: StudioOptionRow[]): { maxHeight: number; width?: number } {
-  if (id === 'model') return { maxHeight: ROUTE_MODEL_FLYOUT_MAX_HEIGHT, width: preferredFlyoutWidth('model') };
+export function studioFlyoutSize(
+  id: string,
+  rows: StudioOptionRow[]
+): { maxHeight: number; width?: number; catalog?: boolean } {
+  if (id === 'model') {
+    return { maxHeight: ROUTE_MODEL_FLYOUT_MAX_HEIGHT, width: preferredFlyoutWidth('model'), catalog: true };
+  }
   if (id === 'slider') return { maxHeight: 76 };
   const count = rows.find((row) => row.id === id)?.options.length || 0;
   return { maxHeight: Math.min(300, Math.max(44, count * ROUTE_SHEET_ROW_HEIGHT + 34)) };

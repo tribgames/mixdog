@@ -178,6 +178,67 @@ const totals = {
   speedMs: 15000,
 };
 
+// A turn starting swaps the session's "48 tok/s" for the live "~413 tok/s" and
+// back: at no width may that flip the line between the worded and icon form.
+test('the usage line keeps its form when a call starts streaming and when it ends', async (t) => {
+  const { createRoot } = await import('react-dom/client');
+  const { act } = React;
+  const resizes = [];
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      resizes.push(callback);
+    }
+    observe() {}
+    disconnect() {}
+  };
+  globalThis.MutationObserver = window.MutationObserver;
+  globalThis.getComputedStyle = window.getComputedStyle.bind(window);
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  let width = 0;
+  const style = document.createElement('style');
+  style.textContent = '.form-readout { padding: 0 4px; } .form-line { padding: 0; }';
+  document.head.append(style);
+  const line = document.createElement('div');
+  line.className = 'form-line';
+  Object.defineProperty(line, 'clientWidth', { configurable: true, get: () => width });
+  document.body.append(line);
+  const root = createRoot(line);
+  t.after(() => {
+    act(() => root.unmount());
+    line.remove();
+    style.remove();
+    delete globalThis.ResizeObserver;
+    delete globalThis.MutationObserver;
+    delete globalThis.getComputedStyle;
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  });
+  const usage = sessionUsageTotals({ usageReadout: totals });
+  const render = (variants) =>
+    act(() =>
+      root.render(
+        React.createElement(FittedReadout, { variants, onClick() {}, title: 'Usage', className: 'form-readout' })
+      )
+    );
+  const form = () => {
+    const readout = line.querySelector('.composer-usage-readout');
+    if (readout.hidden) return 'hidden';
+    const items = readout.querySelectorAll('.composer-readout-item').length;
+    return `${readout.querySelector('.composer-readout-sep') ? 'worded' : 'icons'} ${items}`;
+  };
+  const seen = new Set();
+  for (width = 60; width <= 420; width += 4) {
+    render(readoutVariants(usageReadoutParts(usage)));
+    act(() => resizes.at(-1)());
+    const idle = form();
+    render(readoutVariants(usageReadoutParts(usage, 412.6)));
+    assert.equal(form(), idle, `${width}px: the live rate changed the form`);
+    render(readoutVariants(usageReadoutParts(usage)));
+    assert.equal(form(), idle, `${width}px: the call's end changed the form`);
+    seen.add(idle);
+  }
+  assert.ok(seen.has('worded 3') && seen.has('icons 1'), `every form is reached: ${[...seen]}`);
+});
+
 test('tok/s is timed output over request time; cache hit is read over the whole prompt', () => {
   const usage = sessionUsageTotals({ usageReadout: totals });
   assert.equal(outputTokensPerSecond(usage), 48);

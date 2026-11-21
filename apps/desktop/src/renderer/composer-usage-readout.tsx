@@ -110,6 +110,9 @@ export interface ReadoutItem {
   word: string;
   /** Worded form only: a `·` follows, spaced like the gap after it. */
   separator?: boolean;
+  /** The widest `text` / `word` a changing value takes: the line's form is
+   *  chosen against these, so a value ticking by never flips it. */
+  fit?: { text: string; word: string };
 }
 
 export interface ReadoutParts {
@@ -153,6 +156,9 @@ export function usageReadoutParts(usage: SessionUsageTotals | null, liveSpeed: n
   let speedValue = '';
   if (liveSpeed !== null) speedValue = `~${Math.round(liveSpeed)}`;
   else if (speed !== null) speedValue = String(Math.round(speed));
+  // The session average and a streaming call's `~` rate share one widest
+  // value, so the line keeps its form when a turn starts and ends.
+  const widestSpeed = `~${'0'.repeat(Math.max(3, speedValue.replace('~', '').length))}`;
   return {
     total: total === null ? null : tokensReadoutItem(formatCompactTokens(total)),
     speed: speedValue
@@ -161,6 +167,7 @@ export function usageReadoutParts(usage: SessionUsageTotals | null, liveSpeed: n
           text: `${speedValue}/s`,
           label: t('Output speed {{speed}}', { speed: `${speedValue} tok/s` }),
           word: `${speedValue} tok/s`,
+          fit: { text: `${widestSpeed}/s`, word: `${widestSpeed} tok/s` },
         }
       : null,
     hit: hit === null ? null : cacheHitReadoutItem(formatHitPercent(hit)),
@@ -216,6 +223,7 @@ export function readoutVariants(
     ...item,
     icon: null,
     text: item.word,
+    fit: item.fit && { text: item.fit.word, word: item.fit.word },
     separator: index < full.length - 1,
   }));
   return [worded, ...variants];
@@ -264,6 +272,8 @@ export function textWidths(): (font: string, text: string) => number {
   };
 }
 
+const fitText = (item: ReadoutItem) => item.fit?.text ?? item.text;
+
 function ReadoutMark({ icon: Icon }: { icon: ReadoutItem['icon'] }) {
   if (Icon === 'dot') return <span className="composer-readout-dot" aria-hidden="true" />;
   return Icon ? <Icon size={ICON_WIDTH} aria-hidden="true" /> : null;
@@ -300,7 +310,9 @@ export function FittedReadout({
 }) {
   const ref = useRef<HTMLElement>(null);
   const [shown, setShown] = useState(0);
-  const key = variants.map((items) => items.map((item) => `${item.icon ? 1 : 0}${item.text}`).join('\t')).join('\n');
+  const key = variants
+    .map((items) => items.map((item) => `${item.icon ? 1 : 0}${fitText(item)}`).join('\t'))
+    .join('\n');
   // biome-ignore lint/correctness/useExhaustiveDependencies: the variants' texts are the key
   useLayoutEffect(() => {
     const button = ref.current;
@@ -327,7 +339,7 @@ export function FittedReadout({
       const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
       const padding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
       const itemWidth = (item: ReadoutItem) =>
-        textWidth(font, item.text) +
+        textWidth(font, fitText(item)) +
         (item.separator ? ITEM_GAP + textWidth(font, '·') : 0) +
         (item.icon === 'dot' ? DOT_WIDTH + ICON_GAP : item.icon ? ICON_WIDTH + ICON_GAP : 0);
       // The `font` shorthand reads back empty when the element sets other

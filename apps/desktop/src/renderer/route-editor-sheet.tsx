@@ -6,7 +6,7 @@ import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immedia
 import type { RouteSpeed } from './model-route-utils';
 import { DAYBREAK_PARAMETER_ID, formatContextWindow, ModelRouteLabel } from './provider-display';
 import { RouteDaybreakToggle } from './route-editor-auto-effort';
-import type { RoutePanelBox, RouteSheetPane } from './route-editor-logic';
+import { type RoutePanelBox, type RouteSheetPane, routePanelStyle } from './route-editor-logic';
 import {
   modelParameterLabel,
   modelParameterValueLabel,
@@ -111,7 +111,6 @@ export function RouteRow({
 export function RouteTrigger({
   triggerRef,
   disabled,
-  width,
   tooltip,
   visible,
   sheetId,
@@ -127,7 +126,6 @@ export function RouteTrigger({
 }: {
   triggerRef: RefObject<HTMLButtonElement | null>;
   disabled: boolean;
-  width: number | null;
   tooltip: string;
   visible: boolean;
   sheetId: string;
@@ -149,8 +147,6 @@ export function RouteTrigger({
       type="button"
       className="model-trigger"
       disabled={disabled}
-      style={width !== null ? { width } : undefined}
-      data-morph={width !== null ? '' : undefined}
       // The aria-label hides the visible text; with a sign-in label the name
       // must carry it, or two rows of one model sound the same.
       aria-label={triggerProvider ? `${tooltip}, ${triggerModel}, ${triggerProvider}` : tooltip}
@@ -243,7 +239,7 @@ export function routeMorphStyle(
   const scale = (pill: number | undefined, panel: number) =>
     String(Math.min(1, Math.max(0.1, (pill || panel) / panel)));
   return {
-    ...panelBox,
+    ...routePanelStyle(panelBox),
     '--route-morph-sx': scale(from?.width, panelBox.width),
     '--route-morph-sy': scale(from?.height, panelBox.height),
   } as CSSProperties;
