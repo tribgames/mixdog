@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Prints, as `name=value` lines (GitHub's output file format): core, core_scope (all | packages | none), core_packages,
-// core_archive_args, core_filter, core_features, core_pg, core_pg_matrix, core_entry, core_tests, core_legs, core_build, build_matrix, mixdogd,
-// mixdogd_matrix, test_matrix.
+// core_archive_args, core_filter, core_features, core_pg, core_pg_matrix, core_pg_macos, core_pg_macos_profiles, core_entry,
+// core_tests, core_build, mixdogd, mixdogd_matrix, test_matrix_linux, test_matrix_macos, test_matrix_windows.
 //
 // Usage: node scripts/ci/core-select.mjs --changed <file with one path per line> [--all] [--mixdogd-dev true|false] [--mixdogd-windows true|false]
 //          [--metadata <cargo metadata json>] [--root <repository root>]
@@ -11,17 +11,19 @@ import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // A leg takes about this many tests (about 4,370 s of summed test time over 15,902 tests is 0.27 s a test: a leg of this size is
-// four to five minutes of a four-core runner) and a run has at most this many legs per OS.
+// four to five minutes of a four-core runner) and a run has at most `maxLegs` legs per OS.
 export const TESTS_PER_LEG = 4000;
-export const MAX_LEGS = 4;
 
 // The systems the product ships on, one build job and its test legs each. `nextest` is the name get.nexte.st serves the prebuilt
 // binary under. Linux arm64 and macOS x64 are built by mixdogd-build.yml and not tested natively: the code that depends on the
 // architecture is seven files (cfg(target_arch)), none of it a behaviour the x64/arm64 pair of these three systems does not run.
+// macOS has three legs: an account runs five macOS jobs at once, and on a push to main its legs share them with the one
+// Postgres job and core-real's release build (run 44943772315: four legs, two Postgres legs and core-real queued two legs 4 and
+// 7 minutes behind the archive).
 export const SYSTEMS = [
-  { os: 'linux', runner: 'ubuntu-22.04', nextest: 'linux', exe: '' },
-  { os: 'macos', runner: 'macos-15', nextest: 'mac', exe: '' },
-  { os: 'windows', runner: 'windows-2022', nextest: 'windows-tar', exe: '.exe' },
+  { os: 'linux', runner: 'ubuntu-22.04', nextest: 'linux', exe: '', maxLegs: 4 },
+  { os: 'macos', runner: 'macos-15', nextest: 'mac', exe: '', maxLegs: 3 },
+  { os: 'windows', runner: 'windows-2022', nextest: 'windows-tar', exe: '.exe', maxLegs: 4 },
 ];
 
 const HACK = 'mixdog-workspace-hack';
@@ -228,31 +230,30 @@ function affectedPackages({ crates, byName, direct, propagate, readers }) {
   return [...affected].filter((name) => byName.has(name)).sort();
 }
 
-// The #[ignore]d tests that need a Postgres runtime run from the same archive, one leg per nextest profile and system; a
-// profile whose package is not in the archive has nothing to run, and `--no-tests=fail` would fail it. Linux always, macOS
-// when the run is not a pull request (`all`: a push to main or a manual run), where the runner minutes are the release's.
-function pgMatrixOf(selected, all) {
-  const systems = SYSTEMS.filter((system) => system.os === 'linux' || (all && system.os === 'macos'));
-  return PG_PROFILES.filter((profile) => selected.some((crate) => crate.name === profile.package)).flatMap((profile) =>
-    systems.map((system) => ({ ...system, profile: profile.name }))
+// The #[ignore]d tests that need a Postgres runtime run from the same archive; a profile whose package is not in the archive
+// has nothing to run, and `--no-tests=fail` would fail it. Linux always, one leg per profile; macOS when the run is not a pull
+// request (`all`: a push to main or a manual run), where the runner minutes are the release's, both profiles in one job
+// (core-pg-macos) so its legs fit the five macOS jobs an account runs at once.
+function pgProfilesOf(selected) {
+  return PG_PROFILES.filter((profile) => selected.some((crate) => crate.name === profile.package)).map(
+    (profile) => profile.name
   );
 }
 
-function jobMatrices({ scope, legs, entry, mixdogdDev, mixdogdWindows }) {
+function jobMatrices({ scope, tests, entry, mixdogdDev, mixdogdWindows }) {
   // The dev daemon is its own job (`mixdogd`), beside the archive build rather than after it. The Linux entry scenarios
   // (core-entry) drive it even when no Node lane needs it. The Windows hidden-window app boot (desktop-computer) starts the
   // app against this run's Windows dev daemon.
   const wantsDaemon = (system) =>
     ((mixdogdDev || entry) && system.os === 'linux') || (mixdogdWindows && system.os === 'windows');
-  const build = scope === 'none' ? [] : SYSTEMS.map((system) => ({ ...system }));
-  const mixdogd = SYSTEMS.filter(wantsDaemon).map((system) => ({ ...system }));
-  const test = [];
-  if (scope !== 'none') {
-    for (const system of SYSTEMS) {
-      for (let part = 1; part <= legs; part += 1) test.push({ ...system, part, of: legs });
-    }
+  const mixdogd = SYSTEMS.filter(wantsDaemon).map(({ maxLegs, ...system }) => system);
+  // One test job per system, each needing only its own system's archive.
+  const test = {};
+  for (const { maxLegs, ...system } of SYSTEMS) {
+    const legs = scope === 'none' ? 0 : Math.min(maxLegs, Math.max(1, Math.ceil(tests / TESTS_PER_LEG)));
+    test[system.os] = Array.from({ length: legs }, (_, index) => ({ ...system, part: index + 1, of: legs }));
   }
-  return { build, mixdogd, test };
+  return { mixdogd, test };
 }
 export function selectCore({ root, changed, all = false, mixdogdDev = false, mixdogdWindows = false, metadata }) {
   const crates = readWorkspace({ root, metadata });
@@ -278,7 +279,6 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
   const selected =
     scope === 'all' ? crates.filter((crate) => crate.name !== HACK) : packages.map((name) => byName.get(name));
   const tests = selected.reduce((sum, crate) => sum + textOf(crate).count, 0);
-  const legs = scope === 'none' ? 0 : Math.min(MAX_LEGS, Math.max(1, Math.ceil(tests / TESTS_PER_LEG)));
 
   const archiveArgs = scope === 'all' ? '--workspace' : packages.map((name) => `-p ${name}`).join(' ');
   const filter = scope === 'all' ? 'all()' : packages.map((name) => `package(=${name})`).join(' | ');
@@ -287,9 +287,12 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
   const features = selected
     .flatMap((crate) => crate.requiredFeatures.map((feature) => `${crate.name}/${feature}`))
     .join(',');
-  const pgMatrix = pgMatrixOf(selected, all);
+  const pgProfiles = pgProfilesOf(selected);
+  const [linuxSystem] = SYSTEMS.filter((system) => system.os === 'linux').map(({ maxLegs, ...system }) => system);
+  const pgMatrix = pgProfiles.map((profile) => ({ ...linuxSystem, profile }));
+  const pgMacos = all ? pgProfiles : [];
   const entry = selected.some((crate) => crate.name === 'mixdog-entry');
-  const { build, mixdogd, test } = jobMatrices({ scope, legs, entry, mixdogdDev, mixdogdWindows });
+  const { mixdogd, test } = jobMatrices({ scope, tests, entry, mixdogdDev, mixdogdWindows });
   return {
     core: scope !== 'none',
     core_scope: scope,
@@ -299,14 +302,16 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
     core_features: features,
     core_pg: pgMatrix.length > 0,
     core_pg_matrix: JSON.stringify({ include: pgMatrix }),
+    core_pg_macos: pgMacos.length > 0,
+    core_pg_macos_profiles: JSON.stringify(pgMacos),
     core_entry: entry,
     core_tests: tests,
-    core_legs: legs,
-    core_build: build.length > 0,
-    build_matrix: JSON.stringify({ include: build }),
+    core_build: scope !== 'none',
     mixdogd: mixdogd.length > 0,
     mixdogd_matrix: JSON.stringify({ include: mixdogd }),
-    test_matrix: JSON.stringify({ include: test }),
+    test_matrix_linux: JSON.stringify({ include: test.linux }),
+    test_matrix_macos: JSON.stringify({ include: test.macos }),
+    test_matrix_windows: JSON.stringify({ include: test.windows }),
     reasons,
   };
 }
@@ -341,7 +346,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const { reasons, ...outputs } = result;
   for (const reason of reasons) console.error(`[core-select] ${reason}`);
   console.error(
-    `[core-select] scope ${result.core_scope}: ${result.core_packages || '(every crate)'}; ${result.core_tests} tests, ${result.core_legs} leg(s) per system`
+    `[core-select] scope ${result.core_scope}: ${result.core_packages || '(every crate)'}; ${result.core_tests} tests, legs ${SYSTEMS.map((system) => `${system.os} ${JSON.parse(result[`test_matrix_${system.os}`]).include.length}`).join(', ')}`
   );
   for (const [name, value] of Object.entries(outputs)) console.log(`${name}=${value}`);
 }

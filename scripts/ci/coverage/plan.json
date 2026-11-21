@@ -398,7 +398,7 @@
       "id": "linux/core-tests/1of4",
       "os": "linux",
       "workflow": "release-gate.yml",
-      "job": "core-tests",
+      "job": "core-tests-linux",
       "slots": [
         {
           "id": "ci",
@@ -418,7 +418,7 @@
       "id": "linux/core-tests/2of4",
       "os": "linux",
       "workflow": "release-gate.yml",
-      "job": "core-tests",
+      "job": "core-tests-linux",
       "slots": [
         {
           "id": "ci",
@@ -430,7 +430,7 @@
       "id": "linux/core-tests/3of4",
       "os": "linux",
       "workflow": "release-gate.yml",
-      "job": "core-tests",
+      "job": "core-tests-linux",
       "slots": [
         {
           "id": "ci",
@@ -442,7 +442,7 @@
       "id": "linux/core-tests/4of4",
       "os": "linux",
       "workflow": "release-gate.yml",
-      "job": "core-tests",
+      "job": "core-tests-linux",
       "slots": [
         {
           "id": "ci",
@@ -451,10 +451,10 @@
       ]
     },
     {
-      "id": "macos/core-tests/1of4",
+      "id": "macos/core-tests/1of3",
       "os": "macos",
       "workflow": "release-gate.yml",
-      "job": "core-tests",
+      "job": "core-tests-macos",
       "slots": [
         {
           "id": "ci",
@@ -463,10 +463,10 @@
       ]
     },
     {
-      "id": "macos/core-tests/2of4",
+      "id": "macos/core-tests/2of3",
       "os": "macos",
       "workflow": "release-gate.yml",
-      "job": "core-tests",
+      "job": "core-tests-macos",
       "slots": [
         {
           "id": "ci",
@@ -475,22 +475,10 @@
       ]
     },
     {
-      "id": "macos/core-tests/3of4",
+      "id": "macos/core-tests/3of3",
       "os": "macos",
       "workflow": "release-gate.yml",
-      "job": "core-tests",
-      "slots": [
-        {
-          "id": "ci",
-          "producer": "nextest"
-        }
-      ]
-    },
-    {
-      "id": "macos/core-tests/4of4",
-      "os": "macos",
-      "workflow": "release-gate.yml",
-      "job": "core-tests",
+      "job": "core-tests-macos",
       "slots": [
         {
           "id": "ci",
@@ -502,7 +490,7 @@
       "id": "windows/core-tests/1of4",
       "os": "windows",
       "workflow": "release-gate.yml",
-      "job": "core-tests",
+      "job": "core-tests-windows",
       "slots": [
         {
           "id": "ci",
@@ -514,7 +502,7 @@
       "id": "windows/core-tests/2of4",
       "os": "windows",
       "workflow": "release-gate.yml",
-      "job": "core-tests",
+      "job": "core-tests-windows",
       "slots": [
         {
           "id": "ci",
@@ -526,7 +514,7 @@
       "id": "windows/core-tests/3of4",
       "os": "windows",
       "workflow": "release-gate.yml",
-      "job": "core-tests",
+      "job": "core-tests-windows",
       "slots": [
         {
           "id": "ci",
@@ -538,7 +526,7 @@
       "id": "windows/core-tests/4of4",
       "os": "windows",
       "workflow": "release-gate.yml",
-      "job": "core-tests",
+      "job": "core-tests-windows",
       "slots": [
         {
           "id": "ci",
@@ -583,25 +571,17 @@
       ]
     },
     {
-      "id": "macos/core-pg/pg",
+      "id": "macos/core-pg/1of1",
       "os": "macos",
       "workflow": "release-gate.yml",
-      "job": "core-pg",
+      "job": "core-pg-macos",
       "slots": [
         {
-          "id": "root",
+          "id": "services-pg",
           "producer": "nextest"
-        }
-      ]
-    },
-    {
-      "id": "macos/core-pg/services-pg",
-      "os": "macos",
-      "workflow": "release-gate.yml",
-      "job": "core-pg",
-      "slots": [
+        },
         {
-          "id": "root",
+          "id": "pg",
           "producer": "nextest"
         }
       ]
@@ -1263,16 +1243,15 @@
       {
         "name": "macos",
         "os": "macos",
-        "listLeg": "macos/core-tests/1of4#ci",
+        "listLeg": "macos/core-tests/1of3#ci",
         "testLegs": [
-          "macos/core-tests/1of4#ci",
-          "macos/core-tests/2of4#ci",
-          "macos/core-tests/3of4#ci",
-          "macos/core-tests/4of4#ci"
+          "macos/core-tests/1of3#ci",
+          "macos/core-tests/2of3#ci",
+          "macos/core-tests/3of3#ci"
         ],
         "profileLegs": {
-          "pg": ["macos/core-pg/pg"],
-          "services-pg": ["macos/core-pg/services-pg"]
+          "pg": ["macos/core-pg/1of1#pg"],
+          "services-pg": ["macos/core-pg/1of1#services-pg"]
         }
       },
       {
@@ -1402,7 +1381,7 @@
     "linux-native-tools.yml",
     "release.yml"
   ],
-  "dynamicMatrixJobs": ["runtime", "core-build", "mixdogd", "core-tests", "core-pg"],
+  "dynamicMatrixJobs": ["runtime", "mixdogd", "core-tests-linux", "core-tests-macos", "core-tests-windows", "core-pg"],
   "gateCallIfAllowed": ["deploy.yml#coverage-gate"],
   "sinks": [
     {
@@ -1565,7 +1544,7 @@
         "commands": [
           "node scripts/ci/coverage/cli.mjs reconcile --root . --manifest coverage/manifest.json --evidence evidence --rust-lists rust-lists --sha \"$EXPECTED_SHA\" --run-id \"$GITHUB_RUN_ID\" --attempt \"$GITHUB_RUN_ATTEMPT\" --repository \"$GITHUB_REPOSITORY\" --workflow \"$GITHUB_WORKFLOW_REF\""
         ],
-        "digest": "5af9fdb922e283b0e261b8b4b89398f0dd1412654f8b3d82729a26bb81088bb7"
+        "digest": "59c4244502209d02e52e74edb83419f07fd80c68b313584a6a189fbc9d14157c"
       },
       "release.yml#prepared-runtime-join": {
         "if": "",

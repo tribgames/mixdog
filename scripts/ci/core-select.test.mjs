@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, relative } from 'node:path';
 import test from 'node:test';
 
-import { MAX_LEGS, SYSTEMS, selectCore, TESTS_PER_LEG } from './core-select.mjs';
+import { SYSTEMS, selectCore, TESTS_PER_LEG } from './core-select.mjs';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'core-select-')));
 test.after(() => {
@@ -169,49 +169,46 @@ test("the relay's test-support feature is named only when the relay is built", (
   );
 });
 
-test('every system the product ships on gets a build and as many legs as the tests need', () => {
-  const small = select(['native/core/crates/delta/src/lib.rs']);
-  assert.equal(small.core_legs, 1);
-  const build = JSON.parse(small.build_matrix).include;
-  assert.deepEqual(
-    build.map((entry) => entry.os),
-    SYSTEMS.map((system) => system.os)
+const legsOf = (result) =>
+  Object.fromEntries(
+    SYSTEMS.map((system) => [
+      system.os,
+      JSON.parse(result[`test_matrix_${system.os}`]).include.map((leg) => `${leg.os}:${leg.part}/${leg.of}`),
+    ])
   );
-  const legs = JSON.parse(small.test_matrix).include;
-  assert.equal(legs.length, SYSTEMS.length);
-  assert.ok(legs.every((leg) => leg.part === 1 && leg.of === 1));
 
-  // Enough tests for three legs, and for more than the most a run has.
+test('every system the product ships on gets its own test matrix with as many legs as the tests need', () => {
+  const small = select(['native/core/crates/delta/src/lib.rs']);
+  assert.equal(small.core_build, true);
+  assert.deepEqual(legsOf(small), { linux: ['linux:1/1'], macos: ['macos:1/1'], windows: ['windows:1/1'] });
+
+  // Enough tests for three legs, and for more than the most a run has: macOS stops at three.
   file('native/core/crates/delta/src/many.rs', tests(TESTS_PER_LEG * 2 + 1));
-  assert.equal(select(['native/core/crates/delta/src/lib.rs']).core_legs, 3);
+  assert.equal(legsOf(select(['native/core/crates/delta/src/lib.rs'])).windows.length, 3);
   file('native/core/crates/delta/src/more.rs', tests(TESTS_PER_LEG * 5));
-  const big = select(['native/core/crates/delta/src/lib.rs']);
-  assert.equal(big.core_legs, MAX_LEGS);
-  const parts = JSON.parse(big.test_matrix)
-    .include.filter((leg) => leg.os === 'linux')
-    .map((leg) => `${leg.part}/${leg.of}`);
-  assert.deepEqual(parts, ['1/4', '2/4', '3/4', '4/4']);
+  const big = legsOf(select(['native/core/crates/delta/src/lib.rs']));
+  assert.deepEqual(big.linux, ['linux:1/4', 'linux:2/4', 'linux:3/4', 'linux:4/4']);
+  assert.deepEqual(big.macos, ['macos:1/3', 'macos:2/3', 'macos:3/3']);
+  assert.equal(big.windows.length, 4);
   rmSync(join(root, 'native/core/crates/delta/src/many.rs'));
   rmSync(join(root, 'native/core/crates/delta/src/more.rs'));
 });
 
 const daemons = (result) => JSON.parse(result.mixdogd_matrix).include.map((entry) => entry.os);
-const builds = (result) => JSON.parse(result.build_matrix).include.map((entry) => entry.os);
 
 test('an empty diff still builds the Linux daemon needed by desktop replay, and no archive', () => {
   const result = select([], { mixdogdDev: true });
   assert.equal(result.core, false);
   assert.equal(result.core_build, false);
-  assert.deepEqual(builds(result), []);
   assert.deepEqual([result.mixdogd, daemons(result)], [true, ['linux']]);
-  assert.equal(JSON.parse(result.test_matrix).include.length, 0);
+  assert.deepEqual(legsOf(result), { linux: [], macos: [], windows: [] });
   assert.deepEqual([select([]).mixdogd, daemons(select([]))], [false, []]);
 });
 
 test('the Windows boot asks for the Windows dev daemon alone, beside the archive when there is one', () => {
   assert.deepEqual(daemons(select([], { mixdogdWindows: true })), ['windows']);
   const both = select(['native/core/crates/delta/src/lib.rs'], { mixdogdWindows: true });
-  assert.deepEqual(builds(both), ['linux', 'macos', 'windows']);
+  assert.equal(both.core_build, true);
   assert.deepEqual(daemons(both), ['windows']);
 });
 
@@ -258,19 +255,22 @@ test('gated target features and the real worker binary travel with the archive',
   assert.match(result.core_features, /mixdog-exthost-worker\/test-support/);
 });
 
-test('the Postgres-backed tests get a leg per profile whose crate the archive holds, macOS only outside a pull request', () => {
+test('the Postgres-backed tests get a Linux leg per profile whose crate the archive holds, and one macOS job outside a pull request', () => {
   const withPg = (...names) => {
     for (const name of names) file(`native/core/crates/${name}/src/lib.rs`, tests(1));
     return { packages: [...metadata.packages, ...names.map((name) => crate(name))] };
   };
   const legs = (result) => JSON.parse(result.core_pg_matrix).include.map((leg) => `${leg.os}:${leg.profile}`);
+  const macos = (result) => [result.core_pg_macos, JSON.parse(result.core_pg_macos_profiles)];
   const both = withPg('mixdog-services', 'mixdog-app-server-daemon');
   const all = selectCore({ root, changed: [], all: true, metadata: both });
   assert.equal(all.core_pg, true);
-  assert.deepEqual(legs(all), ['linux:services-pg', 'macos:services-pg', 'linux:pg', 'macos:pg']);
-  // a pull request that changes the services crate: its profile on Linux; the daemon is not in the archive
+  assert.deepEqual(legs(all), ['linux:services-pg', 'linux:pg']);
+  assert.deepEqual(macos(all), [true, ['services-pg', 'pg']]);
+  // a pull request that changes the services crate: its profile on Linux; the daemon is not in the archive; no macOS job
   const services = selectCore({ root, changed: ['native/core/crates/mixdog-services/src/lib.rs'], metadata: both });
   assert.deepEqual(legs(services), ['linux:services-pg']);
+  assert.deepEqual(macos(services), [false, []]);
   // a change elsewhere in the workspace selects neither crate: no Postgres job
   const other = select(['native/core/crates/delta/src/lib.rs']);
   assert.deepEqual([other.core_pg, other.core_pg_matrix], [false, '{"include":[]}']);

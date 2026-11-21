@@ -143,18 +143,32 @@ const computerSteps = () => {
 };
 
 test('release-gate.yml: the Rust core is built once per system and its tests run from that build', () => {
-  const build = gate.jobs['core-build'];
-  const tests = gate.jobs['core-tests'];
-  assert.deepEqual(needsOf(tests), ['changes', 'core-build']);
+  for (const os of ['linux', 'macos', 'windows']) {
+    const own = gate.jobs[`core-tests-${os}`];
+    // a system's legs wait for its own archive alone, and every system's jobs run the same steps
+    assert.deepEqual(needsOf(own), ['changes', `core-build-${os}`]);
+    assert.deepEqual(
+      gate.jobs[`core-build-${os}`].strategy.matrix.include.map((entry) => entry.os),
+      [os]
+    );
+    assert.equal(own.strategy.matrix, `\${{ fromJSON(needs.changes.outputs.test_matrix_${os}) }}`);
+    assert.deepEqual(gate.jobs[`core-build-${os}`].steps, gate.jobs['core-build-linux'].steps);
+    assert.deepEqual([own.steps, own.env], [gate.jobs['core-tests-linux'].steps, gate.jobs['core-tests-linux'].env]);
+  }
+  const build = gate.jobs['core-build-linux'];
+  const tests = gate.jobs['core-tests-linux'];
   assert.match(runOf(build), /cargo nextest archive /);
   // the dev daemon builds beside the archive, so no consumer of either waits for both builds of the slowest system; the
   // partitions take no daemon, only the entry scenarios do
   assert.deepEqual(needsOf(gate.jobs.mixdogd), ['changes']);
-  assert.deepEqual(needsOf(gate.jobs['core-entry']), ['changes', 'core-build', 'mixdogd']);
+  assert.deepEqual(needsOf(gate.jobs['core-entry']), ['changes', 'core-build-linux', 'mixdogd']);
   assert.doesNotMatch(JSON.stringify(tests), /mixdogd-dev|MIXDOGD_BIN/);
   assert.doesNotMatch(runOf(build), /dev-controls/);
   for (const name of ['runtime-slow', 'desktop-slow', 'desktop-computer'])
-    assert.ok(!needsOf(gate.jobs[name]).includes('core-build'), `${name} waits for the archive builds it does not read`);
+    assert.ok(
+      !needsOf(gate.jobs[name]).some((need) => need.startsWith('core-build')),
+      `${name} waits for the archive builds it does not read`
+    );
   assert.doesNotMatch(runOf(tests), /cargo (build|test|nextest archive)/, 'a test leg compiles nothing');
   assert.match(runOf(tests), /--archive-file core-tests\.tar\.zst/);
   assert.match(runOf(tests), /--partition "count:\$\{PART\}\/\$\{OF\}"/);
@@ -162,7 +176,14 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
 });
 
 test('release-gate.yml: only a push to main writes the Rust dependency cache', () => {
-  for (const name of ['core-build', 'core-lint', 'core-real']) {
+  // the build's timing reports go to their artifact, not into the saved build folder
+  const build = stepsOf(gate.jobs['core-build-linux']);
+  const removed = build.findIndex((step) => step.run === 'rm -rf native/core/target/cargo-timings');
+  const uploaded = build.findIndex((step) => /core-timings/.test(step.with?.name ?? ''));
+  assert.ok(uploaded >= 0, 'the timing reports are uploaded');
+  assert.ok(removed > uploaded);
+  assert.ok(removed < build.findIndex((step) => step.uses?.startsWith('actions/cache/save@')));
+  for (const name of ['core-build-linux', 'core-build-macos', 'core-build-windows', 'core-lint', 'core-real']) {
     const save = stepsOf(gate.jobs[name]).filter((step) => step.uses?.startsWith('actions/cache/save@'));
     assert.equal(save.length, 1, `${name} saves the cache once`);
     assert.match(save[0].if, /refs\/heads\/main/);
@@ -262,8 +283,8 @@ test('release-gate.yml: phone e2e, full React typecheck and archive required fea
   assert.match(JSON.stringify(gate.jobs.packages), /npm run typecheck --prefix apps\/mobile/);
   assert.match(JSON.stringify(gate.jobs.packages), /npm_ci --prefix apps\/desktop/);
   assert.match(JSON.stringify(gate.jobs.packages), /npm_ci --prefix apps\/mobile/);
-  assert.match(JSON.stringify(gate.jobs['core-build']), /core_features/);
-  assert.match(JSON.stringify(gate.jobs['core-tests']), /--no-tests=fail/);
+  assert.match(JSON.stringify(gate.jobs['core-build-linux']), /core_features/);
+  assert.match(JSON.stringify(gate.jobs['core-tests-linux']), /--no-tests=fail/);
 });
 
 test('release-gate.yml: a pull request restores shared caches and never saves one of its own', () => {
@@ -307,7 +328,7 @@ test('release-gate.yml: release-profile builds run on a push to main or a manual
   assert.doesNotMatch(debug.run, /--release/);
   // The pull request reads the entry core-build writes (same key formula, the dev profile's family).
   const restore = relay.find((step) => step.name === 'Restore the compiled test dependencies');
-  const buildKey = stepsOf(gate.jobs['core-build'])
+  const buildKey = stepsOf(gate.jobs['core-build-linux'])
     .find((step) => step.id === 'deps')
     .with.key.split('-${{ hashFiles')[1];
   assert.ok(restore.with.key.includes(buildKey), 'relay-rust and core-build hash the same inputs');
@@ -315,7 +336,7 @@ test('release-gate.yml: release-profile builds run on a push to main or a manual
 });
 
 test('release-gate.yml: core-tests install only the packages the tests read, without scripts, and no relay twin host; the machine-path check runs in changes', () => {
-  const tests = stepsOf(gate.jobs['core-tests'])
+  const tests = stepsOf(gate.jobs['core-tests-linux'])
     .map((step) => step.run ?? '')
     .join('\n');
   assert.match(tests, /node scripts\/ci\/lock-subset\.mjs ci-node-subset pptxgenjs jszip @napi-rs\/canvas/);
@@ -325,7 +346,7 @@ test('release-gate.yml: core-tests install only the packages the tests read, wit
   assert.match(tests, /test -f node_modules\/@napi-rs\/canvas\/package\.json/);
   assert.doesNotMatch(tests, /apps\/relay/);
   assert.doesNotMatch(
-    JSON.stringify(gate.jobs['core-tests']),
+    JSON.stringify(gate.jobs['core-tests-linux']),
     /setup-node-ci/,
     'no npm download cache restore for a two-package install'
   );
@@ -368,8 +389,8 @@ test('release-gate.yml: a split cache restore never falls back to an entry built
 });
 
 test('release-gate.yml: every lane filter is checked against the compiled test list of the archive core-build makes, before a release', () => {
-  const tests = gate.jobs['core-tests'];
-  assert.deepEqual(needsOf(tests), ['changes', 'core-build']);
+  const tests = gate.jobs['core-tests-linux'];
+  assert.deepEqual(needsOf(tests), ['changes', 'core-build-linux']);
   const index = stepsOf(tests).findIndex(
     (step) => step.name === 'Check that every lane filter selects a compiled test'
   );
@@ -475,7 +496,25 @@ test('release-gate.yml: every bash step parses after expression placeholders are
 
 test('release-gate.yml: the Postgres-backed tests run from the core-build archive under the profile that selects them, with the shipped runtime', () => {
   const job = gate.jobs['core-pg'];
-  assert.deepEqual(needsOf(job), ['changes', 'core-build']);
+  assert.deepEqual(needsOf(job), ['changes', 'core-build-linux']);
+  // macOS runs both profiles in one job, each its own slot, from its own archive
+  const mac = gate.jobs['core-pg-macos'];
+  assert.deepEqual(needsOf(mac), ['changes', 'core-build-macos']);
+  assert.equal(mac.env.MIXDOG_LEG, 'macos/core-pg/1of1');
+  const profiles = stepsOf(mac).filter((step) => /--run-ignored only/.test(step.run ?? ''));
+  assert.deepEqual(
+    profiles.map((step) => step.env.MIXDOG_SLOT),
+    ['services-pg', 'pg']
+  );
+  for (const step of profiles) {
+    assert.match(step.run, new RegExp(`--profile ${step.env.MIXDOG_SLOT} `));
+    assert.match(step.run, /--archive-file core-tests\.tar\.zst --workspace-remap native\/core/);
+    assert.match(step.run, /--no-tests=fail/);
+  }
+  assert.match(runOf(mac), /node scripts\/ci\/provision-pg-runtime\.mjs/);
+  // the second profile runs after the first one's tests fail, never after a failed setup
+  const provision = stepsOf(mac).find((step) => /provision-pg-runtime/.test(step.run ?? ''));
+  assert.match(profiles[1].if, new RegExp(`!cancelled\\(\\) && steps\\.${provision.id}\\.outcome == 'success'`));
   assert.match(job.strategy.matrix, /needs\.changes\.outputs\.core_pg_matrix/);
   const run = stepsOf(job)
     .map((step) => step.run ?? '')
@@ -575,7 +614,7 @@ test('release-gate.yml: a failed shard discovery fails changes, and no one-shard
 test('release-gate.yml: the build is a clean checkout and no tracked script reads a file a clean checkout lacks', () => {
   const runs = (name) => stepsOf(gate.jobs[name]).map((step) => step.run ?? '');
   assert.ok(runs('changes').includes('node scripts/ci/check-clean-checkout.mjs --readers'));
-  for (const name of ['core-build', 'mixdogd', 'core-lint']) {
+  for (const name of ['core-build-linux', 'core-build-macos', 'core-build-windows', 'mixdogd', 'core-lint']) {
     const index = runs(name).indexOf('node scripts/ci/check-clean-checkout.mjs --build');
     assert.ok(index >= 0, `${name} checks its checkout`);
     assert.ok(stepsOf(gate.jobs[name]).findIndex((step) => step.uses?.startsWith('actions/checkout@')) < index);
@@ -752,7 +791,7 @@ for (const label of ['release-gate.yml', 'desktop-package.yml']) {
       // core-tests and core-pg leave one receipt per partition or profile whose skips are the reconciliation's (the ignore dispositions
       // of the unfiltered listing include tests a profile leg runs, which need no exception): `complete` reconciles them, there is no
       // per-job skip check to name them in
-      if (['core-tests', 'core-entry', 'core-pg'].includes(name)) continue;
+      if (/^core-(tests-|entry$|pg)/.test(name)) continue;
       const checks = stepsOf(job).filter((step) => /check-skips\.mjs receipts/.test(step.run ?? ''));
       assert.ok(checks.length > 0, `${name}: no check-skips.mjs receipts step`);
       const checked = new Set(
@@ -786,7 +825,7 @@ test('desktop-package.yml: the Windows runtime step takes a receipt and no skip 
 });
 
 test('release-gate.yml: every system lists its archive unfiltered for the reconciliation, the reader scan is advisory, and every standalone Rust lane has a check', () => {
-  const rust = stepsOf(gate.jobs['core-tests']).find(
+  const rust = stepsOf(gate.jobs['core-tests-linux']).find(
     (step) => step.name === 'List the archive (unfiltered, and per profile that runs ignored tests)'
   );
   // every system's archive is listed whatever the scope of the run: a macOS-only ignored test is seen by no other leg
@@ -798,11 +837,11 @@ test('release-gate.yml: every system lists its archive unfiltered for the reconc
   assert.match(rust.run, /--profile "\$profile" --run-ignored only --message-format json/);
   assert.match(rust.run, /\[\[ "\$OS" != windows \]\]/);
   assert.doesNotMatch(
-    JSON.stringify(gate.jobs['core-tests']),
+    JSON.stringify(gate.jobs['core-tests-linux']),
     /check-skips\.mjs rust/,
     'a listing that matches a profile credits nothing'
   );
-  const upload = stepsOf(gate.jobs['core-tests']).find(
+  const upload = stepsOf(gate.jobs['core-tests-linux']).find(
     (step) => step.uses?.startsWith('actions/upload-artifact@') && /rust-lists/.test(step.with.name)
   );
   assert.equal(upload.with.name, 'rust-lists-${{ env.GATE_KEY }}-${{ matrix.os }}');

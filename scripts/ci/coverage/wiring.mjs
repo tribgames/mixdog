@@ -304,8 +304,6 @@ function legUploadProblems(gate, plan, fail) {
     const steps = gate.jobs[name]?.steps ?? [];
     const upload = steps.findIndex((step) => step.uses === './.github/actions/upload-evidence');
     if (upload < 0) continue;
-    if (steps[upload].if !== undefined)
-      fail(`job ${name}: its evidence upload has the condition ${JSON.stringify(steps[upload].if)}`);
     const writers = steps
       .map((step, index) =>
         step.env?.MIXDOG_RECEIPT !== undefined || /MIXDOG_RECEIPT=/.test(RUN_OF(step)) ? index : -1
@@ -313,6 +311,16 @@ function legUploadProblems(gate, plan, fail) {
       .filter((index) => index >= 0);
     if (writers.some((index) => index > upload))
       fail(`job ${name}: a step that writes a receipt runs after the evidence upload`);
+    // The one condition an upload may carry: after any receipt writer that ran, whatever its tests ended, so a leg of several
+    // slots keeps the receipts of the ones that passed (the job still fails on the failed one).
+    if (steps[upload].if !== undefined) {
+      const ids = writers.map((index) => steps[index].id);
+      const ran = ids
+        .map((id) => `steps.${id}.outcome == 'success' || steps.${id}.outcome == 'failure'`)
+        .join(' || ');
+      if (ids.some((id) => !id) || steps[upload].if !== `\${{ !cancelled() && (${ran}) }}`)
+        fail(`job ${name}: its evidence upload has the condition ${JSON.stringify(steps[upload].if)}`);
+    }
   }
 }
 
