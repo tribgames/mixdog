@@ -7,8 +7,10 @@ pub const INDEX_DDL: &str = include_str!("sql/index.sql");
 pub const INDEX_APPLICATION_ID: i32 = 0x4D58_4958;
 /// 17: `submissions` and `sessions.listed`. 18: the `blob_refs`, `refs_unknown` and `refs_backfill` tables of the dev
 /// builds are no longer made; an index that still has them ignores them, and one of version 17 is rebuilt from the logs.
-/// 18 is the first released version: the next one ships with a delta from it (see `sql/index.sql`).
-pub const INDEX_USER_VERSION: i32 = 18;
+/// 19: `sessions.listed` also holds `modelParameters`, which the agent pool's listing reads; a row of version 18 lacks
+/// it, so an index of that version is rebuilt from the logs.
+/// 19 is the first released version: the next one ships with a delta from it (see `sql/index.sql`).
+pub const INDEX_USER_VERSION: i32 = 19;
 
 /// `sessions.id_key`: a session id (`^[A-Za-z0-9_-]+$`, FORMAT.md §1) as bytes whose
 /// order is JavaScript `localeCompare` (ICU root collation) on the id: the primary

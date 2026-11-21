@@ -693,7 +693,7 @@ writer's own counter misses another connection's commits and counts failed round
 Derived. `SqliteStore::open` (one maintenance-lane job, the only way to open the index)
 rebuilds it from the logs when the file is missing, is not a readable SQLite database, or
 has another `application_id`/`user_version`; such a file is never opened or altered in
-place, and callers never see the rebuild as an error. Version 18 is the first released one:
+place, and callers never see the rebuild as an error. Version 19 is the first released one:
 a later version ships with a delta that brings a released index to it in place before this
 check, as the core state's `state_v2_delta.sql` does, so that an update of the app does not
 hold its first start for a rebuild. The rebuild:

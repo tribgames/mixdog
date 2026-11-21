@@ -789,17 +789,27 @@ impl DirInner {
             let store = self.deps.store.clone();
             let rows =
                 mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.listed_rows(lane, &asked)).await;
-            let Ok(Ok(rows)) = rows else {
-                return out.into_iter().map(Option::flatten).collect();
-            };
-            for (&at, row) in stored.iter().zip(rows) {
-                out[at] = row.map(|listed| listed.map(|header| keep_fields(&header, Some(fields))));
+            match rows {
+                Ok(Ok(rows)) => {
+                    for (&at, row) in stored.iter().zip(rows) {
+                        out[at] = row.map(|listed| listed.map(|header| keep_fields(&header, Some(fields))));
+                    }
+                }
+                // The index did not answer: the records still do.
+                Ok(Err(error)) => tracing::warn!(?error, "the index did not answer a listing; its sessions' records are read"),
+                // No job runs on the lane: a record read would not either.
+                Err(_) => return out.into_iter().map(Option::flatten).collect(),
             }
         }
-        let records =
-            futures::future::join_all(ids.iter().zip(&out).filter(|(_, answer)| answer.is_none()).map(|(id, _)| self.read_listed_record(id, fields))).await;
-        let mut records = records.into_iter();
-        out.into_iter().map(|answer| answer.unwrap_or_else(|| records.next().flatten())).collect()
+        // One read at a time: the listing holds one place in the lane's queue however many sessions the index left unanswered.
+        let mut listed = Vec::with_capacity(ids.len());
+        for (id, answer) in ids.iter().zip(out) {
+            listed.push(match answer {
+                Some(answer) => answer,
+                None => self.read_listed_record(id, fields).await,
+            });
+        }
+        listed
     }
 
     /// The listed header of a stored session from its record.

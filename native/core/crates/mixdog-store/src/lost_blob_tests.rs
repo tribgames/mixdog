@@ -413,6 +413,7 @@ async fn an_open_of_an_intact_index_reports_no_rebuild() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_empty_schema_with_intact_identity_is_rebuilt_from_the_logs() {
     let whole = three_sessions_without_an_index().await;
+    std::fs::create_dir_all(whole.path().join(INDEX_FILE).parent().unwrap()).unwrap();
     let blank = rusqlite::Connection::open(whole.path().join(INDEX_FILE)).unwrap();
     blank.pragma_update(None, "application_id", crate::schema::sql::INDEX_APPLICATION_ID).unwrap();
     blank.pragma_update(None, "user_version", crate::schema::sql::INDEX_USER_VERSION).unwrap();

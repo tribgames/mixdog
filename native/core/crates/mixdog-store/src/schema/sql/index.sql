@@ -1,6 +1,6 @@
--- index/store.sqlite, user_version 18: catalog + history projection + submission receipts.
+-- index/store.sqlite, user_version 19: catalog + history projection + submission receipts.
 -- Bump user_version with every change to this file. An index of another version is rebuilt from the logs today.
--- 18 is the first released version, so the change that makes 19 must ship with a delta that brings a version 18
+-- 19 is the first released version, so the change that makes 20 must ship with a delta that brings a version 19
 -- index to it in place (as state_v2_delta.sql does for the core state): a rebuild reads every log and holds the
 -- start for as long. A rebuild then stays for an index no delta reaches (a dev build's, a damaged one, a change
 -- whose rows must be derived again).
@@ -10,7 +10,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 18;
+PRAGMA user_version = 19;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;

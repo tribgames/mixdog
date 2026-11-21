@@ -37,6 +37,35 @@ pub struct RegistryPoolStore {
     directory: Arc<SessionDirectory>,
 }
 
+/// Whether the catalog row of a session holds `field` (`mixdog_store::worker::LISTED_FIELDS`).
+const fn listed(field: &str) -> bool {
+    let (field, mut at) = (field.as_bytes(), 0);
+    while at < mixdog_store::worker::LISTED_FIELDS.len() {
+        let held = mixdog_store::worker::LISTED_FIELDS[at].as_bytes();
+        let mut same = held.len() == field.len();
+        let mut byte = 0;
+        while same && byte < held.len() {
+            same = held[byte] == field[byte];
+            byte += 1;
+        }
+        if same {
+            return true;
+        }
+        at += 1;
+    }
+    false
+}
+
+// The pool's listing is one read of the index only while the catalog row holds every member it reads: one member the
+// row lacks sends the listing to each session's record instead.
+const _: () = {
+    let mut at = 0;
+    while at < HEADER_FIELDS.len() {
+        assert!(listed(HEADER_FIELDS[at]), "the catalog row lacks a header member the agent pool reads");
+        at += 1;
+    }
+};
+
 impl RegistryPoolStore {
     pub fn new(registry: Arc<AgentRegistry>, directory: Arc<SessionDirectory>) -> Self {
         Self { registry, directory }
