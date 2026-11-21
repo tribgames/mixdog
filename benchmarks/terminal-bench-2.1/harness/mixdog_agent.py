@@ -7,7 +7,8 @@ Run with (from ``benchmarks/terminal-bench-2.1``, so this module is importable):
         --model claude-sonnet-4-5 -t <task-id>
 
 install():
-  - installs Node.js >= 22 + mixdog (npm) into the container
+  - installs the staged Rust core bundle (mixdogd + its JS runtime) into the
+    container, from harness/prebake.ps1's tar when present
   - copies the host's Anthropic OAuth credentials file into the container via
     ``environment.upload_file`` (docker cp) so the token never appears in a
     shell command or Harbor's debug logs.
@@ -39,8 +40,17 @@ from harbor.agents.installed.base import (
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
+from .host_core import runtime_root as host_runtime_root
+from .trial_core import (
+    CORE_BUNDLE_ENV,
+    DEFAULT_CORE_BUNDLE,
+    DEFAULT_PREBAKE_TAR,
+    PREBAKE_TAR_ENV,
+    trial_core,
+)
 from .routing_profiles import (
-    build_benchmark_config,
+    PRISTINE_CONTRACT,
+    exec_route_profile,
     format_resolved_routes,
     load_route_profile,
     reject_profile_conflicts,
@@ -53,9 +63,8 @@ from .src_overlay import (
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-# The npm install is only a dependency shell — the src overlay replaces the
-# whole source tree — so pin the published package version. Prebake extracts
-# must match this same version or the trial is not comparable.
+# The installed core must report the pinned package version (`mixdogd X.Y.Z`);
+# a bundle or prebake of another version is not comparable.
 DEFAULT_MIXDOG_VERSION = json.loads(
     (_REPO_ROOT / "package.json").read_text(encoding="utf-8")
 )["version"]
@@ -74,43 +83,42 @@ CONTAINER_CREDS_PATH = f"{CONTAINER_DATA_DIR}/anthropic-oauth-credentials.json"
 HARNESS_SNAPSHOT_ENV = "MIXDOG_TB_HARNESS_SNAPSHOT"
 HARNESS_SNAPSHOT_MANIFEST_ENV = "MIXDOG_TB_HARNESS_SNAPSHOT_MANIFEST"
 # Every trial receives the same local runtime bundle captured before Harbor.
-_REPO_SRC = _REPO_ROOT / "src"
-PRISTINE_CONTRACT = json.loads(
-    (_REPO_SRC / "runtime/shared/pristine-execution-contract.json").read_text(
-        encoding="utf-8"
-    )
-)
 PRISTINE_GUARD_ENV = PRISTINE_CONTRACT["guardEnv"]
 CONTAINER_SRC_SNAPSHOT = f"{CONTAINER_DATA_DIR}/src-snapshot.tar"
 # Effort judge (--ak effort_judge=steps|on|off, default steps): the effort judge
-# model plus its ONNX Runtime (linux-x64) as one tar, built by
-# harness/build-effort-judge-bundle.ps1. The published package the prebake
-# installs predates that dependency, so each trial gets it here.
+# model files as one tar, built by harness/build-effort-judge-bundle.ps1; the
+# exec reads it from MIXDOG_EFFORT_JUDGE_DIR, with the core bundle's own ONNX
+# Runtime.
 EFFORT_JUDGE_BUNDLE_ENV = "MIXDOG_TB_EFFORT_JUDGE_BUNDLE"
 DEFAULT_EFFORT_JUDGE_BUNDLE = (
     Path(__file__).resolve().parents[1] / "mixdog-prebake" / "effort-judge-bundle.tar"
 )
 CONTAINER_EFFORT_JUDGE_BUNDLE = "/opt/mixdog-effort-judge-bundle.tar"
 CONTAINER_EFFORT_JUDGE_DIR = "/opt/mixdog-effort-judge"
+# The core under test is the staged mixdogd bundle (mixdogd + its JS runtime
+# payload; harness/prebake-rust.ps1 copies it here). It is installed under
+# CONTAINER_CORE_DIR with `mixdog` (the core) and `node` (the payload's) on PATH.
+CONTAINER_CORE_BUNDLE = "/opt/mixdogd-linux-x64.tgz"
+CONTAINER_CORE_DIR = "/opt/mixdog-core"
 # CC-prebaked parity for our own dependency shell: harness/prebake.ps1 bakes
-# node + the global mixdog install tree (bin links + /usr/lib/node_modules)
-# into this host tar ONCE; install() then uploads and extracts it in seconds
-# instead of re-running NodeSource + `npm install -g` in every container.
-# Missing cache or non-glibc (apk) images fall back to the stock path — task
+# that install plus ripgrep, static curl and uv into this host tar ONCE;
+# install() then uploads and extracts it in seconds instead of installing the
+# packages in every container. Missing cache or non-apt images take the stock
+# path (packages from the image's manager, then the bundle) — task
 # environments are never modified either way (agent deps only).
-PREBAKE_TAR_ENV = "MIXDOG_TB_PREBAKE_TAR"
-DEFAULT_PREBAKE_TAR = (
-    Path(__file__).resolve().parents[1]
-    / "mixdog-prebake"
-    / "mixdog-node-prebake.tar.gz"
-)
-CONTAINER_PREBAKE_TAR = "/opt/mixdog-node-prebake.tar.gz"
+CONTAINER_PREBAKE_TAR = "/opt/mixdog-core-prebake.tar.gz"
 # zstd prebake pair (see prebake.ps1): multi-threaded decompress cuts the
 # per-trial extract leg from gunzip's 5-10s to ~1s. Both files must exist
 # AND the shipped binary must run in-container, else the .tar.gz path is
 # used unchanged.
-CONTAINER_PREBAKE_TAR_ZST = "/opt/mixdog-node-prebake.tar.zst"
+CONTAINER_PREBAKE_TAR_ZST = "/opt/mixdog-core-prebake.tar.zst"
 CONTAINER_PREBAKE_ZSTD = "/opt/mixdog-zstd"
+# The package root of the installed core's JS runtime (js-runtime.json of the
+# bundle: js/pkg/node_modules/mixdog beside mixdogd), found from `mixdog`.
+_PACKAGE_SHELL = (
+    'MIXDOG_PACKAGE="$(dirname "$(readlink -f "$(command -v mixdog)")")'
+    '/js/pkg/node_modules/mixdog"; '
+)
 BENCH_DRIVER_DEADLINE_MS = 180 * 60 * 1000
 ANTHROPIC_REFRESH_SKEW_MS = 5 * 60 * 1000
 PROCESS_KILL_GRACE_S = 30
@@ -328,13 +336,15 @@ def _harness_snapshot_file(name: str) -> Path:
 
 def _run_anthropic_preflight(host_creds: Path, snapshot_path: Path) -> None:
     """Refresh only on the host, under the provider's cross-process lease lock."""
-    preflight_path = _harness_snapshot_file("anthropic_oauth_preflight.mjs")
+    preflight_path = _harness_snapshot_file("anthropic_oauth_preflight_rust.mjs")
     env = {
         **os.environ,
         "ANTHROPIC_OAUTH_CREDENTIALS_PATH": str(host_creds),
-        # The snapshot copy runs from TEMP; point its provider import at the
-        # real repo src (harness/ -> terminal-bench-2.1 -> benchmarks -> repo).
-        "MIXDOG_TB_REPO_SRC": str(Path(__file__).resolve().parents[3] / "src"),
+        # The snapshot copy runs from TEMP; point its core-session import at
+        # the real repo (harness/ -> terminal-bench-2.1 -> benchmarks -> repo).
+        "MIXDOG_TB_REPO_ROOT": str(_REPO_ROOT),
+        # The user's own running core renews the credential for the lease.
+        "MIXDOG_RUNTIME_ROOT": str(host_runtime_root()),
     }
     result = subprocess.run(
         [
@@ -363,6 +373,31 @@ def _run_anthropic_preflight(host_creds: Path, snapshot_path: Path) -> None:
         raise RuntimeError(
             "Anthropic OAuth host preflight succeeded without writing a credential snapshot."
         )
+
+
+def _core_install_shell(archive: str) -> str:
+    """Unpacks the staged bundle (`mixdogd` and `payload/`) as the server
+    install lays it out: the payload's entries beside the binary."""
+    core = shlex.quote(CONTAINER_CORE_DIR)
+    return (
+        f"rm -rf {core}; mkdir -p {core}; "
+        f"tar -xzf {shlex.quote(archive)} -C {core}; "
+        f"find {core}/payload -mindepth 1 -maxdepth 1 -exec mv -t {core} {{}} +; "
+        f"rmdir {core}/payload; "
+        f"chmod 0755 {core}/mixdogd {core}/js/node; "
+        f"ln -sf {core}/mixdogd /usr/local/bin/mixdog; "
+        f"ln -sf {core}/js/node /usr/local/bin/node; "
+    )
+
+
+def _core_version_shell(version: str) -> str:
+    """Fails the install unless the core on PATH is the pinned version."""
+    expected = shlex.quote(f"mixdogd {version}")
+    return (
+        'installed="$(mixdog --version)"; '
+        f'if [ "$installed" != {expected} ]; then '
+        f'echo "prebake mixdog version $installed != "{expected} >&2; exit 1; fi; '
+    )
 
 
 def _bounded_process_command(
@@ -397,17 +432,21 @@ def _mixdog_exec_command(
     *,
     effort: str | None = None,
     fast: bool = False,
-    compile_cache: bool = False,
+    route_profile: dict | None = None,
     label: str,
 ) -> str:
     route_args = f" --effort {shlex.quote(effort)}" if effort else ""
     if fast:
         route_args += " --fast"
-    cache = "export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; " if compile_cache else ""
+    if route_profile is not None:
+        # The roles' routes and the Lead fallback reach exec itself, which never
+        # reads a config from the data dir.
+        route_args += " --route-profile " + shlex.quote(
+            json.dumps(route_profile, separators=(",", ":"), sort_keys=True)
+        )
     graph = (
-        'MIXDOG_ENTRY="$(readlink -f "$(command -v mixdog)")"; '
-        'MIXDOG_PACKAGE="$(dirname "$(dirname "$MIXDOG_ENTRY")")"; '
-        f'export MIXDOG_GRAPH_BIN="$MIXDOG_PACKAGE/{GRAPH_MEMBER}"; '
+        _PACKAGE_SHELL
+        + f'export MIXDOG_GRAPH_BIN="$MIXDOG_PACKAGE/{GRAPH_MEMBER}"; '
         'export MIXDOG_SEARCH_SERVER_BIN="$MIXDOG_GRAPH_BIN"; '
         'test -x "$MIXDOG_GRAPH_BIN" || exit 1; '
     )
@@ -416,7 +455,6 @@ def _mixdog_exec_command(
     # sides run with the same capability.
     pipeline = (
         "mkdir -p /logs/agent; "
-        f"{cache}"
         f"{graph}"
         f"mixdog exec --json --web-search --provider {shlex.quote(provider)} --model {shlex.quote(model)}"
         f"{route_args} "
@@ -475,6 +513,64 @@ def _uv_provision_command(home: str = "/root", curl_command: str = "curl") -> st
         "fi; "
         "exit 0"
     )
+
+
+GLIBC_LOADER_PROBE = (
+    "if [ -e /lib64/ld-linux-x86-64.so.2 ] || [ -e /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 ]; "
+    "then echo MIXDOG_GLIBC_LOADER; fi"
+)
+
+# The core's own judge host (`mixdog effort-judge-host`, the process the core
+# runs the model in) answers one request line per reply line, each tagged.
+EFFORT_JUDGE_REPLY_TAG = "MIXDOG-EFFORT-JUDGE "
+# The request bodies the check sends; mixdog-services host_tests deserialises
+# the same file with the host's own request type.
+EFFORT_JUDGE_REQUESTS_PATH = Path(__file__).resolve().with_name("effort-judge-requests.json")
+
+
+def effort_judge_requests(mode: str) -> list[dict]:
+    requests = json.loads(EFFORT_JUDGE_REQUESTS_PATH.read_text(encoding="utf-8"))
+    return [requests["turn"], requests["step"]] if mode == "steps" else [requests["turn"]]
+
+
+def effort_judge_check_shell(mode: str) -> str:
+    """Runs the installed core's judge host on the judge folder with the ONNX
+    Runtime the core bundle names (js-runtime.json `ortLibrary`)."""
+    requests = "".join(json.dumps(request) + "\n" for request in effort_judge_requests(mode))
+    return (
+        'CORE="$(dirname "$(readlink -f "$(command -v mixdog)")")"; '
+        "ORT=\"$(node -e 'const p = require(\"node:path\"); const m = require(p.join(process.argv[1], \"js-runtime.json\")); "
+        "if (!m.ortLibrary) process.exit(3); console.log(p.resolve(process.argv[1], m.ortLibrary))' \"$CORE\")\" "
+        '|| { echo "EFFORT_JUDGE_NO_ORT_LIBRARY"; exit 0; }; '
+        f"printf %s {shlex.quote(requests)} | timeout 60s mixdog effort-judge-host "
+        f'--dir {shlex.quote(CONTAINER_EFFORT_JUDGE_DIR)} --ort-library "$ORT" --explicit 2>&1'
+    )
+
+
+def effort_judge_check_failure(output: str, mode: str) -> str | None:
+    """None when the host loaded the model and answered every request with
+    probabilities; else what it answered instead."""
+    replies = []
+    for line in output.splitlines():
+        index = line.find(EFFORT_JUDGE_REPLY_TAG)
+        if index < 0:
+            continue
+        try:
+            replies.append(json.loads(line[index + len(EFFORT_JUDGE_REPLY_TAG):]))
+        except json.JSONDecodeError:
+            return "an unreadable reply"
+    if not replies:
+        return "no reply"
+    if replies[0].get("op") != "ready":
+        return f"the model did not load ({replies[0].get('kind')})"
+    answers = replies[1:]
+    wanted = len(effort_judge_requests(mode))
+    if len(answers) != wanted:
+        return f"{len(answers)} of {wanted} requests answered"
+    for answer in answers:
+        if answer.get("op") != "probs" or len(answer.get("probs") or []) != 4:
+            return f"a request failed ({answer.get('kind')})"
+    return None
 
 
 class MixdogAgent(BaseInstalledAgent):
@@ -541,15 +637,9 @@ class MixdogAgent(BaseInstalledAgent):
         return route
 
     def get_version_command(self) -> str | None:
-        # BaseInstalledAgent calls this after install(). Do not boot the full
-        # Mixdog CLI a second time just to discover its version: resolve the
-        # installed bin symlink and read the adjacent package metadata.
-        return (
-            "node -e \"const fs=require('fs'),path=require('path'),"
-            "bin=fs.realpathSync(process.argv[1]),"
-            "pkg=require(path.resolve(path.dirname(bin),'../package.json'));"
-            'console.log(\'mixdog-\'+pkg.version)" "$(command -v mixdog)"'
-        )
+        # BaseInstalledAgent calls this after install(): the core answers its
+        # version without starting (`mixdogd X.Y.Z`).
+        return "mixdog --version | sed 's/^mixdogd /mixdog-/'"
 
     def _required_providers(self) -> set[str]:
         routes = self._route_profile["routes"]
@@ -595,17 +685,32 @@ class MixdogAgent(BaseInstalledAgent):
             timings[label] = time.monotonic() - started
             return result
 
+        bundle = Path(os.environ.get(CORE_BUNDLE_ENV, "") or DEFAULT_CORE_BUNDLE)
         prebake_tar = Path(os.environ.get(PREBAKE_TAR_ENV, "") or DEFAULT_PREBAKE_TAR)
-        prebake_tar_zst = prebake_tar.with_name("mixdog-node-prebake.tar.zst")
+        # The one place the archive is chosen, ahead of both install paths: the
+        # prebake only when its stamp names this very bundle (a missing bundle
+        # or another build's prebake is refused), and only on an image that can
+        # run the bundle's GNU/Linux x64, glibc-linked core — a musl (Alpine)
+        # image is refused before anything is unpacked.
+        core = await asyncio.to_thread(
+            trial_core, {CORE_BUNDLE_ENV: str(bundle), PREBAKE_TAR_ENV: str(prebake_tar)}
+        )
+        loader = await self.exec_as_root(environment, command=GLIBC_LOADER_PROBE)
+        if "MIXDOG_GLIBC_LOADER" not in (getattr(loader, "stdout", "") or ""):
+            raise RuntimeError(
+                "this task image has no glibc x86-64 loader (/lib64/ld-linux-x86-64.so.2): "
+                "the mixdog core bundle is a GNU/Linux x64 build, so musl (Alpine) images are not supported"
+            )
+        prebake_tar_zst = prebake_tar.with_name("mixdog-core-prebake.tar.zst")
         prebake_zstd_bin = prebake_tar.with_name("zstd-amd64")
-        if prebake_tar.is_file():
-            # apt (glibc) images take the fast path; apk/yum fall through to
-            # the stock installer below (the tar targets debian layout).
+        if core["prebake"]:
+            # apt images take the fast path; yum falls through to the stock
+            # installer below (the tar targets debian layout).
             probe = await self.exec_as_root(
                 environment,
                 command=(
                     "command -v apt-get >/dev/null 2>&1 && echo apt || true; "
-                    "test -r /opt/mixdog-prebake-cache/mixdog-node-prebake.tar.zst && "
+                    "test -r /opt/mixdog-prebake-cache/mixdog-core-prebake.tar.zst && "
                     "test -x /opt/mixdog-prebake-cache/zstd-amd64 && "
                     "echo MIXDOG_PREBAKE_CACHE_READY || true"
                 ),
@@ -616,11 +721,6 @@ class MixdogAgent(BaseInstalledAgent):
                     return (
                         "set -eu; "
                         f"{extract} "
-                        # Prebaked dep-layer compile cache lives OUTSIDE
-                        # /opt/mixdog (which _inject_credentials recreates);
-                        # agent-user warmup/driver must be able to append.
-                        "mkdir -p /opt/mixdog-v8-cache; "
-                        "chmod -R a+rwX /opt/mixdog-v8-cache; "
                         # Static curl + CA bundle from the tar replace the
                         # old parallel apt leg (18-20s network critical
                         # path on curl-less images). Additive only: the
@@ -630,13 +730,9 @@ class MixdogAgent(BaseInstalledAgent):
                         "if [ ! -s /etc/ssl/certs/ca-certificates.crt ] && [ -s /opt/static-curl/ca-certificates.crt ]; then "
                         "mkdir -p /etc/ssl/certs; "
                         "cp /opt/static-curl/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt; fi; "
-                        "timeout --version | grep -q 'GNU coreutils'; node --version; "
-                        "mixdog --help >/dev/null 2>&1 && echo 'mixdog installed (prebaked)'; "
-                        f"expected={shlex.quote(self._mixdog_version)}; "
-                        "installed=$(node -p \"require('/usr/lib/node_modules/mixdog/package.json').version\"); "
-                        'if [ "$installed" != "$expected" ]; then '
-                        'echo "prebake mixdog version $installed != $expected" >&2; exit 1; '
-                        "fi; "
+                        "timeout --version | grep -q 'GNU coreutils'; "
+                        f"{_core_version_shell(self._mixdog_version)}"
+                        "echo 'mixdog installed (prebaked)'; "
                         f"{_tool_dep_preflight_shell()}; "
                         "if /root/.local/bin/uv --version 2>/dev/null | grep -q '^uv 0\\.9\\.5$' && "
                         "/root/.local/bin/uvx --version 2>/dev/null | grep -q '^uvx 0\\.9\\.5$'; then "
@@ -653,7 +749,7 @@ class MixdogAgent(BaseInstalledAgent):
                             environment,
                             command=_stage_command(
                                 "tar -C / -I /opt/mixdog-prebake-cache/zstd-amd64 "
-                                "-xf /opt/mixdog-prebake-cache/mixdog-node-prebake.tar.zst;"
+                                "-xf /opt/mixdog-prebake-cache/mixdog-core-prebake.tar.zst;"
                             ),
                         )
                     await environment.upload_file(
@@ -759,29 +855,19 @@ class MixdogAgent(BaseInstalledAgent):
                     flush=True,
                 )
                 return
-        # System deps + Node.js >= 22 (root). NodeSource for apt; distro pkg for apk/yum.
+        # System deps (root); the core and its Node come from the bundle.
         await self.exec_as_root(
             environment,
             command=(
                 "set -eu; "
                 "if command -v apt-get >/dev/null 2>&1; then "
-                "  apt-get update && apt-get install -y curl ca-certificates coreutils ripgrep && "
-                "  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && "
-                "  apt-get install -y nodejs; "
-                "elif command -v apk >/dev/null 2>&1; then "
-                "  apk add --no-cache curl bash coreutils nodejs npm ripgrep; "
+                "  apt-get update && apt-get install -y curl ca-certificates coreutils ripgrep; "
                 "elif command -v yum >/dev/null 2>&1; then "
-                "  curl -fsSL https://rpm.nodesource.com/setup_22.x | bash - && "
-                "  yum install -y nodejs coreutils && (yum install -y ripgrep || true); "
+                "  yum install -y coreutils findutils && (yum install -y ripgrep || true); "
                 "else "
-                "  echo 'No known package manager (apt/apk/yum)' >&2; exit 1; "
+                "  echo 'No known package manager (apt/yum)' >&2; exit 1; "
                 "fi; "
-                "timeout --version | grep -q 'GNU coreutils'; node --version; "
-                # Tool-dependency preflight: every external binary a builtin
-                # tool shells out to must exist NOW, or setup fails loudly —
-                # a missing binary must never surface as silent per-turn tool
-                # errors (the ripgrep incident).
-                f"{_tool_dep_preflight_shell()}"
+                "timeout --version | grep -q 'GNU coreutils'"
             ),
             env={"DEBIAN_FRONTEND": "noninteractive"},
         )
@@ -793,14 +879,20 @@ class MixdogAgent(BaseInstalledAgent):
             environment,
             command=_uv_provision_command(),
         )
-        # Install mixdog globally (root). Production postinstall embeds every
-        # required release-native asset under the installed package.
+        # The core (root), then the tool-dependency preflight: every external
+        # binary a builtin tool shells out to must exist NOW, or setup fails
+        # loudly — a missing binary must never surface as silent per-turn
+        # tool errors (the ripgrep incident).
+        await environment.upload_file(bundle, CONTAINER_CORE_BUNDLE)
         await self.exec_as_root(
             environment,
             command=(
                 "set -eu; "
-                f"npm install -g mixdog@{self._mixdog_version}; "
-                "mixdog --help >/dev/null 2>&1 && echo 'mixdog installed'"
+                f"{_core_install_shell(CONTAINER_CORE_BUNDLE)}"
+                f"rm -f {CONTAINER_CORE_BUNDLE}; "
+                f"{_core_version_shell(self._mixdog_version)}"
+                f"{_tool_dep_preflight_shell()}; "
+                "echo 'mixdog installed'"
             ),
         )
 
@@ -832,12 +924,11 @@ class MixdogAgent(BaseInstalledAgent):
                 self._anthropic_preflight_dir = None
 
             generated_root = Path(generated_dir.name)
-            generated_config = generated_root / "mixdog-config.json"
-            config = build_benchmark_config(self._route_profile, self._workflow)
-            config_bytes = (
-                json.dumps(config, indent=2, ensure_ascii=False) + "\n"
+            route_profile_bytes = json.dumps(
+                exec_route_profile(self._route_profile),
+                separators=(",", ":"),
+                sort_keys=True,
             ).encode("utf-8")
-            generated_config.write_bytes(config_bytes)
             credential_count = sum(
                 name in PROVIDER_CREDENTIAL_FILES.values() for name in boot_files
             )
@@ -849,7 +940,7 @@ class MixdogAgent(BaseInstalledAgent):
                 "mode": "terminal-bench-pristine",
                 "routeProfile": self._route_profile_name,
                 "workflow": self._workflow,
-                "configSha256": hashlib.sha256(config_bytes).hexdigest(),
+                "routeProfileSha256": hashlib.sha256(route_profile_bytes).hexdigest(),
                 "providerIds": sorted(required_providers),
                 "injectedCredentialFileCount": credential_count,
                 "injectedModelCatalogFileCount": catalog_count,
@@ -873,7 +964,7 @@ class MixdogAgent(BaseInstalledAgent):
                     f"mkdir -p {CONTAINER_DATA_DIR} /logs/agent"
                 ),
             )
-            upload_files = {"mixdog-config.json": generated_config, **boot_files}
+            upload_files = dict(boot_files)
             # docker cp each file — token bytes never appear in a shell command/log.
             # Every docker-cp leg is independent; run them concurrently with
             # the src-snapshot upload to shorten the serial pre-driver window.
@@ -956,44 +1047,20 @@ class MixdogAgent(BaseInstalledAgent):
             environment,
             command=(
                 "set -eu; "
-                'MIXDOG_BIN="$(readlink -f "$(command -v mixdog)")"; '
-                'MODULES="$(dirname "$(dirname "$MIXDOG_BIN")")/node_modules"; '
-                f"rm -rf {judge}; mkdir -p {judge} \"$MODULES\"; "
+                f"rm -rf {judge}; mkdir -p {judge}; "
                 f"tar -xf {CONTAINER_EFFORT_JUDGE_BUNDLE} -C {judge}; "
-                'rm -rf "$MODULES/onnxruntime-node" "$MODULES/onnxruntime-common"; '
-                f'mv {judge}/node_modules/onnxruntime-node {judge}/node_modules/onnxruntime-common "$MODULES/"; '
-                f"rm -rf {judge}/node_modules {CONTAINER_EFFORT_JUDGE_BUNDLE}; "
-                f'chmod -R a+rX {judge} "$MODULES/onnxruntime-node" "$MODULES/onnxruntime-common"; '
+                f"rm -f {CONTAINER_EFFORT_JUDGE_BUNDLE}; "
+                f"chmod -R a+rX {judge}; "
                 # The first load caches the derived tokenizer.bin next to the model.
                 f"chmod a+w {judge}"
             ),
         )
-        # A script file, not `node -e`: the judge's worker thread inherits the
-        # parent's execArgv, and --input-type would make it fail to start.
-        check = await environment.exec(
-            command=(
-                'MIXDOG_BIN="$(readlink -f "$(command -v mixdog)")"; '
-                'export MIXDOG_SRC="$(dirname "$(dirname "$MIXDOG_BIN")")/src"; '
-                f"export MIXDOG_EFFORT_JUDGE_DIR={judge}; "
-                "cat > /tmp/mixdog-effort-judge-check.mjs <<'EOF'\n"
-                'import { pathToFileURL } from "node:url";\n'
-                'const judge = await import(pathToFileURL(process.env.MIXDOG_SRC + "/runtime/effort-judge/judge-client.mjs"));\n'
-                "let r;\n"
-                "for (let i = 0; i < 40 && !r?.probs; i++) {\n"
-                '  r = await judge.judgeTurn({ request: "Fix the failing parser test", prev: "", prevRequest: "" });\n'
-                "  if (!r.probs) await new Promise((s) => setTimeout(s, 500));\n"
-                "}\n"
-                'console.log(r.probs ? "EFFORT_JUDGE_OK " + JSON.stringify(r.probs.map((v) => +v.toFixed(3))) : "EFFORT_JUDGE_FAIL " + JSON.stringify(r));\n'
-                "process.exit(0);\n"
-                "EOF\n"
-                "timeout 60s node /tmp/mixdog-effort-judge-check.mjs 2>&1; "
-                "rm -f /tmp/mixdog-effort-judge-check.mjs"
-            )
-        )
+        check = await environment.exec(command=effort_judge_check_shell(self._effort_judge))
         output = (getattr(check, "stdout", "") or "").strip()
-        if "EFFORT_JUDGE_OK" not in output:
-            raise RuntimeError(f"effort judge did not answer in the container: {output[-500:]}")
-        print(output.splitlines()[-1], flush=True)
+        failure = effort_judge_check_failure(output, self._effort_judge)
+        if failure is not None:
+            raise RuntimeError(f"effort judge did not answer in the container: {failure}: {output[-500:]}")
+        print(f"EFFORT_JUDGE_OK {self._effort_judge}", flush=True)
 
     @staticmethod
     def _load_src_snapshot():
@@ -1015,8 +1082,8 @@ class MixdogAgent(BaseInstalledAgent):
             environment,
             command=(
                 "set -eu; "
-                'MIXDOG_BIN="$(readlink -f "$(command -v mixdog)")"; '
-                'PACKAGE="$(dirname "$(dirname "$MIXDOG_BIN")")"; '
+                + _PACKAGE_SHELL
+                + 'PACKAGE="$MIXDOG_PACKAGE"; '
                 'test -f "$PACKAGE/package.json"; '
                 'STAGING="$PACKAGE/.src-local-snapshot"; '
                 'BACKUP="$PACKAGE/.src-installed-backup"; '
@@ -1057,26 +1124,6 @@ class MixdogAgent(BaseInstalledAgent):
                 'echo "full local runtime bundle installed"'
             ),
         )
-        # Warm the V8 module compile cache for the runtime's import graph so
-        # the driver's cold boot (~25s of module compilation in-container) is
-        # paid once before the driver boots. The driver run exports the same
-        # NODE_COMPILE_CACHE and reuses the cache. Import only — no runtime is
-        # created, no credentials are touched.
-        # Minimal unit fixtures may intentionally expose only the root runner;
-        # real Harbor agents always inherit exec_as_agent from the base class.
-        if hasattr(self, "exec_as_agent"):
-            await self.exec_as_agent(
-                environment,
-                command=(
-                    "set -u; export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; "
-                    'MIXDOG_BIN="$(readlink -f "$(command -v mixdog)")"; '
-                    'export MIXDOG_SRC="$(dirname "$(dirname "$MIXDOG_BIN")")/src"; '
-                    "timeout 120s node --input-type=module -e "
-                    '\'const { pathToFileURL } = await import("node:url"); '
-                    'await import(pathToFileURL(process.env.MIXDOG_SRC + "/mixdog-session-runtime.mjs"));\' '
-                    ">/dev/null 2>&1 && echo 'v8 cache warmed' || echo 'v8 cache warmup skipped'"
-                ),
-            )
 
     def _auto_effort_env(self) -> dict[str, str]:
         # Auto effort is on by default in the product; effort_judge=off keeps
@@ -1143,12 +1190,20 @@ class MixdogAgent(BaseInstalledAgent):
             # exit path wrote the file, and a killed trial left none at all
             # (observed: timeout trials of the 2026-08-23 runs, later priced
             # from agent-trace.jsonl by analysis/trace-cost.mjs).
-            # Shield so an in-flight outer cancellation cannot strand the
-            # container exec mid-write; any failure here stays silent.
-            try:
-                await asyncio.shield(self._populate_usage_context(environment, context))
-            except BaseException:
-                pass
+            # A cancellation of this run waits for the copy to finish, so the
+            # usage is in the context before the caller sees the cancellation;
+            # the copy keeps its own failures silent.
+            flush = asyncio.ensure_future(
+                self._populate_usage_context(environment, context)
+            )
+            cancelled = False
+            while not flush.done():
+                try:
+                    await asyncio.shield(flush)
+                except asyncio.CancelledError:
+                    cancelled = True
+            if cancelled:
+                raise asyncio.CancelledError
 
     async def _populate_usage_context(self, environment, context) -> None:
         """Best-effort copy of the driver's aggregate usage into Harbor."""
@@ -1226,7 +1281,11 @@ class MixdogAgent(BaseInstalledAgent):
                     selected_model,
                     effort=effort,
                     fast=fast,
-                    compile_cache=True,
+                    route_profile=(
+                        exec_route_profile(self._route_profile)
+                        if self._route_profile is not None
+                        else None
+                    ),
                     label="lead",
                 ),
                 env=base_env,

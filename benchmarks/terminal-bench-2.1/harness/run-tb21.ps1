@@ -123,8 +123,8 @@ $benchRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $benchRoot
 $env:PYTHONPATH = $benchRoot
 
-# The published npm package is only a dependency shell; the bundle below is
-# the code under measurement. Without this record a report names no source, so
+# The container installs the staged core bundle; the runtime bundle below is
+# overlaid on it. Without this record a report names no source, so
 # nobody can tell which commit produced a score. The bundle archive is built
 # deterministically, so its digest is reproducible from the same files.
 function Get-RuntimeProvenance {
@@ -172,6 +172,9 @@ function Get-RuntimeProvenance {
     if ($LASTEXITCODE -ne 0) { throw "Harness provenance capture failed." }
     $harnessStatus = @(& git -C $repoRoot status --porcelain --untracked-files=all -- benchmarks/terminal-bench-2.1/harness benchmarks/terminal-bench-2.1/analysis benchmarks/terminal-bench-2.1/run.ps1 benchmarks/terminal-bench-2.1/presets.json 2>$null)
     if ($LASTEXITCODE -ne 0) { throw "Harness Git provenance capture failed." }
+    # The core the trials install; the overlay replaces src/ and the spawn binary, never mixdogd.
+    $trialCore = (& python -m harness.trial_core) | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0) { throw "Trial core identity capture failed." }
     return [ordered]@{
         schemaVersion       = 1
         capturedAt          = (Get-Date).ToUniversalTime().ToString("o")
@@ -183,6 +186,8 @@ function Get-RuntimeProvenance {
         bundleFileCount     = [int]$bundle.fileCount
         bundleBytes         = [int64]$bundle.totalBytes
         spawnSha256         = [string]$bundle.spawnSha256
+        coreBundleSha256    = [string]$trialCore.bundleSha256
+        corePrebake         = [bool]$trialCore.prebake
         bundleManifest      = [IO.Path]::GetFileName($ManifestPath)
         harnessSha256       = [string]$harnessHash
         harnessManifest     = [IO.Path]::GetFileName($harnessManifestPath)
@@ -200,6 +205,16 @@ $harnessSnapshotRoot = Join-Path ([IO.Path]::GetTempPath()) ("mixdog-tb-harness-
 $harborExitCode = 0
 $prebakeComposePath = ""
 try {
+    if ($DryRun) {
+        # The overlay is not built here; what its spawn build mounts must still be complete.
+        $ErrorActionPreference = "Continue"
+        $inputsCheck = @(& python -m harness.src_overlay --output $snapshotRoot --check-build-inputs 2>&1 | ForEach-Object { "$_" })
+        $inputsExit = $LASTEXITCODE
+        $ErrorActionPreference = "Stop"
+        if ($inputsExit -ne 0) {
+            throw "Terminal-Bench runtime bundle preflight failed: $($inputsCheck -join [Environment]::NewLine)"
+        }
+    }
     if (-not $DryRun) {
         $overlayArgs = @("-m", "harness.src_overlay", "--output", $snapshotRoot)
         $bundleManifestPath = ""
@@ -231,7 +246,7 @@ try {
         }
         New-Item -ItemType Directory -Path $harnessSnapshotRoot -ErrorAction Stop | Out-Null
         $harnessManifest = [ordered]@{}
-        foreach ($name in @("anthropic_oauth_preflight.mjs")) {
+        foreach ($name in @("anthropic_oauth_preflight_rust.mjs")) {
             $source = Join-Path $PSScriptRoot $name
             $target = Join-Path $harnessSnapshotRoot $name
             Copy-Item -LiteralPath $source -Destination $target -ErrorAction Stop
@@ -244,10 +259,10 @@ try {
         if ($FastSetup) {
             $prebakeTar = [string]$env:MIXDOG_TB_PREBAKE_TAR
             if ([string]::IsNullOrWhiteSpace($prebakeTar)) {
-                $prebakeTar = Join-Path $PSScriptRoot "../mixdog-prebake/mixdog-node-prebake.tar.gz"
+                $prebakeTar = Join-Path $PSScriptRoot "../mixdog-prebake/mixdog-core-prebake.tar.gz"
             }
             $prebakeDirectory = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($prebakeTar))
-            if ((Test-Path -LiteralPath (Join-Path $prebakeDirectory "mixdog-node-prebake.tar.zst")) -and
+            if ((Test-Path -LiteralPath (Join-Path $prebakeDirectory "mixdog-core-prebake.tar.zst")) -and
                 (Test-Path -LiteralPath (Join-Path $prebakeDirectory "zstd-amd64"))) {
                 $prebakeComposePath = Join-Path $harnessSnapshotRoot "prebake-cache.json"
                 & python -m harness.prebake_cache --directory $prebakeDirectory --output $prebakeComposePath

@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 
 CACHE_TARGET = "/opt/mixdog-prebake-cache"
-ARTIFACTS = ("mixdog-node-prebake.tar.zst", "zstd-amd64")
+ARTIFACTS = ("mixdog-core-prebake.tar.zst", "zstd-amd64")
 
 
 def cache_identity(directory: Path) -> str:
@@ -48,7 +48,7 @@ def prepare(directory: Path, output: Path) -> str:
     image = stamp["image"]
     script = (
         'set -eu; if [ "$(cat /cache/ready 2>/dev/null || true)" != "$1" ]; then '
-        'cp /source/mixdog-node-prebake.tar.zst /cache/mixdog-node-prebake.tar.zst; '
+        'cp /source/mixdog-core-prebake.tar.zst /cache/mixdog-core-prebake.tar.zst; '
         'cp /source/zstd-amd64 /cache/zstd-amd64; '
         'chmod 0555 /cache/zstd-amd64; '
         'printf "%s" "$1" > /cache/ready; fi'

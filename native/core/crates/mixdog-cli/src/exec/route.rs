@@ -3,7 +3,7 @@
 
 use mixdog_js::js_trim;
 
-const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+pub(super) const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
 /// `clean(value)`: `String(value ?? '').trim()`.
 pub fn clean(value: Option<&str>) -> &str {

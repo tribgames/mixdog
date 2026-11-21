@@ -183,8 +183,14 @@ alone does not name the code that ran. That source is commit **`09eea819`**,
 pinned in `records/source-provenance.json` and checkable with
 `node analysis/verify-source-commit.mjs`: it extracts the commit into a clean
 tree, recomputes the rules, prompt-surface, and tool-contract digests there
-with that commit's own `analysis/contract-hash.mjs`, and compares them to the
-digests archived with each run. Both runs executed from the working tree that
+with that commit's own digest implementation, and compares them to the
+digests archived with each run. The implementation follows the run's own
+source: a run recorded on the Node runtime (these two) is recomputed with the
+commit's `analysis/contract-hash.mjs`; a run recorded on the Rust core (its
+digest says `source: "mixdogd"`) with the commit's
+`analysis/contract-hash-rust.mjs` on a `mixdogd` built from the same tree —
+`cargo` by default, the command line in `MIXDOG_CARGO` when set, or a build of
+that commit already at hand passed as `--mixdogd <bin>`. Both runs executed from the working tree that
 became that commit about 45 minutes later. Those digests cover the complete
 model-facing contract — 18 rule files, the tool schemas, and the delivered
 prompt surface — not every byte of `src/`. Runs made after this was added
@@ -224,7 +230,10 @@ judge picks the effort of each turn and re-judges after every tool result.
 
 The judge runs from `mixdog-prebake/effort-judge-bundle.tar`, built once from
 the release that `src/runtime/effort-judge/model-manifest.json` names (files
-downloaded from the Mixdog GitHub release and sha256-checked). The first real
+downloaded from the Mixdog GitHub release and sha256-checked); the ONNX Runtime
+is the one the core bundle ships. Each trial proves the judge answers by running
+the installed core's judge host (`mixdog effort-judge-host`) on it before the
+agent starts. The first real
 run builds it automatically (at `MIXDOG_TB_EFFORT_JUDGE_BUNDLE` when set);
 the manual command stays available:
 ```powershell

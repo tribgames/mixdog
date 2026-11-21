@@ -13,6 +13,7 @@
 // MIXDOG_TB_REPO_ROOT (the agent passes it) and falls back to the in-repo layout.
 // Usage: anthropic_oauth_preflight_rust.mjs --output <snapshot> --minimum-validity-ms <ms>
 //        env: ANTHROPIC_OAUTH_CREDENTIALS_PATH, MIXDOG_RUNTIME_ROOT (the running core's runtime root)
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -51,6 +52,32 @@ export function leaseOf(row, requiredMs, now) {
   return { expiresAt, remainingMs };
 }
 
+/** The file the core read and renewed the credential in: its account row's `detail`. */
+export function renewedCredentialPath(row) {
+  const path = typeof row?.detail === 'string' ? row.detail : '';
+  if (!path) throw new Error('the core names no credentials file for anthropic-oauth.');
+  return path;
+}
+
+/** The access token's sha256: what identifies a credential here. Never printed. */
+export function credentialDigest(raw) {
+  const token = raw?.claudeAiOauth?.accessToken;
+  return typeof token === 'string' && token ? createHash('sha256').update(token).digest('hex') : '';
+}
+
+/**
+ * The lease of the token that is uploaded: the named file must hold the very credential the core renewed (the same
+ * access token, compared by digest), and its own expiry must cover `requiredMs`. A file that holds another token,
+ * whatever its expiry, cannot borrow the renewed account's lease.
+ */
+export function fileLeaseOf(raw, renewed, requiredMs, now) {
+  const digest = credentialDigest(raw);
+  if (!digest || digest !== credentialDigest(renewed)) {
+    throw new Error('the credentials file is not the credential the core renewed; point ANTHROPIC_OAUTH_CREDENTIALS_PATH at that account or unset it.');
+  }
+  return leaseOf({ authenticated: true, usable: true, expiresAt: Number(raw.claudeAiOauth.expiresAt) }, requiredMs, now);
+}
+
 /** The credentials document a container may hold: no refresh token, ever. */
 export function snapshotOf(raw) {
   const copy = JSON.parse(JSON.stringify(raw));
@@ -79,9 +106,12 @@ export async function preflight({ credentialsPath, minimumValidityMs, snapshotPa
     await core.client.call('account/refreshProviderSetup', { force: true, refresh: true, renewCredential: PROVIDER, minimumValidityMs });
     await core.client.subscribeApp();
     const setup = await waitStore(core.client, () => core.client.store.section('providerSetup')?.value);
-    const lease = leaseOf(anthropicRow(setup), minimumValidityMs, now());
-    // Read after the renewal: the snapshot carries the token the lease was established for.
+    const row = anthropicRow(setup);
+    leaseOf(row, minimumValidityMs, now());
+    // Read after the renewal: the snapshotted token must be the one the core renewed, and the lease is that token's own.
+    const renewed = JSON.parse(readFileSync(renewedCredentialPath(row), 'utf8'));
     const raw = JSON.parse(readFileSync(credentialsPath, 'utf8'));
+    const lease = fileLeaseOf(raw, renewed, minimumValidityMs, now());
     writeFileSync(snapshotPath, `${JSON.stringify(snapshotOf(raw), null, 2)}\n`, { mode: 0o600 });
     return lease;
   } finally {

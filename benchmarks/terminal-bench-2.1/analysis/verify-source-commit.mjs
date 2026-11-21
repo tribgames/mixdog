@@ -6,12 +6,17 @@
 // the code under measurement. Every run archives digests of its complete
 // model-facing contract — rule files, tool schemas, and the delivered prompt
 // surface — and those digests are reproducible: extract the claimed commit
-// into a clean tree, recompute them there with that commit's own
-// contract-hash.mjs, and compare against what the run recorded.
+// into a clean tree, recompute them there with that commit's own digest
+// implementation, and compare against what the run recorded. A run recorded
+// on the Node runtime is recomputed with that commit's contract-hash.mjs; one
+// recorded on the Rust core (its digest says `source: 'mixdogd'`) with that
+// commit's contract-hash-rust.mjs on a mixdogd built from the same tree
+// (cargo, or the command line in MIXDOG_CARGO), or on `--mixdogd <bin>` when
+// that build already exists.
 //
 //   node analysis/verify-source-commit.mjs
 //   node analysis/verify-source-commit.mjs --run jobs-full-sol-xhigh-k5-20260825-182921
-//   node analysis/verify-source-commit.mjs --run <jobsDir> --commit <sha>
+//   node analysis/verify-source-commit.mjs --run <jobsDir> --commit <sha> [--mixdogd <bin>]
 //
 // Exit code is 0 only when every checked digest matches.
 import { execFileSync } from 'node:child_process';
@@ -101,12 +106,31 @@ function removeLink(link) {
   return false;
 }
 
-function recomputeContract(tree, contractArgs) {
-  const script = join(tree, 'benchmarks', 'terminal-bench-2.1', 'analysis', 'contract-hash.mjs');
+// The commit's own mixdogd: the one named on the command line, else built
+// from the extracted tree into the verification's work folder.
+function commitBinary(tree, workDir) {
+  const given = optionValue('--mixdogd');
+  if (given) return resolve(given);
+  const target = join(workDir, 'target');
+  const cargo = process.env.MIXDOG_CARGO;
+  execFileSync(cargo || 'cargo', ['build', '--locked', '-p', 'mixdog-cli', '--bin', 'mixdogd', '--target-dir', target], {
+    cwd: join(tree, 'native', 'core'),
+    stdio: ['ignore', 'inherit', 'inherit'],
+    // MIXDOG_CARGO is a command line, which only a shell splits.
+    shell: Boolean(cargo),
+  });
+  return join(target, 'debug', platform() === 'win32' ? 'mixdogd.exe' : 'mixdogd');
+}
+
+function recomputeContract(tree, recorded, contractArgs, workDir) {
+  const rust = recorded.source === 'mixdogd';
+  const name = rust ? 'contract-hash-rust.mjs' : 'contract-hash.mjs';
+  const script = join(tree, 'benchmarks', 'terminal-bench-2.1', 'analysis', name);
   if (!existsSync(script)) {
-    throw new Error('the commit has no analysis/contract-hash.mjs to reproduce digests with');
+    throw new Error(`the commit has no analysis/${name} to reproduce its ${rust ? 'Rust-core' : 'Node'} digests with`);
   }
-  const stdout = execFileSync(process.execPath, [script, ...contractArgs], {
+  const args = rust ? [...contractArgs, '--mixdogd', commitBinary(tree, workDir)] : contractArgs;
+  const stdout = execFileSync(process.execPath, [script, ...args], {
     cwd: tree,
     encoding: 'utf8',
     maxBuffer: 1 << 26,
@@ -133,7 +157,7 @@ function verifyRun(entry, commitOverride) {
     const tree = extractCommit(commit, workDir);
     const version = readJson(join(tree, 'package.json')).version;
     link = linkDependencies(tree);
-    const rebuilt = recomputeContract(tree, entry.contractArgs ?? []);
+    const rebuilt = recomputeContract(tree, contract, entry.contractArgs ?? [], workDir);
     const checks = FIELDS.map((field) => ({
       field,
       recorded: contract[field],

@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -177,9 +178,98 @@ def _spawn_capability_probe(binary_path: Path) -> None:
     )
 
 
+def _path_entries(table: object) -> list[str]:
+    if not isinstance(table, dict):
+        return []
+    return [
+        spec["path"]
+        for spec in table.values()
+        if isinstance(spec, dict) and isinstance(spec.get("path"), str)
+    ]
+
+
+def _manifest_references(manifest: dict) -> tuple[list[str], bool]:
+    """The `path` entries a Cargo manifest names (dependencies of every kind and
+    target, `[patch.*]`, `[workspace.dependencies]`) and whether it inherits
+    from a workspace."""
+    tables: list[object] = []
+    for key in ("dependencies", "dev-dependencies", "build-dependencies"):
+        tables.append(manifest.get(key))
+    for target in (manifest.get("target") or {}).values():
+        if isinstance(target, dict):
+            for key in ("dependencies", "dev-dependencies", "build-dependencies"):
+                tables.append(target.get(key))
+    tables.extend((manifest.get("patch") or {}).values())
+    tables.append((manifest.get("workspace") or {}).get("dependencies"))
+    paths = [path for table in tables for path in _path_entries(table)]
+    inherits = "workspace" not in manifest and any(
+        isinstance(spec, dict) and spec.get("workspace") is True
+        for table in tables
+        if isinstance(table, dict)
+        for spec in table.values()
+    )
+    package = manifest.get("package")
+    if isinstance(package, dict):
+        inherits = inherits or any(
+            isinstance(value, dict) and value.get("workspace") is True
+            for value in package.values()
+        )
+    inherits = inherits or (manifest.get("lints") or {}).get("workspace") is True
+    return paths, inherits
+
+
+def _workspace_root(crate_dir: Path, mount: Path) -> Path | None:
+    for parent in crate_dir.parents:
+        candidate = parent / "Cargo.toml"
+        if candidate.is_file():
+            with candidate.open("rb") as handle:
+                if "workspace" in tomllib.load(handle):
+                    return parent
+        if parent == mount:
+            return None
+    return None
+
+
+def spawn_build_inputs(repo_root: Path) -> Path:
+    """The directory the spawn build mounts: every crate, patch and workspace
+    the spawn manifest reaches (transitively) must exist inside it, or the
+    container's `cargo build --locked` cannot resolve the manifest."""
+    mount = (repo_root / "native").resolve()
+    pending = [mount / "mixdog-spawn"]
+    seen: set[Path] = set()
+    while pending:
+        crate = pending.pop()
+        if crate in seen:
+            continue
+        seen.add(crate)
+        manifest_path = crate / "Cargo.toml"
+        if not manifest_path.is_file():
+            raise SrcOverlayError(f"native spawn build input missing: {manifest_path}")
+        try:
+            with manifest_path.open("rb") as handle:
+                manifest = tomllib.load(handle)
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            raise SrcOverlayError(f"cannot read native spawn build input {manifest_path}: {exc}") from exc
+        paths, inherits = _manifest_references(manifest)
+        for relative in paths:
+            target = (crate / relative).resolve()
+            if not target.is_relative_to(mount):
+                raise SrcOverlayError(
+                    f"native spawn build input outside the mounted {mount}: {target} ({manifest_path})"
+                )
+            pending.append(target)
+        if inherits:
+            root = _workspace_root(crate, mount)
+            if root is None:
+                raise SrcOverlayError(f"native spawn build input has no workspace root inside {mount}: {manifest_path}")
+            pending.append(root)
+    return mount
+
+
 def build_local_spawn(repo_root: Path, build_dir: Path) -> Path:
     """Build or reuse the current Linux spawn binary outside the prebake cache."""
     spawn_source = repo_root / "native" / "mixdog-spawn"
+    native_mount = spawn_build_inputs(repo_root)
     source_digest = _native_source_digest(spawn_source)
     build_dir.mkdir(parents=True, exist_ok=True)
     binary_path = build_dir / "mixdog-spawn-linux-x64"
@@ -206,7 +296,7 @@ def build_local_spawn(repo_root: Path, build_dir: Path) -> Path:
             "set -eu; "
             "apk add --no-cache musl-dev >/dev/null; "
             "CARGO_TARGET_DIR=/tmp/target cargo build --locked --release "
-            "--manifest-path /src/Cargo.toml; "
+            "--manifest-path /native/mixdog-spawn/Cargo.toml; "
             "BINARY=/tmp/target/release/mixdog-spawn; "
             + spawn_capability_shell('"$BINARY"')
             + "; "
@@ -217,7 +307,7 @@ def build_local_spawn(repo_root: Path, build_dir: Path) -> Path:
                 "run",
                 "--rm",
                 "-v",
-                f"{_docker_mount(spawn_source)}:/src:ro",
+                f"{_docker_mount(native_mount)}:/native:ro",
                 "-v",
                 f"{_docker_mount(temporary)}:/out",
                 SPAWN_BUILD_IMAGE,
@@ -774,8 +864,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--spawn-binary", type=Path)
     parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--check-build-inputs", action="store_true")
     args = parser.parse_args(argv)
     repo_root = Path(__file__).resolve().parents[3]
+    if args.check_build_inputs:
+        try:
+            mount = spawn_build_inputs(repo_root)
+        except SrcOverlayError as exc:
+            print(f"runtime bundle preflight failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"native spawn build inputs present under {mount}")
+        return 0
     repo_src = repo_root / "src"
     try:
         spawn_binary = args.spawn_binary or build_local_spawn(

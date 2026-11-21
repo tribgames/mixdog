@@ -6,6 +6,7 @@ import hashlib
 import importlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -22,10 +23,11 @@ REPO_ROOT = BENCH_ROOT.parents[1]
 sys.path.insert(0, str(BENCH_ROOT))
 
 from harness.routing_profiles import (
+    PRISTINE_CONTRACT_PATH,
     PROFILE_PATH,
     PROFILE_ROLES,
     RouteProfileError,
-    build_benchmark_config,
+    exec_route_profile,
     format_resolved_routes,
     load_route_profile,
     reject_profile_conflicts,
@@ -47,66 +49,22 @@ EXPECTED_AUDIT_LINE = (
 )
 
 
-def resolve_with_real_runtime(config: dict) -> dict:
-    repo_root = BENCH_ROOT.parents[1]
-    config_uri = (repo_root / "src/runtime/agent/orchestrator/config.mjs").as_uri()
-    helpers_uri = (repo_root / "src/session-runtime/config-helpers.mjs").as_uri()
-    workflow_uri = (repo_root / "src/session-runtime/workflow.mjs").as_uri()
-    agent_helpers_uri = (repo_root / "src/session-runtime/services/agent-tool/helpers.mjs").as_uri()
-    script = f"""
-import {{ loadConfig, getDefaultPreset }} from {json.dumps(config_uri)};
-import {{
-  findPreset, makeResolveDefaultProvider, makeResolveRoute
-}} from {json.dumps(helpers_uri)};
-import {{ createWorkflowRouteHelpers }} from {json.dumps(workflow_uri)};
-import {{ normalizeAgentRoute }} from {json.dumps(agent_helpers_uri)};
-const config = loadConfig({{ secrets: false }});
-const resolveDefaultProvider = makeResolveDefaultProvider(() => true);
-const resolveRoute = makeResolveRoute(resolveDefaultProvider);
-const runtimeLead = resolveRoute(config, {{}});
-const workflowHelpers = createWorkflowRouteHelpers({{
-  resolveDefaultProvider,
-  findPreset,
-}});
-const cleanRoute = (route) => ({{
-  provider: route?.provider,
-  model: route?.model,
-  effort: route?.effort,
-  fast: route?.fast === true,
-}});
-const agentKeys = {{
-  worker: 'worker',
-  'heavy-worker': 'heavy-worker',
-  reviewer: 'reviewer',
-}};
-const agents = Object.fromEntries(Object.entries(agentKeys).map(
-  ([role, key]) => [role, cleanRoute(normalizeAgentRoute(config.agents?.[key]))]
-));
-process.stdout.write(JSON.stringify({{
-  runtimeLead: cleanRoute(runtimeLead),
-  defaultPreset: cleanRoute(getDefaultPreset(config)),
-  workflowLead: cleanRoute(workflowHelpers.summarizeWorkflowRoutes(config).lead),
-  agents,
-}}));
-"""
-    with tempfile.TemporaryDirectory(prefix="mixdog-route-runtime-test-") as data_dir:
-        Path(data_dir, "mixdog-config.json").write_text(
-            json.dumps(config), encoding="utf-8"
-        )
-        env = {**os.environ, "MIXDOG_DATA_DIR": data_dir}
-        result = subprocess.run(
-            ["node", "--input-type=module", "--eval", script],
-            cwd=repo_root,
-            env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=30,
-            check=False,
-        )
-    if result.returncode != 0:
-        raise AssertionError(result.stderr)
-    return json.loads(result.stdout)
+def exec_invocation(command: str) -> tuple[set[str], dict[str, str], list[str]]:
+    """The flags, the option values and the message of the `mixdog exec` a bounded command runs, whatever their order."""
+    payload = shlex.split(command.split("bash -o pipefail -c ", 1)[1])[0]
+    argv = shlex.split(payload[payload.index("mixdog exec ") :].split(" 2> >(", 1)[0])
+    assert argv[:2] == ["mixdog", "exec"], argv
+    boundary = argv.index("--")
+    options, message = argv[2:boundary], argv[boundary + 1 :]
+    flags, values, index = set(), {}, 0
+    while index < len(options):
+        if options[index] in {"--provider", "--model", "--effort", "--route-profile"}:
+            values[options[index]] = options[index + 1]
+            index += 2
+        else:
+            flags.add(options[index])
+            index += 1
+    return flags, values, message
 
 
 class RoutingProfileTests(unittest.TestCase):
@@ -256,141 +214,54 @@ class RoutingProfileTests(unittest.TestCase):
                 reject_profile_conflicts("fable-xhigh", **override)
         reject_profile_conflicts(None, provider="openai-oauth", model="gpt-5.6-sol")
 
-    def test_benchmark_config_contains_only_profile_routes_and_workflow(self) -> None:
+    def test_exec_route_profile_carries_every_role_and_the_lead_fallback(self) -> None:
         profile = load_route_profile("fable-xhigh")
-        config = build_benchmark_config(profile)
-        agent = config["agent"]
-
-        self.assertEqual(set(config), {"agent", "outputStyle"})
+        document = exec_route_profile(profile)
+        self.assertEqual(set(document), {"routes", "leadFallback"})
+        self.assertEqual(document["routes"], profile["routes"])
+        self.assertEqual(document["leadFallback"], profile["leadFallback"])
+        lead_only = exec_route_profile(load_route_profile("sol-xhigh-nofast"))
+        self.assertEqual(set(lead_only), {"routes"})
+        self.assertEqual(set(lead_only["routes"]), {"lead"})
         self.assertEqual(
-            set(agent),
-            {
-                "providers",
-                "presets",
-                "default",
-                "workflow",
-                "workflowRoutes",
-                "agents",
-                "modelSettings",
-                "mcpServers",
-                "profile",
-                "builtins",
-            },
-        )
-        self.assertEqual(config["outputStyle"], "simple")
-        self.assertEqual(agent["profile"], {"language": "en"})
-        self.assertEqual(agent["workflow"], {"active": "headless"})
-        self.assertEqual(agent["mcpServers"], {})
-        self.assertEqual(agent["builtins"], {})
-        self.assertEqual(agent["workflowRoutes"], {"lead": profile["routes"]["lead"]})
-        self.assertNotIn("memory", agent["workflowRoutes"])
-        self.assertEqual(set(agent["providers"]), {"anthropic-oauth", "openai-oauth"})
-        serialized = json.dumps(config)
-        for personal_key in (
-            "plugins",
-            "channels",
-            "sessions",
-            "memory",
-        ):
-            self.assertNotIn(f'"{personal_key}"', serialized)
-
-    def test_lead_only_profile_omits_subagent_routes(self) -> None:
-        profile = load_route_profile("sol-xhigh-nofast")
-        config = build_benchmark_config(profile, "default")
-        self.assertEqual(config["agent"]["agents"], {})
-        self.assertEqual(
-            format_resolved_routes("sol-xhigh-nofast", profile),
+            format_resolved_routes("sol-xhigh-nofast", load_route_profile("sol-xhigh-nofast")),
             "route-profile sol-xhigh-nofast: "
             "lead=openai-oauth/gpt-6.1-sol effort=xhigh fast=false",
         )
 
     def test_real_runtime_helpers_resolve_benchmark_config(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        profile = load_route_profile("fable-xhigh")
-        config = build_benchmark_config(profile, "solo")
-        resolved = resolve_with_real_runtime(config)
-        self.assertEqual(resolved["runtimeLead"], profile["routes"]["lead"])
-        self.assertEqual(resolved["defaultPreset"], profile["routes"]["lead"])
-        self.assertEqual(resolved["workflowLead"], profile["routes"]["lead"])
+        # The Rust exec resolves the roles itself (mixdog-cli exec/tests.rs
+        # a_route_profiles_roles_resolve_as_spawned_agents_and_its_fallback_backs_the_lead);
+        # what the harness owns is that the whole profile reaches that exec.
+        module = AdapterRunEnvironmentTests.load_adapter_module()
+        captured = []
+        agent = module.MixdogAgent.__new__(module.MixdogAgent)
+        agent._route_profile = load_route_profile("fable-xhigh")
+
+        async def exec_as_agent(environment, *, command, env=None):
+            captured.append(command)
+
+        agent.exec_as_agent = exec_as_agent
+        asyncio.run(agent._run_lead(object(), "- fixture", None, {}))
+        flags, values, message = exec_invocation(captured[0])
+        lead = agent._route_profile["routes"]["lead"]
         self.assertEqual(
-            resolved["agents"],
+            (values["--provider"], values["--model"], values["--effort"]),
+            (lead["provider"], lead["model"], lead["effort"]),
+        )
+        self.assertEqual("--fast" in flags, lead["fast"])
+        self.assertEqual(
+            json.loads(values["--route-profile"]),
             {
-                role: profile["routes"][role]
-                for role in ("worker", "heavy-worker", "reviewer")
+                "routes": agent._route_profile["routes"],
+                "leadFallback": agent._route_profile["leadFallback"],
             },
         )
+        self.assertEqual(message, ["- fixture"])
 
     def test_audit_log_is_stable_and_complete(self) -> None:
         line = format_resolved_routes("fable-xhigh", load_route_profile("fable-xhigh"))
         self.assertEqual(line, EXPECTED_AUDIT_LINE)
-
-    def test_solo_review_workflow_is_not_discovered_or_accepted(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        script = r"""
-import { resolve } from 'node:path';
-import { createWorkflowHelpers } from './src/session-runtime/workflow.mjs';
-import { createWorkflowAgentsApi } from './src/session-runtime/workflow-agents-api.mjs';
-function readMarkdownDocument(raw) {
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
-  if (!match) return { frontmatter: {}, body: raw };
-  const frontmatter = {};
-  for (const line of match[1].split(/\r?\n/)) {
-    const colon = line.indexOf(':');
-    if (colon < 0) continue;
-    const key = line.slice(0, colon).trim();
-    const value = line.slice(colon + 1).trim().replace(/^"(.*)"$/, '$1');
-    frontmatter[key] = value;
-  }
-  return { frontmatter, body: match[2].trim() };
-}
-const helpers = createWorkflowHelpers({
-  rootDir: resolve('src'),
-  dataDir: resolve('.nonexistent-workflow-test-data'),
-  readMarkdownDocument,
-  normalizeAgentPermissionOrNone: (value) => value,
-});
-const discovered = helpers.listWorkflowPacks().some(({ id }) => id === 'solo-review');
-let saved = false;
-const api = createWorkflowAgentsApi({
-  getConfig: () => ({ workflow: { active: 'default' } }),
-  cfgMod: { getPluginData: () => resolve('.nonexistent-workflow-test-data') },
-  STANDALONE_DATA_DIR: resolve('.nonexistent-workflow-test-data'),
-  loadWorkflowPack: helpers.loadWorkflowPack,
-  saveConfigAndAdopt: () => { saved = true; },
-  workflowSummary: helpers.workflowSummary,
-});
-let rejected = '';
-try {
-  await api.setWorkflow('solo-review');
-} catch (error) {
-  rejected = error.message;
-}
-console.log(JSON.stringify({
-  discovered,
-  rejected,
-  saved,
-}));
-"""
-        result = subprocess.run(
-            ["node", "--input-type=module", "-e", script],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=10,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            json.loads(result.stdout),
-            {
-                "discovered": False,
-                "rejected": 'workflow "solo-review" not found',
-                "saved": False,
-            },
-        )
 
 
 class SrcSnapshotTests(unittest.TestCase):
@@ -604,38 +475,109 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertEqual(agent._workflow, "headless")
         self.assertFalse(hasattr(module, "HEADLESS_BENCH_MANDATE"))
 
-    def test_version_probe_reads_package_metadata_without_booting_cli(self) -> None:
+    def test_version_probe_asks_the_core_without_starting_it(self) -> None:
         module = self.load_adapter_module()
         command = module.MixdogAgent().get_version_command()
 
-        self.assertIn("package.json", command)
-        self.assertIn("fs.realpathSync", command)
+        self.assertIn("mixdog --version", command)
         self.assertNotIn("mixdog --help", command)
+        self.assertNotIn("node", command)
 
-    def test_installer_pins_package_version_unless_explicitly_overridden(self) -> None:
-        module = self.load_adapter_module()
-        commands = []
-        pinned = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))[
-            "version"
-        ]
+    @staticmethod
+    def stock_install(module, agent, loader="MIXDOG_GLIBC_LOADER\n"):
+        """install() without a prebake: the packages, then the staged core bundle."""
+        commands, uploads = [], []
+
+        class Environment:
+            async def upload_file(self, source, destination):
+                uploads.append((Path(source), destination))
 
         async def exec_as_root(environment, *, command, env=None):
             commands.append(command)
+            if command == module.GLIBC_LOADER_PROBE:
+                return types.SimpleNamespace(stdout=loader)
 
+        agent.exec_as_root = exec_as_root
+        with tempfile.TemporaryDirectory(prefix="mixdog-core-bundle-") as temp:
+            bundle = Path(temp) / "mixdogd-linux-x64.tgz"
+            bundle.write_bytes(b"bundle fixture")
+            with (
+                mock.patch.object(
+                    module, "DEFAULT_PREBAKE_TAR", Path("__missing_prebake__")
+                ),
+                mock.patch.object(module, "DEFAULT_CORE_BUNDLE", bundle),
+                mock.patch.dict(os.environ, {}, clear=False),
+            ):
+                os.environ.pop(module.CORE_BUNDLE_ENV, None)
+                os.environ.pop(module.PREBAKE_TAR_ENV, None)
+                asyncio.run(agent.install(Environment()))
+            return commands, [(source == bundle, destination) for source, destination in uploads]
+
+    def test_installer_pins_package_version_unless_explicitly_overridden(self) -> None:
+        module = self.load_adapter_module()
+        pinned = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))[
+            "version"
+        ]
         default_agent = module.MixdogAgent()
         override_agent = module.MixdogAgent(mixdog_version="fixture")
-        default_agent.exec_as_root = exec_as_root
-        override_agent.exec_as_root = exec_as_root
-        asyncio.run(default_agent.install(object()))
-        asyncio.run(override_agent.install(object()))
+        default_commands, uploads = self.stock_install(module, default_agent)
+        override_commands, _ = self.stock_install(module, override_agent)
 
         self.assertEqual(default_agent._mixdog_version, pinned)
         self.assertNotEqual(pinned.lower(), "latest")
         self.assertEqual(override_agent._mixdog_version, "fixture")
-        npm_commands = [command for command in commands if "npm install -g" in command]
-        self.assertEqual(len(npm_commands), 2)
-        self.assertIn(f"mixdog@{pinned}", npm_commands[0])
-        self.assertIn("mixdog@fixture", npm_commands[1])
+        self.assertEqual(uploads, [(True, module.CONTAINER_CORE_BUNDLE)])
+        self.assertIn(f"'mixdogd {pinned}'", default_commands[-1])
+        self.assertIn("'mixdogd fixture'", override_commands[-1])
+        self.assertIn(f"tar -xzf {module.CONTAINER_CORE_BUNDLE}", default_commands[-1])
+        self.assertIn("ln -sf /opt/mixdog-core/mixdogd /usr/local/bin/mixdog", default_commands[-1])
+        self.assertIn("tool-dep preflight ok", default_commands[-1])
+        self.assertFalse(any("npm" in command for command in default_commands))
+
+    def test_an_image_without_the_glibc_loader_is_refused_before_anything_is_unpacked(self) -> None:
+        module = self.load_adapter_module()
+        agent = module.MixdogAgent.__new__(module.MixdogAgent)
+        agent._mixdog_version = "fixture"
+        commands, uploads = [], []
+
+        class Environment:
+            async def upload_file(self, source, destination):
+                uploads.append(destination)
+
+        async def exec_as_root(environment, *, command, env=None):
+            commands.append(command)
+            return types.SimpleNamespace(stdout="")
+
+        agent.exec_as_root = exec_as_root
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = Path(temp) / "mixdogd-linux-x64.tgz"
+            bundle.write_bytes(b"bundle fixture")
+            with (
+                mock.patch.object(module, "DEFAULT_PREBAKE_TAR", Path("__missing_prebake__")),
+                mock.patch.object(module, "DEFAULT_CORE_BUNDLE", bundle),
+                mock.patch.dict(os.environ, {}, clear=False),
+            ):
+                os.environ.pop(module.CORE_BUNDLE_ENV, None)
+                os.environ.pop(module.PREBAKE_TAR_ENV, None)
+                with self.assertRaisesRegex(RuntimeError, r"musl \(Alpine\) images are not supported"):
+                    asyncio.run(agent.install(Environment()))
+        # The refusal comes first: no package is installed and nothing is uploaded.
+        self.assertEqual((commands, uploads), ([module.GLIBC_LOADER_PROBE], []))
+        self.assertNotIn("apk", " ".join(self.stock_install(module, agent)[0]))
+
+    def test_installer_without_a_core_bundle_names_the_script_that_builds_it(self) -> None:
+        module = self.load_adapter_module()
+        agent = module.MixdogAgent.__new__(module.MixdogAgent)
+        agent._mixdog_version = "fixture"
+        with (
+            mock.patch.object(module, "DEFAULT_PREBAKE_TAR", Path("__missing_prebake__")),
+            mock.patch.object(module, "DEFAULT_CORE_BUNDLE", Path("__missing_bundle__")),
+            mock.patch.dict(os.environ, {}, clear=False),
+        ):
+            os.environ.pop(module.CORE_BUNDLE_ENV, None)
+            os.environ.pop(module.PREBAKE_TAR_ENV, None)
+            with self.assertRaisesRegex(RuntimeError, "prebake-rust.ps1"):
+                asyncio.run(agent.install(object()))
 
     @staticmethod
     async def capture_lead_env(module, profile, base_env, workflow="default"):
@@ -662,6 +604,35 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         agent.exec_as_agent = exec_as_agent
         await agent._run_lead(Environment(), "adapter task", None, base_env)
         return captured[0]
+
+    def test_effort_judge_check_asks_the_cores_judge_host_and_needs_every_answer(self) -> None:
+        module = self.load_adapter_module()
+        tag = module.EFFORT_JUDGE_REPLY_TAG
+        ready = tag + '{"op":"ready"}'
+        probs = tag + '{"op":"probs","probs":[0.1,0.6,0.2,0.1]}'
+        shell = module.effort_judge_check_shell("steps")
+        self.assertIn("mixdog effort-judge-host", shell)
+        self.assertIn(f"--dir {module.CONTAINER_EFFORT_JUDGE_DIR}", shell)
+        self.assertIn("--explicit", shell)
+        fixture = json.loads(module.EFFORT_JUDGE_REQUESTS_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(module.effort_judge_requests("steps"), [fixture["turn"], fixture["step"]])
+        self.assertEqual(module.effort_judge_requests("on"), [fixture["turn"]])
+        self.assertIn("prev_request", fixture["turn"])
+        sent = "".join(json.dumps(request) + "\n" for request in [fixture["turn"], fixture["step"]])
+        self.assertIn(shlex.quote(sent), shell)
+        self.assertNotIn('"op": "step"', module.effort_judge_check_shell("on"))
+        self.assertIsNone(module.effort_judge_check_failure(f"{ready}\n{probs}", "on"))
+        self.assertIsNone(module.effort_judge_check_failure(f"banner {ready}\n{probs}\n{probs}", "steps"))
+        failures = {
+            "": "no reply",
+            "EFFORT_JUDGE_NO_ORT_LIBRARY": "no reply",
+            tag + '{"op":"loadFailed","kind":"notInstalled","message":"x"}': "did not load (notInstalled)",
+            f"{ready}\n{probs}": "1 of 2 requests answered",
+            f'{ready}\n{probs}\n{tag}{{"op":"failed","kind":"stepsUnsupported","message":""}}': "a request failed (stepsUnsupported)",
+        }
+        for output, message in failures.items():
+            with self.subTest(output=output):
+                self.assertIn(message, module.effort_judge_check_failure(output, "steps"))
 
     def test_effort_judge_defaults_to_steps_and_maps_to_auto_effort_env(self) -> None:
         module = self.load_adapter_module()
@@ -762,6 +733,52 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             asyncio.run(agent.run("task", Environment(), None))
         asyncio.run(agent.run("task", Environment(), None))
         self.assertEqual(calls, [None, None])
+
+    def test_cancellation_during_usage_flush_propagates(self) -> None:
+        module = self.load_adapter_module()
+
+        class Environment:
+            session_id = "cancel-during-flush__AbC123"
+
+        agent = module.MixdogAgent.__new__(module.MixdogAgent)
+        agent.model_name = None
+        agent._route_profile_name = "fixture"
+        agent._effort_judge = "off"
+        agent._route_profile = {"routes": {}}
+        agent._mode = "lead"
+        agent._inject_credentials = mock.AsyncMock()
+        agent._run_lead = mock.AsyncMock()
+
+        async def scenario():
+            started = asyncio.Event()
+            release = asyncio.Event()
+            context = types.SimpleNamespace(n_input_tokens=0)
+
+            async def populate(environment, usage_context):
+                started.set()
+                await release.wait()
+                usage_context.n_input_tokens = 12
+
+            async def release_later():
+                await asyncio.sleep(0.05)
+                release.set()
+
+            agent._populate_usage_context = populate
+            task = asyncio.create_task(agent.run("task", Environment(), context))
+            await started.wait()
+            task.cancel()
+            releaser = asyncio.create_task(release_later())
+            recorded_at_cancellation = None
+            try:
+                await task
+            except asyncio.CancelledError:
+                recorded_at_cancellation = context.n_input_tokens
+            finally:
+                await releaser
+            return recorded_at_cancellation
+
+        # The caller sees the cancellation only once the usage copy finished.
+        self.assertEqual(asyncio.run(scenario()), 12)
 
     def test_real_harbor_retry_queue_recreates_attempts_and_honors_exhaustion(
         self,
@@ -1087,7 +1104,6 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             self.assertEqual(
                 uploaded_names,
                 {
-                    "mixdog-config.json",
                     "anthropic-oauth-credentials.json",
                     "openai-oauth.json",
                     "anthropic-oauth-models.json",
@@ -1096,15 +1112,20 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                     "src-snapshot.tar",
                 },
             )
-            generated_config = json.loads(
-                uploads[f"{module.CONTAINER_DATA_DIR}/mixdog-config.json"]
+            self.assertFalse(
+                any(b"must-not-copy" in content for content in uploads.values())
             )
-            self.assertEqual(
-                generated_config,
-                build_benchmark_config(agent._route_profile, "default"),
-            )
-            self.assertNotIn("must-not-copy", json.dumps(generated_config))
             audit = json.loads(uploads[module.CONTAINER_PERSONAL_STATE_AUDIT])
+            self.assertEqual(
+                audit["routeProfileSha256"],
+                hashlib.sha256(
+                    json.dumps(
+                        exec_route_profile(agent._route_profile),
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ).encode("utf-8")
+                ).hexdigest(),
+            )
             self.assertEqual(audit["personalState"]["behavioralStateFilesCopied"], 0)
             self.assertFalse(audit["personalState"]["hostConfigRead"])
             self.assertTrue(
@@ -1151,11 +1172,13 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertIn("whole-process deadline exceeded", command)
         self.assertIn("process group terminated before OAuth lease expiry", command)
         self.assertIn('exit "$status"', command)
-        self.assertIn(
-            "mixdog exec --json --provider openai-oauth --model gpt-worker --effort high --fast",
-            command,
+        flags, values, message = exec_invocation(command)
+        self.assertEqual(flags, {"--json", "--web-search", "--fast"})
+        self.assertEqual(
+            values,
+            {"--provider": "openai-oauth", "--model": "gpt-worker", "--effort": "high"},
         )
-        self.assertLess(command.index("-- "), command.index("- fixture instruction"))
+        self.assertEqual(message, ["- fixture instruction"])
         self.assertIn("/logs/agent/mixdog.stderr", command)
         self.assertEqual(child_env, base_env)
 
@@ -1198,57 +1221,97 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self,
     ) -> None:
         module = self.load_adapter_module()
-        commands = []
         agent = module.MixdogAgent.__new__(module.MixdogAgent)
         agent._mixdog_version = "fixture"
+        commands, _ = self.stock_install(module, agent)
 
-        async def exec_as_root(environment, *, command, env=None):
-            commands.append(command)
-
-        agent.exec_as_root = exec_as_root
-        with mock.patch.object(
-            module, "DEFAULT_PREBAKE_TAR", Path("__missing_prebake__")
-        ):
-            asyncio.run(agent.install(object()))
-
-        dependency_command = commands[0]
+        dependency_command = commands[1]
         self.assertIn(
             "apt-get install -y curl ca-certificates coreutils", dependency_command
         )
-        self.assertIn("apk add --no-cache curl bash coreutils", dependency_command)
-        self.assertIn("yum install -y nodejs coreutils", dependency_command)
+        self.assertNotIn("apk", dependency_command)
+        self.assertIn("yum install -y coreutils", dependency_command)
         self.assertIn("timeout --version | grep -q 'GNU coreutils'", dependency_command)
 
     def test_installer_runs_uv_provisioning_as_a_separate_best_effort_step(
         self,
     ) -> None:
         module = self.load_adapter_module()
-        commands = []
         agent = module.MixdogAgent.__new__(module.MixdogAgent)
         agent._mixdog_version = "fixture"
+        commands, _ = self.stock_install(module, agent)
+
+        self.assertEqual(len(commands), 4)
+        self.assertEqual(commands[0], module.GLIBC_LOADER_PROBE)
+        self.assertEqual(commands[2], module._uv_provision_command())
+
+    @staticmethod
+    def staged_prebake(root: Path, stamped_for: bytes = b"bundle fixture") -> tuple[Path, Path]:
+        """The staged bundle and a prebake beside it whose stamp names the bundle built from `stamped_for`."""
+        bundle = root / "mixdogd-linux-x64.tgz"
+        bundle.write_bytes(b"bundle fixture")
+        for name in ("mixdog-core-prebake.tar.gz", "mixdog-core-prebake.tar.zst", "zstd-amd64"):
+            (root / name).touch()
+        (root / "prebake.json").write_text(
+            json.dumps({"bundleSha256": hashlib.sha256(stamped_for).hexdigest()}), encoding="utf-8"
+        )
+        return bundle, root / "mixdog-core-prebake.tar.gz"
+
+    def prebake_install(self, module, exec_as_root, *, stamped_for: bytes = b"bundle fixture"):
+        """install() on an apt image with the prebake staged: the uploads it made."""
+        uploads = []
+
+        class Environment:
+            async def upload_file(self, source, destination):
+                uploads.append(destination)
+
+        with tempfile.TemporaryDirectory(prefix="mixdog-prebake-") as temp:
+            bundle, tar_path = self.staged_prebake(Path(temp), stamped_for)
+            agent = module.MixdogAgent.__new__(module.MixdogAgent)
+            agent._mixdog_version = "fixture"
+            agent.exec_as_root = exec_as_root
+            with (
+                mock.patch.object(module, "DEFAULT_PREBAKE_TAR", tar_path),
+                mock.patch.object(module, "DEFAULT_CORE_BUNDLE", bundle),
+                mock.patch.dict(os.environ, {}, clear=False),
+            ):
+                os.environ.pop(module.CORE_BUNDLE_ENV, None)
+                os.environ.pop(module.PREBAKE_TAR_ENV, None)
+                asyncio.run(agent.install(Environment()))
+        return uploads
+
+    def test_the_prebake_path_refuses_a_musl_image_before_anything_is_unpacked(self) -> None:
+        module = self.load_adapter_module()
+        commands = []
 
         async def exec_as_root(environment, *, command, env=None):
             commands.append(command)
+            return types.SimpleNamespace(stdout="apt\nMIXDOG_PREBAKE_CACHE_READY\n")
 
-        agent.exec_as_root = exec_as_root
-        with mock.patch.object(
-            module, "DEFAULT_PREBAKE_TAR", Path("__missing_prebake__")
-        ):
-            asyncio.run(agent.install(object()))
+        with self.assertRaisesRegex(RuntimeError, r"musl \(Alpine\) images are not supported"):
+            self.prebake_install(module, exec_as_root)
+        self.assertEqual(commands, [module.GLIBC_LOADER_PROBE])
 
-        self.assertEqual(len(commands), 3)
-        self.assertEqual(commands[1], module._uv_provision_command())
+    def test_a_prebake_stamped_for_another_bundle_is_refused_at_install(self) -> None:
+        module = self.load_adapter_module()
+        commands = []
+
+        async def exec_as_root(environment, *, command, env=None):
+            commands.append(command)
+            return types.SimpleNamespace(stdout="MIXDOG_GLIBC_LOADER\napt\n")
+
+        with self.assertRaisesRegex(RuntimeError, "rebuild with harness/prebake.ps1"):
+            self.prebake_install(module, exec_as_root, stamped_for=b"another core build")
+        self.assertEqual(commands, [], "refused before the container is touched")
 
     def test_prebake_fast_path_skips_redundant_uv_provision_exec(self) -> None:
         module = self.load_adapter_module()
         commands = []
 
-        class Environment:
-            async def upload_file(self, source, destination):
-                return None
-
         async def exec_as_root(environment, *, command, env=None):
             commands.append(command)
+            if command == module.GLIBC_LOADER_PROBE:
+                return types.SimpleNamespace(stdout="MIXDOG_GLIBC_LOADER\n")
             if "command -v apt-get" in command:
                 return types.SimpleNamespace(stdout="apt\n")
             if "MIXDOG_PREBAKE_UV_READY" in command:
@@ -1257,17 +1320,9 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                 )
             return types.SimpleNamespace(stdout="")
 
-        with tempfile.TemporaryDirectory(prefix="mixdog-prebake-fast-path-") as temp:
-            tar_path = Path(temp) / "mixdog-node-prebake.tar.gz"
-            tar_path.touch()
-            tar_path.with_name("mixdog-node-prebake.tar.zst").touch()
-            tar_path.with_name("zstd-amd64").touch()
-            agent = module.MixdogAgent.__new__(module.MixdogAgent)
-            agent._mixdog_version = "fixture"
-            agent.exec_as_root = exec_as_root
-            with mock.patch.object(module, "DEFAULT_PREBAKE_TAR", tar_path):
-                asyncio.run(agent.install(Environment()))
+        self.prebake_install(module, exec_as_root)
 
+        self.assertEqual(commands[0], module.GLIBC_LOADER_PROBE)
         self.assertFalse(
             any(command == module._uv_provision_command() for command in commands)
         )
@@ -1281,31 +1336,16 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
     def test_prebake_cache_avoids_uploads_and_preserves_apt_refresh(self) -> None:
         module = self.load_adapter_module()
         commands = []
-        uploads = []
-
-        class Environment:
-            async def upload_file(self, source, destination):
-                uploads.append(destination)
 
         async def exec_as_root(environment, *, command, env=None):
             commands.append(command)
+            if command == module.GLIBC_LOADER_PROBE:
+                return types.SimpleNamespace(stdout="MIXDOG_GLIBC_LOADER\n")
             if "command -v apt-get" in command:
                 return types.SimpleNamespace(stdout="apt\nMIXDOG_PREBAKE_CACHE_READY\n")
             return types.SimpleNamespace(stdout="MIXDOG_PREBAKE_UV_READY\nCURL_READY\n")
 
-        with tempfile.TemporaryDirectory() as temp:
-            tar_path = Path(temp) / "mixdog-node-prebake.tar.gz"
-            for name in (
-                "mixdog-node-prebake.tar.gz",
-                "mixdog-node-prebake.tar.zst",
-                "zstd-amd64",
-            ):
-                (Path(temp) / name).touch()
-            agent = module.MixdogAgent.__new__(module.MixdogAgent)
-            agent._mixdog_version = "fixture"
-            agent.exec_as_root = exec_as_root
-            with mock.patch.object(module, "DEFAULT_PREBAKE_TAR", tar_path):
-                asyncio.run(agent.install(Environment()))
+        uploads = self.prebake_install(module, exec_as_root)
         self.assertEqual(uploads, [])
         self.assertTrue(
             any(
@@ -1527,12 +1567,15 @@ INSTALLER
             command,
         )
         self.assertIn("GNU coreutils", command)
-        self.assertIn("mixdog exec --json --provider anthropic-oauth", command)
-        self.assertIn("--model claude-sonnet-4-5", command)
+        flags, values, message = exec_invocation(command)
+        self.assertEqual(flags, {"--json", "--web-search"})
+        self.assertEqual(
+            values, {"--provider": "anthropic-oauth", "--model": "claude-sonnet-4-5"}
+        )
+        self.assertEqual(message, ["- fixture"])
         self.assertIn("/logs/agent/mixdog.stderr", command)
         self.assertNotIn("termination_reason", command)
         self.assertNotIn("exit(86)", command)
-        self.assertLess(command.index("-- "), command.index("- fixture"))
         self.assertNotIn("MIXDOG_PROMPT", run_env)
         self.assertNotIn("MIXDOG_WORKFLOW", run_env)
 
@@ -1641,7 +1684,7 @@ INSTALLER
         module = self.load_adapter_module()
         with tempfile.TemporaryDirectory(prefix="mixdog-harness-snapshot-") as temp:
             root = Path(temp)
-            artifact = root / "anthropic_oauth_preflight.mjs"
+            artifact = root / "anthropic_oauth_preflight_rust.mjs"
             artifact.write_bytes(b"const frozen = true;\n")
             manifest = {
                 artifact.name: hashlib.sha256(artifact.read_bytes()).hexdigest()
@@ -1658,6 +1701,42 @@ INSTALLER
                 artifact.write_bytes(b"const mutated = true;\n")
                 with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
                     module._harness_snapshot_file(artifact.name)
+
+    def test_preflight_is_given_the_running_cores_root_and_the_one_credential(self) -> None:
+        module = self.load_adapter_module()
+        seen = {}
+
+        def run(argv, *, env, **kwargs):
+            seen.update(argv=argv, env=env)
+            Path(argv[argv.index("--output") + 1]).write_text("{}", encoding="utf-8")
+            return types.SimpleNamespace(returncode=0, stderr="")
+
+        with tempfile.TemporaryDirectory(prefix="mixdog-preflight-env-") as temp:
+            credentials = Path(temp) / "anthropic-oauth-credentials.json"
+            snapshot = Path(temp) / "snapshot.json"
+            with (
+                mock.patch.object(
+                    module, "_harness_snapshot_file", return_value=Path(temp) / "p.mjs"
+                ),
+                mock.patch.object(module.subprocess, "run", side_effect=run),
+                mock.patch.dict(
+                    os.environ, {"TMP": temp, "TEMP": temp, "TMPDIR": temp}, clear=False
+                ),
+            ):
+                os.environ.pop("MIXDOG_RUNTIME_ROOT", None)
+                module._run_anthropic_preflight(credentials, snapshot)
+            root = (
+                Path(temp) / "mixdog"
+                if os.name == "nt"
+                else Path(temp) / f"mixdog-{os.getuid()}"
+            )
+            self.assertEqual(seen["env"]["MIXDOG_RUNTIME_ROOT"], str(root))
+            self.assertEqual(
+                seen["env"]["ANTHROPIC_OAUTH_CREDENTIALS_PATH"], str(credentials)
+            )
+            self.assertEqual(
+                seen["argv"][seen["argv"].index("--output") + 1], str(snapshot)
+            )
 
 
 class LauncherDryRunTests(unittest.TestCase):
@@ -1719,14 +1798,9 @@ class LauncherDryRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="mixdog-launcher-validation-") as temp:
             harness = Path(temp) / "benchmarks" / "terminal-bench-2.1" / "harness"
             harness.mkdir(parents=True)
-            contract = (
-                Path(temp) / "src/runtime/shared/pristine-execution-contract.json"
-            )
+            contract = Path(temp) / PRISTINE_CONTRACT_PATH.relative_to(REPO_ROOT)
             contract.parent.mkdir(parents=True)
-            shutil.copy2(
-                REPO_ROOT / "src/runtime/shared/pristine-execution-contract.json",
-                contract,
-            )
+            shutil.copy2(PRISTINE_CONTRACT_PATH, contract)
             script = harness / "run-tb21.ps1"
             shutil.copy2(self.script, script)
             shutil.copy2(HARNESS_ROOT / "routing_profiles.py", harness)

@@ -17,6 +17,7 @@ from harness.src_overlay import (
     SrcOverlayError,
     build_src_snapshot,
     bundle_manifest,
+    spawn_build_inputs,
 )
 
 
@@ -125,6 +126,49 @@ class BundleIdentityTest(unittest.TestCase):
                     on_disk[str(entry["path"])].read_bytes()
                 ).hexdigest()
                 self.assertEqual(entry["sha256"], expected, entry["path"])
+
+
+
+class SpawnBuildInputsTests(unittest.TestCase):
+    """The spawn build mounts native/: every path its manifest reaches must be there."""
+
+    def _tree(self, root: Path, spawn_manifest: str) -> None:
+        def put(relative: str, text: str) -> None:
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+
+        put("native/mixdog-spawn/Cargo.toml", spawn_manifest)
+        put("native/core/Cargo.toml", '[workspace]\nmembers = ["crates/rt"]\n')
+        put("native/core/crates/rt/Cargo.toml", '[package]\nname = "rt"\nversion.workspace = true\n')
+        put("native/core/vendor/regress/Cargo.toml", '[package]\nname = "regress"\n')
+
+    def test_a_complete_tree_mounts_native(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._tree(
+                root,
+                '[dependencies]\nrt = { path = "../core/crates/rt", optional = true }\n'
+                '[patch.crates-io]\nregress = { path = "../core/vendor/regress" }\n',
+            )
+            self.assertEqual(spawn_build_inputs(root), (root / "native").resolve())
+
+    def test_a_missing_or_outside_input_is_refused_by_name(self) -> None:
+        cases = {
+            '[dependencies]\nmissing = { path = "../core/crates/missing", optional = true }\n': "missing",
+            '[patch.crates-io]\nicu = { path = "../core/vendor/icu_collator" }\n': "icu_collator",
+            '[dependencies]\nfar = { path = "../../elsewhere" }\n': "outside the mounted",
+        }
+        for manifest, named in cases.items():
+            with self.subTest(named=named), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                self._tree(root, manifest)
+                with self.assertRaises(SrcOverlayError) as raised:
+                    spawn_build_inputs(root)
+                self.assertIn(named, str(raised.exception))
+
+    def test_the_repository_spawn_manifest_has_every_input(self) -> None:
+        spawn_build_inputs(BENCH_ROOT.parents[1])
 
 
 if __name__ == "__main__":

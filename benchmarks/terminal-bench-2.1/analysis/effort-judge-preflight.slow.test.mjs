@@ -10,7 +10,6 @@ const source = new URL('../run.ps1', import.meta.url);
 const probe = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()'], { encoding: 'utf8' });
 const options = { skip: probe.error?.code === 'ENOENT' ? 'PowerShell 7 is not installed' : false };
 const release = 'test-model-release';
-const runtime = '1.25.2';
 const payload = Buffer.from('small deterministic bundle fixture; never loaded as a model');
 const digest = createHash('sha256').update(payload).digest('hex');
 
@@ -20,17 +19,33 @@ async function fixture(t) {
   const bench = join(root, 'benchmarks', 'terminal-bench-2.1');
   const model = join(root, 'src', 'runtime', 'effort-judge');
   await mkdir(join(bench, 'harness'), { recursive: true });
+  await mkdir(join(bench, 'analysis'), { recursive: true });
+  // No container is started here: the docker command line is what the dry run must reach.
+  const fakeDocker = join(root, 'fake-docker.mjs');
+  await writeFile(fakeDocker, `
+import { writeFileSync } from 'node:fs';
+writeFileSync(process.env.TEST_DIGEST_RECEIPT, JSON.stringify(process.argv.slice(2)));
+const hash = 'sha256:' + '0'.repeat(64);
+process.stdout.write(JSON.stringify({ rulesHash: hash, toolContractHash: hash, promptSurfaceHash: hash, toolCount: 1, activeToolCount: 1, providerToolCount: 1 }) + '\\n');
+`);
+  const docker = join(root, process.platform === 'win32' ? 'fake-docker.cmd' : 'fake-docker');
+  await writeFile(docker, process.platform === 'win32' ? `@node "${fakeDocker}" %*\r\n` : `#!/bin/sh\nexec node "${fakeDocker}" "$@"\n`, { mode: 0o755 });
+  await copyFile(new URL('../harness/trial_core.py', import.meta.url), join(bench, 'harness', 'trial_core.py'));
   await mkdir(model, { recursive: true });
   await copyFile(source, join(bench, 'run.ps1'));
-  await writeFile(join(root, 'package.json'), JSON.stringify({ version: '1.0.0', dependencies: { 'onnxruntime-node': runtime } }));
+  await writeFile(join(root, 'mixdogd-linux-x64.tgz'), 'bundle fixture');
+  await writeFile(join(root, 'package.json'), JSON.stringify({ version: '1.0.0' }));
   await writeFile(join(model, 'model-manifest.json'), JSON.stringify({ release }));
   const bundle = join(bench, 'bundle.tar');
   const env = {
     ...process.env,
     MIXDOG_TB_PREBAKE_TAR: join(root, 'absent-prebake.tar.gz'),
+    MIXDOG_TB_CORE_BUNDLE: join(root, 'mixdogd-linux-x64.tgz'),
     MIXDOG_TB_EFFORT_JUDGE_BUNDLE: bundle,
     TEST_BENCH_ROOT: bench,
     TEST_RUNNER_RECEIPT: join(root, 'runner.json'),
+    TEST_DIGEST_RECEIPT: join(root, 'digest.json'),
+    MIXDOG_TB_DOCKER: docker,
   };
   return { root, bench, bundle, env };
 }
@@ -69,6 +84,14 @@ exit 0
     assert.match(result.stdout, /fingerprint sha256:[a-f0-9]{64}/);
     if (mode !== 'off') assert.ok(result.stdout.includes(release));
     assert.deepEqual(JSON.parse(await readFile(f.env.TEST_RUNNER_RECEIPT, 'utf8')), { mode, dry: true, jobs });
+    // The dry run takes the contract digest a real run records, on the core bundle the trials install.
+    const digestArgs = JSON.parse(await readFile(f.env.TEST_DIGEST_RECEIPT, 'utf8'));
+    assert.equal(digestArgs[0], 'run');
+    assert.ok(digestArgs.includes(`${f.env.MIXDOG_TB_CORE_BUNDLE}:/core/bundle.tgz:ro`), digestArgs.join(' '));
+    assert.match(digestArgs[digestArgs.indexOf('-c') + 1], /--mixdogd \/opt\/mixdog-core\/mixdogd/);
+    assert.match(result.stdout, new RegExp(`core bundle ${createHash('sha256').update('bundle fixture').digest('hex').slice(0, 12)}`));
+    assert.deepEqual([digestArgs[digestArgs.indexOf('--provider') + 1], digestArgs[digestArgs.indexOf('--model') + 1]], ['fixture', 'not-invoked']);
+    assert.match(result.stdout, /contract rules=0{12} tools=0{12}/);
     await assert.rejects(readFile(f.bundle), { code: 'ENOENT' });
     await assert.rejects(readFile(join(jobs, 'preset-run.json')), { code: 'ENOENT' });
   });
@@ -93,9 +116,6 @@ $release
 
 for (const [name, change, expected] of [
   ['matching stamp', () => {}, null],
-  ['stale runtime', stamp => { stamp.onnxruntime = '0.0.1'; }, /ONNX Runtime/],
-  ['missing runtime', stamp => { delete stamp.onnxruntime; }, /ONNX Runtime/],
-  ['empty runtime', stamp => { stamp.onnxruntime = ''; }, /ONNX Runtime/],
   ['different model release', stamp => { stamp.release = 'old-model'; }, /manifest names/],
   ['non-step model', stamp => { stamp.steps = false; }, /not step-trained/],
   ['wrong digest', stamp => { stamp.sha256 = '0'.repeat(64); }, /digest differs/],
@@ -104,7 +124,7 @@ for (const [name, change, expected] of [
 ]) {
   test(`real judge preflight: ${name}`, options, async (t) => {
     const f = await fixture(t);
-    const stamp = { release, onnxruntime: runtime, steps: true, sha256: digest };
+    const stamp = { release, steps: true, sha256: digest };
     change(stamp);
     if (name !== 'missing bundle') await writeFile(f.bundle, payload);
     if (name !== 'missing stamp') await writeFile(`${f.bundle}.json`, JSON.stringify(stamp));
@@ -121,18 +141,18 @@ for (const [name, change, expected] of [
   });
 }
 
-for (const scenario of ['missing bundle', 'stale runtime', 'invalid rebuilt runtime', 'builder failure', 'current bundle']) {
+for (const scenario of ['missing bundle', 'stale release', 'invalid rebuilt release', 'builder failure', 'current bundle']) {
   test(`real judge auto-build: ${scenario}`, options, async (t) => {
     const f = await fixture(t);
-    const stamp = { release, onnxruntime: runtime, steps: true, sha256: digest };
+    const stamp = { release, steps: true, sha256: digest };
     if (scenario !== 'missing bundle') {
       await writeFile(f.bundle, payload);
-      await writeFile(`${f.bundle}.json`, JSON.stringify({ ...stamp, onnxruntime: scenario === 'current bundle' ? runtime : 'old-runtime' }));
+      await writeFile(`${f.bundle}.json`, JSON.stringify({ ...stamp, release: scenario === 'current bundle' ? release : 'old-release' }));
     }
     // Substitute only the expensive bundle builder. The real preflight must
     // decide whether to build and revalidate the produced bytes and stamp.
     f.env.TEST_BUILD_RECEIPT = join(f.root, 'built.txt');
-    f.env.TEST_REBUILT_STAMP = JSON.stringify({ ...stamp, onnxruntime: scenario === 'invalid rebuilt runtime' ? 'still-old' : runtime });
+    f.env.TEST_REBUILT_STAMP = JSON.stringify({ ...stamp, release: scenario === 'invalid rebuilt release' ? 'still-old' : release });
     f.env.TEST_BUNDLE_BYTES = payload.toString('base64');
     f.env.TEST_BUILD_FAIL = scenario === 'builder failure' ? '1' : '0';
     await writeFile(join(f.bench, 'harness', 'build-effort-judge-bundle.ps1'), `
@@ -146,7 +166,7 @@ Set-Content -LiteralPath "$Out.json" -Value $env:TEST_REBUILT_STAMP
     const driver = join(f.root, 'automatic.ps1');
     await writeFile(driver, validationDriver.slice(0, validationDriver.indexOf('\n$release =')) + "\n$DryRun = $false\nAssert-EffortJudgeBundle 'steps'\n");
     const result = run(f, driver);
-    const expected = scenario === 'invalid rebuilt runtime' ? /ONNX Runtime.*after the automatic build/ :
+    const expected = scenario === 'invalid rebuilt release' ? /manifest names.*after the automatic build/ :
       scenario === 'builder failure' ? /bundle build failed: fixture build failed/ : null;
     assert.equal(result.status, expected ? 1 : 0, result.stdout + result.stderr);
     if (expected) assert.match(result.stdout + result.stderr, expected);

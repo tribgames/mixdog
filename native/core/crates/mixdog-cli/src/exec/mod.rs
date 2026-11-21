@@ -9,6 +9,7 @@ pub mod boundary;
 pub mod feed;
 pub mod launcher;
 pub mod lifecycle;
+pub mod profile;
 pub mod route;
 pub mod run;
 pub mod seams;
@@ -78,6 +79,8 @@ pub struct ExecOptions {
     pub fast: bool,
     /// `--provider-config`: the one custom provider the run may use (decision B-8; Node's exec has no such option).
     pub provider_config: Option<String>,
+    /// `--route-profile`: the agent roles' routes and the Lead's fallback (`profile.rs`).
+    pub route_profile: Option<String>,
     pub web_search: bool,
     pub json: bool,
     pub cwd: PathBuf,
@@ -94,7 +97,9 @@ pub struct ExecArgs {
     /// The options and the message, in any order; `--` ends the options. --provider <name>, --model <name>, --effort
     /// <level>, --fast, --web-search (web research stays off unless asked for), --json (the lifecycle events as JSON
     /// lines), --cwd <dir> (default: the current one), --usage-log <file> (default: $MIXDOG_USAGE_LOG), --tool-mode
-    /// full|readonly, --provider-config <file-or-json> ({"custom-x": {...}}: the one custom provider the run may use).
+    /// full|readonly, --provider-config <file-or-json> ({"custom-x": {...}}: the one custom provider the run may use),
+    /// --route-profile <file-or-json> ({"routes": {"worker": {...}, ...}, "leadFallback": {...}}: the agent roles' routes
+    /// and the Lead's fallback).
     #[arg(allow_hyphen_values = true, value_name = "ARGS")]
     argv: Vec<OsString>,
     /// The message after a `--` that comes first, which clap takes for itself.
@@ -121,8 +126,9 @@ pub const HELP_TEXT: &str = include_str!("help.txt");
 pub const REACT_REMOVED: &str = "mixdog: --react was removed; run `mixdog` for the canonical TUI.
 ";
 
-/// The options that take the next word as their value (`VALUE_OPTIONS`), with the core's `--cwd`, `--usage-log` and `--provider-config` (B-8).
-const VALUE_OPTIONS: [&str; 7] = ["--provider", "--model", "--effort", "--workflow", "--cwd", "--usage-log", "--provider-config"];
+/// The options that take the next word as their value (`VALUE_OPTIONS`), with the core's `--cwd`, `--usage-log`, `--provider-config` (B-8)
+/// and `--route-profile`.
+const VALUE_OPTIONS: [&str; 8] = ["--provider", "--model", "--effort", "--workflow", "--cwd", "--usage-log", "--provider-config", "--route-profile"];
 const FLAG_OPTIONS: [&str; 12] =
     ["--no-worktree", "--readonly", "--help", "-h", "--plain", "--react", "--remote", "--onboarding", "--fast", "--web-search", "--memory", "--json"];
 /// The interactive CLI's flags an exec refuses, in Node's order (`EXEC_UNSUPPORTED_FLAGS`).
@@ -279,6 +285,7 @@ impl ExecArgs {
             effort: value("--effort"),
             fast: given("--fast"),
             provider_config: value("--provider-config"),
+            route_profile: value("--route-profile"),
             web_search: given("--web-search"),
             json: given("--json"),
             cwd,
@@ -313,8 +320,14 @@ pub fn run_command(options: ExecOptions) -> i32 {
             return 1;
         }
     };
-    let provider = route::clean(options.provider.as_deref()).to_owned();
-    let credentials = executors.handle(TaskClass::Work).block_on(launcher::ResolvedCredentials::read(&tokens, &provider, &host_data_dir));
+    let mut providers = vec![route::clean(options.provider.as_deref()).to_owned()];
+    for provider in options.route_profile.as_deref().map(profile::providers_named).unwrap_or_default() {
+        if !providers.contains(&provider) {
+            providers.push(provider);
+        }
+    }
+    let credentials = executors.handle(TaskClass::Work).block_on(launcher::ResolvedCredentials::read(&tokens, &providers, &host_data_dir));
+    let agents_dir = js.package_root.join("src").join("agents");
     // The exec's own thread: one, so the boundary's environment is applied while no other thread reads it.
     let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(runtime) => runtime,
@@ -337,6 +350,7 @@ pub fn run_command(options: ExecOptions) -> i32 {
         credentials: &credentials,
         host_env: std::env::vars().collect(),
         host_data_dir,
+        agents_dir,
         temp_dir: std::env::temp_dir(),
         sink: Arc::new(StdSink),
         now: lifecycle::system_clock(),

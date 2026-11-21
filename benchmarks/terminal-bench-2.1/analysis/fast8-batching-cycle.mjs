@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 const [jobs, baseline, workspace, label] = process.argv.slice(2);
 if (!jobs || !baseline || !workspace || !label) throw new Error('Expected jobs, baseline, workspace, label.');
 const child = spawnSync(process.execPath, [
-  join(import.meta.dirname, 'fast8-ten-analysis.mjs'), 'analyze', jobs, baseline, workspace,
+  join(import.meta.dirname, 'fast8-ten-analysis-rust.mjs'), 'analyze', jobs, baseline, workspace,
 ], { encoding: 'utf8' });
 if (child.stderr) process.stderr.write(child.stderr);
 if (child.error) throw child.error;

@@ -50,37 +50,41 @@ impl Ownership for PrivateRoot {
     }
 }
 
-/// The host's credentials for the selected provider, read before the run's environment is scrubbed.
+/// The host's credentials for the run's providers (the Lead's and every route profile's), read before the run's
+/// environment is scrubbed.
 pub struct ResolvedCredentials {
-    pub api_key: Option<String>,
-    pub pool_credential: Option<PathBuf>,
+    by_provider: HashMap<String, (Option<String>, Option<PathBuf>)>,
 }
 
 impl ResolvedCredentials {
     /// `getAgentApiKey(provider)` (its environment names, then its keychain entry) and the credential file of the account
-    /// the host's pool has selected (`providerAccountPath(provider, currentProviderAccountId(provider))`), for `provider`.
-    pub async fn read(tokens: &LaneTokens, provider: &str, host_data_dir: &Path) -> Self {
+    /// the host's pool has selected (`providerAccountPath(provider, currentProviderAccountId(provider))`), for each provider.
+    pub async fn read(tokens: &LaneTokens, providers: &[String], host_data_dir: &Path) -> Self {
         let vault = Arc::new(mixdog_core::run_host::vault::KeychainVault::open(tokens.durability_io, host_data_dir));
         let keys = mixdog_ai::registry::keys::ApiKeyStore::new(vault, Arc::new(mixdog_ai::registry::keys::ProcessEnv), false);
-        let api_key = keys.get(provider).await.ok().flatten();
         let accounts = mixdog_ai::accounts::AccountStore::new(
             host_data_dir.to_path_buf(),
             mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
         );
-        let pool_credential = match accounts.current_provider_account_id(provider).await {
-            Ok(id) => accounts.account_path(provider, &id).ok().flatten(),
-            Err(_) => None,
-        };
-        Self { api_key, pool_credential }
+        let mut by_provider = HashMap::new();
+        for provider in providers {
+            let api_key = keys.get(provider).await.ok().flatten();
+            let pool_credential = match accounts.current_provider_account_id(provider).await {
+                Ok(id) => accounts.account_path(provider, &id).ok().flatten(),
+                Err(_) => None,
+            };
+            by_provider.insert(provider.clone(), (api_key, pool_credential));
+        }
+        Self { by_provider }
     }
 }
 
 impl HostCredentials for ResolvedCredentials {
-    fn api_key(&self, _provider: &str) -> Option<String> {
-        self.api_key.clone()
+    fn api_key(&self, provider: &str) -> Option<String> {
+        self.by_provider.get(provider).and_then(|(key, _)| key.clone())
     }
-    fn pool_credential(&self, _provider: &str, _host_data_dir: &Path) -> Option<PathBuf> {
-        self.pool_credential.clone()
+    fn pool_credential(&self, provider: &str, _host_data_dir: &Path) -> Option<PathBuf> {
+        self.by_provider.get(provider).and_then(|(_, path)| path.clone())
     }
 }
 
@@ -111,20 +115,42 @@ fn apply_env(env: &BTreeMap<String, Option<String>>) {
     }
 }
 
+/// What the run establishes for the core it composes in this process, which a daemon never does: the judge folder of the
+/// run's `MIXDOG_EFFORT_JUDGE_DIR`, and the Lead's delegation when the route profile gives agent roles routes.
+pub(super) fn bind_exec_core(boundary: &Boundary) {
+    if let Some(Some(dir)) = boundary.env.get("MIXDOG_EFFORT_JUDGE_DIR").filter(|dir| dir.as_deref().is_some_and(|dir| !dir.is_empty())) {
+        mixdog_services::effort_judge::model::bind_exec_judge_dir(PathBuf::from(dir));
+    }
+    if super::run::delegates(boundary) {
+        mixdog_core_session::session::session_options::grant_exec_headless_delegation();
+    }
+}
+
 #[async_trait]
 impl CoreLauncher for InProcessLauncher {
     async fn launch(&self, boundary: &Boundary, feed: Arc<dyn ThreadReducer>) -> Result<Arc<dyn CoreSession>, String> {
         apply_env(&boundary.env);
-        // The selected provider's credentials are bound in process and never named in the environment tools see
-        // (`replaceProviderAuthBindings`, and the API key the runtime config carries in memory).
-        let provider = boundary.runtime_config["providers"].as_object().and_then(|providers| providers.keys().next().cloned()).unwrap_or_default();
-        if let Some(key) = boundary.runtime_config["providers"][&provider]["apiKey"].as_str() {
+        bind_exec_core(boundary);
+        // The run's providers' credentials are bound in process and never named in the environment tools see
+        // (`replaceProviderAuthBindings`, and the API keys the runtime config carries in memory).
+        let keys: HashMap<String, String> = boundary.runtime_config["providers"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(provider, entry)| entry["apiKey"].as_str().map(|key| (provider.clone(), key.to_owned())))
+            .collect();
+        if !keys.is_empty() {
             // The run is the process: the binding is never restored.
-            let _ = mixdog_ai::registry::keys::replace_provider_api_key_bindings(HashMap::from([(provider.clone(), key.to_owned())]));
+            let _ = mixdog_ai::registry::keys::replace_provider_api_key_bindings(keys);
         }
-        if let Some(binding) = &boundary.credential {
-            let _ =
-                mixdog_ai::accounts::replace_provider_auth_bindings(HashMap::from([(binding.provider.clone(), binding.path.to_string_lossy().into_owned())]));
+        let bindings: HashMap<String, String> = boundary
+            .credential
+            .iter()
+            .chain(&boundary.role_credentials)
+            .map(|binding| (binding.provider.clone(), binding.path.to_string_lossy().into_owned()))
+            .collect();
+        if !bindings.is_empty() {
+            let _ = mixdog_ai::accounts::replace_provider_auth_bindings(bindings);
         }
         let (js_runtime, ort_library) =
             self.install.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take().ok_or("the exec's core was already launched")?;
