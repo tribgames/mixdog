@@ -47,9 +47,41 @@ fn truthy(value: &Value) -> bool {
     }
 }
 
-/// `isTaskWaitToolCall`: a wait on a background task is no card of its own. The name is
-/// `normalizeToolName`d (`functions.` prefix and the `mcp__<server>__` form stripped).
+/// `parseToolArgs` of a call's arguments that are an object: a JSON object string, or the
+/// object itself (its `input` when that is an object).
+fn parsed_args(args: Option<&Value>) -> Option<Value> {
+    match args {
+        Some(Value::String(text)) => serde_json::from_str::<Value>(text).ok().filter(Value::is_object),
+        Some(Value::Object(map)) => Some(match map.get("input") {
+            Some(input) if input.is_object() => input.clone(),
+            _ => Value::Object(map.clone()),
+        }),
+        _ => None,
+    }
+}
+
+/// `toolCallDisplayIdentity`: the tool a `call_tool` bridge request runs, with its arguments.
+fn bridged_call(name: &str, args: Option<&Value>) -> Option<(String, Option<Value>)> {
+    if name.strip_prefix("functions.").unwrap_or(name) != "call_tool" {
+        return None;
+    }
+    let parsed = parsed_args(args)?;
+    let target = parsed.get("name").and_then(Value::as_str).map(js_trim).filter(|target| !target.is_empty())?;
+    let inner = match parsed.get("arguments") {
+        Some(Value::String(text)) => serde_json::from_str::<Value>(text).ok().filter(Value::is_object),
+        Some(inner @ Value::Object(_)) => Some(inner.clone()),
+        _ => None,
+    };
+    Some((target.to_owned(), inner))
+}
+
+/// `isTaskWaitToolCall`: a wait on a background task is no card of its own, bridged through
+/// `call_tool` or not. The name is `normalizeToolName`d (`functions.` prefix and the
+/// `mcp__<server>__` form stripped).
 pub fn is_task_wait(name: &str, args: Option<&Value>) -> bool {
+    if let Some((target, inner)) = bridged_call(name, args) {
+        return is_task_wait(&target, inner.as_ref());
+    }
     let raw = name.strip_prefix("functions.").unwrap_or(name);
     let tool = raw
         .strip_prefix("mcp__")
@@ -62,14 +94,7 @@ pub fn is_task_wait(name: &str, args: Option<&Value>) -> bool {
     if tool.replace('-', "_").to_lowercase() != "task" {
         return false;
     }
-    let parsed = match args {
-        Some(Value::String(text)) => serde_json::from_str::<Value>(text).ok().filter(Value::is_object),
-        Some(Value::Object(map)) => Some(match map.get("input") {
-            Some(input) if input.is_object() => input.clone(),
-            _ => Value::Object(map.clone()),
-        }),
-        _ => None,
-    };
+    let parsed = parsed_args(args);
     let action = parsed.as_ref().and_then(|p| p.get("action")).filter(|a| truthy(a));
     action.is_some_and(|a| js_trim(&mixdog_js::value_to_string(a)).to_lowercase() == "wait")
 }
@@ -98,5 +123,13 @@ mod tests {
         assert!(!is_task_wait("task", Some(&json!({ "action": "list" }))));
         assert!(!is_task_wait("shell", Some(&json!({ "action": "wait" }))));
         assert!(!is_task_wait("task", None));
+    }
+
+    #[test]
+    fn a_task_wait_bridged_through_call_tool_is_a_task_wait() {
+        assert!(is_task_wait("call_tool", Some(&json!({ "name": "task", "arguments": { "action": "wait" } }))));
+        assert!(is_task_wait("call_tool", Some(&json!("{\"name\":\"task\",\"arguments\":\"{\\\"action\\\":\\\"wait\\\"}\"}"))));
+        assert!(!is_task_wait("call_tool", Some(&json!({ "name": "task", "arguments": { "action": "list" } }))));
+        assert!(!is_task_wait("call_tool", Some(&json!({ "name": "shell", "arguments": { "action": "wait" } }))));
     }
 }

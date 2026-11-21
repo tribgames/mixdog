@@ -4129,8 +4129,18 @@ impl SessionActor {
             RunShown::TextSettled(item) => {
                 // The streamed text as it stands: the live item the deltas built (none when nothing streamed into it). Whether
                 // it shows is decided at its show (`Change::Settled`): the run hands its rows and its shown events on apart, so
-                // its reply's commit may be ahead of it, and then that commit's row, or its failure, decides.
-                if let Some(text) = self.projected.live.iter().find(|live| live.item.id() == &item).map(|live| live.item.clone()) {
+                // its reply's commit may be ahead of it, and then that commit's row, or its failure, decides. A segment of only
+                // whitespace settles as no row, as at the turn's close: a restore drops it.
+                if let Some(text) = self
+                    .projected
+                    .live
+                    .iter()
+                    .find(|live| live.item.id() == &item)
+                    .filter(
+                        |live| !matches!(&live.item, ThreadItem::AgentMessage { text: mixdog_protocol::MaybeBlob::Inline(text), .. } if text.trim().is_empty()),
+                    )
+                    .map(|live| live.item.clone())
+                {
                     self.accept_view(Change::Settled { turn, item: text }, Vec::new());
                 }
             }
