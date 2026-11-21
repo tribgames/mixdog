@@ -1595,7 +1595,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             while stop.run_until_cancelled(epoch.changed()).await.is_some_and(|changed| changed.is_ok()) {
                 if host.serves(mixdog_core_api::HostCapability::ModelProxy) {
                     // A PC that left again before it answered is read when the next one comes.
-                    let _ = readiness.reinit_providers(None).await;
+                    let _ = readiness.reinit_providers(|| None).await;
                 }
             }
         }));

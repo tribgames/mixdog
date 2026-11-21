@@ -159,3 +159,65 @@ impl DispatchSessions for SessionDispatch {
         self.threads.close(id, reason).await;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use mixdog_ai::registry::providers::ProviderBuilder;
+    use mixdog_core_api::domain::mock::MockProvider;
+    use mixdog_core_api::domain::provider::ProviderAdapter;
+
+    use super::*;
+
+    /// Builds a scripted provider for any enabled name.
+    struct Mocks;
+
+    #[async_trait]
+    impl ProviderBuilder for Mocks {
+        async fn build(&self, _: &str, _: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            Ok(Arc::new(MockProvider::new([])))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+
+    /// The header `prepare` stamps for a session on `provider`'s route, admitted as `prepare` admits it.
+    fn session_on(registry: &ProviderRegistry, provider: &str) -> Result<Header, String> {
+        let spec = PrepareSpec {
+            agent: "worker".into(),
+            preset_name: "p".into(),
+            preset: json!({"provider": provider, "model": "m"}),
+            runtime_spec: json!({}),
+            context: Map::new(),
+            permission: None,
+            cwd: None,
+            source_type: None,
+            source_name: None,
+            task_type: None,
+            parent_session_id: None,
+            owner_session_id: None,
+            skip_role_reminder: false,
+            schema_allowed_tools: None,
+        };
+        stamped_header(&spec, |name| registry.registered_for_route(name).is_some())
+    }
+
+    /// A provider is turned off and the removal settles; it is turned on again, and a session starts on its route
+    /// with nothing but the sync of that decision in between.
+    #[tokio::test]
+    async fn a_session_starts_on_the_route_of_a_provider_turned_off_and_on_again() {
+        let registry = ProviderRegistry::new(Arc::new(Mocks));
+        let stored = |enabled: bool| json!({"anthropic": {"enabled": enabled}}).as_object().expect("object").clone();
+        registry.init_providers(&stored(true)).await.expect("init");
+        registry.sync_providers(&stored(false), Some(stored(false))).await.expect("off");
+        assert_eq!(session_on(&registry, "anthropic").err().as_deref(), Some("Provider \"anthropic\" not found or not enabled"));
+        registry.sync_providers(&stored(true), Some(stored(true))).await.expect("on");
+        assert_eq!(session_on(&registry, "anthropic").expect("a session on the route")["provider"], json!("anthropic"));
+    }
+}

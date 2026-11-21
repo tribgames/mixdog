@@ -56,7 +56,7 @@ async fn apply(rig: &Rig, sync: &mut super::provider_sync::ProviderSync, applied
         *applied += 1;
         sync.applied.wait_for(|count| *count >= *applied).await.unwrap();
     }
-    rig.readiness.reinit_providers(None).await.unwrap();
+    rig.readiness.reinit_providers(|| None).await.unwrap();
 }
 
 struct Channel(tokio::sync::mpsc::UnboundedSender<Vec<String>>);

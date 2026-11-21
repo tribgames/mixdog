@@ -3,10 +3,25 @@
 //! One owner: the config of record. [`ProviderRegistry::init_providers`] is
 //! the additive "ensure registered" request every runtime makes: it builds
 //! the enabled providers that are missing and never rebuilds or removes a
-//! registered one. [`ProviderRegistry::sync_providers`] applies the record:
-//! a registered provider is rebuilt when its config signature changed and
-//! removed only by a stored decision (`enabled: false`, or a deleted custom
-//! provider). A credential that could not be read is never a decision.
+//! registered one. [`ProviderRegistry::sync_providers`] applies the record
+//! with the stored decisions: a registered provider is rebuilt when its config
+//! signature changed, and the decisions settle the rest both ways. One they
+//! turn off (`enabled: false`, or a deleted custom provider) is removed, and
+//! one they hold on that the record enables is registered when it is missing,
+//! so a provider turned off and on again is back with the sync that carries
+//! the second decision. A provider the decisions do not hold is neither added
+//! nor removed. A credential that could not be read is never a decision.
+//!
+//! Applies are ordered by the `apply` permit alone. An apply carries no config
+//! into it: under the permit it asks its [`Source`] what is newest and builds
+//! that. It registers and removes in one step with the source's check that
+//! nothing the builds read (the config, the stored decisions, a credential)
+//! was replaced or invalidated meanwhile; overtaken, it builds the newest
+//! instead and keeps nothing of the old builds, their error included. So each
+//! apply settles what was newest in the step it settled in, and one whose
+//! builds or reads fail has registered and removed nothing. An init the
+//! nothing-left guard refuses has settled before the guard ran: what it
+//! registered stays, and so do the errors of the custom providers it skipped.
 //!
 //! Which adapter a name constructs is the [`ProviderBuilder`]'s business (it
 //! owns the HTTP client, credential stores and admission wrapper); the
@@ -14,6 +29,8 @@
 
 // Private names for existing callback/result shapes; representations are unchanged.
 type IsProviderOff = dyn Fn(&str) -> bool + Send + Sync;
+type IsProviderAdded = dyn Fn(&str) -> bool + Send + Sync;
+type IsProviderRebuilt = dyn Fn(&str) -> bool + Send + Sync;
 type BuiltProvider = (String, Result<(Arc<dyn ProviderAdapter>, Option<String>), String>);
 
 use std::collections::BTreeSet;
@@ -163,13 +180,66 @@ struct State {
     refresh_epoch: u64,
 }
 
+/// What a [`Source`] answers: everything the builds of one apply read.
+pub struct Read {
+    /// Differs once anything a build reads beside the two below may have been replaced or invalidated (a credential).
+    pub stamp: u64,
+    pub config: Map<String, Value>,
+    /// The names of `config` whose entry is a caller's, the record holding none for them: an initialization registers
+    /// such a provider when it is missing and never rebuilds a registered one from it.
+    pub supplied: HashSet<String>,
+    /// The providers an initialization may register when they are missing; `None`: every one `config` enables.
+    pub asked: Option<HashSet<String>>,
+    /// The stored providers section; `None` when it does not read, and for an apply that follows no decision.
+    pub decisions: Option<Map<String, Value>>,
+}
+
+/// Where an apply reads what it applies. The registry asks under its apply permit.
+pub trait Source: Sync {
+    /// What is newest now.
+    fn newest(&self) -> Read;
+
+    /// Runs `settle` and answers its result when `read` is still the newest in all of its parts; `None` when it was
+    /// overtaken. One step: none of them is replaced between the check and the end of `settle`, as far as the source
+    /// holds them.
+    fn settle_if_newest<R>(&self, read: &Read, settle: impl FnOnce() -> R) -> Option<R>;
+}
+
+/// A config and decisions the caller holds: nothing replaces them.
+struct Fixed<'a> {
+    config: &'a Map<String, Value>,
+    decisions: Option<Map<String, Value>>,
+}
+
+impl Source for Fixed<'_> {
+    fn newest(&self) -> Read {
+        Read { stamp: 0, config: self.config.clone(), supplied: HashSet::new(), asked: None, decisions: self.decisions.clone() }
+    }
+
+    fn settle_if_newest<R>(&self, _read: &Read, settle: impl FnOnce() -> R) -> Option<R> {
+        Some(settle())
+    }
+}
+
 /// What an apply does with the config it is given.
 struct Plan {
     config: Map<String, Value>,
-    rebuild: bool,
-    add: bool,
+    /// Which of the registered providers it builds again when their config signature differs.
+    rebuilds: Box<IsProviderRebuilt>,
+    /// Which of the providers the config enables it registers when they are missing.
+    adds: Box<IsProviderAdded>,
     /// Names a stored decision turned off; `None` when no decision is known.
     is_off: Option<Box<IsProviderOff>>,
+}
+
+/// Whether the stored `decisions` turn `name` off: they disable it, or it is a custom provider they no longer hold.
+fn stored_off(decisions: &Map<String, Value>, name: &str) -> bool {
+    decisions.get(name).and_then(|v| v.get("enabled")).and_then(Value::as_bool) == Some(false) || (name.starts_with("custom-") && !decisions.contains_key(name))
+}
+
+/// Whether the stored `decisions` hold `name` on: they have an entry for it that does not turn it off.
+fn stored_on(decisions: &Map<String, Value>, name: &str) -> bool {
+    decisions.contains_key(name) && !stored_off(decisions, name)
 }
 
 pub struct ProviderRegistry {
@@ -293,7 +363,17 @@ impl ProviderRegistry {
     /// (Node's "all providers disabled" refusal) when no entry of the config is registered afterwards
     /// and no OAuth instance is preserved. A remote registry reconciles the PC's full set instead.
     pub async fn init_providers(&self, config: &Map<String, Value>) -> Result<(), RegistryError> {
-        self.init(config, false).await
+        self.init(&Fixed { config, decisions: None }, false, false).await
+    }
+
+    /// The initialization of the runtime that owns the record: the registry is brought onto the config `source`
+    /// answers as it settles (`settle_newest`) in full. The enabled providers that are missing are added as
+    /// [`ProviderRegistry::init_providers`] adds them, and a registered one whose config signature differs is rebuilt,
+    /// so the caller returns with no provider left on an older config. An entry the source marks as a caller's
+    /// (`Read::supplied`) only adds: it never replaces a registered provider. A source that names what its caller
+    /// asked for (`Read::asked`) adds no other missing provider. None is removed.
+    pub async fn init_providers_from(&self, source: &impl Source) -> Result<(), RegistryError> {
+        self.init(source, true, false).await
     }
 
     /// The PC's provider set read afresh and applied as an init applies it (Node's catalog load with a refresh in the client
@@ -303,38 +383,80 @@ impl ProviderRegistry {
         if self.remote.is_none() {
             return Ok(());
         }
-        self.init(&Map::new(), true).await
+        self.init(&Fixed { config: &Map::new(), decisions: None }, false, true).await
     }
 
-    async fn init(&self, config: &Map<String, Value>, force: bool) -> Result<(), RegistryError> {
+    async fn init(&self, source: &impl Source, rebuild: bool, force: bool) -> Result<(), RegistryError> {
         if self.remote.is_some() {
             self.apply_remote(force).await?;
             self.ready.send_replace(true);
             return Ok(());
         }
-        // `_initProvidersUnsynchronized`: an empty config never clears (or settles) the registry, whatever it
-        // holds. Checked first: with providers registered the nothing-pending shortcut below would accept it.
-        if config.is_empty() {
-            return Err(RegistryError {
-                message: "[provider] initProviders called with empty config — refusing to clear registry".into(),
-                code: Some(NO_ENABLED_PROVIDERS),
-            });
-        }
-        let plan = Plan { config: self.with_custom_key_ids(config).await?, rebuild: false, add: true, is_off: None };
-        let applied = config_signature(&Value::Object(plan.config.clone()));
-        let nothing_pending = !self.state().providers.is_empty() && self.pending(&plan).is_empty();
-        if nothing_pending {
-            self.refuse_if_nothing_left(&plan.config, &[]).await?;
-            self.note_applied(applied);
-            self.ready.send_replace(true);
-            return Ok(());
-        }
-        self.apply_plan(plan).await?;
-        self.note_applied(applied);
+        // The semaphore is never closed, so the permit is always granted.
+        let _chain = self.apply.acquire().await;
+        let (plan, skipped) = self
+            .settle_newest(source, |read| {
+                // `_initProvidersUnsynchronized`: an empty config never clears (or settles) the registry, whatever it holds.
+                if read.config.is_empty() {
+                    return Err(RegistryError {
+                        message: "[provider] initProviders called with empty config — refusing to clear registry".into(),
+                        code: Some(NO_ENABLED_PROVIDERS),
+                    });
+                }
+                let (supplied, asked) = (read.supplied.clone(), read.asked.clone());
+                Ok(Plan {
+                    config: read.config.clone(),
+                    rebuilds: Box::new(move |name: &str| rebuild && !supplied.contains(name)),
+                    adds: Box::new(move |name: &str| asked.as_ref().is_none_or(|asked| asked.contains(name))),
+                    is_off: None,
+                })
+            })
+            .await?;
+        self.refuse_if_nothing_left(&plan.config, &skipped).await?;
+        self.note_applied(config_signature(&Value::Object(plan.config)));
         // Only an initialization latches readiness (`initProviders`' tracked promise); the sync
         // of the record (`sync_providers`) does not.
         self.ready.send_replace(true);
         Ok(())
+    }
+
+    /// Builds and settles the plan `draft` makes of what `source` answers, under the apply permit the caller holds.
+    /// What was built is registered, and what the stored decisions turn off removed, in the source's one step
+    /// (`Source::settle_if_newest`): only while nothing the builds read (config, decisions, stamp) was replaced or
+    /// invalidated since they began. Overtaken, the newest answer is built instead and nothing of the old
+    /// builds is kept, their error included. So applies settle in the order of their permits, each with what was
+    /// newest in the step it settled in, and one whose builds or reads fail has registered and removed nothing.
+    /// Returns the settled plan and the invalid custom providers it skipped.
+    async fn settle_newest(
+        &self,
+        source: &impl Source,
+        draft: impl Fn(&Read) -> Result<Plan, RegistryError> + Send + Sync,
+    ) -> Result<(Plan, Vec<String>), RegistryError> {
+        loop {
+            let read = source.newest();
+            let built = self.build_drafted(&read, &draft).await;
+            let settled = source.settle_if_newest(&read, || {
+                built.map(|(plan, built)| {
+                    let skipped = self.settle(&plan, built);
+                    (plan, skipped)
+                })
+            });
+            if let Some(result) = settled {
+                return result;
+            }
+        }
+    }
+
+    /// The plan of `read` with its custom key ids joined, and what it builds; nothing is registered.
+    async fn build_drafted(
+        &self,
+        read: &Read,
+        draft: &(impl Fn(&Read) -> Result<Plan, RegistryError> + Sync),
+    ) -> Result<(Plan, Vec<BuiltProvider>), RegistryError> {
+        let mut plan = draft(read)?;
+        plan.config = self.with_custom_key_ids(&plan.config).await?;
+        let built = self.build(&plan).await?;
+        Ok((plan, built))
     }
 
     async fn apply_remote(&self, force: bool) -> Result<(), RegistryError> {
@@ -344,8 +466,14 @@ impl ProviderRegistry {
         let config = self.with_custom_key_ids(&config).await?;
         let on: HashSet<String> = config.iter().filter(|(name, cfg)| self.enabled_for_init(name, cfg)).map(|(name, _)| name.clone()).collect();
         let signature = config_signature(&Value::Object(config.clone()));
-        let plan = Plan { config, rebuild: true, add: true, is_off: Some(Box::new(move |name| !on.contains(name))) };
-        self.build_and_settle(&plan).await?;
+        let plan = Plan {
+            config,
+            rebuilds: Box::new(|_: &str| true),
+            adds: Box::new(|_: &str| true),
+            is_off: Some(Box::new(move |name: &str| !on.contains(name))),
+        };
+        let built = self.build(&plan).await?;
+        self.settle(&plan, built);
         self.note_applied(signature);
         Ok(())
     }
@@ -361,20 +489,33 @@ impl ProviderRegistry {
     }
 
     /// Applies the config of record: rebuilds every registered provider whose
-    /// signature changed and removes those a stored decision turned off.
+    /// signature changed, removes those a stored decision turned off and registers
+    /// the missing ones the record enables that a stored decision holds on.
     /// Locally, `decisions` is the stored providers section (`None` when unreadable:
-    /// nothing is removed), and sync never adds. A remote sync reconciles the PC's full set.
+    /// nothing is removed or added). A remote sync reconciles the PC's full set.
     pub async fn sync_providers(&self, record: &Map<String, Value>, decisions: Option<Map<String, Value>>) -> Result<(), RegistryError> {
+        self.sync_providers_from(&Fixed { config: record, decisions }).await
+    }
+
+    /// [`ProviderRegistry::sync_providers`] of the record and decisions `source` answers as it settles
+    /// (`settle_newest`), for a caller whose record or decisions can change while it waits or builds.
+    pub async fn sync_providers_from(&self, source: &impl Source) -> Result<(), RegistryError> {
         if self.remote.is_some() {
             return self.apply_remote(false).await;
         }
-        let is_off = decisions.map(|d| {
-            Box::new(move |name: &str| {
-                d.get(name).and_then(|v| v.get("enabled")).and_then(Value::as_bool) == Some(false) || (name.starts_with("custom-") && !d.contains_key(name))
-            }) as Box<IsProviderOff>
-        });
-        let config = self.with_custom_key_ids(record).await?;
-        self.apply_plan(Plan { config, rebuild: true, add: false, is_off }).await
+        // The semaphore is never closed, so the permit is always granted.
+        let _chain = self.apply.acquire().await;
+        self.settle_newest(source, |read| {
+            let (on, off) = (read.decisions.clone(), read.decisions.clone());
+            Ok(Plan {
+                config: read.config.clone(),
+                rebuilds: Box::new(|_: &str| true),
+                adds: Box::new(move |name: &str| on.as_ref().is_some_and(|decisions| stored_on(decisions, name))),
+                is_off: off.map(|decisions| Box::new(move |name: &str| stored_off(&decisions, name)) as Box<IsProviderOff>),
+            })
+        })
+        .await
+        .map(drop)
     }
 
     /// The registered OAuth providers whose credential decides the guard of `refuse_if_nothing_left`;
@@ -423,7 +564,7 @@ impl ProviderRegistry {
         })
     }
 
-    /// Entries of the plan that need a build: missing ones when it adds,
+    /// Entries of the plan that need a build: missing ones it adds,
     /// changed ones when it rebuilds.
     fn pending(&self, plan: &Plan) -> Vec<(String, Value, Option<String>)> {
         let state = self.state();
@@ -434,8 +575,8 @@ impl ProviderRegistry {
             }
             let sig = Some(config_signature(cfg));
             let wanted = match state.providers.get(name) {
-                Some(entry) => plan.rebuild && (sig.is_none() || entry.signature != sig),
-                None => plan.add,
+                Some(entry) => (plan.rebuilds)(name) && (sig.is_none() || entry.signature != sig),
+                None => (plan.adds)(name),
             };
             if wanted {
                 out.push((name.clone(), cfg.clone(), sig));
@@ -444,17 +585,8 @@ impl ProviderRegistry {
         out
     }
 
-    async fn apply_plan(&self, plan: Plan) -> Result<(), RegistryError> {
-        // The semaphore is never closed, so the permit is always granted.
-        let _chain = self.apply.acquire().await;
-        let skipped = self.build_and_settle(&plan).await?;
-        if plan.add {
-            self.refuse_if_nothing_left(&plan.config, &skipped).await?;
-        }
-        Ok(())
-    }
-
-    async fn build_and_settle(&self, plan: &Plan) -> Result<Vec<String>, RegistryError> {
+    /// Builds what `plan` has pending; nothing is registered.
+    async fn build(&self, plan: &Plan) -> Result<Vec<BuiltProvider>, RegistryError> {
         let mut built = Vec::new();
         for (name, cfg, sig) in self.pending(plan) {
             match self.builder.build(&name, &cfg).await {
@@ -472,7 +604,7 @@ impl ProviderRegistry {
                 }
             }
         }
-        Ok(self.settle(plan, built))
+        Ok(built)
     }
 
     /// Registers what a plan built and removes what it turned off, under the registry lock; returns
@@ -553,6 +685,12 @@ impl ProviderRegistry {
     /// that rebuilt it, a removal) differs, as `registeredProvider(name) !== captured` does.
     pub fn generation(&self, name: &str) -> Option<u64> {
         self.state().providers.get(name).map(|e| e.generation)
+    }
+
+    /// The config signature `name` is registered under.
+    #[cfg(test)]
+    pub(crate) fn signature(&self, name: &str) -> Option<String> {
+        self.state().providers.get(name).and_then(|e| e.signature.clone())
     }
 
     /// The registration `adapter` (an instance handed out by this registry) is live under, `None`
@@ -977,6 +1115,143 @@ mod tests {
         let error = r.init_providers(&local).await.unwrap_err();
         assert_eq!(error.message, "model proxy unavailable: no desktop client is connected to run model calls");
         assert!(r.names().is_empty() && !r.initialized());
+    }
+
+    /// Builds every name; the first key-id read once `held` is set waits for `release`.
+    #[derive(Default)]
+    struct HeldReads {
+        held: std::sync::atomic::AtomicBool,
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+    }
+    #[async_trait]
+    impl ProviderBuilder for HeldReads {
+        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            Ok(crate::registry::multiwire::tests::refusing(name, 400, "x"))
+        }
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            if self.held.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                self.entered.notify_one();
+                self.release.notified().await;
+            }
+            Ok(Vec::new())
+        }
+        fn available(&self, _name: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(true)
+        }
+    }
+
+    fn custom_a(n: u32) -> Map<String, Value> {
+        json!({"custom-a": {"type": "custom", "enabled": true, "n": n}}).as_object().unwrap().clone()
+    }
+
+    /// A sync whose key-id read is slow keeps the permit: the one called after it settles after it, so the later
+    /// record is the one left.
+    #[tokio::test]
+    async fn a_slow_sync_is_not_overtaken_by_the_one_called_after_it() {
+        let builder = Arc::new(HeldReads::default());
+        let r = Arc::new(ProviderRegistry::new(builder.clone()));
+        r.init_providers(&custom_a(0)).await.unwrap();
+        builder.held.store(true, std::sync::atomic::Ordering::SeqCst);
+        let older = tokio::spawn({
+            let r = r.clone();
+            async move { r.sync_providers(&custom_a(1), None).await }
+        });
+        builder.entered.notified().await;
+        let newer = tokio::spawn({
+            let r = r.clone();
+            async move { r.sync_providers(&custom_a(2), None).await }
+        });
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!newer.is_finished(), "the later sync waits for the permit");
+        builder.release.notify_one();
+        older.await.unwrap().unwrap();
+        newer.await.unwrap().unwrap();
+        assert_eq!(r.signature("custom-a"), Some(config_signature(&custom_a(2)["custom-a"])));
+    }
+
+    /// A source whose stamp, config and decisions change together, and whose check is one step with the settle.
+    struct Cell(Mutex<(u64, Map<String, Value>, Value)>);
+    impl Source for Cell {
+        fn newest(&self) -> Read {
+            let cell = self.0.lock().unwrap();
+            Read { stamp: cell.0, config: cell.1.clone(), supplied: HashSet::new(), asked: None, decisions: cell.2.as_object().cloned() }
+        }
+        fn settle_if_newest<R>(&self, read: &Read, settle: impl FnOnce() -> R) -> Option<R> {
+            let cell = self.0.lock().unwrap();
+            (cell.0 == read.stamp).then(settle)
+        }
+    }
+
+    /// The stored decisions settle a provider both ways: turned off it is removed, and turned on again it is back
+    /// with the sync that carries that decision, there for a route (`registered_for_route`) with no initialization in
+    /// between. One the record enables that the decisions do not hold is not added.
+    #[tokio::test]
+    async fn a_sync_registers_again_a_provider_the_decisions_turn_back_on() {
+        let r = ProviderRegistry::new(Arc::new(HeldReads::default()));
+        let record = json!({"custom-a": {"type": "custom", "enabled": true}, "openai": {"enabled": true}}).as_object().unwrap().clone();
+        let decisions = |custom_on: bool| json!({"custom-a": {"type": "custom", "enabled": custom_on}}).as_object().cloned();
+        r.init_providers(json!({"custom-a": {"type": "custom", "enabled": true}}).as_object().unwrap()).await.unwrap();
+        r.sync_providers(&record, decisions(false)).await.unwrap();
+        assert!(r.registered_for_route("custom-a").is_none(), "turned off");
+        r.sync_providers(&record, decisions(true)).await.unwrap();
+        assert!(r.registered_for_route("custom-a").is_some(), "turned on again");
+        assert_eq!(r.names().into_iter().collect::<Vec<_>>(), ["custom-a"], "openai is only the record's");
+        r.sync_providers(&record, None).await.unwrap();
+        assert_eq!(r.names().into_iter().collect::<Vec<_>>(), ["custom-a"], "no decisions: nothing added or removed");
+    }
+
+    /// A source overtaken while its sync builds: the sync returns having registered the newer answer, removed on the
+    /// decisions read as it settled, and nothing of the answer it began with.
+    #[tokio::test]
+    async fn a_sync_settles_what_its_source_answers_in_the_step_it_settles_in() {
+        let mut both = custom_a(0);
+        both.insert("custom-b".into(), json!({"type": "custom", "enabled": true}));
+        let builder = Arc::new(HeldReads::default());
+        let r = Arc::new(ProviderRegistry::new(builder.clone()));
+        r.init_providers(&both).await.unwrap();
+        // The answer it begins with deletes custom-a; the newer one keeps it and deletes custom-b.
+        let source = Arc::new(Cell(Mutex::new((1, custom_a(1), json!({"custom-b": {}})))));
+        builder.held.store(true, std::sync::atomic::Ordering::SeqCst);
+        let sync = tokio::spawn({
+            let (r, source) = (r.clone(), source.clone());
+            async move { r.sync_providers_from(&*source).await }
+        });
+        builder.entered.notified().await;
+        *source.0.lock().unwrap() = (2, custom_a(2), json!({"custom-a": {}}));
+        builder.release.notify_one();
+        sync.await.unwrap().unwrap();
+        assert_eq!(r.names().into_iter().collect::<Vec<_>>(), ["custom-a"]);
+        assert_eq!(r.signature("custom-a"), Some(config_signature(&custom_a(2)["custom-a"])));
+    }
+
+    /// A source whose stamp alone moves while an init builds (a credential replaced, the config the same): what was
+    /// built on the old read is dropped and the provider is built again.
+    #[tokio::test]
+    async fn a_build_overtaken_by_an_invalidation_alone_is_built_again() {
+        let builder = Arc::new(HeldReads::default());
+        let r = Arc::new(ProviderRegistry::new(builder.clone()));
+        let source = Arc::new(Cell(Mutex::new((1, custom_a(1), Value::Null))));
+        builder.held.store(true, std::sync::atomic::Ordering::SeqCst);
+        let init = tokio::spawn({
+            let (r, source) = (r.clone(), source.clone());
+            async move { r.init_providers_from(&*source).await }
+        });
+        builder.entered.notified().await;
+        source.0.lock().unwrap().0 = 2;
+        builder.held.store(true, std::sync::atomic::Ordering::SeqCst);
+        builder.release.notify_one();
+        // Held again: the same config is read a second time.
+        builder.entered.notified().await;
+        assert!(r.names().is_empty(), "nothing of the overtaken build is registered");
+        builder.release.notify_one();
+        init.await.unwrap().unwrap();
+        assert_eq!(r.names().into_iter().collect::<Vec<_>>(), ["custom-a"]);
     }
 
     #[tokio::test]
