@@ -222,7 +222,7 @@ pub fn notice(header: &Header) -> Option<DeltaNotice> {
         lines.extend(added_lines);
     }
     if !removed_lines.is_empty() {
-        lines.push("Removed deferred tools:".to_owned());
+        lines.push("Removed deferred tools (tell the user when the work needed one):".to_owned());
         lines.extend(removed_lines);
     }
     lines.push("</deferred_tools_delta>".to_owned());
@@ -280,7 +280,7 @@ mod tests {
                 "<deferred_tools_delta>",
                 "Added deferred tools:",
                 "- alpha",
-                "Removed deferred tools:",
+                "Removed deferred tools (tell the user when the work needed one):",
                 "- beta",
                 "</deferred_tools_delta>",
                 "</system-reminder>"
