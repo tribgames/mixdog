@@ -118,6 +118,7 @@
   },
   "localeExceptions": {
     "de": {
+      "Tab {{value0}}": "established software term for a tab in German UI",
       "Position": "same spelling for a position in German UI",
       "Ports": "same spelling for network ports in German UI",
       "Port {{port}}": "same spelling for a network port in German UI",
@@ -267,6 +268,9 @@
       "{{count}} worktrees": "established Git term in Spanish UI"
     },
     "fr": {
+      "Menu": "same spelling in French",
+      "Suggestions": "same spelling in French",
+      "Transactions": "same spelling in French",
       "Simple": "same spelling in French",
       "Position": "same spelling for a position in French UI",
       "30 minutes": "same spelling in French",
@@ -447,6 +451,8 @@
       "Web": "established loanword in Japanese UI"
     },
     "pt-BR": {
+      "Downloads": "established loanword for the downloads folder in Brazilian Portuguese UI",
+      "Menu": "same spelling in Portuguese",
       "{{count}} skills": "skill is kept in English per the Portuguese glossary",
       "Workflow": "established software term in Portuguese UI",
       "Webhooks": "established web term in Portuguese UI",
@@ -520,6 +526,7 @@
       "{{count}} cookies": "established web term in Portuguese UI"
     },
     "vi": {
+      "Tab {{value0}}": "established software term for a tab in Vietnamese UI",
       "Video": "established loanword in Vietnamese UI",
       "Shell": "established developer term in Vietnamese UI",
       "Plugin": "established software term in Vietnamese UI",
