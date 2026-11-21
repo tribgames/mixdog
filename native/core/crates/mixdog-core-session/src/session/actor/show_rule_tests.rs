@@ -368,6 +368,45 @@ async fn the_text_before_a_tool_call_is_final_when_the_call_starts() {
     drop(directory);
 }
 
+/// A segment that streamed only whitespace before a tool call settles as no row, as a restore drops it: no reply row stands
+/// between the calls before and after it.
+#[tokio::test(start_paused = true)]
+async fn a_whitespace_only_segment_before_a_tool_call_settles_as_no_row() {
+    let rig = Rig::new();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let blank = ItemId::from("blank");
+            run.port.item_started(agent_message(&blank)).await.expect("starts");
+            run.port.delta(blank.clone(), "\n\n".into()).await.expect("streams");
+            run.port.text_settled(blank.clone()).await.expect("the call starts");
+            let call = json!({ "id": "c1", "name": "shell", "arguments": { "command": "ls" } });
+            let reply = json!({ "role": "assistant", "content": "\n\n", "toolCalls": [call] });
+            run.port.commit_item(row("blank", "assistant", reply)).await.expect("the call row");
+            let result = json!({ "role": "tool", "toolCallId": "c1", "content": "a.txt" });
+            run.port.commit_item(row("t1", "tool", result)).await.expect("the result row");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    // The stored records' own rows (`RecordTranscript`), as the daemon shows a commit: the rig's text transcript shows any text.
+    let mut parts = rig.deps_parts(rig.store.clone());
+    parts.transcript = Arc::new(crate::session::testing::RecordTranscript::new());
+    let directory = SessionDirectory::new(Arc::new(parts));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "first task", "op-1").await;
+    crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+    let blank_replies: Vec<Value> = rig
+        .feeds
+        .frames(handle.id.as_str())
+        .into_iter()
+        .filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "agentMessage")
+        .map(|(_, _, params)| params["item"].clone())
+        .filter(|item| item["text"].as_str().is_some_and(|text| text.trim().is_empty()))
+        .collect();
+    assert!(blank_replies.is_empty(), "no whitespace-only reply completes: {blank_replies:?}");
+    drop(directory);
+}
+
 /// The settle of a segment reaches the session after its reply's commit (the run hands them on apart: its shown events and
 /// its rows), while the committed row is still encoding: the segment shows no row of its own, the reply's row is its one row.
 #[tokio::test(start_paused = true)]
