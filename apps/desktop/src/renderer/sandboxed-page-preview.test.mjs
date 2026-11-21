@@ -81,6 +81,40 @@ test("the frame stays hidden (the panel's background shows) until the page itsel
   assert.equal(early.style.visibility, '');
 });
 
+test('onShown waits for the page’s paint report; only a scriptless srcdoc fallback is shown by its load', async () => {
+  const frame = fakeFrame();
+  let shown = 0;
+  const unload = loadSandboxedPage(frame, '<p>a</p>', () => (shown += 1));
+  const fromFrame = (type) =>
+    window.dispatchEvent(new window.MessageEvent('message', { data: { type }, source: frame.contentWindow }));
+  fromFrame('mixdog-preview-ready');
+  frame.fireLoad(); // /preview-frame itself
+  frame.fireLoad(); // the document written into it
+  assert.equal(frame.style.visibility, '', 'the load unhides the frame');
+  assert.equal(shown, 0, 'a load is not a paint');
+  fromFrame('mixdog-preview-painted');
+  fromFrame('mixdog-preview-painted');
+  assert.equal(shown, 1);
+  unload();
+
+  // No relay frame answered: the srcdoc fallback runs no script, so its load is the paint.
+  const fallback = fakeFrame();
+  let fallbackShown = 0;
+  const unloadFallback = loadSandboxedPage(fallback, '<p>b</p>', () => (fallbackShown += 1));
+  fallback.fireLoad(); // /preview-frame, which never says it is ready
+  await new Promise((resolve) => setTimeout(resolve, 3100));
+  assert.equal(fallbackShown, 0);
+  fallback.fireLoad(); // the srcdoc document
+  assert.equal(fallbackShown, 1);
+  unloadFallback();
+
+  // Cleaned up first: never reported.
+  const early = fakeFrame();
+  let earlyShown = 0;
+  loadSandboxedPage(early, '<p>c</p>', () => (earlyShown += 1))();
+  assert.equal(earlyShown, 0);
+});
+
 test("a page's #anchor links replace the frame's entry; its own pushState is untouched", () => {
   const html = sandboxedPageDocument('<html><head></head><body><a id="go" href="#part">part</a></body></html>');
   // Inside a frame: the page script does nothing in a top window.

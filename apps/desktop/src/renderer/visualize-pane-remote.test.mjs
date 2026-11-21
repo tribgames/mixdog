@@ -175,6 +175,28 @@ test('a remote page loads without the block once the desktop user allowed networ
   );
 });
 
+test('revoking outside network retires the permissive page at once; allowing it again loads behind the shown page', async () => {
+  await withRemotePage(
+    { id: 'r1d', label: 'a.html', revision: 0, panes: [page], networkAllowed: true },
+    async ({ frame }) => {
+      await act(async () => putTab({ id: 'r1d', label: 'a.html', revision: 1, panes: [page], networkAllowed: false }));
+      await settle();
+      const frames = () => [...document.querySelectorAll('.visualize-pane-content iframe')];
+      assert.equal(frame.isConnected, false, 'the page that had outside network is gone');
+      assert.equal(frames().length, 1);
+      assert.equal(frames()[0].classList.contains('visualize-frame-pending'), false);
+      const { html } = await framedDocument();
+      assert.equal(cspOf(html), BLOCKED_NETWORK_CSP, 'its replacement runs under the block');
+
+      const blocked = frames()[0];
+      await act(async () => putTab({ id: 'r1d', label: 'a.html', revision: 2, panes: [page], networkAllowed: true }));
+      await settle();
+      assert.equal(frames()[0], blocked, 'a looser policy waits for its page like an edit');
+      assert.equal(frames().length, 2);
+    }
+  );
+});
+
 async function mountRevisedPage(nextContent) {
   const original = remote.source;
   const loads = [];
@@ -249,11 +271,55 @@ test('page fetches go to the newest load of the same page content', async () => 
   }
 });
 
-test('a new revision with different page content reloads the frame', async () => {
+const fromPage = (frame, data) =>
+  act(async () => window.dispatchEvent(new window.MessageEvent('message', { data, source: frame.contentWindow })));
+
+test('a new revision with different page content loads behind the shown page and swaps in at its scroll', async () => {
   const revised = await mountRevisedPage(['live:bbb', '<p>other</p>']);
   try {
-    assert.equal(revised.documents(), 1, 'the frame reloaded');
+    const frames = () => [...document.querySelectorAll('.visualize-pane-content iframe')];
+    await fromPage(revised.frame, { type: 'mixdog-preview-painted' });
+    assert.equal(revised.documents(), 0, 'the shown frame keeps its page');
+    assert.equal(frames().length, 2);
+    const [shown, pending] = frames();
+    assert.equal(shown, revised.frame);
+    assert.ok(pending.classList.contains('visualize-frame-pending'));
+    assert.equal(pending.getAttribute('aria-hidden'), 'true');
+    assert.equal(shown.style.visibility, '', 'the shown page never hides');
+    await fromPage(shown, { __mixdogVisualize: 1, type: 'scrolled', x: 0, y: 900 });
+    const sent = [];
+    pending.contentWindow.postMessage = (message) => sent.push(message);
+    await fromPage(pending, { type: 'mixdog-preview-ready' });
+    assert.match(sent[0]?.html ?? '', /<p>other<\/p>/, 'the new content went to the hidden frame');
+    await fromPage(pending, { __mixdogVisualize: 1, type: 'ready' });
+    await fromPage(pending, { type: 'mixdog-preview-painted' });
+    assert.deepEqual(
+      sent.filter((message) => message.type === 'scroll-to').map((message) => [message.x, message.y]),
+      [[0, 900]],
+      'the new page is put where the old one was before it shows'
+    );
+    await settle();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 100)));
+    assert.deepEqual(frames(), [pending], 'the painted frame itself is shown');
+    assert.equal(pending.classList.contains('visualize-frame-pending'), false);
   } finally {
+    await revised.cleanup();
+  }
+});
+
+test('a reload that fails (a relay reconnect mid-read) keeps the shown page', async () => {
+  const revised = await mountRevisedPage();
+  const original = remote.source;
+  try {
+    remote.source = async () => {
+      throw new Error('The connection to the PC was lost.');
+    };
+    await act(async () => putTab({ id: 'r6', label: 'a.html', revision: 3, panes: [page] }));
+    await settle();
+    assert.deepEqual([...document.querySelectorAll('.visualize-pane-content iframe')], [revised.frame]);
+    assert.equal(document.querySelector('.visualize-pane-content .visualize-empty'), null);
+  } finally {
+    remote.source = original;
     await revised.cleanup();
   }
 });

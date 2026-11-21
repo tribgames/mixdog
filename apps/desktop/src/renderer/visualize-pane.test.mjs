@@ -138,8 +138,9 @@ test('the Visualize pill scales the content; an image layer grows with the scale
 
     await click(document.querySelector('.browser-zoom-percent'));
     const entries = [...document.querySelectorAll('[role="menuitemradio"]')].map((item) => item.textContent);
-    assert.deepEqual(entries, ['Fit to window', '50%', '100%', '150%', '200%']);
-    await click(document.querySelectorAll('[role="menuitemradio"]')[4]);
+    // 100% is the fit itself, so it is not listed a second time.
+    assert.deepEqual(entries, ['Fit to window', '50%', '150%', '200%']);
+    await click(document.querySelectorAll('[role="menuitemradio"]')[3]);
     assert.equal(percent(), '200%');
   });
 });
@@ -196,11 +197,12 @@ test('the ⋯ zoom bar toggle hides the pill and the zoom keys keep working', as
   });
 });
 
-test('pages and documents scale like browser zoom: laid out at 1/scale, then scaled up', async () => {
+test('pages and documents zoom in at the pane’s layout width and zoom out laid out at 1/scale', async () => {
   const { visualizeZoomStyle } = await import('./visualize-zoom.ts');
   assert.equal(visualizeZoomStyle(1, 'html'), undefined);
   const placed = { position: 'absolute', top: 0, left: 0 };
-  assert.deepEqual(visualizeZoomStyle(2, 'html'), { ...placed, width: '50%', height: '50%', transform: 'scale(2)' });
+  // In: the layout width stays the pane's (no reflow), the drawing grows and scrolls sideways.
+  assert.deepEqual(visualizeZoomStyle(2, 'html'), { width: '100%', height: '50%', transform: 'scale(2)' });
   assert.deepEqual(visualizeZoomStyle(0.5, 'pdf'), {
     ...placed,
     width: '200%',
@@ -557,6 +559,50 @@ test('a reload loads into a hidden second frame and swaps in once loaded, with n
     assert.equal(frames().length, 1);
     assert.equal(frames()[0], pending, 'the loaded frame itself is shown (no second load)');
     assert.equal(pending.classList.contains('visualize-frame-pending'), false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('revoking outside network replaces the shown page at once, with no buffered reload', async () => {
+  putTab({ id: 'n1', label: 'a.html', revision: 0, networkAllowed: true, panes: [htmlPane] });
+  const root = await mount();
+  try {
+    const [shown] = frames();
+    await act(async () => putTab({ id: 'n1', label: 'a.html', revision: 1, panes: [htmlPane] }));
+    assert.equal(shown.isConnected, false, 'the permissive page is gone before its replacement loads');
+    assert.equal(frames().length, 1);
+    assert.equal(frames()[0].classList.contains('visualize-frame-pending'), false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('an agent reopening a kept tab (moved last in the state) leaves every kept page where it is', async () => {
+  const pageTab = (id, revision = 0) => ({
+    id,
+    label: `${id}.html`,
+    revision,
+    panes: [{ ...htmlPane, target: `${id}.html`, url: `http://127.0.0.1:1/tok/${id}.html` }],
+  });
+  const show = (tabs, active) =>
+    act(async () => applyVisualizeEvent({ sessionId: 's1', state: { sessionId: 's1', tabs, active } }));
+  await show([pageTab('k1'), pageTab('k2')], 'k1');
+  const root = await mount();
+  try {
+    await show([pageTab('k1'), pageTab('k2')], 'k2');
+    const bodies = [...document.querySelectorAll('.visualize-body')];
+    assert.equal(bodies.length, 2, 'both tabs stay mounted');
+    const moves = [];
+    const observer = new window.MutationObserver((records) => moves.push(...records));
+    observer.observe(document.querySelector('.visualize-bodies'), { childList: true });
+    // The host's reopen of k1 moves it to the end of its tab list.
+    await show([pageTab('k2'), pageTab('k1', 1)], 'k1');
+    await act(async () => {});
+    observer.disconnect();
+    assert.deepEqual(moves, [], 'no body left or re-entered the DOM (its frames would reload)');
+    assert.deepEqual([...document.querySelectorAll('.visualize-body')], bodies);
+    assert.equal(document.querySelector('[data-visualize-body]'), bodies[0], 'k1 is the shown body');
   } finally {
     await act(async () => root.unmount());
   }
