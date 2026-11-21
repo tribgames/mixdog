@@ -2,7 +2,8 @@
 // (the app restart kills the script before its own cleanup). It runs here on
 // a copy inside a throwaway repository, never against this checkout.
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import {
   copyFileSync,
   existsSync,
@@ -34,7 +35,51 @@ const present = (path) => {
     return false;
   }
 };
-const icacls = (...args) => execFileSync('icacls', args, { windowsHide: true, stdio: 'ignore' });
+// An open handle without FILE_SHARE_DELETE on the link itself: unlike a deny ACE, which an elevated
+// administrator's delete gets through, no account can delete the link while it is held. FILE_LIST_DIRECTORY,
+// because a handle with attribute access alone takes no part in the share check.
+const HOLD = `
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class LinkHold {
+  [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+  public static extern SafeFileHandle CreateFileW(string name, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+}
+'@
+$handle = [LinkHold]::CreateFileW($env:MIXDOG_HOLD_LINK, 1, 3, [IntPtr]::Zero, 3, 0x02200000, [IntPtr]::Zero)
+if ($handle.IsInvalid) { throw "open failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
+[Console]::Out.WriteLine('held')
+[void][Console]::In.ReadLine()
+$handle.Dispose()
+`;
+/** Holds `link` open until the returned release is awaited. */
+async function holdLink(link) {
+  const holder = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', HOLD], {
+    env: { ...process.env, MIXDOG_HOLD_LINK: link },
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const exited = once(holder, 'exit');
+  let stderr = '';
+  holder.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+  let stdout = '';
+  await new Promise((resolve, reject) => {
+    holder.stdout.on('data', (chunk) => {
+      stdout += chunk;
+      if (stdout.includes('held')) resolve();
+    });
+    exited.then(([code]) => reject(new Error(`link holder exited ${code}: ${stderr}`)));
+  });
+  return async () => {
+    holder.stdin.end('\n');
+    await exited;
+  };
+}
 // `npm run update:dev:fast` runs it with Windows PowerShell; pwsh runs it too when that is the shell at hand.
 const SHELLS = ['powershell.exe', 'pwsh.exe'].map((exe) => ({
   exe,
@@ -48,8 +93,8 @@ const SHELLS = ['powershell.exe', 'pwsh.exe'].map((exe) => ({
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-snapsweep-'));
   const cleanups = [];
-  t.after(() => {
-    for (const cleanup of cleanups.reverse()) cleanup();
+  t.after(async () => {
+    for (const cleanup of cleanups.reverse()) await cleanup();
     rmSync(root, { recursive: true, force: true });
   });
   const repo = join(root, 'repo');
@@ -123,16 +168,12 @@ for (const { exe, missing } of SHELLS) {
 
   test(`${exe}: a snapshot whose junction cannot be unlinked is skipped and reported, nothing of it deleted`, {
     skip: missing,
-  }, (t) => {
+  }, async (t) => {
     const { repo, snapshot, run, realTreeIntact, cleanups } = fixture(t);
     const stuck = snapshot('mxsnap-5ca1ab1e');
     const clean = snapshot('mxsnap-c1ea0000');
     const link = join(stuck, 'node_modules');
-    // Neither the link itself nor its folder lets it be deleted.
-    icacls(link, '/deny', '*S-1-1-0:(DE)', '/L');
-    cleanups.push(() => icacls(link, '/remove:d', '*S-1-1-0', '/L'));
-    icacls(stuck, '/deny', '*S-1-1-0:(DC)');
-    cleanups.push(() => icacls(stuck, '/remove:d', '*S-1-1-0'));
+    cleanups.push(await holdLink(link));
 
     const result = run(exe);
     const output = `${result.stdout}\n${result.stderr}`;
