@@ -109,10 +109,11 @@ impl SnapshotLedger {
         Ok(SnapshotLease { ledger: Some((self.clone(), id)) })
     }
 
-    /// Marks the snapshot as being removed unless a command holds it.
+    /// Marks the snapshot as being removed unless a command holds it or another removal already took it: the one
+    /// that took it is the one that gives it back.
     pub(crate) fn begin_removal(&self, id: &str) -> bool {
         match self.held.lock().expect("snapshot ledger").get_mut(id) {
-            Some(held) if held.leases > 0 => false,
+            Some(held) if held.leases > 0 || held.removing => false,
             Some(held) => {
                 held.removing = true;
                 true
@@ -262,6 +263,18 @@ mod tests {
         assert!(ledger.admit(Path::new("/data/worktrees-v1/h/snap")).is_err());
         ledger.end_removal("snap");
         assert!(ledger.admit(Path::new("/elsewhere")).is_ok());
+    }
+
+    #[test]
+    fn a_snapshot_under_removal_is_refused_to_a_second_removal_and_stays_closed_until_the_first_ends() {
+        let ledger = SnapshotLedger::new();
+        let path = Path::new("/data/worktrees-v1/h/snap");
+        ledger.register("snap", path);
+        assert!(ledger.begin_removal("snap"));
+        assert!(!ledger.begin_removal("snap"), "the second removal does not take it");
+        assert!(ledger.admit(path).is_err(), "and its refusal leaves the first one's hold");
+        ledger.end_removal("snap");
+        assert!(ledger.admit(path).is_ok());
     }
 
     /// The Lead's cleanup doubles a 2 s wait up to five times (2, 4, 8, 16, 32, 64 s) and then keeps waiting 64 s, for at most 20

@@ -471,7 +471,7 @@ impl Worktrees {
     }
 
     /// Takes a snapshot for its removal: no command is admitted into it from here, and its folder is held against its
-    /// consumers. `None`: a command or a consumer is still in it.
+    /// consumers. `None`: a command or a consumer is still in it, or another removal has it.
     async fn take_snapshot(&self, record: &WorktreeRecord) -> Result<Option<Option<crate::worktree::activity::Grant>>, ScmFailure> {
         let ledger = self.ledger();
         if !ledger.begin_removal(&record.id) {
