@@ -298,6 +298,15 @@ for (const [method, args, expected] of CASES) {
   });
 }
 
+test('listProviderModels asks the core for its catalog state and answers it to the caller', async () => {
+  const reply = { models: [{ id: 'm', provider: 'p' }], completeProviders: ['p'] };
+  const { calls, service } = lane(async () => reply);
+  const answer = await service.call('listProviderModels', [{ quick: false, withCatalogState: true }]);
+  assert.deepEqual(calls, [{ method: 'model/list', params: { quick: false, withCatalogState: true } }]);
+  assert.ok('withCatalogState' in paramsSchema('model/list').properties);
+  assert.deepEqual(answer, reply);
+});
+
 test('listAgentPool answers with the core reply', async () => {
   const { service } = lane(async () => ({ reply: 1 }));
   assert.deepEqual(await service.call('listAgentPool', []), { reply: 1 });

@@ -151,7 +151,15 @@ const SINGLE: Readonly<Record<string, Single>> = {
       'interrupt'
     ),
   listProviderModels: ([options]) =>
-    one('model/list', given({ force: options?.force, refresh: options?.refresh, quick: options?.quick })),
+    one(
+      'model/list',
+      given({
+        force: options?.force,
+        refresh: options?.refresh,
+        quick: options?.quick,
+        withCatalogState: options?.withCatalogState,
+      })
+    ),
 };
 
 // `agentRoomAction(action, args)`: Node's `AgentRooms` methods take positional arguments, the core's `input` is one

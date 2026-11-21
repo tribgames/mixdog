@@ -512,6 +512,8 @@ export interface DesktopModelCatalogOptions {
   force?: boolean;
   refresh?: boolean;
   quick?: boolean;
+  /** The reply is `{ models, completeProviders }` instead of the bare rows. */
+  withCatalogState?: boolean;
 }
 
 export interface DesktopModelSelection {

@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight, X } from 'lucide-react';
 import { useMemo, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 
 import type { DesktopProjectSummary } from '../../shared/contract';
+import { hostPlatform } from '../core-direct/host-platform';
 import { t } from '../i18n';
 import { OpenSelect } from '../OpenSelect';
 import { contextMenuRowProps } from '../ScmContextMenu';
@@ -387,12 +388,12 @@ export function ExtensionFacts({ facts }: { facts: ReadonlyArray<readonly [strin
   );
 }
 
-function samePath(left: string, right: string): boolean {
-  const norm = (value: string) =>
-    value
-      .replace(/[\\/]+/g, '/')
-      .replace(/\/+$/, '')
-      .toLowerCase();
+export function samePath(left: string, right: string): boolean {
+  const caseless = hostPlatform() !== 'linux';
+  const norm = (value: string) => {
+    const path = value.replace(/[\\/]+/g, '/').replace(/\/+$/, '');
+    return caseless ? path.toLowerCase() : path;
+  };
   return norm(left) === norm(right);
 }
 
