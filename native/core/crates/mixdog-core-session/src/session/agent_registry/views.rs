@@ -201,10 +201,6 @@ impl Tags {
         self.by_tag.get(tag).map(|(at, _)| *at)
     }
 
-    pub(super) fn len(&self) -> usize {
-        self.by_tag.len()
-    }
-
     /// `(tag, session)` in insertion order.
     pub(super) fn iter(&self) -> impl Iterator<Item = (&String, &String)> + '_ {
         self.order.values().map(move |tag| (tag, &self.by_tag[tag].1))

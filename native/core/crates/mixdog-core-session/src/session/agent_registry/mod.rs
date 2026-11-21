@@ -1724,10 +1724,6 @@ impl Registry for AgentRegistry {
         self.lock().tag_agents.contains_key(tag)
     }
 
-    fn tag_count(&self) -> usize {
-        self.lock().tags.len()
-    }
-
     fn tag_for_session(&self, session_id: &str) -> Option<String> {
         let st = self.lock();
         let persisted = self.live_session_row(&st, session_id).map(|s| agent_tag_of(&s)).unwrap_or_default();
