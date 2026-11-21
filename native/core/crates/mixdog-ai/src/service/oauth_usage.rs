@@ -208,6 +208,7 @@ pub struct UsageDeps {
 
 type Inflight = Shared<BoxFuture<'static, Option<Value>>>;
 
+/// The Cursor API plan's readings and flights, per key generation, in memory only; and the warning throttle.
 #[derive(Default)]
 struct Caches {
     memory: HashMap<String, Value>,
@@ -219,6 +220,8 @@ struct Caches {
 
 pub struct OAuthUsage {
     deps: UsageDeps,
+    /// The readings of the cache file, shared with every other service over that file.
+    cache: Arc<cache::UsageCache>,
     caches: Mutex<Caches>,
     cursor_resolve: tokio::sync::Semaphore,
 }
@@ -361,20 +364,6 @@ pub(super) fn update_json_atomic(
     )
 }
 
-/// Rewrites the routes of the cache file through `edit`. A lane job body: callers on the
-/// request path go through [`OAuthUsage::update_disk_cache`].
-fn update_disk_cache(lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>, path: &std::path::Path, edit: impl FnOnce(&mut Obj)) -> std::io::Result<()> {
-    update_json_atomic(lane, path, |current| {
-        let mut routes = current.as_ref().and_then(|c| c.get("routes")).and_then(Value::as_object).cloned().unwrap_or_default();
-        edit(&mut routes);
-        let mut doc = Obj::new();
-        doc.insert("version".into(), Value::from(1));
-        doc.insert("updatedAt".into(), Value::from(now_ms()));
-        doc.insert("routes".into(), Value::Object(routes));
-        Value::Object(doc)
-    })
-}
-
 fn status_error(prefix: &str, status: u16) -> UsageError {
     UsageError::with_status(format!("{prefix} {status}"), status)
 }
@@ -448,7 +437,8 @@ pub struct ResetCreditResult {
 
 impl OAuthUsage {
     pub fn new(deps: UsageDeps) -> Arc<Self> {
-        Arc::new(Self { deps, caches: Mutex::new(Caches::default()), cursor_resolve: tokio::sync::Semaphore::new(1) })
+        let cache = cache::UsageCache::for_path(deps.data_dir.join(CACHE_FILE), deps.io, deps.log.clone());
+        Arc::new(Self { deps, cache, caches: Mutex::new(Caches::default()), cursor_resolve: tokio::sync::Semaphore::new(1) })
     }
 
     /// This service as the account rotation's [`UsageProbe`].
@@ -526,16 +516,6 @@ impl OAuthUsage {
         (current == generation).then(|| cursor_route_view(reading, route))
     }
 
-    fn cache_path(&self) -> PathBuf {
-        self.deps.data_dir.join(CACHE_FILE)
-    }
-
-    /// `edit`s the cache file's routes under the file lock, on the durability lane.
-    async fn update_disk_cache(&self, edit: impl FnOnce(&mut Obj) + Send + 'static) -> std::io::Result<()> {
-        let path = self.cache_path();
-        self.deps.io.write_job(move |lane| update_disk_cache(lane, &path, edit)).await
-    }
-
     fn log(&self, message: &str) {
         (self.deps.log)(message);
     }
@@ -563,25 +543,7 @@ impl OAuthUsage {
             let key = format!("cursor-api\u{2}{generation}");
             return fresh(caches.memory.get(&key), LIVE_CACHE_TTL_MS, now_ms()).map(|reading| cursor_route_view(reading, route));
         }
-        let key = route_key(route);
-        let provider_only = cache_provider_key(route);
-        let disk_ttl = if allow_stale { STALE_DISK_CACHE_TTL_MS } else { DISK_CACHE_TTL_MS };
-        let now = now_ms();
-        {
-            let c = self.caches();
-            let mem = fresh(c.memory.get(&key), LIVE_CACHE_TTL_MS, now)
-                .or_else(|| fresh(c.memory.get(&provider_only), LIVE_CACHE_TTL_MS, now))
-                .or_else(|| newest_provider_snapshot(c.memory.iter(), &provider_only, LIVE_CACHE_TTL_MS, now));
-            if mem.is_some() {
-                return mem;
-            }
-        }
-        let path = self.cache_path();
-        let raw = self.deps.io.read_job(move |_| Ok(read_json_file(&path))).await.ok().flatten();
-        let routes = raw.as_ref().and_then(|r| r.get("routes")).and_then(Value::as_object).cloned().unwrap_or_default();
-        fresh(routes.get(&key), disk_ttl, now)
-            .or_else(|| fresh(routes.get(&provider_only), disk_ttl, now))
-            .or_else(|| newest_provider_snapshot(routes.iter(), &provider_only, disk_ttl, now))
+        self.cache.displayed(&route_key(route), &cache_provider_key(route), allow_stale).await
     }
 
     /// The stored `default`-slot reading of `provider`, only when it was measured for this provider under the sign-in
@@ -604,11 +566,10 @@ impl OAuthUsage {
         if provider_only.is_empty() {
             return;
         }
-        let owned =
-            move |key: &str| key == provider_only || key.starts_with(&format!("{provider_only}\u{1}")) || key.starts_with(&format!("{provider_only}\u{2}"));
-        self.caches().memory.retain(|k, _| !owned(k));
-        // Dropped like Node's catch: the reset path must not fail on display state.
-        let _ = self.update_disk_cache(move |routes| routes.retain(|k, _| !owned(k))).await;
+        self.caches().memory.retain(|key, _| !key.starts_with(&format!("{provider_only}\u{2}")));
+        // The readings are gone from here on; the file's erase is awaited but decides nothing (a failure is said by
+        // the task, and stays owed to the file).
+        let _ = self.cache.invalidate_provider(&provider_only).await;
     }
 
     // Codex
@@ -742,10 +703,11 @@ impl OAuthUsage {
     /// `format=credits` is what the official CLI requests: unified-billing
     /// accounts only report their real cadence and reset there; the legacy
     /// shape stays a fallback.
-    async fn probe_grok_billing(&self, headers: &[(String, String)], route: &RouteInfo) -> Option<Value> {
+    async fn probe_grok_billing(&self, headers: &[(String, String)], route: &RouteInfo, refused: &mut Option<u16>) -> Option<Value> {
         for url in ["https://cli-chat-proxy.grok.com/v1/billing?format=credits", "https://cli-chat-proxy.grok.com/v1/billing"] {
             let Ok(res) = self.deps.http.get(url, headers, FETCH_TIMEOUT).await else { continue };
             if !res.ok() {
+                note_grok_refusal(url, res.status, refused);
                 continue;
             }
             let Ok(data) = res.json() else { continue };
@@ -767,7 +729,7 @@ impl OAuthUsage {
         None
     }
 
-    async fn probe_grok_generic(&self, headers: &[(String, String)], route: &RouteInfo) -> Option<Value> {
+    async fn probe_grok_generic(&self, headers: &[(String, String)], route: &RouteInfo, refused: &mut Option<u16>) -> Option<Value> {
         for url in [
             "https://cli-chat-proxy.grok.com/v1/billing",
             "https://api.x.ai/v1/usage",
@@ -778,6 +740,7 @@ impl OAuthUsage {
         ] {
             let Ok(res) = self.deps.http.get(url, headers, Duration::from_millis(2500)).await else { continue };
             if !res.ok() {
+                note_grok_refusal(url, res.status, refused);
                 continue;
             }
             let Ok(data) = res.json() else { continue };
@@ -805,11 +768,20 @@ impl OAuthUsage {
         let user_id = or_truthy(&auth, &["user_id", "userId", "principal_id", "principalId"]).and_then(Value::as_str).unwrap_or("").to_owned();
         self.deps.grok.warm().await;
         let cli = Self::grok_headers(&token, &user_id, self.deps.grok.headers());
-        if let Some(billing) = self.probe_grok_billing(&cli, route).await {
+        let mut refused = None;
+        if let Some(billing) = self.probe_grok_billing(&cli, route, &mut refused).await {
             return Ok(Some(billing));
         }
         let generic = Self::grok_headers(&token, &user_id, vec![header("User-Agent", "xai-grok-build/mixdog")]);
-        Ok(self.probe_grok_generic(&generic, route).await)
+        if let Some(usage) = self.probe_grok_generic(&generic, route, &mut refused).await {
+            return Ok(Some(usage));
+        }
+        // No probe gave a reading and the proxy refused the token: that is the measurement's answer, so the retry
+        // behind a refused credential runs.
+        match refused {
+            Some(status) => Err(status_error("grok-oauth usage", status)),
+            None => Ok(None),
+        }
     }
 
     // measurement
@@ -859,54 +831,9 @@ impl OAuthUsage {
         None
     }
 
-    /// Drops the cached readings of one provider account (its bare key and every model-qualified one) that the sign-in
-    /// `stamp` measured, memory and disk, so a withdrawn limit cannot be served again from the cache file. Readings of
-    /// another sign-in, or unstamped ones, stay. Returns whether any reading was dropped.
-    async fn retire_cached(&self, provider_only: &str, stamp: &str) -> bool {
-        let (bare, routes) = (provider_only.to_owned(), format!("{provider_only}\u{1}"));
-        let matches =
-            move |key: &str, reading: &Value| (key == bare || key.starts_with(&routes)) && reading.get(CREDENTIAL_STAMP).and_then(Value::as_str) == Some(stamp);
-        let dropped = std::sync::atomic::AtomicBool::new(false);
-        self.caches().memory.retain(|k, v| {
-            let hit = matches(k, v);
-            dropped.fetch_or(hit, std::sync::atomic::Ordering::Relaxed);
-            !hit
-        });
-        let on_disk = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let seen = on_disk.clone();
-        let stamp = stamp.to_owned();
-        let (bare, routes) = (provider_only.to_owned(), format!("{provider_only}\u{1}"));
-        // Dropped like Node's catch: display state never fails the measurement.
-        let _ = self
-            .update_disk_cache(move |cached| {
-                cached.retain(|k, v| {
-                    let hit = (k == &bare || k.starts_with(&routes)) && v.get(CREDENTIAL_STAMP).and_then(Value::as_str) == Some(stamp.as_str());
-                    seen.fetch_or(hit, std::sync::atomic::Ordering::Relaxed);
-                    !hit
-                })
-            })
-            .await;
-        dropped.load(std::sync::atomic::Ordering::Relaxed) || on_disk.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    fn cache_negative(&self, key: &str) {
-        let mut entry = Obj::new();
-        entry.insert("empty".into(), Value::Bool(true));
-        entry.insert("source".into(), "empty".into());
-        entry.insert("cachedAt".into(), Value::from(now_ms()));
-        self.caches().memory.insert(key.to_owned(), Value::Object(entry));
-    }
-
-    fn negative_fresh(&self, key: &str) -> bool {
-        let c = self.caches();
-        c.memory.get(key).is_some_and(|cur| {
-            cur.get("empty") == Some(&Value::Bool(true)) && ((now_ms() as f64) - num_or(cur.get("cachedAt"), 0.0)) < NEGATIVE_CACHE_TTL_MS as f64
-        })
-    }
-
     /// Caches the reading under the provider key and, when the route names a
     /// model, under the model-qualified key; returns the route's own view.
-    async fn cache_snapshot(&self, snapshot: &Value, route: &RouteInfo, provider: &str, provider_only: &str) -> Value {
+    fn cache_snapshot(&self, ticket: &cache::Ticket, snapshot: &Value, route: &RouteInfo, provider: &str, provider_only: &str) -> Value {
         let model = cache_model_id(Some(&Value::String(route.model.clone()))).or_else(|| cache_model_id(snapshot.get("model")));
         let mut provider_snapshot = snapshot.as_object().cloned().unwrap_or_default();
         let provider_name =
@@ -922,20 +849,8 @@ impl OAuthUsage {
             updates.push((format!("{provider_only}\u{1}{model}"), Value::Object(route_snapshot.clone())));
         }
         updates.push((provider_only.to_owned(), Value::Object(provider_snapshot)));
-        {
-            let mut c = self.caches();
-            for (k, v) in &updates {
-                c.memory.insert(k.clone(), v.clone());
-            }
-        }
-        // Dropped like Node's catch: usage display never affects the request path.
-        let _ = self
-            .update_disk_cache(move |routes| {
-                for (k, v) in updates {
-                    routes.insert(k, v);
-                }
-            })
-            .await;
+        // Published only while the measurement's ticket is current; a retirement since leaves nothing of it.
+        self.cache.put(ticket, updates);
         Value::Object(route_snapshot)
     }
 
@@ -970,8 +885,10 @@ impl OAuthUsage {
         }
     }
 
-    async fn record_account_usage(&self, provider: &str, account_id: &str, snapshot: &Value) {
-        let Some(windows) = snapshot.get("quotaWindows").and_then(Value::as_array) else { return };
+    /// Records the reading's windows on the account's roster row. False when the roster write was refused or failed: the
+    /// roster does not hold the reading.
+    async fn record_account_usage(&self, provider: &str, account_id: &str, snapshot: &Value) -> bool {
+        let Some(windows) = snapshot.get("quotaWindows").and_then(Value::as_array) else { return true };
         // Each stored window keeps the sign-in whose request measured it: after a restart that is what lets a withdrawn
         // meter retire the row's old usage and nothing another credential measured.
         let stamp = snapshot.get(CREDENTIAL_STAMP).and_then(Value::as_str).map(str::to_owned);
@@ -991,8 +908,12 @@ impl OAuthUsage {
                 binding: w.get("binding").and_then(Value::as_bool),
             })
             .collect();
-        if let Err(e) = self.deps.store.record_usage(provider, account_id, inputs).await {
-            self.log(&format!("Account usage could not be saved: {e}"));
+        match self.deps.store.record_usage(provider, account_id, inputs).await {
+            Ok(()) => true,
+            Err(e) => {
+                self.log(&format!("Account usage could not be saved: {e}"));
+                false
+            }
         }
     }
 
@@ -1010,50 +931,53 @@ impl OAuthUsage {
         let key = route_key(route);
         let provider_only = cache_provider_key(route);
         if !force {
-            let now = now_ms();
-            let cached = {
-                let c = self.caches();
-                fresh(c.memory.get(&key), LIVE_CACHE_TTL_MS, now).or_else(|| fresh(c.memory.get(&provider_only), LIVE_CACHE_TTL_MS, now))
-            };
+            // A reading this process measured within the live window; one the file seeded is not a measurement.
+            let cached = self.cache.measured(&key, &provider_only).await;
             if cached.is_some() {
                 return cached;
             }
-            if self.negative_fresh(&key) || self.negative_fresh(&provider_only) {
+            if self.cache.measured_nothing(&key, &provider_only).await {
                 return None;
             }
         }
-        let task = {
-            let mut c = self.caches();
-            if let Some(running) = c.inflight.get(&key) {
-                running.clone()
-            } else {
-                let this = Arc::clone(self);
-                let (route, key2, provider_only2) = (route.clone(), key.clone(), provider_only.clone());
-                let fut: BoxFuture<'static, Option<Value>> = async move {
-                    let out = this.measure_and_cache(&route, &provider, &provider_only2).await;
-                    this.caches().inflight.remove(&key2);
+        let (ticket, measuring) = {
+            let this = Arc::clone(self);
+            let (route, key2, provider_only2) = (route.clone(), key.clone(), provider_only.clone());
+            let start = move |ticket: cache::Ticket| -> BoxFuture<'static, Option<Value>> {
+                async move {
+                    let out = this.measure_and_cache(&route, &provider, &provider_only2, &ticket).await;
+                    this.cache.ended(&key2, &ticket);
                     out
                 }
-                .boxed();
-                let shared = fut.shared();
-                c.inflight.insert(key.clone(), shared.clone());
-                shared
-            }
+                .boxed()
+            };
+            self.cache.measuring(&key, &provider_only, start).await
         };
-        task.await
+        let answer = measuring.await;
+        // A measurement whose epoch a retirement ended serves nothing: the caller gets what is current for the route.
+        self.cache.resolved(&ticket, answer, &key)
     }
 
-    async fn measure_and_cache(&self, route: &RouteInfo, provider: &str, provider_only: &str) -> Option<Value> {
+    async fn measure_and_cache(&self, route: &RouteInfo, provider: &str, provider_only: &str, ticket: &cache::Ticket) -> Option<Value> {
         let key = route_key(route);
-        let snapshot = match self.measure_with_auth_retry(route).await {
+        let measured = self.measure_with_auth_retry(route).await;
+        // A retirement overtook the measurement: what it brings back, a reading, nothing or a failure, changes nothing
+        // in the cache, the roster or the history.
+        if !self.cache.current(ticket) {
+            return None;
+        }
+        let snapshot = match measured {
             Ok(s) => s,
             Err(e) => self.usage_after_failure(&e, provider, &route.account_id).await,
         };
         if let Some(none) = snapshot.as_ref().filter(|s| !contentful(s) && s.get("quotaWindows").is_some_and(Value::is_array))
             && let Some(stamp) = none.get(CREDENTIAL_STAMP).and_then(Value::as_str)
         {
-            self.retire_cached(provider_only, stamp).await;
-            if ACCOUNT_PROVIDERS.contains(&provider)
+            // The slot's readings that sign-in measured are gone from here on, so a withdrawn limit is not served
+            // again; the file's erase is its own task, which this measurement does not wait for. Not for a ticket
+            // overtaken meanwhile: then the roster keeps its usage too.
+            if self.cache.retire_stamped(ticket, stamp).is_some()
+                && ACCOUNT_PROVIDERS.contains(&provider)
                 && let Err(e) = self.deps.store.retire_usage(provider, &route.account_id, stamp).await
             {
                 self.log(&format!("Account usage could not be retired: {e}"));
@@ -1063,16 +987,20 @@ impl OAuthUsage {
         }
         let Some(snapshot) = snapshot.filter(contentful) else {
             if !crate::accounts::rotation::uses_bound_plan_evidence(provider) {
-                self.cache_negative(&key);
-                self.cache_negative(provider_only);
+                self.cache.put_negative(ticket, &[&key, provider_only]);
             }
             return None;
         };
-        if ACCOUNT_PROVIDERS.contains(&provider) {
-            self.record_account_usage(provider, &route.account_id, &snapshot).await;
+        // The roster is what the pool and the quota check choose over. A reading it does not hold is a failed reading:
+        // it is not returned as measured, and not cached, so the next call measures and records again.
+        if ACCOUNT_PROVIDERS.contains(&provider) && !self.record_account_usage(provider, &route.account_id, &snapshot).await {
+            return None;
+        }
+        if !self.cache.current(ticket) {
+            return None;
         }
         self.record_quota_history(provider, &route.account_id, &snapshot).await;
-        Some(self.cache_snapshot(&snapshot, route, provider, provider_only).await)
+        Some(self.cache_snapshot(ticket, &snapshot, route, provider, provider_only))
     }
 }
 
@@ -1082,6 +1010,14 @@ fn cursor_route_view(mut reading: Value, route: &RouteInfo) -> Value {
         reading["model"] = Value::String(model);
     }
     reading
+}
+
+/// Keeps the first 401 the Grok CLI proxy answered a usage probe with: the host the sign-in's token is for. Another
+/// host refusing that token, or any other status, says nothing about the sign-in.
+fn note_grok_refusal(url: &str, status: u16, refused: &mut Option<u16>) {
+    if status == 401 && url.starts_with("https://cli-chat-proxy.grok.com/") {
+        refused.get_or_insert(status);
+    }
 }
 
 fn grok_provider(route: &RouteInfo) -> String {
@@ -1099,5 +1035,6 @@ impl UsageProbe for Arc<OAuthUsage> {
     }
 }
 
+mod cache;
 #[cfg(test)]
 mod tests;
