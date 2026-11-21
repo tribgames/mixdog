@@ -54,8 +54,10 @@ const FRAMES: usize = 192;
 const SHARDS: usize = 64;
 /// Slots of one shard of the sampled-block table; a shard takes no new sample once 3/4 full.
 const SHARD_SLOTS: usize = 1 << 12;
-/// Distinct stacks the ledger keeps; a sample of a further stack is counted under "other stacks".
-const SITES: usize = 1 << 14;
+/// Distinct stacks the ledger keeps; a sample of a further stack is counted under "other stacks". A slot is never reused,
+/// and a core that ran 80 turns and 48 agent sessions filled 16,384 of them, after which its growth had no stack. Each
+/// claimed slot commits about 1.6 KiB of `.bss`: the report says how many are claimed.
+const SITES: usize = 1 << 16;
 /// Slots a site lookup probes before giving up.
 const SITE_PROBES: usize = 64;
 /// The site of a sample whose stack found no free slot.
@@ -81,6 +83,7 @@ thread_local! {
 /// What sampling recorded and what it had to leave out, for the report's header.
 struct Stats {
     samples: AtomicU64,
+    sites: AtomicU64,
     dropped_busy: AtomicU64,
     dropped_full: AtomicU64,
     skipped_loader: AtomicU64,
@@ -92,6 +95,7 @@ impl Stats {
     const fn new() -> Self {
         Self {
             samples: AtomicU64::new(0),
+            sites: AtomicU64::new(0),
             dropped_busy: AtomicU64::new(0),
             dropped_full: AtomicU64::new(0),
             skipped_loader: AtomicU64::new(0),
@@ -447,6 +451,7 @@ impl Ledger {
                         }
                         site.depth.store(frames.len(), Ordering::Relaxed);
                         site.ready.store(1, Ordering::Release);
+                        STATS.sites.fetch_add(1, Ordering::Relaxed);
                         return index as u32;
                     }
                     Err(winner) if winner == key => return index as u32,
@@ -581,8 +586,9 @@ fn render(elapsed_secs: u64, live: &[(Vec<String>, i64, i64)], previous: &mut Ta
     out.push('\n');
     let _ = writeln!(
         out,
-        "-- samples {} kept, {} dropped on a busy shard, {} dropped on a full shard, {} skipped under the loader lock",
+        "-- samples {} kept, {} of {SITES} stack slots claimed, {} dropped on a busy shard, {} dropped on a full shard, {} skipped under the loader lock",
         STATS.samples.load(Ordering::Relaxed),
+        STATS.sites.load(Ordering::Relaxed),
         STATS.dropped_busy.load(Ordering::Relaxed),
         STATS.dropped_full.load(Ordering::Relaxed),
         STATS.skipped_loader.load(Ordering::Relaxed),
@@ -778,6 +784,42 @@ fn append_reports(live_path: &std::path::Path, live: &str, made_path: &std::path
     append(live_path, live).and_then(|()| append(made_path, made))
 }
 
+/// Asks every heap of the process to give back the memory it holds free (the `.trim` marker), and says what private bytes
+/// did: whether private bytes above the live total are the allocator's own, and whether asking returns them.
+#[cfg(windows)]
+fn trim_heaps(elapsed_secs: u64) -> String {
+    use std::ffi::c_void;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetProcessHeaps(count: u32, heaps: *mut *mut c_void) -> u32;
+        fn HeapCompact(heap: *mut c_void, flags: u32) -> usize;
+        fn HeapSetInformation(heap: *mut c_void, class: u32, information: *const c_void, length: usize) -> i32;
+    }
+    let private = || process_bytes().map_or(0, |(private, _)| private as i64);
+    let before = private();
+    let mut heaps = [std::ptr::null_mut::<c_void>(); 64];
+    // SAFETY: the array holds 64 handles and the call writes at most that many.
+    let count = (unsafe { GetProcessHeaps(64, heaps.as_mut_ptr()) } as usize).min(64);
+    for heap in &heaps[..count] {
+        // SAFETY: a handle the process just listed; compaction changes no block's address or content.
+        unsafe { HeapCompact(*heap, 0) };
+    }
+    let compacted = private();
+    // HEAP_OPTIMIZE_RESOURCES_INFORMATION { Version: 1, Flags: 0 } under HeapOptimizeResources (3), for every heap.
+    let information = [1u32, 0u32];
+    // SAFETY: a null heap names all heaps of the process; the structure is the 8 bytes the class takes.
+    let optimized = unsafe { HeapSetInformation(std::ptr::null_mut(), 3, information.as_ptr().cast(), 8) };
+    let after = private();
+    format!(
+        "== t+{elapsed_secs}s trim of {count} heaps: live {} MiB; private {} MiB before, {} MiB after HeapCompact, {} MiB after HeapOptimizeResources (accepted: {})\n",
+        mib(LIVE_BYTES.load(Ordering::Relaxed).max(0) as i64),
+        mib(before),
+        mib(compacted),
+        mib(after),
+        optimized != 0,
+    )
+}
+
 /// Starts sampling and the report thread (`serve` only).
 pub fn enable_from_env() {
     let Some(path) = report_path(std::env::var_os("MIXDOG_ALLOC_PROFILE"), std::env::var_os("USERPROFILE")) else {
@@ -812,6 +854,10 @@ pub fn enable_from_env() {
             let second = ticks % SPIKE_POLLS_PER_SECOND == 0;
             if second {
                 waited += 1;
+            }
+            if second && std::fs::remove_file(sibling(&path, ".trim")).is_ok() {
+                let line = trim_heaps(started.elapsed().as_secs());
+                let _ = append_reports(&path, &line, &made_path, "");
             }
             let asked = second && std::fs::remove_file(&request).is_ok();
             if asked || waited >= every || spike {
