@@ -68,13 +68,12 @@ impl IndexDriver {
 
 /// `(row_count, newest file size)` per session as the target reader folds it.
 fn expected(cx: &ItemContext<'_>, sessions: &[String]) -> Result<BTreeMap<String, (u64, u64)>> {
-    let mut out = BTreeMap::new();
-    for id in sessions {
+    let counts = crate::framework::map_on_threads(cx.workers, sessions, |id| {
         let dir = cx.roots.data.join("sessions").join(id);
         let folded = target::read_session(cx, &dir).map_err(|detail| Blocked::journal(format!("{id}: {detail}")))?;
-        out.insert(id.clone(), (folded.rows.len() as u64, folded.newest_file_size));
-    }
-    Ok(out)
+        Ok((folded.rows.len() as u64, folded.newest_file_size))
+    })?;
+    Ok(sessions.iter().cloned().zip(counts).collect())
 }
 
 fn projected(db: &Path) -> Result<BTreeMap<String, (u64, u64)>> {

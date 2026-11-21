@@ -8,7 +8,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -20,6 +19,7 @@ use mixdog_store::schema::migration::CompleteKinds;
 use mixdog_store::schema::migration::Contract;
 use mixdog_store::schema::migration::Counts;
 use mixdog_store::schema::migration::ItemKey;
+use mixdog_store::schema::migration::ItemKind;
 use mixdog_store::schema::migration::ItemState;
 use mixdog_store::schema::migration::JOURNAL_PATH;
 use mixdog_store::schema::migration::JournalRecord;
@@ -57,6 +57,8 @@ use crate::framework::MigrationRoots;
 use crate::framework::Staged;
 use crate::framework::Verdict;
 use crate::framework::Wave;
+use crate::framework::map_on_threads;
+use crate::framework::on_threads;
 use crate::journal::Journal;
 use crate::plan::PlanSink;
 use crate::plan::escape_key;
@@ -223,6 +225,7 @@ impl Back {
             manifest: &self.manifest,
             manifest_sha256: &self.manifest_sha256,
             fault: self.migrator.options.fault.as_ref(),
+            workers: self.migrator.options.workers.max(1),
             blobs: &self.blobs,
             quarantine_reasons: &self.quarantine_reasons,
             journal: &self.journal,
@@ -235,7 +238,8 @@ impl Back {
         self.waiting.clone()
     }
 
-    pub(crate) fn has_pending_home_history(&self) -> bool {
+    /// Whether a session left is an agent home's history, whose conversion waits for a serving core's bot classification.
+    pub fn has_pending_home_history(&self) -> bool {
         self.waiting.pending().iter().any(|id| !mixdog_store::agent_mode::agent_id_of_home_session(id).is_empty())
     }
 
@@ -364,6 +368,7 @@ struct Shared<'a> {
     manifest: &'a Manifest,
     manifest_sha256: &'a str,
     fault: Option<&'a FaultHook>,
+    workers: usize,
     blobs: &'a BlobStatuses,
     quarantine_reasons: &'a QuarantineReasons,
     journal: &'a Mutex<Journal>,
@@ -372,7 +377,15 @@ struct Shared<'a> {
 
 impl Shared<'_> {
     fn cx<'b>(&'b self, states: &'b BTreeMap<String, ItemState>) -> ItemContext<'b> {
-        ItemContext { roots: self.roots, manifest: self.manifest, manifest_sha256: self.manifest_sha256, fault: self.fault, blobs: self.blobs, states }
+        ItemContext {
+            roots: self.roots,
+            manifest: self.manifest,
+            manifest_sha256: self.manifest_sha256,
+            fault: self.fault,
+            workers: self.workers,
+            blobs: self.blobs,
+            states,
+        }
     }
 
     fn fault(&self, point: &str) -> Result<()> {
@@ -420,7 +433,7 @@ impl Migrator {
     /// Runs (or resumes) the part of the migration a core waits for before it serves: the plan, and every wave before the
     /// sessions (settings, stores, the ledger, the profile's tables). What is left is the returned [`Back`].
     pub fn front(&self) -> Result<Front> {
-        crate::legacy_blobs::import(&self.roots.data, &|point| self.fault(point))?;
+        crate::legacy_blobs::import_on(&self.roots.data, &|point| self.fault(point), self.options.workers.max(1))?;
         let result = self.front_inner()?;
         crate::desktop_profile::connection_adoption::run_with(&self.roots.data, &|point| self.fault(point))?;
         Ok(result)
@@ -695,36 +708,15 @@ impl Migrator {
         let cx = shared.cx(&states);
         let workers = if wave == Wave::Sessions { self.options.workers.max(1) } else { 1 };
         let waiting = shared.waiting.filter(|_| wave == Wave::Sessions);
-        if workers == 1 && waiting.is_none() {
-            for item in items {
-                self.settle(shared, &cx, item)?;
-            }
-            return Ok(());
-        }
         let next = AtomicUsize::new(0);
-        let stop = AtomicBool::new(false);
-        let failure: Mutex<Option<Blocked>> = Mutex::new(None);
-        std::thread::scope(|scope| {
-            for _ in 0..workers {
-                scope.spawn(|| {
-                    while !stop.load(Ordering::Relaxed) {
-                        let item = match waiting {
-                            Some(waiting) => self.take(shared, waiting, items, &next),
-                            None => items.get(next.fetch_add(1, Ordering::Relaxed)).copied(),
-                        };
-                        let Some(item) = item else { break };
-                        if let Err(e) = self.settle(shared, &cx, item) {
-                            stop.store(true, Ordering::Relaxed);
-                            failure.lock().expect("failure").get_or_insert(e);
-                        }
-                    }
-                });
-            }
-        });
-        match failure.into_inner().expect("failure") {
-            Some(e) => Err(e),
-            None => Ok(()),
-        }
+        on_threads(
+            workers,
+            || match waiting {
+                Some(waiting) => self.take(shared, waiting, items, &next),
+                None => items.get(next.fetch_add(1, Ordering::Relaxed)).copied(),
+            },
+            |item| self.settle(shared, &cx, item),
+        )
     }
 
     /// Writes `reason.json`, withdraws a published target, then journals `quarantined`.
@@ -848,51 +840,61 @@ impl Migrator {
     fn dispose(&self, shared: &Shared<'_>) -> Result<()> {
         let states = self.states(shared);
         let cx = shared.cx(&states);
-        for item in &shared.manifest.items {
-            let k = item.key.as_str();
-            let progress = shared.journal.lock().expect("journal").progress(k).cloned().ok_or_else(|| Blocked::journal(format!("{k} not journaled")))?;
-            let driver = self.driver(item)?;
-            match progress.state {
-                ItemState::Disposed => continue,
-                ItemState::Verified => {
-                    if driver.keeps_sources(item) || crate::stores::keeps_catalog_item(item, &self.roots.data) {
-                        // The sources are the target, or a database that is not Mixdog's.
-                    } else if self.core_serves() {
-                        for source in &item.sources {
-                            shared.fault(&format!("delete:{k}:before"))?;
-                            durable::remove_if_planned(&cx.source_path(source)?, source.size, &source.sha256)?;
-                        }
-                    } else {
-                        for path in self.rehash(&cx, item)? {
-                            shared.fault(&format!("delete:{k}:before"))?;
-                            durable::remove_file(&path)?;
-                        }
+        // A session item shares no source and no quarantine folder with any other item, so the sessions (the bulk of the
+        // bytes hashed again here) are disposed of side by side; the rest, which includes the catalog database and its
+        // journal files, one after another in key order.
+        let (sessions, rest): (Vec<&ManifestItem>, Vec<&ManifestItem>) = shared.manifest.items.iter().partition(|item| item.kind == ItemKind::Session);
+        for item in rest {
+            self.dispose_item(shared, &cx, item)?;
+        }
+        let next = AtomicUsize::new(0);
+        on_threads(self.options.workers.max(1), || sessions.get(next.fetch_add(1, Ordering::Relaxed)).copied(), |item| self.dispose_item(shared, &cx, item))?;
+        self.dispose_shared_files(shared, &cx)
+    }
+
+    fn dispose_item(&self, shared: &Shared<'_>, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<()> {
+        let k = item.key.as_str();
+        let progress = shared.journal.lock().expect("journal").progress(k).cloned().ok_or_else(|| Blocked::journal(format!("{k} not journaled")))?;
+        let driver = self.driver(item)?;
+        match progress.state {
+            ItemState::Disposed => return Ok(()),
+            ItemState::Verified => {
+                if driver.keeps_sources(item) || crate::stores::keeps_catalog_item(item, &self.roots.data) {
+                    // The sources are the target, or a database that is not Mixdog's.
+                } else if self.core_serves() {
+                    for source in &item.sources {
+                        shared.fault(&format!("delete:{k}:before"))?;
+                        durable::remove_if_planned(&cx.source_path(source)?, source.size, &source.sha256)?;
                     }
-                }
-                ItemState::Quarantined => {
-                    let code = progress.quarantined.ok_or_else(|| Blocked::journal(format!("{k} without code")))?;
-                    let dir = quarantine_dir(&self.roots.data, code, k);
-                    let names = quarantine_names(item);
-                    for (source, name) in item.sources.iter().zip(&names) {
-                        self.quarantine_source(shared, &cx, item, source, name, &dir)?;
+                } else {
+                    for path in self.rehash(cx, item)? {
+                        shared.fault(&format!("delete:{k}:before"))?;
+                        durable::remove_file(&path)?;
                     }
-                    // Shared files this item read (pending entries, worker rows) travel
-                    // with it as copies, so the export holds everything it was made of.
-                    for file in cx.shared_for(k) {
-                        let path = cx.source_path(file)?;
-                        if let Some(bytes) = durable::read_optional(&path)? {
-                            let name = format!("shared-{}", file.path.replace('/', "%2F"));
-                            durable::publish_file(&dir.join(name), &bytes)?;
-                        }
-                    }
-                }
-                other => {
-                    return Err(Blocked::journal(format!("{k} is {other:?} at disposal")));
                 }
             }
-            shared.record(&format!("disposed:{k}"), JournalRecord::Disposed(KeyEntry { key: key(item) }))?;
+            ItemState::Quarantined => {
+                let code = progress.quarantined.ok_or_else(|| Blocked::journal(format!("{k} without code")))?;
+                let dir = quarantine_dir(&self.roots.data, code, k);
+                let names = quarantine_names(item);
+                for (source, name) in item.sources.iter().zip(&names) {
+                    self.quarantine_source(shared, cx, item, source, name, &dir)?;
+                }
+                // Shared files this item read (pending entries, worker rows) travel
+                // with it as copies, so the export holds everything it was made of.
+                for file in cx.shared_for(k) {
+                    let path = cx.source_path(file)?;
+                    if let Some(bytes) = durable::read_optional(&path)? {
+                        let name = format!("shared-{}", file.path.replace('/', "%2F"));
+                        durable::publish_file(&dir.join(name), &bytes)?;
+                    }
+                }
+            }
+            other => {
+                return Err(Blocked::journal(format!("{k} is {other:?} at disposal")));
+            }
         }
-        self.dispose_shared_files(shared, &cx)
+        shared.record(&format!("disposed:{k}"), JournalRecord::Disposed(KeyEntry { key: key(item) }))
     }
 
     fn dispose_shared_files(&self, shared: &Shared<'_>, cx: &ItemContext<'_>) -> Result<()> {
@@ -999,6 +1001,18 @@ impl Migrator {
         let cx = shared.cx(&states);
         let zero = Counts { verified: 0, quarantined_expected: 0, quarantined_unexpected: 0, retired: 0, retained: 0, dangling: 0 };
         let mut kinds = CompleteKinds { data: zero, desktop_profile: zero };
+        // Counting a session's dangling references reads it whole, so the verified items are counted side by side first.
+        let verified: Vec<&ManifestItem> = {
+            let journal = shared.journal.lock().expect("journal");
+            shared
+                .manifest
+                .items
+                .iter()
+                .filter(|item| item.contract != Contract::Retire && journal.progress(item.key.as_str()).is_some_and(|p| p.quarantined.is_none()))
+                .collect()
+        };
+        let dangling = map_on_threads(self.options.workers.max(1), &verified, |item| self.driver(item)?.dangling(&cx, item))?;
+        let dangling: BTreeMap<&str, u64> = verified.iter().map(|item| item.key.as_str()).zip(dangling).collect();
         let journal = shared.journal.lock().expect("journal");
         for item in &shared.manifest.items {
             let counts = match item.group {
@@ -1013,7 +1027,7 @@ impl Migrator {
                 None if item.contract == Contract::Retire => counts.retired += 1,
                 None => {
                     counts.verified += 1;
-                    counts.dangling += self.driver(item)?.dangling(&cx, item)?;
+                    counts.dangling += dangling.get(item.key.as_str()).copied().unwrap_or_default();
                 }
             }
         }

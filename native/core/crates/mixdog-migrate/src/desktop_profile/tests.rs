@@ -630,7 +630,15 @@ impl Run {
     }
 
     fn cx(&self) -> ItemContext<'_> {
-        ItemContext { roots: &self.roots, manifest: &self.manifest, manifest_sha256: MANIFEST_SHA, fault: None, blobs: &self.blobs, states: &self.states }
+        ItemContext {
+            roots: &self.roots,
+            manifest: &self.manifest,
+            manifest_sha256: MANIFEST_SHA,
+            fault: None,
+            workers: 1,
+            blobs: &self.blobs,
+            states: &self.states,
+        }
     }
 
     fn items(&self) -> impl Iterator<Item = &ManifestItem> {

@@ -344,7 +344,7 @@ fn read_migrated_session(roots: &MigrationRoots, complete: &mixdog_store::schema
     let states = BTreeMap::new();
     let blobs = BlobStatuses::default();
     let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
-    let cx = ItemContext { roots, manifest: &manifest, manifest_sha256: &complete.manifest_sha256, fault: None, blobs: &blobs, states: &states };
+    let cx = ItemContext { roots, manifest: &manifest, manifest_sha256: &complete.manifest_sha256, fault: None, workers: 1, blobs: &blobs, states: &states };
     crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id)).unwrap()
 }
 
@@ -712,6 +712,198 @@ fn resume_after_each_crash(points: &[String], worker: usize) {
     }
 }
 
+/// The data dir of the disposal kill tests: the fixture and a session whose record does not parse, so a quarantine
+/// move is disposed of beside the removals.
+fn disposal_fixture(base: &Path) -> MigrationRoots {
+    let _ = std::fs::remove_dir_all(base);
+    let roots = fixture(base);
+    write(&roots.data, "sessions/sess_q.json", br#"{"id":"sess_q","messages":["#);
+    roots
+}
+
+const DISPOSAL_KILLED: i32 = 86;
+
+/// A disposal point of a session item: its key, and the point with the number of times the run met it before (a session
+/// removes one source after another under the same point name).
+fn disposal_point(point: &str, seen: &mut BTreeMap<String, usize>) -> Option<(String, String)> {
+    let disposal = ["delete:", "journal:disposed:", "move:", "quarantine-copy:"].iter().any(|p| point.starts_with(p));
+    let at = point.find("session/").filter(|_| disposal)?;
+    let key = point[at..].split(':').next()?.to_owned();
+    let n = seen.entry(point.to_owned()).or_default();
+    *n += 1;
+    Some((key, format!("{point}#{n}")))
+}
+
+fn disposal_options(serving: bool, fault: Option<FaultHook>) -> MigrateOptions {
+    MigrateOptions { workers: 2, fault, verified: serving.then(|| Arc::new(|_: &str| {}) as VerifiedHook) }
+}
+
+/// The child of the disposal kill test (a no-op unless the parent set `DISPOSAL_KILL_BASE`): two converters run the
+/// migration; the one that meets `DISPOSAL_KILL_FIRST` waits there for the other to meet `DISPOSAL_KILL_SECOND` (or the
+/// other way round), and the process exits with both of them standing at their points.
+#[test]
+fn disposal_kill_child() {
+    let Some(base) = std::env::var_os("DISPOSAL_KILL_BASE") else { return };
+    mixdog_store::fsio::elide_syncs();
+    let wanted = [std::env::var("DISPOSAL_KILL_FIRST").unwrap(), std::env::var("DISPOSAL_KILL_SECOND").unwrap()];
+    let serving = std::env::var_os("DISPOSAL_KILL_SERVING").is_some();
+    let met = Arc::new((Mutex::new((BTreeMap::<String, usize>::new(), [false; 2])), std::sync::Condvar::new()));
+    let hook: FaultHook = Arc::new(move |point: &str| {
+        let (state, arrived) = &*met;
+        let mut guard = state.lock().unwrap();
+        let Some((_, labelled)) = disposal_point(point, &mut guard.0) else { return Ok(()) };
+        let Some(which) = wanted.iter().position(|w| *w == labelled) else { return Ok(()) };
+        guard.1[which] = true;
+        if guard.1 == [true; 2] {
+            std::process::exit(DISPOSAL_KILLED);
+        }
+        arrived.notify_all();
+        let (_guard, waited) = arrived.wait_timeout_while(guard, std::time::Duration::from_secs(60), |g| g.1 != [true; 2]).unwrap();
+        assert!(!waited.timed_out(), "the other converter never reached its point");
+        Ok(())
+    });
+    let roots = MigrationRoots { data: Path::new(&base).join("data"), home: Path::new(&base).join("home"), profile: None };
+    Migrator::new(roots, drivers(), disposal_options(serving, Some(hook))).run().expect("the run the child was not stopped in");
+}
+
+/// With several converters the sessions are disposed of side by side, by a one-shot run and behind a serving core alike.
+/// The process is killed with two converters standing at disposal points of two sessions, every point of one session
+/// against the first and the last point of the next one (each removal, quarantine move and journal frame told apart),
+/// and the resume ends in the tree of the uninterrupted run; for the one-shot run that is the tree of one converter.
+/// The pairs are spread over `DISPOSAL_PARTS` tests per run kind (pair `n` in part `n % DISPOSAL_PARTS`), each in a work
+/// directory of its own with its own uninterrupted run to compare with, so each test stays a fraction of nextest's limit.
+fn disposal_kills(serving: bool, part: usize) {
+    mixdog_store::fsio::elide_syncs();
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("run");
+    let one = (!serving && part == 0).then(|| {
+        let roots = disposal_fixture(&base);
+        migrator(&roots, None).run().unwrap();
+        tree_digest(&roots)
+    });
+
+    {
+        let roots = disposal_fixture(&base);
+        let met = Arc::new(Mutex::new((BTreeMap::<String, usize>::new(), Vec::<(String, String)>::new())));
+        let record = met.clone();
+        let hook: FaultHook = Arc::new(move |point: &str| {
+            let mut guard = record.lock().unwrap();
+            if let Some(found) = disposal_point(point, &mut guard.0) {
+                guard.1.push(found);
+            }
+            Ok(())
+        });
+        Migrator::new(roots.clone(), drivers(), disposal_options(serving, Some(hook))).run().unwrap();
+        let want = tree_digest(&roots);
+        if let Some(one) = &one {
+            assert_eq!(&want, one, "an uninterrupted run with two converters");
+        }
+        let mut by_session: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (key, labelled) in met.lock().unwrap().1.clone() {
+            by_session.entry(key).or_default().push(labelled);
+        }
+        assert!(by_session.len() > 2, "the fixture disposes of {:?}", by_session.keys());
+        assert!(by_session.values().flatten().any(|p| p.starts_with("move:")), "a quarantine move is among the points: {by_session:?}");
+        assert!(by_session.values().flatten().any(|p| p.ends_with("#2")), "a session removes more than one source: {by_session:?}");
+
+        // Every point of each session against the first and the last of the next one; the last session (the quarantined one,
+        // whose move or copy points lie inside it) against the first and the last of the one before, so its every point is
+        // a kill point too.
+        let sessions: Vec<&Vec<String>> = by_session.values().collect();
+        let ends = |points: &Vec<String>| [points[0].clone(), points[points.len() - 1].clone()];
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        for pair in sessions.windows(2) {
+            pairs.extend(pair[0].iter().flat_map(|a| ends(pair[1]).map(|b| (a.clone(), b))));
+        }
+        let (before, last) = (sessions[sessions.len() - 2], sessions[sessions.len() - 1]);
+        // The ends of the last session against the ends of the one before are among the pairs above already.
+        let last_ends = ends(last);
+        pairs.extend(last.iter().filter(|a| !last_ends.contains(a)).flat_map(|a| ends(before).map(|b| (a.clone(), b))));
+        let killed_at = |prefix: &str| pairs.iter().any(|(a, b)| a.starts_with(prefix) || b.starts_with(prefix));
+        assert!(killed_at("move:"), "no kill at a quarantine move (serving {serving}): {pairs:?}");
+        if serving {
+            assert!(killed_at("quarantine-copy:"), "no kill at a quarantine copy behind a serving core: {pairs:?}");
+        }
+        assert!(pairs.len() > DISPOSAL_PARTS, "{} pairs for {DISPOSAL_PARTS} parts", pairs.len());
+        {
+            for (a, b) in pairs.iter().skip(part).step_by(DISPOSAL_PARTS) {
+                {
+                    disposal_fixture(&base);
+                    let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+                    child
+                        .args(["--exact", "run::tests::disposal_kill_child", "--test-threads=1"])
+                        .env("DISPOSAL_KILL_BASE", &base)
+                        .env("DISPOSAL_KILL_FIRST", a)
+                        .env("DISPOSAL_KILL_SECOND", b)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null());
+                    if serving {
+                        child.env("DISPOSAL_KILL_SERVING", "1");
+                    }
+                    assert_eq!(child.status().unwrap().code(), Some(DISPOSAL_KILLED), "{a} with {b} (serving {serving}) was not reached");
+                    Migrator::new(roots.clone(), drivers(), disposal_options(serving, None))
+                        .run()
+                        .unwrap_or_else(|e| panic!("resume after a kill at {a} with {b} (serving {serving}): {e}"));
+                    let got = tree_digest(&roots);
+                    let diff: Vec<_> = want.keys().chain(got.keys()).filter(|k| want.get(*k) != got.get(*k)).collect();
+                    assert!(diff.is_empty(), "after a kill at {a} with {b} (serving {serving}): {diff:?}");
+                }
+            }
+        }
+    }
+}
+
+const DISPOSAL_PARTS: usize = 6;
+
+#[test]
+fn a_disposal_on_two_threads_resumes_from_each_pair_of_kill_points_to_the_same_tree_part_0() {
+    disposal_kills(false, 0);
+}
+#[test]
+fn a_disposal_on_two_threads_resumes_from_each_pair_of_kill_points_to_the_same_tree_part_1() {
+    disposal_kills(false, 1);
+}
+#[test]
+fn a_disposal_on_two_threads_resumes_from_each_pair_of_kill_points_to_the_same_tree_part_2() {
+    disposal_kills(false, 2);
+}
+#[test]
+fn a_disposal_on_two_threads_resumes_from_each_pair_of_kill_points_to_the_same_tree_part_3() {
+    disposal_kills(false, 3);
+}
+#[test]
+fn a_disposal_on_two_threads_resumes_from_each_pair_of_kill_points_to_the_same_tree_part_4() {
+    disposal_kills(false, 4);
+}
+#[test]
+fn a_disposal_on_two_threads_resumes_from_each_pair_of_kill_points_to_the_same_tree_part_5() {
+    disposal_kills(false, 5);
+}
+#[test]
+fn a_disposal_behind_a_serving_core_on_two_threads_resumes_from_each_pair_of_kill_points_to_the_same_tree_part_0() {
+    disposal_kills(true, 0);
+}
+#[test]
+fn a_disposal_behind_a_serving_core_on_two_threads_resumes_from_each_pair_of_kill_points_to_the_same_tree_part_1() {
+    disposal_kills(true, 1);
+}
+#[test]
+fn a_disposal_behind_a_serving_core_on_two_threads_resumes_from_each_pair_of_kill_points_to_the_same_tree_part_2() {
+    disposal_kills(true, 2);
+}
+#[test]
+fn a_disposal_behind_a_serving_core_on_two_threads_resumes_from_each_pair_of_kill_points_to_the_same_tree_part_3() {
+    disposal_kills(true, 3);
+}
+#[test]
+fn a_disposal_behind_a_serving_core_on_two_threads_resumes_from_each_pair_of_kill_points_to_the_same_tree_part_4() {
+    disposal_kills(true, 4);
+}
+#[test]
+fn a_disposal_behind_a_serving_core_on_two_threads_resumes_from_each_pair_of_kill_points_to_the_same_tree_part_5() {
+    disposal_kills(true, 5);
+}
+
 #[test]
 fn a_rename_failure_blocks_and_retry_succeeds() {
     let dir = tempfile::tempdir().unwrap();
@@ -761,6 +953,105 @@ fn a_legacy_unlink_or_replacement_after_the_migration_leaves_the_core_bytes_read
     std::fs::write(&tmp, b"other bytes").unwrap();
     std::fs::rename(&tmp, &legacy).unwrap();
     assert_eq!(std::fs::read(&core).unwrap(), b"image bytes", "after a new file renamed over the legacy name");
+}
+
+/// The legacy blobs of many shards taken in on four threads leave the store one thread leaves, and so does a run cut at
+/// any of its installs (the other threads stopped wherever they were) and resumed.
+#[test]
+fn legacy_blobs_taken_in_on_several_threads_leave_the_store_one_thread_leaves() {
+    let store = |roots: &MigrationRoots| {
+        let mut files: Vec<(String, String)> = durable::walk_files(&roots.data.join(mixdog_store::schema::blob::BLOB_DIR))
+            .unwrap()
+            .into_iter()
+            .map(|rel| {
+                let sha = durable::hash_file(&roots.data.join(mixdog_store::schema::blob::BLOB_DIR).join(&rel)).unwrap().1;
+                (rel, sha)
+            })
+            .collect();
+        files.sort();
+        (files, roots.data.join(mixdog_store::schema::blob::LEGACY_BLOBS_IMPORTED).exists())
+    };
+    let legacy = |root: &Path| {
+        let roots = fixture(root);
+        for n in 0..64u32 {
+            let bytes = format!("blob {n}");
+            let hex = durable::sha256_hex(bytes.as_bytes());
+            write(&roots.data, &format!("{}/{}/{hex}", mixdog_store::schema::blob::LEGACY_BLOB_DIR, &hex[..2]), bytes.as_bytes());
+        }
+        roots
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let one = legacy(&dir.path().join("one"));
+    crate::legacy_blobs::import(&one.data, &|_| Ok(())).unwrap();
+    let want = store(&one);
+    assert!(want.1 && want.0.len() > 60, "{} blobs", want.0.len());
+
+    let side = legacy(&dir.path().join("four"));
+    crate::legacy_blobs::import_on(&side.data, &|_| Ok(()), 4).unwrap();
+    assert_eq!(store(&side), want);
+
+    let stages = |roots: &MigrationRoots| {
+        store(roots).0.iter().filter(|(rel, _)| rel.rsplit('/').next().is_some_and(|name| name.starts_with(".mixdog-legacy-blob-stage-"))).count()
+    };
+    // Files of a temp's look that the importer did not make: another writer's temp, and one a stage name is a prefix of.
+    let shard = &durable::sha256_hex(b"blob 0")[..2];
+    let foreign = [format!("{shard}/.mixdog-tmp-0123456789abcdef"), format!("{shard}/.mixdog-legacy-blob-stage-not-ours")];
+    let mut want_with_foreign = want.clone();
+    want_with_foreign.0.extend(foreign.iter().map(|rel| (rel.clone(), durable::sha256_hex(rel.as_bytes()))));
+    want_with_foreign.0.sort();
+    for cut_at in [0, 7, 31] {
+        let roots = legacy(&dir.path().join(format!("cut-{cut_at}")));
+        for rel in &foreign {
+            write(&roots.data.join(mixdog_store::schema::blob::BLOB_DIR), rel, rel.as_bytes());
+        }
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "run::tests::blob_import_kill_child", "--test-threads=1"])
+            .env("BLOB_KILL_DATA", &roots.data)
+            .env("BLOB_KILL_AT", cut_at.to_string())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(BLOB_IMPORT_KILLED), "the child was not killed at install {cut_at}");
+        assert!(!store(&roots).1, "no marker after a killed run");
+        assert!(stages(&roots) >= 3, "the killed run left its threads' staged links: {:?}", store(&roots).0);
+        crate::legacy_blobs::import_on(&roots.data, &|_| Ok(()), 4).unwrap();
+        assert_eq!(store(&roots), want_with_foreign, "resumed after a kill at install {cut_at}");
+    }
+}
+
+const BLOB_IMPORT_KILLED: i32 = 87;
+
+/// The child of the blob import kill test (a no-op unless the parent set `BLOB_KILL_DATA`): four threads take the legacy
+/// blobs in; from install `BLOB_KILL_AT` on, each thread that reaches an install (its link or copy staged) waits there,
+/// and the process exits once all four stand at one.
+#[test]
+fn blob_import_kill_child() {
+    let Some(data) = std::env::var_os("BLOB_KILL_DATA") else { return };
+    mixdog_store::fsio::elide_syncs();
+    let from: usize = std::env::var("BLOB_KILL_AT").unwrap().parse().unwrap();
+    let installs = AtomicUsize::new(0);
+    let standing = (Mutex::new(0usize), std::sync::Condvar::new());
+    crate::legacy_blobs::import_on(
+        Path::new(&data),
+        &|point| {
+            if point != "legacy-blobs:install" || installs.fetch_add(1, Ordering::SeqCst) < from {
+                return Ok(());
+            }
+            let (count, arrived) = &standing;
+            let mut count = count.lock().unwrap();
+            *count += 1;
+            if *count == 4 {
+                std::process::exit(BLOB_IMPORT_KILLED);
+            }
+            arrived.notify_all();
+            let (_count, waited) = arrived.wait_timeout_while(count, std::time::Duration::from_secs(60), |count| *count < 4).unwrap();
+            assert!(!waited.timed_out(), "the other threads never reached an install");
+            Ok(())
+        },
+        4,
+    )
+    .expect("the import the child was not stopped in");
 }
 
 #[test]

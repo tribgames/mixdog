@@ -281,7 +281,7 @@ pub fn read_sessions(roots: &MigrationRoots, manifest_sha256: &str) -> Result<BT
     let manifest: Manifest = serde_json::from_slice(&manifest).map_err(|e| format!("{MANIFEST_PATH}: {e}"))?;
     let states = BTreeMap::new();
     let blobs = BlobStatuses::default();
-    let cx = ItemContext { roots, manifest: &manifest, manifest_sha256, fault: None, blobs: &blobs, states: &states };
+    let cx = ItemContext { roots, manifest: &manifest, manifest_sha256, fault: None, workers: 1, blobs: &blobs, states: &states };
     let sessions = roots.data.join("sessions");
     let mut out = BTreeMap::new();
     for (id, is_dir) in durable::list_dir(&sessions).map_err(|e| e.to_string())? {

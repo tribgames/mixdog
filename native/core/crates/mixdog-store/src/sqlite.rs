@@ -3370,7 +3370,8 @@ fn project_into(data: &Path, db: &Path, sessions: &[String], ddl: &str, progress
         }
     }
     let labels = PlaceholderLabels::default();
-    for (head, damage) in heads {
+    for (held, damage) in heads {
+        let head = held.head()?;
         let tx = conn.transaction().map_err(|e| e.to_string())?;
         upsert(&tx, &head, DirtyMark::Clear, &labels, None).map_err(|e| e.to_string())?;
         if let Some(damage) = damage {
@@ -3420,7 +3421,7 @@ fn project_sessions(
     data: &Path,
     sessions: &[String],
     progress: Option<&RebuildProgress>,
-) -> Result<Vec<(CatalogHead, Option<String>)>, String> {
+) -> Result<Vec<(HeldHead, Option<String>)>, String> {
     if let Some(progress) = progress {
         progress.begin(sessions.len());
     }
@@ -3457,7 +3458,7 @@ fn project_sessions(
                     Projected::Started(head) => ProjectTo::started(&mut *conn, &head),
                     Projected::Frames(session, frames) => ProjectTo::frames(&mut *conn, &session, frames),
                     Projected::Read(head, damage) => {
-                        heads.push((head, damage));
+                        heads.push((HeldHead::of(&head), damage));
                         break;
                     }
                 }
@@ -3466,6 +3467,74 @@ fn project_sessions(
         }
         Ok(heads)
     })
+}
+
+/// A session's row input, held from its read to the rebuild's last step: the header as JSON text. Decoded, the headers of
+/// a large profile (tool catalogs of hundreds of KB in each) were most of the 6.2 GiB a rebuild of 2,829 sessions held.
+struct HeldHead {
+    session: String,
+    log_id: String,
+    base_session: Option<String>,
+    header: Vec<u8>,
+}
+
+impl HeldHead {
+    fn of(head: &CatalogHead) -> HeldHead {
+        HeldHead {
+            session: head.session.clone(),
+            log_id: head.log_id.clone(),
+            base_session: head.base_session.clone(),
+            header: serde_json::to_vec(&head.header).expect("a header encodes"),
+        }
+    }
+
+    /// The head as it was read: a JSON value decodes back to itself. The header was folded from records each read under
+    /// the parser's nesting limit, and holds them deeper than any one of them (a stopped run's body under `owedStops`), so
+    /// it is decoded with no limit of its own.
+    fn head(self) -> Result<CatalogHead, String> {
+        use serde::Deserialize as _;
+        let mut de = serde_json::Deserializer::from_slice(&self.header);
+        de.disable_recursion_limit();
+        let header = serde_json::Map::<String, serde_json::Value>::deserialize(&mut de)
+            .and_then(|header| de.end().map(|()| header))
+            .map_err(|e| format!("{}: the held header: {e}", self.session))?;
+        Ok(CatalogHead { session: self.session, log_id: self.log_id, base_session: self.base_session, header })
+    }
+}
+
+#[cfg(test)]
+mod held_head_tests {
+    use super::*;
+
+    /// A held header decodes to the header that was read: key order, numbers and escapes included.
+    #[test]
+    fn a_held_head_decodes_to_the_head_it_holds() {
+        let header = serde_json::json!({"z": 1, "a": [0.1, 1e300, -0.0, 18446744073709551615u64, -9007199254740993i64], "\"q\"": "é\u{1F600}\n", "o": {"b": null, "a": true}});
+        let head =
+            CatalogHead { session: "sess_a".into(), log_id: "l".into(), base_session: Some("sess_b".into()), header: header.as_object().unwrap().clone() };
+        let back = HeldHead::of(&head).head().unwrap();
+        assert_eq!(back, head);
+        assert_eq!(back.header.keys().collect::<Vec<_>>(), head.header.keys().collect::<Vec<_>>());
+    }
+
+    /// A stopped run's body read at the deepest nesting one record may hold is folded under `owedStops`, deeper than any
+    /// record: the held header still decodes to it, so the rebuild writes the row it wrote from the folded header.
+    #[test]
+    fn a_header_deeper_than_any_one_record_is_held_and_decoded_whole() {
+        let mut nested = serde_json::json!(1);
+        for _ in 0..126 {
+            nested = serde_json::Value::Array(vec![nested]);
+        }
+        let body_text = serde_json::to_string(&serde_json::json!({ "deep": nested })).unwrap();
+        let body: serde_json::Value = serde_json::from_str(&body_text).expect("a record body within the parser's limit");
+        let mut header = serde_json::Map::new();
+        header.insert("title".into(), serde_json::json!("t"));
+        crate::work_stops::apply(&mut header, "stop_1", crate::schema::record::WorkStopPhase::Stopped, Some(&body));
+        let head = CatalogHead { session: "sess_a".into(), log_id: "l".into(), base_session: None, header };
+        let held = HeldHead::of(&head);
+        assert!(serde_json::from_slice::<serde_json::Value>(&held.header).is_err(), "the folded header is past one record's limit");
+        assert_eq!(held.head().unwrap(), head);
+    }
 }
 
 /// Why a log stopped before its end, and the damaged frame when the reader names it.
