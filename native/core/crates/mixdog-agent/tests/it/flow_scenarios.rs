@@ -374,9 +374,6 @@ impl Registry for Reg {
     fn has_tag_agent(&self, _: &str) -> bool {
         false
     }
-    fn tag_count(&self) -> usize {
-        0
-    }
     fn tag_for_session(&self, _: &str) -> Option<String> {
         Some("scout".into())
     }

@@ -353,6 +353,8 @@ pub struct CleanupParts {
 pub struct CleanupReport {
     pub agents_closed: u64,
     pub gone_rows_cleared: u64,
+    /// The tags the cleanup itself unbound: of the rows it cleared and the trees it closed.
+    pub tags_removed: u64,
     pub leftovers_hidden: usize,
     pub not_closed: Vec<Value>,
     pub not_hidden: Vec<Value>,
@@ -466,7 +468,9 @@ async fn apply_cleanup(parts: CleanupParts, plan: CleanupPlan, recovered: Recove
         let id = clean_str(&row.session_id);
         cancel_planned_jobs(&**tasks, &plan.scoped_jobs, &id, &id);
         // The tag goes only while it is this row's: it may have been bound to another session since the plan.
-        registry.forget_terminal_session(Some(&clean_str(&row.tag)), &id);
+        let tag = clean_str(&row.tag);
+        report.tags_removed += u64::from(registry.tag_session(&tag).as_deref() == Some(id.as_str()));
+        registry.forget_terminal_session(Some(&tag), &id);
         tasks.forget_lost(&id);
         removed.insert(id);
         report.gone_rows_cleared += 1;
@@ -587,10 +591,13 @@ async fn close_tree(
     }
     // A member a turn started on since its close keeps its row: it is released only at the turn the plan judged idle.
     let at: HashMap<String, Option<TurnMark>> = tree.members.iter().map(|member| (member.id.clone(), member.turn.clone())).collect();
+    // A release of the root unbinds its tag only while the tag is still its own.
+    let bound = tag.as_deref().is_some_and(|tag| registry.tag_session(tag).as_deref() == Some(root.as_str()));
     let released = if complete {
         let released = registry.release_closed_at(tag.as_deref(), &root, &ids[..ids.len() - 1], &at);
         if released.contains(&root) {
             report.agents_closed += 1;
+            report.tags_removed += u64::from(bound);
         } else {
             report.not_closed.push(not_closed(format!("agent close: \"{root}\" started another turn during the cleanup")));
         }
@@ -600,7 +607,9 @@ async fn close_tree(
         // the cleanup after it reaches the members left open below it. One left open keeps its tag and row.
         let Some((last, rest)) = stamped.split_last() else { return };
         let tag = if *last == root { tag.as_deref() } else { None };
-        registry.release_closed_at(tag, last, rest, &at)
+        let released = registry.release_closed_at(tag, last, rest, &at);
+        report.tags_removed += u64::from(tag.is_some() && bound && released.contains(&root));
+        released
     };
     removed.extend(released.iter().cloned());
     for failed in sessions.hide_sessions(&released).await {
@@ -777,14 +786,12 @@ impl AgentRuntime {
     async fn cleanup(&self, args: &Value, scope: &Scope, rehydrated: bool, cancel: &CancellationToken) -> Result<AgentReply, String> {
         let registry = &self.deps.registry;
         let listed = registry.refresh_topology(rehydrated || wants_session_scan(args), scope).await;
-        let before = registry.tag_count() as i64;
         let cleaned = self.deps.tasks.cleanup(scope, args.get("force") == Some(&Value::Bool(true)));
         let parts = CleanupParts { registry: Arc::clone(registry), sessions: Arc::clone(&self.deps.sessions), tasks: Arc::clone(&self.deps.tasks) };
         let report = cleanup_idle(parts, scope, listed, cancel.clone()).await?;
-        let tags_removed = before - registry.tag_count() as i64;
         let mut reply = serde_json::Map::new();
         reply.insert("tasksRemoved".into(), json!(cleaned.removed));
-        reply.insert("tagsRemoved".into(), json!(tags_removed));
+        reply.insert("tagsRemoved".into(), json!(report.tags_removed));
         reply.insert("agentsClosed".into(), json!(report.agents_closed));
         if report.gone_rows_cleared > 0 {
             reply.insert("goneRowsCleared".into(), json!(report.gone_rows_cleared));

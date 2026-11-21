@@ -113,7 +113,6 @@ pub trait Registry: Send + Sync {
     /// The session id a tag is bound to.
     fn tag_session(&self, tag: &str) -> Option<String>;
     fn has_tag_agent(&self, tag: &str) -> bool;
-    fn tag_count(&self) -> usize;
     fn tag_for_session(&self, session_id: &str) -> Option<String>;
     fn unbind_tag(&self, tag: &str);
     fn bind_tag(&self, tag: &str, session: &SessionFacts, turn_started_at: &str);

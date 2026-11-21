@@ -3438,6 +3438,7 @@ async fn a_cleanup_of_hundreds_of_idle_workers_lists_them_once_and_announces_onc
     let report = cleanup.await.unwrap().unwrap();
 
     assert_eq!((report.agents_closed, report.gone_rows_cleared), (CLEANUP_WORKERS as u64 - 2, 1));
+    assert_eq!(report.tags_removed, CLEANUP_WORKERS as u64 - 1, "the tag of each closed worker and of the cleared row");
     assert!(!report.cancelled && report.not_closed.is_empty() && report.not_hidden.is_empty(), "{report:?}");
     assert_eq!(world.registry.walks.load(Ordering::SeqCst) - walks, 1, "one listing of the agent sessions, none per worker");
     assert_eq!(world.announcements() - announced, 1, "one announcement for the one owner whose rows changed");

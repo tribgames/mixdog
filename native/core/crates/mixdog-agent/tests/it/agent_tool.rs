@@ -120,9 +120,6 @@ impl Registry for Fakes {
     fn has_tag_agent(&self, tag: &str) -> bool {
         self.0.tag_agents.lock().unwrap().contains(tag)
     }
-    fn tag_count(&self) -> usize {
-        self.0.tags.lock().unwrap().len()
-    }
     fn tag_for_session(&self, session_id: &str) -> Option<String> {
         self.0.tags.lock().unwrap().iter().find(|(_, id)| id == session_id).map(|(t, _)| t.clone())
     }
