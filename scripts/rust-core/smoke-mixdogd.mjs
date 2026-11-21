@@ -97,7 +97,7 @@ const CUSTOM = 'custom-11111111-1111-4111-8111-111111111111';
 
 /**
  * The tool-failure check: a scripted model turn calls `read` with no path, which the core must fail, and the spool must
- * hold exactly that row, matching the expected row (judgeToolFailureRows). Throws, naming the missing writer and its owner, when the spool is missing or empty.
+ * hold exactly that row, matching the expected row (judgeToolFailureRows). Throws when the spool is missing, empty or holds another row.
  */
 export async function toolFailureCheck(bin) {
   const provider = await startScriptedProvider({ tool: 'read', args: '{}' });
@@ -165,8 +165,8 @@ const EXPECTED_ROW = {
 export function judgeToolFailureRows(rows, run) {
   if (!rows?.length) {
     throw new Error(
-      `the core wrote ${rows ? 'an empty' : 'no'} history/tool-failures.jsonl for the scripted failure (read with no path -> 'read requires "path"'): mixdogd has no tool-failure writer yet ` +
-        `(AgentTrace::append_tool_failure is not wired to the tool-failure call sites). Owner: ${OWNER}. smoke-loop's tool-failure check is NOT covered`
+      `the core wrote ${rows ? 'an empty' : 'no'} history/tool-failures.jsonl for the scripted failure (read with no path -> 'read requires "path"'): its tool-failure writer ` +
+        `(AgentTrace::append_tool_failure at the tool-failure call sites) did not record the failed call. Owner: ${OWNER}. smoke-loop's tool-failure check is NOT covered`
     );
   }
   if (rows.length !== 1)

@@ -270,6 +270,9 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
       ) {
         followMode(change.type === 'section');
       }
+      // A tell, not state: one this phone was not there for (a snapshot) is not delivered.
+      if (change.type === 'section' && change.section === 'reviewDiff' && !announcingSnapshot(client))
+        ctx.fanOut(ctx.turnReviewChangedListeners, undefined);
       if (change.type !== 'section' || change.section !== 'update') return;
       const state = client.store.section('update' as never, null)?.value as { status?: unknown } | undefined;
       if (state && typeof state === 'object' && typeof state.status === 'string')

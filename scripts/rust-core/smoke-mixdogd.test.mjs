@@ -21,11 +21,11 @@ const ROW = {
 const mine = (over = {}) =>
   JSON.stringify({ ...ROW, session_id: RUN.sessionId, cwd: RUN.cwd, ts: 1500, tool_ms: 4, ...over });
 
-test('a missing or empty spool is a failure that names the missing writer and its owner, never a pass', () => {
+test('a missing or empty spool is a failure that names the writer and its owner, never a pass', () => {
   for (const rows of [null, []])
     assert.throws(
       () => judgeToolFailureRows(rows, RUN),
-      /no tool-failure writer yet.*Owner: rs-tool-failures.*NOT covered/s
+      /did not record the failed call.*Owner: rs-tool-failures.*NOT covered/s
     );
 });
 
@@ -71,14 +71,7 @@ test('the scripted turn provokes the failure in the real core', {
     process.env.MIXDOGD_BIN,
     'MIXDOGD_BIN is not set: the lane that runs this file (release-gate.yml, rust-core job) builds mixdogd and sets it'
   );
-  try {
-    const row = await toolFailureCheck(process.env.MIXDOGD_BIN);
-    assert.equal(row.tool_name, 'read');
-  } catch (error) {
-    assert.match(
-      error.message,
-      /Owner: rs-tool-failures/,
-      'only the missing writer (owner rs-tool-failures) is accepted here'
-    );
-  }
+  const row = await toolFailureCheck(process.env.MIXDOGD_BIN);
+  assert.equal(row.tool_name, 'read');
+  assert.equal(row.result_kind, 'error');
 });
