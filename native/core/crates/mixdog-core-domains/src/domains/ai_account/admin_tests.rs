@@ -44,7 +44,12 @@ impl UsageHttp for Offline {
 
 #[async_trait]
 impl UsageSource for Offline {
-    async fn ensure_auth(&self, _: &str, _: &str, _: bool) -> Result<Option<Value>, UsageError> {
+    async fn ensure_auth(
+        &self,
+        _: &str,
+        _: &str,
+        _: Option<&mixdog_ai::service::oauth_usage::UsageAuth>,
+    ) -> Result<Option<mixdog_ai::service::oauth_usage::UsageAuth>, UsageError> {
         Ok(None)
     }
     async fn provider_snapshot(&self, _: &str, _: &str) -> Result<Option<Value>, UsageError> {

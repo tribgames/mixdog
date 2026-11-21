@@ -276,16 +276,22 @@ pub enum Credentials {
     OAuth(Arc<OAuthSession>),
 }
 
-/// The secret one request carries.
+/// The secret one request carries, and for a subscription the login it was served under.
 #[derive(Clone)]
-struct Secret(String);
+struct Secret(String, Option<super::oauth::Attempt>);
+
+impl Secret {
+    fn of(attempt: super::oauth::Attempt) -> Self {
+        Self(attempt.access_token.clone(), Some(attempt))
+    }
+}
 
 impl Credentials {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn current(&self) -> Result<Secret, ProviderError> {
         match self {
-            Self::ApiKey(source) => source.key().await.map(Secret),
-            Self::OAuth(session) => session.access_token().await.map(Secret),
+            Self::ApiKey(source) => source.key().await.map(|key| Secret(key, None)),
+            Self::OAuth(session) => session.attempt().await.map(Secret::of),
         }
     }
 
@@ -296,9 +302,12 @@ impl Credentials {
         match self {
             Self::ApiKey(source) => {
                 let key = source.reload().await?;
-                Ok((key != rejected.0).then_some(Secret(key)))
+                Ok((key != rejected.0).then_some(Secret(key, None)))
             }
-            Self::OAuth(session) => session.token_after_rejection(&rejected.0).await.map(|t| Some(Secret(t))),
+            Self::OAuth(session) => match &rejected.1 {
+                Some(attempt) => session.after_rejection(attempt).await.map(|next| Some(Secret::of(next))),
+                None => Ok(None),
+            },
         }
     }
 

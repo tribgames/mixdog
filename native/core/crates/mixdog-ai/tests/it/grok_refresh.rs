@@ -238,6 +238,48 @@ async fn a_token_endpoint_outside_x_ai_is_never_sent_the_refresh_token() {
     assert!(s.posts().is_empty());
 }
 
+/// A sign-out after a turn was served: the file is gone, or written back holding no sign-in. The token the credential
+/// served before is not sent again, and the user it named is forgotten.
+#[tokio::test]
+async fn a_token_served_before_a_sign_out_is_not_sent_after_it() {
+    for signed_out in [None, Some(json!({})), Some(json!({"access_token": "", "refresh_token": "", "expires_at": 0}))] {
+        let s = with_token(MINUTE as i64 * 60, vec![]);
+        let mut stored = s.stored("a1", "r1", MINUTE as i64 * 60);
+        stored["user_id"] = json!("user-1");
+        std::fs::write(&s.path, stored.to_string()).unwrap();
+        assert_eq!(s.bearer(false).await.unwrap(), "Bearer a1");
+        assert_eq!(s.credential.user_id().as_deref(), Some("user-1"));
+        match &signed_out {
+            Some(document) => std::fs::write(&s.path, document.to_string()).unwrap(),
+            None => std::fs::remove_file(&s.path).unwrap(),
+        }
+        for force in [false, true] {
+            let error = s.credential.header(force).await.expect_err("no header after the sign-out");
+            assert!(error.reauth_required, "{signed_out:?}");
+            assert!(error.message.starts_with("Grok OAuth is not connected"), "{}", error.message);
+        }
+        assert_eq!(s.credential.user_id(), None, "{signed_out:?}");
+        assert!(s.posts().is_empty(), "nothing is exchanged for a login that is gone");
+    }
+}
+
+/// A file that reads and holds both tokens but does not decode (here a `user_id` of `null`) is no sign-out: the token
+/// served before stays in use, and with none served before the file is reported as unreadable.
+#[tokio::test]
+async fn a_sign_in_that_does_not_decode_keeps_the_token_served_before() {
+    let s = with_token(MINUTE as i64 * 60, vec![]);
+    let mut undecodable = s.stored("a9", "r9", MINUTE as i64 * 60);
+    undecodable["user_id"] = Value::Null;
+    assert_eq!(s.bearer(false).await.unwrap(), "Bearer a1");
+    std::fs::write(&s.path, undecodable.to_string()).unwrap();
+    assert_eq!(s.bearer(false).await.unwrap(), "Bearer a1");
+
+    let fresh = setup(undecodable, vec![]);
+    let error = fresh.bearer(false).await.unwrap_err();
+    assert!(!error.reauth_required, "{}", error.message);
+    assert!(error.message.contains("cannot be read"), "{}", error.message);
+}
+
 #[tokio::test]
 async fn without_a_credential_file_the_provider_is_not_connected() {
     let s = setup(json!({}), vec![]);

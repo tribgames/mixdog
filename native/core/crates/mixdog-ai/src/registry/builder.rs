@@ -93,6 +93,7 @@ use crate::providers::grok;
 use crate::providers::grok::auth::GrokCredential;
 use crate::providers::key_source::ApiKeySource;
 use crate::providers::openai::adapter::AdapterLinks;
+use crate::providers::openai::adapter::Attempt as OpenAiAttempt;
 use crate::providers::openai::adapter::Credential as OpenAiBearer;
 use crate::providers::openai::adapter::CredentialSource;
 use crate::providers::openai::adapter::OpenAiAdapter;
@@ -839,12 +840,12 @@ struct OpenAiKey(Arc<ProviderKey>);
 
 #[async_trait]
 impl CredentialSource for OpenAiKey {
-    async fn current(&self) -> Result<OpenAiBearer, ProviderError> {
-        Ok(OpenAiBearer { bearer: self.0.key().await?, account_id: None })
+    async fn current(&self) -> Result<OpenAiAttempt, ProviderError> {
+        Ok(OpenAiBearer { bearer: self.0.key().await?, account_id: None }.into())
     }
-    async fn after_rejection(&self, rejected: &OpenAiBearer) -> Result<Option<OpenAiBearer>, ProviderError> {
+    async fn after_rejection(&self, rejected: &OpenAiAttempt) -> Result<Option<OpenAiAttempt>, ProviderError> {
         let key = self.0.reload().await?;
-        Ok((key != rejected.bearer).then_some(OpenAiBearer { bearer: key, account_id: None }))
+        Ok((key != rejected.bearer).then(|| OpenAiBearer { bearer: key, account_id: None }.into()))
     }
 }
 

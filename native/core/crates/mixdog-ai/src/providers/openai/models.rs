@@ -383,13 +383,13 @@ mod tests {
 
     #[async_trait]
     impl crate::providers::openai::adapter::CredentialSource for Creds {
-        async fn current(&self) -> Result<crate::providers::openai::adapter::Credential, ProviderError> {
-            Ok(crate::providers::openai::adapter::Credential { bearer: "t".into(), account_id: Some("a".into()) })
+        async fn current(&self) -> Result<crate::providers::openai::adapter::Attempt, ProviderError> {
+            Ok(crate::providers::openai::adapter::Credential { bearer: "t".into(), account_id: Some("a".into()) }.into())
         }
         async fn after_rejection(
             &self,
-            _: &crate::providers::openai::adapter::Credential,
-        ) -> Result<Option<crate::providers::openai::adapter::Credential>, ProviderError> {
+            _: &crate::providers::openai::adapter::Attempt,
+        ) -> Result<Option<crate::providers::openai::adapter::Attempt>, ProviderError> {
             Ok(None)
         }
     }

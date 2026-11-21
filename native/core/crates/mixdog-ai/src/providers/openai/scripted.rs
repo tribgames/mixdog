@@ -173,11 +173,11 @@ struct Creds;
 
 #[async_trait]
 impl CredentialSource for Creds {
-    async fn current(&self) -> Result<Credential, ProviderError> {
-        Ok(Credential { bearer: "fixture-key".into(), account_id: None })
+    async fn current(&self) -> Result<super::adapter::Attempt, ProviderError> {
+        Ok(Credential { bearer: "fixture-key".into(), account_id: None }.into())
     }
     /// A key source that reads the same key again, as Node's `reloadApiKey` does for a configured key: unchanged.
-    async fn after_rejection(&self, _: &Credential) -> Result<Option<Credential>, ProviderError> {
+    async fn after_rejection(&self, _: &super::adapter::Attempt) -> Result<Option<super::adapter::Attempt>, ProviderError> {
         Ok(None)
     }
 }

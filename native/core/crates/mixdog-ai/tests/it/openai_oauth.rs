@@ -113,7 +113,9 @@ async fn a_rejected_token_is_replaced_and_an_unchanged_one_is_not_offered_again(
     let next = f.oauth.after_rejection(&rejected).await.unwrap().expect("a new token");
     assert_eq!(next.bearer, "a2");
     // The stored token is already the newer one: no second refresh happens.
-    let stale = mixdog_ai::providers::openai::adapter::Credential { bearer: "a1".into(), account_id: None };
+    // An attempt this source did not serve names no login of it: the stored token is handed out as it is.
+    let stale: mixdog_ai::providers::openai::adapter::Attempt =
+        mixdog_ai::providers::openai::adapter::Credential { bearer: "a1".into(), account_id: None }.into();
     let again = f.oauth.after_rejection(&stale).await.unwrap().expect("the stored token");
     assert_eq!(again.bearer, "a2");
     assert_eq!(f.endpoint.seen.lock().unwrap().len(), 1);
@@ -393,7 +395,7 @@ fn a_runtime_shut_down_mid_refresh_releases_the_lease_with_nothing_queued() {
     assert!(!lock_of(&file).exists(), "dropping the runtime released the lease synchronously");
 
     let second = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
-    let bearer = second.block_on(oauth.current()).unwrap().bearer;
+    let bearer = second.block_on(oauth.current()).unwrap().credential.bearer;
     assert_eq!(bearer, "a2", "the same object refreshes on a new runtime");
 }
 
@@ -598,7 +600,7 @@ async fn a_broken_401_body_is_still_a_refresh_token_refusal() {
 async fn the_owner_of_a_successful_exchange_does_not_exchange_again_for_the_same_bearer() {
     let (_dir, _file, endpoint, oauth) = hooked(stored("a1", now_ms() + 3_600_000), vec![tokens_reply("a1", "r2")]).await;
     let rejected = oauth.current().await.unwrap();
-    assert_eq!(oauth.after_rejection(&rejected).await.unwrap().map(|next| next.bearer), Some("a1".to_owned()));
+    assert_eq!(oauth.after_rejection(&rejected).await.unwrap().map(|next| next.credential.bearer), Some("a1".to_owned()));
     assert_eq!(endpoint.sent(), 1, "the forced caller's own exchange is final: no second exchange spends the rotated token");
     let (_dir, _file, endpoint, oauth) = hooked(
         stored("a1", now_ms() + 1_000),
@@ -620,14 +622,16 @@ async fn a_forced_refresh_that_joins_a_coasting_one_runs_its_own_exchange() {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
-    file.save(&stored("a1", now_ms() + 1_000)).await.unwrap();
+    file.save(&stored("a1", now_ms() + 3_600_000)).await.unwrap();
     let endpoint = Arc::new(TokenEndpoint {
         replies: Mutex::new(vec![(500, json!({})), (200, json!({"access_token": "a2", "refresh_token": "r2", "expires_in": 3600}))].into()),
         delay: std::time::Duration::from_millis(200),
         ..Default::default()
     });
-    let oauth = OpenAiOAuth::new(file, endpoint.clone());
-    let rejected = mixdog_ai::providers::openai::adapter::Credential { bearer: "a1".into(), account_id: Some("acct-1".into()) };
+    let oauth = OpenAiOAuth::new(file.clone(), endpoint.clone());
+    // The attempt that will be refused, served while the login was fresh; the same login then nears its expiry.
+    let rejected = oauth.current().await.unwrap();
+    file.save(&stored("a1", now_ms() + 1_000)).await.unwrap();
     let (preemptive, forced) = tokio::join!(oauth.current(), async {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         oauth.after_rejection(&rejected).await

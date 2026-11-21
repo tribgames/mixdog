@@ -305,7 +305,8 @@ impl HttpSend for TimedOut {
 async fn a_token_refresh_the_transport_timed_out_reads_as_a_thirty_second_timeout() {
     let store = MemoryStore::signed_in();
     let session = OAuthSession::new(store.file.clone(), Arc::new(TimedOut));
-    let err = session.token_after_rejection(TOKEN).await.expect_err("the refresh timed out");
+    let attempt = session.attempt().await.expect("the stored login");
+    let err = session.after_rejection(&attempt).await.err().expect("the refresh timed out");
     assert_eq!(err.message, "Anthropic OAuth token refresh timed out after 30000ms");
     // The credential is untouched: a timeout is not a dead grant.
     assert_eq!(session.access_token().await.unwrap(), TOKEN);

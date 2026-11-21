@@ -21,6 +21,7 @@ use mixdog_js::js_trim;
 use mixdog_js::slice_utf16;
 
 use super::oauth_usage::GrokClient;
+use super::oauth_usage::UsageAuth;
 use super::oauth_usage::UsageError;
 use super::oauth_usage::UsageHttp;
 use super::oauth_usage::UsageResponse;
@@ -605,24 +606,31 @@ impl ProviderUsageSource {
 #[async_trait]
 impl UsageSource for ProviderUsageSource {
     /// The credential as Node's `ensureAuth` returns it (`access_token`/`accessToken`, `account_id`,
-    /// `user_id`); `force_refresh` is the retry behind a refused token, and exchanges the refresh
-    /// token when the file still holds the one that was refused.
-    async fn ensure_auth(&self, provider: &str, account_id: &str, force_refresh: bool) -> Result<Option<Value>, UsageError> {
+    /// `user_id`); `rejected` is the retry behind a refused token, and exchanges the refresh token
+    /// when the file still holds the login that credential was handed out on.
+    async fn ensure_auth(&self, provider: &str, account_id: &str, rejected: Option<&UsageAuth>) -> Result<Option<UsageAuth>, UsageError> {
         let Some(held) = self.held(provider, account_id)? else { return Ok(None) };
+        let force_refresh = rejected.is_some();
         let auth = match held {
             Held::OpenAi(oauth) => {
-                let current = oauth.current().await.map_err(failure)?;
-                let credential = if force_refresh { oauth.after_rejection(&current).await.map_err(failure)?.unwrap_or(current) } else { current };
-                let mut doc = json!({ "access_token": credential.bearer });
-                if let Some(id) = credential.account_id {
-                    doc["account_id"] = Value::String(id);
+                // The login refreshed is the one the refused credential was handed out on, which it carries.
+                let attempt = match rejected.and_then(UsageAuth::attempt::<crate::providers::openai::adapter::Attempt>) {
+                    Some(rejected) => oauth.after_rejection(rejected).await.map_err(failure)?.unwrap_or_else(|| rejected.clone()),
+                    None => oauth.current().await.map_err(failure)?,
+                };
+                let mut doc = json!({ "access_token": attempt.bearer });
+                if let Some(id) = &attempt.account_id {
+                    doc["account_id"] = Value::String(id.clone());
                 }
-                doc
+                return Ok(Some(UsageAuth::sent_on(doc, attempt)));
             }
             Held::Anthropic(session) => {
-                let token = session.access_token().await.map_err(failure)?;
-                let token = if force_refresh { session.token_after_rejection(&token).await.map_err(failure)? } else { token };
-                json!({ "accessToken": token })
+                let attempt = match rejected.and_then(UsageAuth::attempt::<crate::providers::anthropic::oauth::Attempt>) {
+                    Some(rejected) => session.after_rejection(rejected).await,
+                    None => session.attempt().await,
+                }
+                .map_err(failure)?;
+                return Ok(Some(UsageAuth::sent_on(json!({ "accessToken": attempt.access_token }), attempt)));
             }
             Held::Antigravity(_) | Held::Cursor(_) => return Ok(None),
             Held::OpenCode(_) => {
@@ -640,7 +648,7 @@ impl UsageSource for ProviderUsageSource {
                 doc
             }
         };
-        Ok(Some(auth))
+        Ok(Some(UsageAuth::plain(auth)))
     }
 
     /// The Antigravity and Cursor provider objects have no `ensureAuth()`, so a rejected token is not retried.

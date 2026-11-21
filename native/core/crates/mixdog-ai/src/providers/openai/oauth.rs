@@ -32,6 +32,7 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
+use super::adapter::Attempt;
 use super::adapter::Credential;
 use super::adapter::CredentialSource;
 use crate::accounts::validity::normalize_expires_at_ms;
@@ -99,14 +100,51 @@ impl Stored {
     fn usable_at(&self, now: u64, skew: u64) -> bool {
         self.expires_at == 0 || self.expires_at > now + skew
     }
+
+    fn attempt(&self) -> Served {
+        Served { credential: self.credential(), grant: self.refresh_token.clone() }
+    }
+
+    /// Whether `attempt` was made on this login: its bearer, on its account, under its refresh grant. An account that
+    /// is not known is the same only as another that is not known.
+    fn served(&self, attempt: &Served) -> bool {
+        self.access_token == attempt.credential.bearer && self.account_id == attempt.credential.account_id && self.refresh_token == attempt.grant
+    }
+}
+
+/// The login one attempt was made on: the credential it sent and the refresh grant (none when the login had none) that
+/// credential was served under. It travels with the request as the [`Attempt`]'s login, and a rejection of the attempt
+/// acts on that login alone.
+#[derive(Clone, PartialEq)]
+struct Served {
+    credential: Credential,
+    grant: Option<String>,
+}
+
+/// What an [`Attempt`] of this source carries as its login.
+struct Grant(Option<String>);
+
+impl Served {
+    fn carried(self) -> Attempt {
+        let grant = Grant(self.grant);
+        Attempt::served_under(self.credential, grant)
+    }
+
+    /// The login `attempt` carries; none when this source did not serve it.
+    fn of(attempt: &Attempt) -> Option<Self> {
+        let Grant(grant) = attempt.login::<Grant>()?;
+        Some(Self { credential: attempt.credential.clone(), grant: grant.clone() })
+    }
 }
 
 /// `adoptableDiskTokens` (openai-oauth-tokens.mjs:289): the stored token supersedes the one the caller holds when it
-/// is not the one just rejected and still clears the refresh skew (none after a rejection: that caller already saw its
-/// token refused).
-fn adoptable(stored: &Stored, rejected: Option<&str>) -> bool {
-    let newer = rejected.is_none_or(|bearer| bearer != stored.access_token);
-    newer && stored.usable_at(now_ms(), if rejected.is_some() { 0 } else { REFRESH_SKEW_MS })
+/// still clears the refresh skew. After a rejection it does whenever it is not the login the rejected attempt was made
+/// on: a login stored since is used as it is, and nothing is exchanged or refused for it on that attempt's behalf.
+fn adoptable(stored: &Stored, rejected: Option<&Served>) -> bool {
+    match rejected {
+        Some(attempt) => !stored.served(attempt),
+        None => stored.usable_at(now_ms(), REFRESH_SKEW_MS),
+    }
 }
 
 /// A refusal that needs a new sign-in (openai-oauth-tokens.mjs:252): a 401, or a typed refresh-token code anywhere in
@@ -152,17 +190,17 @@ fn refresh_failed(cause: &str) -> String {
 #[derive(Clone)]
 enum Refreshed {
     /// This flight's own exchange produced the pair now stored.
-    Exchanged(Credential),
+    Exchanged(Served),
     /// A pair another writer stored was taken without an exchange.
-    Adopted(Credential),
+    Adopted(Served),
     /// The exchange did not run or failed and the token still in date keeps serving.
-    Coasted(Credential),
+    Coasted(Served),
 }
 
 impl Refreshed {
-    fn credential(self) -> Credential {
+    fn attempt(self) -> Served {
         match self {
-            Self::Exchanged(credential) | Self::Adopted(credential) | Self::Coasted(credential) => credential,
+            Self::Exchanged(attempt) | Self::Adopted(attempt) | Self::Coasted(attempt) => attempt,
         }
     }
 }
@@ -175,9 +213,10 @@ struct Inner {
     /// The refreshes of this file running or queued, oldest first; each starts once the one published before it ended.
     inflight: Mutex<Vec<Pending>>,
     flights: AtomicU64,
-    /// The refresh token a confirmed permanent refusal named: it is not presented again until the stored one is a
-    /// different token (another process refreshed, or the user signed in). In this credential object only.
-    refused: Mutex<Option<String>>,
+    /// The refresh token a confirmed permanent refusal named, and the account it was exchanged for: it is not presented
+    /// again until the stored login is another (another process refreshed, or the user signed in). In this credential
+    /// object only.
+    refused: Mutex<Option<(String, Option<String>)>>,
     /// The access token a failed preemptive refresh left serving, and until when no new refresh is tried for it
     /// (`_refreshFallbackUntil`): every turn in that window must not rerun the failing exchange.
     coast: Mutex<Option<(String, u64)>>,
@@ -194,8 +233,8 @@ struct Pending {
     /// tells that login by.
     account: Option<String>,
     refresh: Option<String>,
-    /// The bearer it was forced for after a 401; none for a preemptive refresh.
-    forced: Option<String>,
+    /// The attempt it was forced for after a 401; none for a preemptive refresh.
+    forced: Option<Served>,
     running: Refreshing,
 }
 
@@ -209,8 +248,8 @@ impl Pending {
 
 /// What a caller does about the refreshes published.
 enum Turn {
-    /// Await this refresh's result.
-    Join(Refreshing),
+    /// Await this refresh's result; the flag says it was forced for a rejected attempt.
+    Join(Refreshing, bool),
     /// Await the end of a refresh of a login not known to be the caller's, without its result, then look again.
     WaitOut(Refreshing),
     /// Run a refresh of its own, after `prior` (the file's latest refresh) ended.
@@ -261,9 +300,13 @@ impl OpenAiOAuth {
 
 impl Inner {
     async fn stored(&self) -> Result<Stored, ProviderError> {
-        match self.file.load::<Stored>().await {
+        self.stored_in(&self.file).await
+    }
+
+    async fn stored_in(&self, file: &CredentialFile) -> Result<Stored, ProviderError> {
+        match file.load::<Stored>().await {
             Probe::Present(mut stored) => {
-                self.file.keep(&[&stored.access_token, stored.refresh_token.as_deref().unwrap_or_default()]);
+                file.keep(&[&stored.access_token, stored.refresh_token.as_deref().unwrap_or_default()]);
                 // `_normalizeExpiresAt(own.expires_at ?? own.expiresAt) || expiryFromAccessToken(own.access_token)`.
                 stored.expires_at = crate::accounts::validity::expiry_or_claim(stored.expires_at, &stored.access_token);
                 Ok(stored)
@@ -282,45 +325,49 @@ impl Inner {
     /// (never past its real expiry, and not after a rejection), else sign-in is asked.
     fn refused_grant(&self, stored: &Stored, force: bool) -> Option<Result<Refreshed, ProviderError>> {
         let refused = self.refused.lock().unwrap_or_else(PoisonError::into_inner);
-        if refused.is_none() || refused.as_deref() != stored.refresh_token.as_deref() {
+        let named = refused.as_ref().is_some_and(|(grant, account)| Some(grant.as_str()) == stored.refresh_token.as_deref() && *account == stored.account_id);
+        if !named {
             return None;
         }
         drop(refused);
         Some(if !force && stored.usable_at(now_ms(), 0) {
-            Ok(Refreshed::Coasted(stored.credential()))
+            Ok(Refreshed::Coasted(stored.attempt()))
         } else {
             Err(login_required(&refresh_failed("OpenAI OAuth token refresh refused earlier (invalid_grant)")))
         })
     }
 
-    /// A usable credential: the stored one when it is newer than `rejected`
-    /// and not expiring, otherwise a refreshed one.
-    async fn renew(self: Arc<Self>, rejected: Option<String>) -> Result<Refreshed, ProviderError> {
-        let stored = self.stored().await?;
-        if adoptable(&stored, rejected.as_deref()) {
-            return Ok(Refreshed::Adopted(stored.credential()));
+    /// A usable credential: the stored one when it is not expiring, or is not the login `rejected` was made on,
+    /// otherwise a refreshed one.
+    async fn renew(self: Arc<Self>, rejected: Option<Served>) -> Result<Refreshed, ProviderError> {
+        // The file read and written now, held for the whole refresh: a handle that follows the selected account and one
+        // bound to that account's file take the same lease.
+        let file = self.file.pinned().await;
+        let stored = self.stored_in(&file).await?;
+        if adoptable(&stored, rejected.as_ref()) {
+            return Ok(Refreshed::Adopted(stored.attempt()));
         }
         // The refresh token is single-use: the exchange runs holding the cross-process lease beside the credential
         // file (`withFileLock(refresh.lock)`, openai-oauth-tokens.mjs:403), so another process (or another handle in
         // this one) that refreshes first has stored its pair before this one reads the file, and this one never spends
         // the old token.
-        let held = self.exchange(rejected);
-        self.file.lease(&refresh_lock_path(self.file.path()), &self.process, &*self.pace, REFRESH_LEASE, held).await.map_err(lease_error)?
+        let held = self.exchange(&file, rejected);
+        file.lease(&refresh_lock_path(file.path()), &self.process, &*self.pace, REFRESH_LEASE, held).await.map_err(lease_error)?
     }
 
     /// `refreshUnderLock` (openai-oauth-tokens.mjs:306): under the lease the file is read again, and a token another
     /// writer stored meanwhile is adopted without an exchange.
-    async fn exchange(&self, rejected: Option<String>) -> Result<Refreshed, ProviderError> {
-        let stored = self.stored().await?;
-        if adoptable(&stored, rejected.as_deref()) {
+    async fn exchange(&self, file: &CredentialFile, rejected: Option<Served>) -> Result<Refreshed, ProviderError> {
+        let stored = self.stored_in(file).await?;
+        if adoptable(&stored, rejected.as_ref()) {
             mixdog_rt::node_stderr!("[openai-oauth] Reloaded tokens from disk");
-            return Ok(Refreshed::Adopted(stored.credential()));
+            return Ok(Refreshed::Adopted(stored.attempt()));
         }
         let Some(refresh_token) = stored.refresh_token.clone().filter(|t| !t.is_empty()) else {
             // `reusableCurrentTokens` (openai-oauth-tokens.mjs:318): no refresh token, but a token that is not past its
             // real expiry keeps serving; sign-in is asked when nothing usable is left (and always after a rejection).
             if rejected.is_none() && stored.usable_at(now_ms(), 0) {
-                return Ok(Refreshed::Coasted(stored.credential()));
+                return Ok(Refreshed::Coasted(stored.attempt()));
             }
             return Err(login_required("the stored ChatGPT login has no refresh token"));
         };
@@ -381,20 +428,21 @@ impl Inner {
                 Ok(Value::Null) => "Cannot read properties of null (reading 'access_token')".to_owned(),
                 Ok(_) => "refresh returned null".to_owned(),
             });
-            // A refusal for a token the file no longer holds (another writer stored a newer pair while this exchange was
-            // in flight) is not about the stored one: a usable stored pair is adopted.
+            // A refusal for a login the file no longer holds (another writer stored a newer pair, or the same token for
+            // another account, while this exchange was in flight) is not about the stored one: a usable stored pair is
+            // adopted.
             if permanent_refusal(status, &body)
-                && let Ok(latest) = self.stored().await
-                && latest.refresh_token.as_deref() != Some(refresh_token.as_str())
+                && let Ok(latest) = self.stored_in(file).await
+                && (latest.refresh_token != stored.refresh_token || latest.account_id != stored.account_id)
                 && latest.usable_at(now_ms(), 0)
             {
-                return Ok(Refreshed::Adopted(latest.credential()));
+                return Ok(Refreshed::Adopted(latest.attempt()));
             }
             return self.failed(&stored, &refresh_token, rejected.is_some(), status, &body, unanswered.as_ref(), unusable);
         };
         let (json, access_token) = tokens;
         let granted = |key: &str| json.get(key).and_then(Value::as_str).unwrap_or_default();
-        self.file.keep(&[&access_token, granted("refresh_token"), &refresh_token, granted("id_token")]);
+        file.keep(&[&access_token, granted("refresh_token"), &refresh_token, granted("id_token")]);
         // `_normalizeExpiresAt(json.expires_at ?? json.expiresAt) || (typeof json.expires_in === 'number' ? now + expires_in * 1000 : 0)`
         let stated = normalize_expires_at_ms(["expires_at", "expiresAt"].iter().find_map(|key| json.get(*key).filter(|v| !v.is_null())));
         let expires_at = if stated > 0.0 {
@@ -412,11 +460,15 @@ impl Inner {
         // `account_id: extractAccountId(json.access_token)`: the refreshed token's own claim, and none when it names
         // none (Node stores the refreshed tokens in place of the old document, `publishRefreshedTokens`).
         update.insert("account_id".into(), account_of(&access_token).map_or(Value::Null, |account| json!(account)));
-        let expected = refresh_token.clone();
-        let published = self
-            .file
+        // The login exchanged, not its token alone: the same token stored for another account meanwhile is another login.
+        let (expected, account) = (refresh_token.clone(), stored.account_id.clone());
+        let exchanged = move |doc: &Map<String, Value>| {
+            doc.get("refresh_token").and_then(Value::as_str) == Some(expected.as_str())
+                && doc.get("account_id").and_then(Value::as_str).filter(|account| !account.is_empty()) == account.as_deref()
+        };
+        let published = file
             // `expires_at` is the one spelling Node writes: an imported `expiresAt` does not stay beside it.
-            .replace_if_without(move |doc| doc.get("refresh_token").and_then(Value::as_str) == Some(expected.as_str()), update, &["expiresAt"])
+            .replace_if_without(exchanged, update, &["expiresAt"])
             .await
             .map_err(|_| {
                 let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
@@ -426,7 +478,7 @@ impl Inner {
         // Published or not, the file now holds the live pair: when another
         // process refreshed first, its pair wins.
         let _ = published;
-        Ok(Refreshed::Exchanged(self.stored().await?.credential()))
+        Ok(Refreshed::Exchanged(self.stored_in(file).await?.attempt()))
     }
 
     /// A refresh that did not produce tokens. A dead grant needs a new login;
@@ -456,12 +508,12 @@ impl Inner {
         // A confirmed permanent refusal is remembered before anything is returned: the token it named is not presented
         // again. Only that classification counts; transient and unstated failures are not remembered.
         if verdict == RefreshFailure::Definitive {
-            *self.refused.lock().unwrap_or_else(PoisonError::into_inner) = Some(spent.to_owned());
+            *self.refused.lock().unwrap_or_else(PoisonError::into_inner) = Some((spent.to_owned(), stored.account_id.clone()));
         }
         // The classification says whether the grant is dead; whether the user is asked to sign in now depends on whether a
         // usable token remains (`reusableCurrentTokens` is checked after a permanent refusal too, `:344-349`).
         if !force && stored.usable_at(now_ms(), 0) {
-            return Ok(Refreshed::Coasted(stored.credential()));
+            return Ok(Refreshed::Coasted(stored.attempt()));
         }
         match verdict {
             RefreshFailure::Definitive => {
@@ -503,7 +555,7 @@ impl OpenAiOAuth {
     /// that fails leaves it the token it holds while that is in date, as its own preemptive refresh would
     /// (`reusableCurrentTokens`). While only refreshes of logins not known to be its own run, it is handed none of their
     /// results: it waits for them to end and returns `None`, so the file is read again and the login found there served.
-    async fn renewed(&self, rejected: Option<String>) -> Option<Result<Refreshed, ProviderError>> {
+    async fn renewed(&self, rejected: Option<Served>) -> Option<Result<Refreshed, ProviderError>> {
         let unfinished = || {
             let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
             err.message = "the ChatGPT token refresh did not finish".into();
@@ -516,14 +568,20 @@ impl OpenAiOAuth {
         let turn = {
             let mut inflight = self.inner.inflight.lock().unwrap_or_else(PoisonError::into_inner);
             let joined = match &rejected {
-                Some(_) => inflight.iter().find(|pending| pending.forced == rejected).map(|pending| Turn::Join(pending.running.clone())),
+                Some(_) => inflight.iter().find(|pending| pending.forced == rejected).map(|pending| Turn::Join(pending.running.clone(), true)),
                 None => {
                     let own = || inflight.iter().filter(|pending| pending.renews(&stored));
                     own()
                         .find(|pending| pending.forced.is_none())
                         .or_else(|| inflight.iter().rev().find(|pending| pending.renews(&stored)))
                         .or_else(|| inflight.last())
-                        .map(|pending| if pending.renews(&stored) { Turn::Join(pending.running.clone()) } else { Turn::WaitOut(pending.running.clone()) })
+                        .map(|pending| {
+                            if pending.renews(&stored) {
+                                Turn::Join(pending.running.clone(), pending.forced.is_some())
+                            } else {
+                                Turn::WaitOut(pending.running.clone())
+                            }
+                        })
                 }
             };
             match joined {
@@ -557,8 +615,12 @@ impl OpenAiOAuth {
             }
         };
         let ordinary = rejected.is_none();
+        let mut joined_forced = false;
         let shared = match turn {
-            Turn::Join(shared) => shared,
+            Turn::Join(shared, forced) => {
+                joined_forced = forced;
+                shared
+            }
             Turn::WaitOut(running) => {
                 let _ = running.await;
                 return None;
@@ -573,10 +635,10 @@ impl OpenAiOAuth {
                     if let Some(prior) = prior {
                         let _ = prior.await;
                     }
-                    if let Some(bearer) = &rejected {
+                    if let Some(attempt) = &rejected {
                         // A forced refresh lifts the holdoff of the bearer it was rejected for (`_refreshFallbackUntil = 0`).
                         let mut coast = inner.coast.lock().unwrap_or_else(PoisonError::into_inner);
-                        if coast.as_ref().is_some_and(|(coasting, _)| coasting == bearer) {
+                        if coast.as_ref().is_some_and(|(coasting, _)| *coasting == attempt.credential.bearer) {
                             *coast = None;
                         }
                     }
@@ -584,8 +646,8 @@ impl OpenAiOAuth {
                     // The flight arms the holdoff itself, once and before any caller is handed its result, for the credential
                     // it coasted on (the one read under the lease): a waiter only adopts the result (`coastOnCurrent`), and a
                     // successful exchange or adoption needs none.
-                    if let Ok(Refreshed::Coasted(credential)) = &outcome {
-                        *inner.coast.lock().unwrap_or_else(PoisonError::into_inner) = Some((credential.bearer.clone(), now_ms() + REFRESH_SKEW_MS));
+                    if let Ok(Refreshed::Coasted(coasted)) = &outcome {
+                        *inner.coast.lock().unwrap_or_else(PoisonError::into_inner) = Some((coasted.credential.bearer.clone(), now_ms() + REFRESH_SKEW_MS));
                     }
                     outcome
                 });
@@ -597,54 +659,71 @@ impl OpenAiOAuth {
         // date (`reusableCurrentTokens`): a refresh run for another bearer of the login never takes it down. A rejected
         // bearer has no such licence.
         Some(match shared.await {
+            // What a forced refresh adopted is a login stored since its attempt, left as it is whatever its expiry. An
+            // ordinary caller that joined it reads the file again, and that login gets its usual refresh.
+            Ok(Refreshed::Adopted(_)) if ordinary && joined_forced => return None,
             Err(err) if ordinary && stored.usable_at(now_ms(), 0) => {
                 if err.message == UNSTORED {
                     tracing::warn!(
                         "[openai-oauth] The refreshed login could not be stored, so its rotated refresh token was not saved; serving the still-valid current token, and the next refresh may need a new sign-in"
                     );
                 }
-                Ok(Refreshed::Coasted(stored.credential()))
+                Ok(Refreshed::Coasted(stored.attempt()))
             }
             outcome => outcome,
         })
     }
 }
 
-#[async_trait]
-impl CredentialSource for OpenAiOAuth {
-    async fn current(&self) -> Result<Credential, ProviderError> {
+impl OpenAiOAuth {
+    /// What one attempt is made on: a usable credential (refreshed first when it is near expiry) and the login it was
+    /// served under.
+    async fn serve(&self) -> Result<Served, ProviderError> {
         // Read again after waiting out a refresh of a login not known to be the one read.
         loop {
             let stored = self.inner.stored().await?;
             if stored.usable_at(now_ms(), REFRESH_SKEW_MS) {
-                return Ok(stored.credential());
+                return Ok(stored.attempt());
             }
             // A refresh token a permanent refusal named is not presented again: nothing is spawned, nothing is sent.
             if let Some(outcome) = self.inner.refused_grant(&stored, false) {
-                return outcome.map(Refreshed::credential);
+                return outcome.map(Refreshed::attempt);
             }
             let held = {
                 let coast = self.inner.coast.lock().unwrap_or_else(PoisonError::into_inner);
                 coast.as_ref().is_some_and(|(bearer, until)| *bearer == stored.access_token && now_ms() < *until && stored.usable_at(now_ms(), 0))
             };
             if held {
-                return Ok(stored.credential());
+                return Ok(stored.attempt());
             }
             if let Some(outcome) = self.renewed(None).await {
-                return Ok(outcome?.credential());
+                return Ok(outcome?.attempt());
             }
         }
     }
+}
 
-    async fn after_rejection(&self, rejected: &Credential) -> Result<Option<Credential>, ProviderError> {
-        // The refresh joined was forced for this bearer: the rejected bearer comes back only from its own exchange, which is
-        // final and not run again. A forced caller always joins or starts one, so it is never sent to read again.
+#[async_trait]
+impl CredentialSource for OpenAiOAuth {
+    async fn current(&self) -> Result<Attempt, ProviderError> {
+        self.serve().await.map(Served::carried)
+    }
+
+    /// The login `rejected` carries is refreshed; a login stored since is returned as it is. An attempt this source did
+    /// not serve names no login of it, so nothing is refreshed for it either.
+    async fn after_rejection(&self, rejected: &Attempt) -> Result<Option<Attempt>, ProviderError> {
+        let Some(served) = Served::of(rejected) else {
+            let stored = self.inner.stored().await?.attempt();
+            return Ok((stored.credential != rejected.credential).then(|| stored.carried()));
+        };
+        // The refresh joined was forced for this attempt: the rejected bearer comes back only from its own exchange, which
+        // is final and not run again. A forced caller always joins or starts one, so it is never sent to read again.
         let next = loop {
-            if let Some(outcome) = self.renewed(Some(rejected.bearer.clone())).await {
-                break outcome?.credential();
+            if let Some(outcome) = self.renewed(Some(served.clone())).await {
+                break outcome?.attempt();
             }
         };
-        Ok((next != *rejected).then_some(next))
+        Ok((next != served).then(|| next.carried()))
     }
 }
 
@@ -703,7 +782,7 @@ mod tests {
     #[tokio::test]
     async fn a_rejected_bearer_is_answered_only_by_a_forced_exchange() {
         let (_dir, _path, endpoint, oauth) = coasting("a", &[(503, "{}"), (503, "{}"), (503, "{}")]).await;
-        let rejected = Credential { bearer: "a".into(), account_id: None };
+        let rejected = sent("a");
         let mut first = Box::pin(oauth.current());
         assert!(futures::poll!(first.as_mut()).is_pending());
         let preemptive = oauth.inner.inflight.lock().unwrap().last().map(|pending| pending.running.clone()).expect("a preemptive flight");
@@ -711,7 +790,7 @@ mod tests {
         let mut forced = Box::pin(oauth.after_rejection(&rejected));
         assert!(futures::poll!(forced.as_mut()).is_pending(), "the 401 caller waits while the preemptive refresh runs");
         let coasted = preemptive.await;
-        assert!(matches!(&coasted, Ok(Refreshed::Coasted(credential)) if credential.bearer == "a"));
+        assert!(matches!(&coasted, Ok(Refreshed::Coasted(attempt)) if attempt.credential.bearer == "a"));
         // The second preemptive caller runs once nothing is in flight (the forced refresh, if one is, has ended and lifted
         // the holdoff), and before the 401 caller resumes.
         for _ in 0..1_000 {
@@ -734,7 +813,7 @@ mod tests {
     /// forced one is in flight, it joins that and keeps its token when the forced exchange fails.
     #[tokio::test]
     async fn an_ordinary_caller_never_fails_because_of_another_callers_forced_refresh() {
-        let rejected = Credential { bearer: "a".into(), account_id: None };
+        let rejected = sent("a");
 
         let (_dir, _path, endpoint, oauth) = coasting("a", &[(503, "{}"), (503, "{}")]).await;
         let mut first = Box::pin(oauth.current());
@@ -771,29 +850,60 @@ mod tests {
             ],
         )
         .await;
-        let (a, b) = (Credential { bearer: "a".into(), account_id: None }, Credential { bearer: "b".into(), account_id: None });
+        let (a, b) = (sent("a"), sent("b"));
         let mut first = Box::pin(oauth.after_rejection(&a));
         assert!(futures::poll!(first.as_mut()).is_pending());
         let mut late = Box::pin(oauth.after_rejection(&b));
         assert!(futures::poll!(late.as_mut()).is_pending());
         let mut again = Box::pin(oauth.after_rejection(&a));
         assert!(futures::poll!(again.as_mut()).is_pending());
-        let first = first.await.unwrap().map(|next| next.bearer);
-        assert_eq!(late.await.unwrap().map(|next| next.bearer), Some("a".to_owned()), "the older bearer adopts the stored one");
-        assert_eq!(again.await.unwrap().map(|next| next.bearer), first, "the second 401 for a shares the first one's exchange");
+        let first = first.await.unwrap().map(|next| next.credential.bearer);
+        assert_eq!(late.await.unwrap().map(|next| next.credential.bearer), Some("a".to_owned()), "the older bearer adopts the stored one");
+        assert_eq!(again.await.unwrap().map(|next| next.credential.bearer), first, "the second 401 for a shares the first one's exchange");
         assert_eq!(endpoint.seen.lock().unwrap().len(), 1, "the rotated refresh token is not spent again");
+    }
+
+    /// The attempt a request carries that was sent with `bearer`, for no account, under the refresh grant `near_expiry`
+    /// stores.
+    fn sent(bearer: &str) -> Attempt {
+        Served { credential: Credential { bearer: bearer.into(), account_id: None }, grant: Some("r1".into()) }.carried()
     }
 
     /// A token endpoint that answers one request per permit the test hands it, in script order.
     struct Gated {
         replies: Mutex<std::collections::VecDeque<(u16, &'static str)>>,
         seen: Mutex<usize>,
+        /// One permit per request that arrived.
+        arrived: tokio::sync::Semaphore,
         gate: tokio::sync::Semaphore,
     }
 
     impl Gated {
         fn new(replies: &[(u16, &'static str)]) -> Arc<Self> {
-            Arc::new(Self { replies: Mutex::new(replies.iter().copied().collect()), seen: Mutex::new(0), gate: tokio::sync::Semaphore::new(0) })
+            Arc::new(Self {
+                replies: Mutex::new(replies.iter().copied().collect()),
+                seen: Mutex::new(0),
+                arrived: tokio::sync::Semaphore::new(0),
+                gate: tokio::sync::Semaphore::new(0),
+            })
+        }
+    }
+
+    /// A contender for the lease whose every wait for it is announced and parks until the test lets it go.
+    struct Parked {
+        waiting: tokio::sync::Semaphore,
+        go: tokio::sync::Semaphore,
+    }
+
+    #[async_trait]
+    impl Pace for Parked {
+        fn now_ms(&self) -> u64 {
+            now_ms()
+        }
+
+        async fn wait(&self, _: std::time::Duration) {
+            self.waiting.add_permits(1);
+            self.go.acquire().await.expect("an open gate").forget();
         }
     }
 
@@ -810,6 +920,7 @@ mod tests {
     impl HttpSend for Gated {
         async fn send(&self, _request: WireRequest, _exchange: crate::transport::Exchange) -> Result<crate::transport::HttpResponse, ProviderError> {
             *self.seen.lock().unwrap() += 1;
+            self.arrived.add_permits(1);
             self.gate.acquire().await.expect("an open gate").forget();
             let (status, body) = self.replies.lock().unwrap().pop_front().expect("a scripted reply");
             Ok(crate::transport::HttpResponse { status, headers: Vec::new(), body: Box::new(Body(Some(bytes::Bytes::from(body)))) })
@@ -900,11 +1011,11 @@ mod tests {
         assert_eq!(*endpoint.seen.lock().unwrap(), 1, "b's caller shared a's exchange");
     }
 
-    /// A forced refresh for `a` is queued behind a preemptive one, which rotates the refresh token and hands `a` back. A
-    /// second 401 for `a`, arriving while the forced refresh is still pending, finds it by its bearer under the rotated
-    /// token and shares it: one forced exchange, not a second spend of the rotated token.
+    /// A forced refresh for an attempt on `a` is queued behind a preemptive one, which rotates the refresh token and hands
+    /// `a` back. The login stored then is no longer the one the attempt was served under: the forced refresh, and a
+    /// second 401 of that attempt that joins it, are given the stored login as it is, and the rotated token is not spent.
     #[tokio::test]
-    async fn a_401_finds_the_forced_refresh_for_its_bearer_after_the_refresh_token_rotated() {
+    async fn a_401_of_an_attempt_served_before_a_rotation_does_not_spend_the_rotated_token() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("openai-oauth.json");
         tokio::fs::write(&path, near_expiry("a")).await.unwrap();
@@ -916,7 +1027,7 @@ mod tests {
             (200, r#"{"access_token":"a4","refresh_token":"r4","expires_in":3600}"#),
         ]);
         let oauth = OpenAiOAuth::new(file, endpoint.clone());
-        let a = Credential { bearer: "a".into(), account_id: None };
+        let a = sent("a");
 
         let mut preemptive = Box::pin(oauth.current());
         assert!(futures::poll!(preemptive.as_mut()).is_pending());
@@ -924,16 +1035,17 @@ mod tests {
         let mut first = Box::pin(oauth.after_rejection(&a));
         assert!(futures::poll!(first.as_mut()).is_pending(), "the forced refresh is queued behind the preemptive one");
         endpoint.gate.add_permits(1);
-        assert!(matches!(rotating.await, Ok(Refreshed::Exchanged(credential)) if credential.bearer == "a"));
+        assert!(matches!(rotating.await, Ok(Refreshed::Exchanged(attempt)) if attempt.credential.bearer == "a"));
         assert!(tokio::fs::read_to_string(&path).await.unwrap().contains("\"r2\""), "the refresh token rotated");
-        assert!(!oauth.inner.inflight.lock().unwrap().is_empty(), "the forced refresh is still pending");
-        let mut again = Box::pin(oauth.after_rejection(&a));
-        assert!(futures::poll!(again.as_mut()).is_pending());
+        let again = oauth.after_rejection(&a);
         endpoint.gate.add_permits(2);
         assert_eq!(preemptive.await.unwrap().bearer, "a");
-        assert!(first.await.is_err(), "the forced exchange failed");
-        assert!(again.await.is_err(), "the second 401 shares the forced exchange's outcome");
-        assert_eq!(*endpoint.seen.lock().unwrap(), 2, "the preemptive and one forced exchange");
+        let rotated = |next: Option<Attempt>| {
+            next.is_some_and(|next| next.bearer == "a" && Served::of(&next).is_some_and(|served| served.grant.as_deref() == Some("r2")))
+        };
+        assert!(rotated(first.await.unwrap()), "the attempt is given the login stored now");
+        assert!(rotated(again.await.unwrap()), "the second 401 shares that outcome");
+        assert_eq!(*endpoint.seen.lock().unwrap(), 1, "the preemptive exchange alone");
     }
 
     /// Another writer replaces the coasting token with a still-valid near-expiry one before the refresh reads the file
@@ -949,5 +1061,147 @@ mod tests {
         assert_eq!(first.await.unwrap().bearer, "b", "the failed refresh serves the token it read under the lease");
         assert_eq!(oauth.current().await.unwrap().bearer, "b");
         assert_eq!(endpoint.seen.lock().unwrap().len(), 1, "the outage is not retried for the token that coasts");
+    }
+
+    /// The slot is signed into another account after an attempt went out on the first one, and that attempt is then
+    /// refused. The login stored now is used as it is, though its bearer is past its expiry and its exchange would be
+    /// refused: its refresh token is not spent on the old attempt's behalf and nothing is remembered as refused for it.
+    /// The account and the refresh grant decide as the bearer does: the same bearer stored for another account, or for
+    /// the same account under another grant, is another login. Once the login stored now was itself sent and refused,
+    /// its own grant is exchanged.
+    #[tokio::test]
+    async fn a_rejection_does_not_refresh_or_refuse_a_login_stored_since_its_attempt() {
+        for (bearer, account) in [("b", "acct-b"), ("a", "acct-b"), ("a", "acct-a")] {
+            let (_dir, path, endpoint, oauth) = gated(login("a", "ra", json!("acct-a"), 3_600_000), &[(400, r#"{"error":"invalid_grant"}"#)]).await;
+            endpoint.gate.add_permits(1);
+            let attempt = oauth.current().await.unwrap();
+            assert_eq!((attempt.bearer.as_str(), attempt.account_id.as_deref()), ("a", Some("acct-a")));
+            std::fs::write(&path, login(bearer, "rb", json!(account), -1_000)).unwrap();
+            let next = oauth.after_rejection(&attempt).await.unwrap().unwrap_or_else(|| attempt.clone());
+            assert_eq!((next.bearer.as_str(), next.account_id.as_deref()), (bearer, Some(account)));
+            assert_eq!(*endpoint.seen.lock().unwrap(), 0, "the new login's refresh token was spent for the old attempt ({bearer}, {account})");
+            assert!(oauth.inner.refused.lock().unwrap().is_none(), "the new login was marked refused for the old attempt ({bearer}, {account})");
+            assert!(oauth.after_rejection(&next).await.is_err_and(|error| error.reauth_required), "the login stored now answers for its own attempt");
+            assert_eq!(*endpoint.seen.lock().unwrap(), 1);
+        }
+    }
+
+    /// The same bearer and account are served under two refresh grants: an attempt goes out on the first, the slot is
+    /// rewritten with the same credential under a second grant, and another attempt goes out on that. Each 401 acts on
+    /// the grant its own attempt carries: the older one's exchanges nothing, before the newer one's or after it, and
+    /// the newer one's exchanges the second grant once.
+    #[tokio::test]
+    async fn the_older_of_two_attempts_on_one_credential_does_not_spend_the_newer_grant() {
+        let reply = (200, r#"{"access_token":"a2","refresh_token":"rc","expires_in":3600}"#);
+        let (_dir, path, endpoint, oauth) = gated(login("a", "ra", json!("acct-a"), 3_600_000), &[reply]).await;
+        endpoint.gate.add_permits(1);
+        let older = oauth.current().await.unwrap();
+        std::fs::write(&path, login("a", "rb", json!("acct-a"), 3_600_000)).unwrap();
+        let newer = oauth.current().await.unwrap();
+        assert!(older.credential == newer.credential, "one credential, two logins");
+
+        let next = oauth.after_rejection(&older).await.unwrap().expect("the login stored now");
+        assert!(Served::of(&next) == Served::of(&newer), "the older attempt is given the newer login as it is");
+        assert_eq!(*endpoint.seen.lock().unwrap(), 0, "the newer grant was spent for the older attempt");
+        assert!(oauth.inner.refused.lock().unwrap().is_none());
+
+        let renewed = oauth.after_rejection(&newer).await.unwrap().expect("a new token");
+        assert_eq!(renewed.bearer, "a2");
+        assert_eq!(*endpoint.seen.lock().unwrap(), 1, "the newer attempt's own grant is exchanged");
+
+        // The older attempt's 401 arriving last of all finds the exchanged login and leaves it alone.
+        let last = oauth.after_rejection(&older).await.unwrap().expect("the login stored now");
+        assert_eq!(last.bearer, "a2");
+        assert_eq!(*endpoint.seen.lock().unwrap(), 1);
+    }
+
+    /// Two handles reach one credential file, one following the selected account to it and one bound to it, and refresh
+    /// its expiring login at once. The second finds the first one's lease taken and waits, then adopts the pair the
+    /// first stored: the refresh token is spent once.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn two_routes_to_one_file_refreshing_one_token_spend_it_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let slot = dir.path().join("slot.json");
+        std::fs::write(&slot, near_expiry("a")).unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let io = CredentialIo { read: rt.interactive_io, write: rt.durability_io };
+        let selected = slot.clone();
+        let following = CredentialFile::new(dir.path().join("openai-oauth.json"), io).following(Arc::new(move || {
+            let selected = selected.clone();
+            async move { selected }.boxed()
+        }));
+        let endpoint = Gated::new(&[(200, r#"{"access_token":"a2","refresh_token":"r2","expires_in":3600}"#), (400, r#"{"error":"invalid_grant"}"#)]);
+        let parked = Arc::new(Parked { waiting: tokio::sync::Semaphore::new(0), go: tokio::sync::Semaphore::new(0) });
+        let first = OpenAiOAuth::new(following, endpoint.clone());
+        let mut contender = OpenAiOAuth::in_process(
+            CredentialFile::new(slot, io),
+            endpoint.clone(),
+            Arc::new(LockProcess::new(mixdog_statefile::LockOwner::another_in_process())),
+        );
+        Arc::get_mut(&mut contender.inner).expect("not shared yet").pace = parked.clone();
+
+        let leading = tokio::spawn(async move { first.current().await });
+        endpoint.arrived.acquire().await.unwrap().forget();
+        let trailing = tokio::spawn(async move { contender.current().await });
+        // Whichever comes first: the contender waiting for the lease, or its own exchange reaching the endpoint.
+        let waited = tokio::select! {
+            _ = parked.waiting.acquire() => true,
+            _ = endpoint.arrived.acquire() => false,
+        };
+        assert!(waited, "the second route entered the exchange while the first one's was in flight");
+        endpoint.gate.add_permits(2);
+        assert_eq!(leading.await.unwrap().unwrap().bearer, "a2");
+        parked.go.add_permits(1_000);
+        assert_eq!(trailing.await.unwrap().unwrap().bearer, "a2", "the second route adopts the stored pair");
+        assert_eq!(*endpoint.seen.lock().unwrap(), 1);
+    }
+
+    /// The same refresh token is stored for another account while its exchange is at the endpoint. The exchange was the
+    /// first account's: its tokens are not written over the other login, and its refusal is not remembered against the
+    /// other login, in date or not.
+    #[tokio::test]
+    async fn an_exchange_neither_publishes_nor_refuses_for_another_account_storing_the_same_token() {
+        let granted = (200, r#"{"access_token":"a2","refresh_token":"r2","expires_in":3600}"#);
+        let dead = (400, r#"{"error":"invalid_grant"}"#);
+        for (reply, other_left_ms, served) in [(granted, 60_000, Some("b")), (dead, 60_000, Some("b")), (dead, -1_000, None)] {
+            let case = format!("{} with {other_left_ms} ms left", reply.0);
+            let (_dir, path, endpoint, oauth) = gated(login("a", "r1", json!("acct-a"), 60_000), &[reply]).await;
+            let mut first = Box::pin(oauth.current());
+            assert!(futures::poll!(first.as_mut()).is_pending());
+            reached(&endpoint, 1).await;
+            let other = login("b", "r1", json!("acct-b"), other_left_ms);
+            std::fs::write(&path, &other).unwrap();
+            endpoint.gate.add_permits(1);
+            let answered = first.await.unwrap();
+            if let Some(bearer) = served {
+                assert_eq!(answered.bearer, bearer, "the login stored now ({case})");
+            }
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), other, "the other account's login was written over ({case})");
+            let stored = oauth.inner.stored().await.unwrap();
+            assert!(oauth.inner.refused_grant(&stored, false).is_none(), "the other account was refused with the first one's token ({case})");
+        }
+    }
+
+    /// A stale attempt's 401 and an ordinary send overlap on a replacement login already past its expiry. The stale
+    /// attempt is given that login as it is. The ordinary send, which joined that refresh, is not handed its answer: it
+    /// reads again, and the replacement gets its usual refresh.
+    #[tokio::test]
+    async fn an_ordinary_send_does_not_inherit_an_expired_login_from_a_stale_401() {
+        let replies = [(503, "{}"), (200, r#"{"access_token":"b2","refresh_token":"rc","expires_in":3600}"#)];
+        let (_dir, path, endpoint, oauth) = gated(login("a", "ra", json!("acct-a"), 60_000), &replies).await;
+        let stale = Served { credential: Credential { bearer: "a".into(), account_id: Some("acct-a".into()) }, grant: Some("ra".into()) }.carried();
+        // A refresh of the first login is at the endpoint, so what follows queues behind it and overlaps.
+        let mut preemptive = Box::pin(oauth.current());
+        assert!(futures::poll!(preemptive.as_mut()).is_pending());
+        reached(&endpoint, 1).await;
+        std::fs::write(&path, login("b", "rb", json!("acct-b"), -1_000)).unwrap();
+        let mut forced = Box::pin(oauth.after_rejection(&stale));
+        assert!(futures::poll!(forced.as_mut()).is_pending(), "the stale 401 is queued");
+        let mut ordinary = Box::pin(oauth.current());
+        assert!(futures::poll!(ordinary.as_mut()).is_pending(), "the ordinary send joined it");
+        endpoint.gate.add_permits(2);
+        assert_eq!(forced.await.unwrap().expect("the login stored now").bearer, "b", "the stale attempt leaves the replacement as it is");
+        assert_eq!(ordinary.await.unwrap().bearer, "b2", "the ordinary send's login is refreshed");
+        assert_eq!(*endpoint.seen.lock().unwrap(), 2, "the first login's refresh and the replacement's own");
     }
 }

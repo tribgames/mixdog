@@ -47,9 +47,9 @@ struct FakeSource {
 
 #[async_trait]
 impl UsageSource for FakeSource {
-    async fn ensure_auth(&self, _: &str, _: &str, force: bool) -> Result<Option<Value>, UsageError> {
-        self.forced.lock().unwrap().push(force);
-        Ok(Some(serde_json::json!({"accessToken": "tok"})))
+    async fn ensure_auth(&self, _: &str, _: &str, rejected: Option<&UsageAuth>) -> Result<Option<UsageAuth>, UsageError> {
+        self.forced.lock().unwrap().push(rejected.is_some());
+        Ok(Some(UsageAuth::plain(serde_json::json!({"accessToken": "tok"}))))
     }
     async fn provider_snapshot(&self, _: &str, _: &str) -> Result<Option<Value>, UsageError> {
         Ok(None)
@@ -86,7 +86,7 @@ async fn cursor_plan_cache_and_inflight_are_scoped_to_the_resolved_key() {
 
     #[async_trait]
     impl UsageSource for Keys {
-        async fn ensure_auth(&self, _: &str, _: &str, _: bool) -> Result<Option<Value>, UsageError> {
+        async fn ensure_auth(&self, _: &str, _: &str, _: Option<&UsageAuth>) -> Result<Option<UsageAuth>, UsageError> {
             Ok(None)
         }
         async fn provider_snapshot(&self, _: &str, _: &str) -> Result<Option<Value>, UsageError> {

@@ -201,10 +201,13 @@ struct Creds;
 
 #[async_trait]
 impl CredentialSource for Creds {
-    async fn current(&self) -> Result<Credential, ProviderError> {
-        Ok(Credential { bearer: "tok".into(), account_id: Some("acct".into()) })
+    async fn current(&self) -> Result<mixdog_ai::providers::openai::adapter::Attempt, ProviderError> {
+        Ok(Credential { bearer: "tok".into(), account_id: Some("acct".into()) }.into())
     }
-    async fn after_rejection(&self, _: &Credential) -> Result<Option<Credential>, ProviderError> {
+    async fn after_rejection(
+        &self,
+        _: &mixdog_ai::providers::openai::adapter::Attempt,
+    ) -> Result<Option<mixdog_ai::providers::openai::adapter::Attempt>, ProviderError> {
         Ok(None)
     }
 }

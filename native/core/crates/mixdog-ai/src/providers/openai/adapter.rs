@@ -122,12 +122,57 @@ impl fmt::Debug for Credential {
     }
 }
 
+/// What one request is sent on: its credential, and what the source that served it tells the login behind it by. A
+/// rejection hands the whole attempt back, so the source acts on that login and on no other.
+#[derive(Clone)]
+pub struct Attempt {
+    pub credential: Credential,
+    /// The source's own; nothing else reads it.
+    login: Option<Arc<dyn std::any::Any + Send + Sync>>,
+}
+
+impl Attempt {
+    /// A credential with no login behind it (an API key).
+    pub fn plain(credential: Credential) -> Self {
+        Self { credential, login: None }
+    }
+
+    /// A credential served under `login`, which [`Self::login`] gives back to the source.
+    pub fn served_under(credential: Credential, login: impl std::any::Any + Send + Sync) -> Self {
+        Self { credential, login: Some(Arc::new(login)) }
+    }
+
+    pub fn login<T: std::any::Any>(&self) -> Option<&T> {
+        self.login.as_ref()?.downcast_ref()
+    }
+}
+
+impl From<Credential> for Attempt {
+    fn from(credential: Credential) -> Self {
+        Self::plain(credential)
+    }
+}
+
+impl std::ops::Deref for Attempt {
+    type Target = Credential;
+
+    fn deref(&self) -> &Credential {
+        &self.credential
+    }
+}
+
+impl fmt::Debug for Attempt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.credential.fmt(f)
+    }
+}
+
 #[async_trait]
 pub trait CredentialSource: Send + Sync {
-    async fn current(&self) -> Result<Credential, ProviderError>;
-    /// The server rejected `rejected` with a 401: reload the key or refresh
-    /// the token. `None` when the source still holds the rejected credential; the request is sent once more either way.
-    async fn after_rejection(&self, rejected: &Credential) -> Result<Option<Credential>, ProviderError>;
+    async fn current(&self) -> Result<Attempt, ProviderError>;
+    /// The server rejected `rejected` with a 401: reload the key or refresh the token of the login that attempt was
+    /// served under. `None` when the source still holds what was rejected; the request is sent once more either way.
+    async fn after_rejection(&self, rejected: &Attempt) -> Result<Option<Attempt>, ProviderError>;
 }
 
 // Per-process request context
@@ -574,7 +619,7 @@ impl OpenAiAdapter {
     /// One exchange on a pooled socket. `wire` carries the request frame (and
     /// the handshake headers for a new socket); the frame actually sent is
     /// the delta against the socket's last response when it extends it.
-    async fn open_ws(&self, request: &ModelRequest, wire: WireRequest, credential: &Credential, force_fresh: bool) -> Result<Opened, ProviderError> {
+    async fn open_ws(&self, request: &ModelRequest, wire: WireRequest, credential: &Attempt, force_fresh: bool) -> Result<Opened, ProviderError> {
         // Every operation on a socket is an attempt of the driver (a fallback, a refresh resume, a retry included): the head
         // wait counts from here, the acquire and the request frame within it, and the driver bounds each read after it.
         let attempt = self.model_call(request, true).begin();
@@ -598,8 +643,12 @@ impl OpenAiAdapter {
         let Sent { checkout, body, owner, scope_turn, token, updates } = *sent;
         // The socket took the request: that is this exchange's head, and the first payload is awaited from here.
         attempt.head_received();
+        // A refusal on this socket is of the login its upgrade was authorized with, which a reused socket did not get
+        // from this request.
+        let authenticated = checkout.auth.clone();
         let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.responses_decoder(request))
             .with_bound(request.options.send_identity.clone(), attempt);
+        stream.credential = authenticated;
         stream.updates = updates;
         stream.anchor = Some(Anchor { body, response_id: None, items: Vec::new() });
         // `_captureTurnStateFromEvent` returns at once when the activation gave the socket a token.
@@ -614,7 +663,7 @@ impl OpenAiAdapter {
     }
 
     /// The acquire and the request frame of one WebSocket operation (the driver bounds them together as the head).
-    async fn ws_submit(&self, request: &ModelRequest, wire: WireRequest, credential: &Credential, force_fresh: bool) -> Result<Submitted, ProviderError> {
+    async fn ws_submit(&self, request: &ModelRequest, wire: WireRequest, credential: &Attempt, force_fresh: bool) -> Result<Submitted, ProviderError> {
         let mut body: serde_json::Map<String, Value> =
             serde_json::from_slice(&wire.body).map_err(|_| ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent))?;
         body.shift_remove("type");
@@ -627,10 +676,11 @@ impl OpenAiAdapter {
             None => (format!("\0shared:{}:{}", compat.auth, compat.cache_key), true),
         };
         let mut checkout = self.pool.checkout(&key, &compat, shared, force_fresh).await;
-        if checkout.socket.is_none()
-            && let Some(refusal) = self.dial_into(&mut checkout, &wire).await?
-        {
-            return Ok(Submitted::Rejected(refusal));
+        if checkout.socket.is_none() {
+            if let Some(refusal) = self.dial_into(&mut checkout, &wire).await? {
+                return Ok(Submitted::Rejected(refusal));
+            }
+            checkout.auth = Some(credential.clone());
         }
         self.send_frame(request, checkout, body).await
     }
@@ -930,11 +980,11 @@ fn replay_safe(error: &ProviderError) -> bool {
 #[derive(Default)]
 struct AuthRetry {
     spent: bool,
-    renewed: Option<Credential>,
+    renewed: Option<Attempt>,
 }
 
 impl AuthRetry {
-    async fn renew(&mut self, source: &dyn CredentialSource, rejected: &Credential) -> Result<Credential, ProviderError> {
+    async fn renew(&mut self, source: &dyn CredentialSource, rejected: &Attempt) -> Result<Attempt, ProviderError> {
         self.spent = true;
         let next = source.after_rejection(rejected).await?.unwrap_or_else(|| rejected.clone());
         self.renewed = Some(next.clone());
@@ -986,7 +1036,7 @@ impl ResponsesSend {
 
     /// A failure inside the stream: the credential renewal, the catalog refresh or the reconnect ladder takes it; `Err` is
     /// the send's answer.
-    async fn recover_from(&mut self, mut error: ProviderError, effort_rejected: bool, rejected_key: Option<Credential>) -> Result<(), ProviderError> {
+    async fn recover_from(&mut self, mut error: ProviderError, effort_rejected: bool, rejected_key: Option<Attempt>) -> Result<(), ProviderError> {
         error.unsafe_to_retry |= self.output_exposed;
         if self.reasoning_exposed {
             // Shown reasoning rules out this send's own reconnect and refresh; whether the cut is replayed
@@ -1232,7 +1282,7 @@ struct ResponsesStream {
     ws: bool,
     decoder: ResponsesDecoder,
     updates: SentUpdates,
-    credential: Option<Credential>,
+    credential: Option<Attempt>,
     queue: VecDeque<StreamEvent>,
     failed: Option<ProviderError>,
     /// A pooled socket's request, to anchor its response.
@@ -1671,10 +1721,10 @@ mod idle_tests {
 
     #[async_trait]
     impl CredentialSource for Creds {
-        async fn current(&self) -> Result<Credential, ProviderError> {
-            Ok(Credential { bearer: "fixture-key".into(), account_id: None })
+        async fn current(&self) -> Result<Attempt, ProviderError> {
+            Ok(Credential { bearer: "fixture-key".into(), account_id: None }.into())
         }
-        async fn after_rejection(&self, _: &Credential) -> Result<Option<Credential>, ProviderError> {
+        async fn after_rejection(&self, _: &Attempt) -> Result<Option<Attempt>, ProviderError> {
             Ok(None)
         }
     }
@@ -2064,7 +2114,7 @@ impl OpenAiAdapter {
             };
             let rejected = match opened {
                 Opened::Stream(mut stream) => {
-                    stream.credential = Some(credential);
+                    stream.credential.get_or_insert(credential);
                     if wire_kind == Wire::Http {
                         stream.updates = std::mem::take(&mut http_updates);
                     }
