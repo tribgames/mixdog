@@ -45,6 +45,18 @@ pub trait ThreadState: Send + Sync {
         set: Map<String, Value>,
         unset: Vec<String>,
     ) -> Result<Option<Map<String, Value>>, PortError>;
+    /// [`patch_header_if`](Self::patch_header_if) applied only while the thread stands where `at` says: its one
+    /// writer, which also starts and ends its turns, decides it and answers [`FencedPatch::Moved`] with nothing
+    /// written otherwise. Every implementer states its own answer: none is assumed to stand anywhere
+    /// ([`patch_at_rest`] for a store that runs no turns).
+    async fn patch_header_at(
+        &self,
+        thread: &ThreadId,
+        at: &RunFence,
+        expect: Map<String, Value>,
+        set: Map<String, Value>,
+        unset: Vec<String>,
+    ) -> Result<FencedPatch, PortError>;
     async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError>;
     /// [`patch_header`](Self::patch_header) answered by the journal barrier of the patch's own record, for a caller
     /// that counts the change only once it is stored: a session that keeps a change it could not save answers that
@@ -63,6 +75,40 @@ pub trait ThreadState: Send + Sync {
     /// The identity of the journal a thread loaded now is written to, read without waiting; `None` when the thread is
     /// not loaded here. A thread deleted and made again under the same id has another.
     fn log_identity(&self, thread: &ThreadId) -> Option<String>;
+}
+
+/// Where a thread must stand for a [`ThreadState::patch_header_at`] to be written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunFence {
+    /// It runs nothing: no turn runs, is starting or is queued.
+    Idle,
+    /// This turn is the one it runs.
+    Turn(mixdog_core_api::ids::TurnId),
+}
+
+/// What a [`ThreadState::patch_header_at`] came to.
+#[derive(Clone, Debug, PartialEq)]
+pub enum FencedPatch {
+    Written,
+    /// The header no longer holds what the patch expects: the keys' values now.
+    Conflict(Map<String, Value>),
+    /// The thread does not stand where the patch was fenced: nothing was written.
+    Moved,
+}
+
+/// [`ThreadState::patch_header_at`] of a store that runs no turns: it is always idle and never at a turn.
+pub async fn patch_at_rest<S: ThreadState + ?Sized>(
+    store: &S,
+    thread: &ThreadId,
+    at: &RunFence,
+    expect: Map<String, Value>,
+    set: Map<String, Value>,
+    unset: Vec<String>,
+) -> Result<FencedPatch, PortError> {
+    if matches!(at, RunFence::Turn(_)) {
+        return Ok(FencedPatch::Moved);
+    }
+    Ok(store.patch_header_if(thread, expect, set, unset).await?.map_or(FencedPatch::Written, FencedPatch::Conflict))
 }
 
 /// [`ThreadState::held_fields`] of a store that holds nothing but the header it answers: `keys` picked from it.

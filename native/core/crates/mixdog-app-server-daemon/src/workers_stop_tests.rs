@@ -37,6 +37,16 @@ impl ThreadState for GatedHeaders {
         self.applied.lock().unwrap().push((thread.as_str().to_owned(), set.get("worker").cloned().unwrap_or(Value::Null)));
         Ok(())
     }
+    async fn patch_header_at(
+        &self,
+        thread: &ThreadId,
+        at: &mixdog_core_ports::ports::threads::RunFence,
+        expect: Map<String, Value>,
+        set: Map<String, Value>,
+        unset: Vec<String>,
+    ) -> Result<mixdog_core_ports::ports::threads::FencedPatch, PortError> {
+        mixdog_core_ports::ports::threads::patch_at_rest(self, thread, at, expect, set, unset).await
+    }
     async fn patch_header_if(
         &self,
         _: &ThreadId,
@@ -76,6 +86,16 @@ impl ThreadState for RefusingHeaders {
     async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
         let refused = self.0.try_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok();
         if refused { Err(PortError::Invalid { field: "worker".into(), reason: "disk full".into() }) } else { Ok(()) }
+    }
+    async fn patch_header_at(
+        &self,
+        thread: &ThreadId,
+        at: &mixdog_core_ports::ports::threads::RunFence,
+        expect: Map<String, Value>,
+        set: Map<String, Value>,
+        unset: Vec<String>,
+    ) -> Result<mixdog_core_ports::ports::threads::FencedPatch, PortError> {
+        mixdog_core_ports::ports::threads::patch_at_rest(self, thread, at, expect, set, unset).await
     }
     async fn patch_header_if(
         &self,

@@ -101,6 +101,8 @@ pub(crate) struct Shared {
     pub(crate) notices: Log,
     /// The sessions listed again (`revealSession`).
     revealed: Log,
+    /// The sessions hidden and not listed again since.
+    hidden: Mutex<std::collections::HashSet<String>>,
     steps: Vec<Value>,
     session: Mutex<Value>,
     config: Obj,
@@ -272,6 +274,10 @@ impl Sessions for Closer {
         log(&self.0.log, json!(format!("close:{id}:{reason}")));
         true
     }
+    async fn close_turn(&self, id: &str, turn: &str, reason: &str) -> bool {
+        log(&self.0.log, json!(format!("close-turn:{id}:{turn}:{reason}")));
+        true
+    }
     async fn try_close_session(&self, id: &str, reason: &str, options: CloseOptions) -> Result<bool, String> {
         let closed = self.close_session(id, reason, options).await;
         if self.0.fail_close.iter().any(|failing| failing == id) {
@@ -286,8 +292,16 @@ impl Sessions for Closer {
         self.0.children.iter().filter(|(_, p)| p == parent).map(|(id, _)| id.clone()).collect()
     }
     fn clear_statusline_route(&self, _: &str) {}
+    async fn hide_sessions(&self, hides: &[mixdog_agent::agent_tool::host::Hide]) -> Vec<mixdog_tools::orch::agent::HideFailed> {
+        lock(&self.0.hidden).extend(hides.iter().map(|hide| hide.session_id.clone()));
+        Vec::new()
+    }
     async fn reveal_session(&self, id: &str) {
+        lock(&self.0.hidden).remove(id);
         log(&self.0.revealed, json!(id));
+    }
+    async fn is_hidden(&self, id: &str) -> bool {
+        lock(&self.0.hidden).contains(id)
     }
 }
 
@@ -390,13 +404,14 @@ impl Registry for Reg {
         tag: Option<&str>,
         root: &str,
         descendants: &[String],
-        at: &std::collections::HashMap<String, Option<mixdog_agent::agent_tool::host::TurnMark>>,
+        at: Option<&std::collections::HashMap<String, Option<mixdog_agent::agent_tool::host::TurnMark>>>,
     ) -> mixdog_agent::agent_tool::host::Released {
         use mixdog_agent::agent_tool::host::{Release, ReleaseOutcome, Released};
         self.release_closed(scope, tag, root, descendants);
+        let turn = |id: &str| at.and_then(|at| at.get(id)).cloned().flatten();
         let releases = std::iter::once(root.to_owned())
             .chain(descendants.iter().cloned())
-            .map(|id| Release::answered(id.clone(), tag.filter(|_| id == root).map(str::to_owned), at.get(&id).cloned().flatten(), ReleaseOutcome::Stored))
+            .map(|id| Release::answered(id.clone(), tag.filter(|_| id == root).map(str::to_owned), turn(&id), ReleaseOutcome::Stored))
             .collect();
         Released { releases, spared: Vec::new() }
     }
@@ -674,6 +689,7 @@ pub(crate) fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
         log: Arc::default(),
         notices: Arc::default(),
         revealed: Arc::default(),
+        hidden: Mutex::default(),
         steps: scenario["steps"].as_array().cloned().unwrap_or_default(),
         session: Mutex::new(session),
         config,
@@ -845,11 +861,16 @@ fn a_contact_agent_may_not_hand_work_to_itself() {
     assert_eq!(assert_bot_chain_target("", &["x".into()], "x", "agent spawn"), Ok(()));
 }
 
-/// Closes recorded with their options, and a signal when one arrives.
+/// Closes recorded with their options, the turn closes with their turn, and a signal when one arrives. A turn close
+/// waits for `hold`, when one is set, before it ends.
 #[derive(Default)]
 struct RecordedCloses {
     calls: Mutex<Vec<(String, String, bool, bool)>>,
+    turns: Mutex<Vec<(String, String, String)>>,
+    hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    ended: std::sync::atomic::AtomicUsize,
     arrived: tokio::sync::Notify,
+    hidden: Mutex<std::collections::HashSet<String>>,
 }
 #[async_trait]
 impl Sessions for RecordedCloses {
@@ -864,6 +885,16 @@ impl Sessions for RecordedCloses {
         self.arrived.notify_one();
         true
     }
+    async fn close_turn(&self, id: &str, turn: &str, reason: &str) -> bool {
+        lock(&self.turns).push((id.to_owned(), turn.to_owned(), reason.to_owned()));
+        self.arrived.notify_one();
+        let hold = lock(&self.hold).clone();
+        if let Some(hold) = hold {
+            hold.notified().await;
+        }
+        self.ended.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        true
+    }
     fn descendant_session_ids(&self, _: &str) -> Vec<String> {
         Vec::new()
     }
@@ -871,6 +902,16 @@ impl Sessions for RecordedCloses {
         Vec::new()
     }
     fn clear_statusline_route(&self, _: &str) {}
+    async fn hide_sessions(&self, hides: &[mixdog_agent::agent_tool::host::Hide]) -> Vec<mixdog_tools::orch::agent::HideFailed> {
+        lock(&self.hidden).extend(hides.iter().map(|hide| hide.session_id.clone()));
+        Vec::new()
+    }
+    async fn reveal_session(&self, id: &str) {
+        lock(&self.hidden).remove(id);
+    }
+    async fn is_hidden(&self, id: &str) -> bool {
+        lock(&self.hidden).contains(id)
+    }
 }
 
 /// What a board's notifier is told, with the hop each completion is delivered at.
@@ -922,30 +963,166 @@ pub(crate) async fn execute_with_parts(rig: &Rig, args: Value) {
     settle().await;
     settle().await;
 }
-/// `job-start.mjs`: cancelling an agent job closes its worker session with reason
-/// `agent-task-cancel`, neither tombstoning it nor as an owner close (the host builds the turn's
-/// `Session "<id>" closed: closeSession (reason=agent-task-cancel)` text from that reason).
+type NoResult = Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>;
+
+fn job_turn(turn: &str) -> Option<mixdog_agent::agent_tool::flow::reconcile::JobTurn> {
+    Some(mixdog_agent::agent_tool::flow::reconcile::JobTurn { session_id: "sess_w1".into(), turn_id: turn.into() })
+}
+
+/// `job-start.mjs`: cancelling an agent job closes the turn it submitted with reason `agent-task-cancel` (the host
+/// builds the turn's `Session "<id>" closed: closeSession (reason=agent-task-cancel)` text from that reason). The
+/// close names that turn: the session itself is not closed, so nothing else that runs on it is reached.
 #[tokio::test]
-async fn cancelling_an_agent_job_closes_its_worker_session_with_the_cancel_reason() {
+async fn cancelling_an_agent_job_closes_the_turn_it_submitted_with_the_cancel_reason() {
     backend();
     let rig = rig(&json!({}), None);
     let closes = Arc::new(RecordedCloses::default());
     let starter =
         JobStarter::new(rig.shared.board.clone(), closes.clone(), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
     let meta = JobMeta { session_id: Some("sess_w1".into()), ..JobMeta::default() };
+    let running = Arc::new(tokio::sync::Notify::new());
+    let began = running.clone();
     starter
-        .start_job("agent", meta, Default::default(), |_, _| async {
-            std::future::pending::<Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>>().await
+        .start_job("agent", meta, Default::default(), move |job, _| async move {
+            job.set_turn(job_turn("turn-1"));
+            began.notify_one();
+            std::future::pending::<NoResult>().await
         })
         .expect("started");
+    running.notified().await;
     let id = rig.shared.board.list_jobs(&Scope::default()).first().map(|j| j.task_id.clone()).expect("job");
     rig.shared.board.cancel(&id, "user cancelled", CancelNotice::Default);
     closes.arrived.notified().await;
-    assert_eq!(*lock(&closes.calls), [("sess_w1".to_owned(), "agent-task-cancel".to_owned(), false, false)]);
+    assert_eq!(*lock(&closes.turns), [("sess_w1".to_owned(), "turn-1".to_owned(), "agent-task-cancel".to_owned())]);
+    assert!(lock(&closes.calls).is_empty(), "the session is not closed: {:?}", lock(&closes.calls));
     assert_eq!(
         mixdog_agent::cancel::close_session_reason("sess_w1", "agent-task-cancel"),
         "Session \"sess_w1\" closed: closeSession (reason=agent-task-cancel)"
     );
+}
+
+/// A cancelled job has nothing on its session before it submitted a turn and once its turn is over: the cancellation
+/// closes nothing then, whatever runs on the session. A turn it submits after the cancellation is closed as it starts.
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_job_closes_nothing_before_its_turn_started_or_after_it_ended() {
+    backend();
+    let rig = rig(&json!({}), None);
+    let closes = Arc::new(RecordedCloses::default());
+    let starter =
+        JobStarter::new(rig.shared.board.clone(), closes.clone(), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
+    let meta = || JobMeta { session_id: Some("sess_w1".into()), ..JobMeta::default() };
+
+    // Before: the job is still reading the session when it is cancelled, and submits afterwards.
+    let submit = Arc::new(tokio::sync::Notify::new());
+    let go = submit.clone();
+    let early = starter
+        .start_job("send", meta(), Default::default(), move |job, _| async move {
+            go.notified().await;
+            job.set_turn(job_turn("turn-late"));
+            std::future::pending::<NoResult>().await
+        })
+        .expect("started");
+    settle().await;
+    rig.shared.board.cancel(early.task_id(), "user cancelled", CancelNotice::Default);
+    settle().await;
+    assert!(lock(&closes.turns).is_empty() && lock(&closes.calls).is_empty(), "nothing of the job runs on the session yet");
+    submit.notify_one();
+    settle().await;
+    assert_eq!(*lock(&closes.turns), [("sess_w1".to_owned(), "turn-late".to_owned(), "agent-task-cancel".to_owned())]);
+
+    // After: its turn ended and the job is collecting its report when it is cancelled.
+    let late = starter
+        .start_job("send", meta(), Default::default(), move |job, _| async move {
+            job.set_turn(job_turn("turn-done"));
+            job.set_turn(None);
+            std::future::pending::<NoResult>().await
+        })
+        .expect("started");
+    settle().await;
+    rig.shared.board.cancel(late.task_id(), "user cancelled", CancelNotice::Default);
+    settle().await;
+    assert_eq!(lock(&closes.turns).len(), 1, "the ended turn is not closed: {:?}", lock(&closes.turns));
+    assert!(lock(&closes.calls).is_empty(), "and the session is never closed: {:?}", lock(&closes.calls));
+}
+
+/// A close that began is carried to its end: the job's work ending first does not drop it halfway.
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_jobs_close_ends_though_its_work_ends_first() {
+    backend();
+    let rig = rig(&json!({}), None);
+    let closes = Arc::new(RecordedCloses::default());
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *lock(&closes.hold) = Some(hold.clone());
+    let starter =
+        JobStarter::new(rig.shared.board.clone(), closes.clone(), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
+    let finish = Arc::new(tokio::sync::Notify::new());
+    let end = finish.clone();
+    let job = starter
+        .start_job("send", JobMeta { session_id: Some("sess_w1".into()), ..JobMeta::default() }, Default::default(), move |job, _| async move {
+            job.set_turn(job_turn("turn-1"));
+            end.notified().await;
+            Ok::<_, String>(None)
+        })
+        .expect("started");
+    settle().await;
+    rig.shared.board.cancel(job.task_id(), "user cancelled", CancelNotice::Default);
+    closes.arrived.notified().await;
+    finish.notify_one();
+    settle().await;
+    let ended = || closes.ended.load(std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(ended(), 0, "the close is still under way");
+    hold.notify_one();
+    settle().await;
+    assert_eq!(ended(), 1, "the close that began reached its end");
+}
+
+/// Admits the first job and holds every other until it is cancelled.
+#[derive(Default)]
+struct FirstOnly {
+    taken: std::sync::atomic::AtomicBool,
+    waiting: tokio::sync::Notify,
+    left: tokio::sync::Notify,
+}
+#[async_trait]
+impl Admission for FirstOnly {
+    async fn acquire(&self, _: &str, _: Option<&str>, cancel: &mixdog_agent::cancel::Cancel) -> Result<Box<dyn Lease>, String> {
+        if !self.taken.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Ok(Box::new(Slot));
+        }
+        self.waiting.notify_one();
+        cancel.cancelled().await;
+        self.left.notify_one();
+        Err("agent task cancelled before resource admission".into())
+    }
+}
+
+/// A job cancelled while it waits for admission started no turn: the session it was to run on, where another job's turn
+/// runs, is not closed.
+#[tokio::test]
+async fn cancelling_a_job_that_has_not_started_closes_no_session() {
+    backend();
+    let rig = rig(&json!({}), None);
+    let closes = Arc::new(RecordedCloses::default());
+    let admission = Arc::new(FirstOnly::default());
+    let starter =
+        JobStarter::new(rig.shared.board.clone(), closes.clone(), Arc::new(Sess(rig.shared.clone())), admission.clone(), Arc::new(NoStarts), Arc::new(|| {}));
+    let meta = || JobMeta { session_id: Some("sess_w1".into()), ..JobMeta::default() };
+    let running = Arc::new(tokio::sync::Notify::new());
+    let began = running.clone();
+    starter
+        .start_job("send", meta(), Default::default(), move |_, _| async move {
+            began.notify_one();
+            std::future::pending::<Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>>().await
+        })
+        .expect("started");
+    running.notified().await;
+    let waiting = starter
+        .start_job("send", meta(), Default::default(), |_, _| async { Ok::<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>(None) })
+        .expect("started");
+    admission.waiting.notified().await;
+    rig.shared.board.cancel(waiting.task_id(), "user cancelled", CancelNotice::Default);
+    admission.left.notified().await;
+    assert!(lock(&closes.calls).is_empty(), "the session keeps the turn running on it: {:?}", lock(&closes.calls));
 }
 /// `agent close` of an agent that has agents below it (`closeSession` is `cancelAgentTree`): the agents below close first,
 /// after the jobs bound to them, and the owner's job is cancelled with the close's reason.
@@ -972,8 +1149,10 @@ async fn closing_an_agent_closes_the_agents_below_it_and_cancels_their_jobs() {
     let parts = CloseParts { registry: &registry, sessions: &closer, tasks: &rig.shared.board };
     let view = close_resolved(parts, "sess_w1", "sess_w1", &Scope::default(), None, false).await.expect("closes");
     assert!(view.closed);
-    let closes: Vec<Value> = lock(&rig.shared.log).iter().filter(|entry| entry.as_str().is_some_and(|e| e.starts_with("close:"))).cloned().collect();
-    assert_eq!(closes, [json!("close:sess_c1:agent-task-cancel"), json!("close:sess_c1:cli-agent-close"), json!("close:sess_w1:cli-agent-close")]);
+    settle().await;
+    // The cancelled job submitted no turn: it closes nothing of its own, and the tree's closes are the only ones.
+    let closes: Vec<Value> = lock(&rig.shared.log).iter().filter(|entry| entry.as_str().is_some_and(|e| e.starts_with("close"))).cloned().collect();
+    assert_eq!(closes, [json!("close:sess_c1:cli-agent-close"), json!("close:sess_w1:cli-agent-close")]);
     let job = rig.shared.board.get(handle.task_id(), &Scope::default()).unwrap();
     assert_eq!((job.status.as_str(), job.error.as_deref()), ("cancelled", Some("cli-agent-close")));
 }

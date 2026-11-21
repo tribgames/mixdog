@@ -6,7 +6,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use crate::cancel::{Cancel, JOB_CANCELLED};
+use crate::cancel::{AGENT_TASK_CANCEL, Cancel, JOB_CANCELLED};
 use mixdog_rt::TaskClass;
 use mixdog_tools::orch::agent::TaskResult;
 
@@ -20,7 +20,6 @@ use crate::agent_tool::board::JobBoard;
 use crate::agent_tool::board::JobMeta;
 use crate::agent_tool::board::JobOwner;
 use crate::agent_tool::board::NewJob;
-use crate::agent_tool::host::CloseOptions;
 use crate::agent_tool::host::Sessions;
 use crate::agent_tool::scope::clean_str;
 
@@ -58,31 +57,53 @@ fn publish_status_after_tick(changed: Arc<dyn Fn() + Send + Sync>) {
     }));
 }
 
-fn close_cancelled_session(sessions: Arc<dyn Sessions>, session: String) {
-    let mut closing = Box::pin(async move {
-        sessions.close_session(&session, "agent-task-cancel", CloseOptions { tombstone: false, owner_close: false }).await;
-    });
-    let mut cx = std::task::Context::from_waker(futures::task::noop_waker_ref());
-    if closing.as_mut().poll(&mut cx).is_pending() {
-        drop(mixdog_rt::spawn("agent-task-cancel", TaskClass::Work, closing));
-    }
-}
-
-fn cancel_hook(
-    token: Cancel,
-    sessions: Arc<dyn Sessions>,
-    started_session: Option<String>,
-    status_changed: Arc<dyn Fn() + Send + Sync>,
-    handle: Arc<OnceLock<Arc<JobHandle>>>,
-) -> Arc<dyn Fn() + Send + Sync> {
+/// The job's cancellation: its token aborts, which its admission and its work in flight each answer themselves
+/// ([`work_until_cancelled`]).
+fn cancel_hook(token: Cancel, status_changed: Arc<dyn Fn() + Send + Sync>) -> Arc<dyn Fn() + Send + Sync> {
     Arc::new(move || {
         token.abort(JOB_CANCELLED);
-        let current = handle.get().and_then(|job| job.snapshot()).and_then(|s| s.meta.session_id).filter(|s| !s.is_empty());
-        if let Some(session) = current.or_else(|| started_session.clone()) {
-            close_cancelled_session(sessions.clone(), session);
-        }
         publish_status_after_tick(status_changed.clone());
     })
+}
+
+/// The job's work until it ends. A cancellation that comes while it is in flight closes the turn the job submitted
+/// ([`JobHandle::turns`]), named by its id, and nothing else on the session: before the job submitted a turn and once
+/// its turn is over it has nothing there to stop, whatever runs on the session by then. A close that began is carried
+/// to its end, also when the work ends first.
+async fn work_until_cancelled<Fut>(work: Fut, cancelled: &Cancel, job: &JobHandle, sessions: &dyn Sessions) -> Fut::Output
+where
+    Fut: Future,
+{
+    tokio::pin!(work);
+    tokio::select! {
+        biased;
+        outcome = &mut work => return outcome,
+        () = cancelled.cancelled() => {}
+    }
+    let mut turns = job.turns();
+    let mut closed = None;
+    loop {
+        let next = async { turns.wait_for(|turn| turn.is_some() && *turn != closed).await.ok().and_then(|turn| turn.clone()) };
+        let submitted = tokio::select! {
+            biased;
+            outcome = &mut work => return outcome,
+            submitted = next => submitted,
+        };
+        let Some(turn) = submitted else { return work.await };
+        {
+            let closing = sessions.close_turn(&turn.session_id, &turn.turn_id, AGENT_TASK_CANCEL);
+            tokio::pin!(closing);
+            tokio::select! {
+                biased;
+                outcome = &mut work => {
+                    closing.await;
+                    return outcome;
+                }
+                _ = &mut closing => {}
+            }
+        }
+        closed = Some(turn);
+    }
 }
 
 impl JobStarter {
@@ -118,10 +139,11 @@ impl JobStarter {
         let admission_cancel = Cancel::new();
         let session = meta.session_id.clone().filter(|s| !s.is_empty());
         let handle: Arc<OnceLock<Arc<JobHandle>>> = Arc::default();
-        let cancel = cancel_hook(admission_cancel.clone(), self.sessions.clone(), session.clone(), self.status_changed.clone(), handle.clone());
+        let cancel = cancel_hook(admission_cancel.clone(), self.status_changed.clone());
         let (published, announced) = tokio::sync::oneshot::channel::<()>();
         let id = {
             let (board, admission, status_changed, handle) = (self.board.clone(), self.admission.clone(), self.status_changed.clone(), handle.clone());
+            let sessions = self.sessions.clone();
             let (label, owner_key) = (label.clone(), owner.clone().or_else(|| notify.client_host_pid.map(|p| p.to_string())));
             let notify_for_run = notify.clone();
             let operation_for_run = operation.to_owned();
@@ -147,7 +169,11 @@ impl JobStarter {
                         let lease = admission.acquire(&label, owner_key.as_deref(), &admission_cancel).await?;
                         job.set_slot(lease.yielder());
                         mixdog_rt::time::immediate().await;
-                        let outcome = if job.is_cancelled() { Ok(None) } else { run(job, notify_for_run).await };
+                        let outcome = if job.is_cancelled() {
+                            Ok(None)
+                        } else {
+                            work_until_cancelled(run(job.clone(), notify_for_run), &admission_cancel, &job, &*sessions).await
+                        };
                         lease.release().await;
                         publish_status_after_tick(status_changed);
                         outcome.map(|value| value.map(|v| TaskResult::Json(v.value)))

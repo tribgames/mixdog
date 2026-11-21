@@ -130,7 +130,7 @@ impl DispatchThreads {
             context: None,
             cwd: cwd.unwrap_or_default(),
             skill_selection: None,
-            hooks: TurnHooks { submission_id: String::new(), notify: Arc::new(|_, _| false), on_tool_result: Arc::new(|_| {}), on_terminal_result: None },
+            hooks: TurnHooks { submission_id: String::new(), notify: Arc::new(|_, _| false), on_tool_result: Arc::new(|_| {}), on_terminal_result: None, on_submitted: None },
             slot: Some(slot),
         };
         let turn = self.turns.run_watched_turn(request);

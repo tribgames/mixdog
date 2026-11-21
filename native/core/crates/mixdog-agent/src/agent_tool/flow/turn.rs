@@ -15,6 +15,7 @@ use super::notify::NotifyContext;
 use super::notify::worker_notify;
 use super::reconcile::FinalStatus;
 use super::reconcile::JobHandle;
+use super::reconcile::JobTurn;
 use super::reconcile::TerminalHook;
 use super::reconcile::reconcile_cancelled;
 use super::reconcile::reconcile_failed;
@@ -138,6 +139,10 @@ impl TurnRunner {
                 }
             })
         };
+        let on_submitted = job.map(|job| {
+            let (job, session_id) = (job.clone(), plan.session_id.clone());
+            Arc::new(move |turn: &str| job.set_turn(Some(JobTurn { session_id: session_id.clone(), turn_id: turn.to_owned() }))) as Arc<dyn Fn(&str) + Send + Sync>
+        });
         let request = TurnRequest {
             kind: plan.kind,
             session_id: plan.session_id.clone(),
@@ -146,10 +151,15 @@ impl TurnRunner {
             context: plan.context.clone(),
             cwd: plan.cwd.clone(),
             skill_selection: plan.skill_selection.clone(),
-            hooks: TurnHooks { submission_id, notify: worker_notify(self.inbox.clone(), &plan.session_id), on_tool_result, on_terminal_result },
+            hooks: TurnHooks { submission_id, notify: worker_notify(self.inbox.clone(), &plan.session_id), on_tool_result, on_terminal_result, on_submitted },
             slot: job.and_then(|j| j.slot()),
         };
-        let mut failure = match self.sessions.run_turn(request).await {
+        let ran = self.sessions.run_turn(request).await;
+        // The turn is over: the job has nothing on the session from here.
+        if let Some(job) = job {
+            job.set_turn(None);
+        }
+        let mut failure = match ran {
             Ok(result) => {
                 // The early preview does not promise body suppression, so the board's
                 // notification fires exactly once with output via the reconcile/finally path.

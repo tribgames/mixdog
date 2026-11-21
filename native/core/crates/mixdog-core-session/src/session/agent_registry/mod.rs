@@ -1058,6 +1058,22 @@ impl AgentRegistry {
         }
     }
 
+    /// The `releasedAt` stamp the session's map holds now: the release its owner's last close made, until a turn or a
+    /// send takes the session up again.
+    pub(crate) fn released_stamp(&self, session: &str) -> Option<String> {
+        self.lock().map(session).and_then(|map| map.get("releasedAt")).and_then(Value::as_str).map(str::to_owned)
+    }
+
+    /// The session is used again: its owner's release ends, as a turn's start ends it.
+    pub(crate) fn clear_released(&self, session: &str) {
+        let mut st = self.lock();
+        if let Some(mut map) = st.map(session).cloned()
+            && map.shift_remove("releasedAt").is_some()
+        {
+            self.persist(&mut st, session, (!map.is_empty()).then_some(map));
+        }
+    }
+
     /// `descriptor.parked = on`.
     pub(crate) fn set_parked(&self, session: &str, on: bool) {
         let mut parked = self.parked.lock().unwrap_or_else(|p| p.into_inner());
@@ -1950,15 +1966,17 @@ impl Registry for AgentRegistry {
     }
 
     /// `forget_terminal_session`, `remove_worker_row` of each descendant and `mark_released` of them all, each map
-    /// written once.
-    fn release_closed(&self, scope: &Scope, tag: Option<&str>, root: &str, descendants: &[String]) {
-        self.release(scope, tag, root, descendants, None);
-    }
-
-    /// Decided under the lock a turn's start counts itself under: a member's turn either started first and it is kept,
-    /// or starts on a released session, which a start on any closed agent resumes.
-    fn release_closed_at(&self, scope: &Scope, tag: Option<&str>, root: &str, descendants: &[String], at: &HashMap<String, Option<TurnMark>>) -> Released {
-        self.release(scope, tag, root, descendants, Some(at))
+    /// written once. With `at`, decided under the lock a turn's start counts itself under: a member's turn either
+    /// started first and it is kept, or starts on a released session, which a start on any closed agent resumes.
+    fn release_closed_at(
+        &self,
+        scope: &Scope,
+        tag: Option<&str>,
+        root: &str,
+        descendants: &[String],
+        at: Option<&HashMap<String, Option<TurnMark>>>,
+    ) -> Released {
+        self.release(scope, tag, root, descendants, at)
     }
 
     /// Each release made under `scope` that was answered neither stored nor superseded is submitted again as the

@@ -5079,7 +5079,6 @@ impl SessionActor {
         // `startUsageMetricsTurn` goes out with the turn's first save (the user message's), not the debounce: a process
         // killed before that save keeps neither.
         self.accept_header(super::usage_books::turn_started(&self.projected.header));
-        self.deps.turn_starts.turn_started(&self.id, &turn);
         let started = Record::Run(RunRecord {
             rid: id(turn.as_str()),
             phase: RunPhase::Started,
@@ -5175,6 +5174,11 @@ impl SessionActor {
             prompt: prompt_state,
             unsaved_messages: Default::default(),
         })));
+        // Told once the run reads as running: whoever finds the turn counted on its row finds it running, so no
+        // listing takes the row for the settled outcome of a turn that has only begun.
+        self.deps.turn_starts.turn_started(&self.id, &turn);
+        // After both: a close's hide of this session is conditional on the run and the release that just changed.
+        super::archive_trees::restore_at_turn_start(&self.deps, &self.id, &self.projected.header);
         let started = self.accept_record_entry(started, Class::Control, Display::None, Vec::new(), effects);
         self.outbox.end_unit();
         self.outbox.pair_with(started);

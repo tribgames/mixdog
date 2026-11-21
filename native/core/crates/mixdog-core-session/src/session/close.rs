@@ -8,6 +8,8 @@ use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_core_ports::ports::threads::FencedPatch;
+use mixdog_core_ports::ports::threads::RunFence;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_tools::fs::ReadState;
 use mixdog_tools::orch::util::PortError;
@@ -99,24 +101,48 @@ pub(crate) fn detach_fields(recorded: &Map<String, Value>, reason: &str, owner_c
 const DETACH_KEYS: [&str; 5] = ["generation", "updatedAt", "detachedReason", "ownerClosedAt", "closed"];
 
 /// `bumpSessionGenerationAttempt(id, reason, { ownerClose })`: the detach fields written against the header they were
-/// computed from. `Ok(false)`: no such session.
-pub(crate) async fn write_detach(threads: &dyn ThreadState, thread: &ThreadId, reason: &str, owner_close: bool, now: i64) -> Result<bool, PortError> {
+/// computed from. `at`: where the session must stand for the stamp (a close decided for an idle session, a job's cancel
+/// for the turn it submitted), which the session's one writer decides ([`Detached::Moved`] otherwise, with nothing
+/// written); `None` stamps it wherever it stands.
+pub(crate) async fn write_detach(
+    threads: &dyn ThreadState,
+    thread: &ThreadId,
+    reason: &str,
+    owner_close: bool,
+    now: i64,
+    at: Option<&RunFence>,
+) -> Result<Detached, PortError> {
     loop {
         let recorded = match threads.header(thread).await {
             Ok(header) => header,
-            Err(PortError::NotFound { .. }) => return Ok(false),
+            Err(PortError::NotFound { .. }) => return Ok(Detached::Absent),
             Err(error) => return Err(error),
         };
         let set = detach_fields(&recorded, reason, owner_close, now);
         let expect = DETACH_KEYS.into_iter().map(|key| (key.to_owned(), recorded.get(key).cloned().unwrap_or(Value::Null))).collect();
-        match threads.patch_header_if(thread, expect, set, Vec::new()).await {
-            Ok(None) => return Ok(true),
+        let patched = match at {
+            Some(at) => threads.patch_header_at(thread, at, expect, set, Vec::new()).await,
+            None => threads.patch_header_if(thread, expect, set, Vec::new()).await.map(|conflict| conflict.map_or(FencedPatch::Written, FencedPatch::Conflict)),
+        };
+        match patched {
+            Ok(FencedPatch::Written) => return Ok(Detached::Stamped),
+            Ok(FencedPatch::Moved) => return Ok(Detached::Moved),
             // Another write moved the header meanwhile: computed again from what it holds now.
-            Ok(Some(_)) => continue,
-            Err(PortError::NotFound { .. }) => return Ok(false),
+            Ok(FencedPatch::Conflict(_)) => continue,
+            Err(PortError::NotFound { .. }) => return Ok(Detached::Absent),
             Err(error) => return Err(error),
         }
     }
+}
+
+/// What a [`write_detach`] came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Detached {
+    Stamped,
+    /// No such session.
+    Absent,
+    /// The session does not stand where the stamp was decided for: nothing was written.
+    Moved,
 }
 
 /// `_dropsAgainst(recorder, { expectedGeneration })` (1.4.5 `session/store/write-admission.mjs` `_shouldDrop`, the same rule; a save that finds no file creates it): the record's lifecycle outranks a copy
@@ -260,9 +286,9 @@ impl SessionClose {
             return false;
         }
         let thread = ThreadId::from(session_id);
-        match write_detach(&self.threads, &thread, reason, owner_close, self.directory.deps().clock.now_ms()).await {
-            Ok(true) => {}
-            Ok(false) => return true,
+        match write_detach(&self.threads, &thread, reason, owner_close, self.directory.deps().clock.now_ms(), None).await {
+            Ok(Detached::Stamped) => {}
+            Ok(Detached::Absent | Detached::Moved) => return true,
             Err(error) => {
                 mixdog_rt::node_stderr!("[agent-close] session={session_id} reason={reason} tombstone=false FAILED durable lifecycle barrier: {error:?}");
                 return false;
@@ -385,6 +411,16 @@ mod tests {
             self.header.lock().unwrap().extend(set);
             Ok(())
         }
+        async fn patch_header_at(
+            &self,
+            thread: &ThreadId,
+            at: &RunFence,
+            expect: Map<String, Value>,
+            set: Map<String, Value>,
+            unset: Vec<String>,
+        ) -> Result<FencedPatch, PortError> {
+            mixdog_core_ports::ports::threads::patch_at_rest(self, thread, at, expect, set, unset).await
+        }
         async fn patch_header_if(
             &self,
             _: &ThreadId,
@@ -431,7 +467,7 @@ mod tests {
     async fn a_detach_fences_the_save_issued_before_it() {
         let thread = ThreadId::from("sess_a");
         let cell = Cell::default();
-        assert!(write_detach(&cell, &thread, "no live session clients", false, 7).await.unwrap());
+        assert_eq!(write_detach(&cell, &thread, "no live session clients", false, 7, None).await.unwrap(), Detached::Stamped);
         let header = cell.header.lock().unwrap().clone();
         assert_eq!(
             Value::Object(header),
@@ -440,7 +476,7 @@ mod tests {
         );
 
         cell.conflict_once.store(true, std::sync::atomic::Ordering::SeqCst);
-        assert!(write_detach(&cell, &thread, "SIGTERM", true, 9).await.unwrap());
+        assert_eq!(write_detach(&cell, &thread, "SIGTERM", true, 9, None).await.unwrap(), Detached::Stamped);
         let header = cell.header.lock().unwrap().clone();
         assert_eq!((header["generation"].clone(), header["ownerClosedAt"].clone()), (json!(6), json!(9)), "computed again from the header another write moved");
     }

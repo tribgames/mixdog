@@ -353,6 +353,7 @@ mod tests {
                 notify: Arc::new(|_, _| true),
                 on_tool_result: Arc::new(|_: &ToolResultMessage| {}),
                 on_terminal_result,
+                on_submitted: None,
             },
             slot: None,
         }
@@ -657,6 +658,31 @@ mod tests {
         let result = turns.run_turn(request).await.expect("turn");
         assert!(result.report_text().contains("Files produced:") && result.report_text().contains("made.txt"), "{}", result.report_text());
         assert_eq!(*heard.lock().unwrap(), [result.report_text().to_owned()]);
+    }
+    /// A job is told the turn its request started, by the id the session runs it under: what its cancellation closes.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_jobs_request_is_told_the_turn_the_session_started_for_it() {
+        let rig = crate::session::testing::Rig::new();
+        let ran: Arc<Mutex<Vec<String>>> = Arc::default();
+        let seen = ran.clone();
+        rig.set_script(Arc::new(move |run| {
+            seen.lock().unwrap().push(run.turn.as_str().to_owned());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                crate::session::RunOutcome::Completed(Box::new(TurnResult { content: "done".into(), iterations: 1, ..Default::default() }))
+            })
+        }));
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let worker = crate::session::tests::start_thread(&directory).await;
+        let turns = SessionTurns::new(directory.clone(), Arc::new(Released(Mutex::default())));
+        let told: Arc<Mutex<Vec<String>>> = Arc::default();
+        let sink = told.clone();
+        let mut request = worker_request(&worker.id, "work", "sub-told", None);
+        request.hooks.on_submitted = Some(Arc::new(move |turn: &str| sink.lock().unwrap().push(turn.to_owned())));
+        turns.run_turn(request).await.expect("turn");
+        let told = told.lock().unwrap().clone();
+        assert_eq!(told.len(), 1, "told once: {told:?}");
+        assert_eq!(told, *ran.lock().unwrap(), "the turn the session ran");
     }
     /// A worker's turn asked of a session that is busy is refused, and the entry it queued is taken
     /// off the queue again: left there it would run later with nobody waiting for it.
@@ -1082,6 +1108,7 @@ impl SessionTurns {
         // The terminal hook is not given to the run: Node collects the turn's files, builds the result and only then invokes
         // it (`agent-turns.mjs`), so it is called below with the report that carries them.
         let terminal = hooks.on_terminal_result.take();
+        let submitted = hooks.on_submitted.take();
         let (done, outcome) = oneshot::channel();
         *handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()) = Some(AgentStart {
             content: handoff_content(&request.prompt, &request.attachments),
@@ -1102,7 +1129,12 @@ impl SessionTurns {
             TurnError::new(message)
         };
         match started {
-            Ok(Reply::Value(value)) if value["kind"] == "started" => {}
+            // The turn this request started, named to its submitter: what a cancellation of the job stops.
+            Ok(Reply::Value(value)) if value["kind"] == "started" => {
+                if let (Some(submitted), Some(turn)) = (&submitted, value["turnId"].as_str()) {
+                    submitted(turn);
+                }
+            }
             Ok(Reply::Value(value)) => {
                 if let Some(queued) = value["queuedId"].as_str() {
                     Self::unqueue_refused(&handle, &thread, &op, ctx, queued).await;

@@ -303,6 +303,18 @@ impl SessionActor {
                 let expected = "the header the change was decided on".into();
                 CoreError::PreconditionFailed { precondition: mixdog_core_api::error::Precondition::Revision { expected, actual: actual.into() } }
             };
+            // A patch fenced on where the thread stands (an owner close's stamp for an idle thread, `whileIdle`; a
+            // job's cancel for the turn it submitted, `whileTurn`): decided here, where the thread's turns start and
+            // end, so it lands on a thread that stands elsewhere in no order of the two.
+            let at_work = self.run.is_some() || self.starting || self.deferred_start.is_some() || !self.projected.queue.is_empty();
+            let moved = match req.params.get("whileTurn").and_then(Value::as_str) {
+                Some(turn) => self.run.as_ref().is_none_or(|run| run.turn.as_str() != turn),
+                None => req.params.get("whileIdle") == Some(&Value::Bool(true)) && at_work,
+            };
+            if moved {
+                let _ = tx.send(Ok(Reply::Value(json!({ "moved": true }))));
+                return Ok(());
+            }
             if let Some(current) = self.header_conflict(&req.params) {
                 // A stored patch that is not applied is not answered `Ok`: a reply carrying `conflict` is no receipt.
                 if self.storing {

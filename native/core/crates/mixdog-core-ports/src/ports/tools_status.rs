@@ -150,6 +150,16 @@ mod tests {
         async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
             Ok(())
         }
+        async fn patch_header_at(
+            &self,
+            thread: &ThreadId,
+            at: &crate::ports::threads::RunFence,
+            expect: Map<String, Value>,
+            set: Map<String, Value>,
+            unset: Vec<String>,
+        ) -> Result<crate::ports::threads::FencedPatch, PortError> {
+            crate::ports::threads::patch_at_rest(self, thread, at, expect, set, unset).await
+        }
         async fn patch_header_if(
             &self,
             _: &ThreadId,
@@ -245,6 +255,16 @@ mod tests {
         }
         async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
             Ok(())
+        }
+        async fn patch_header_at(
+            &self,
+            thread: &ThreadId,
+            at: &crate::ports::threads::RunFence,
+            expect: Map<String, Value>,
+            set: Map<String, Value>,
+            unset: Vec<String>,
+        ) -> Result<crate::ports::threads::FencedPatch, PortError> {
+            crate::ports::threads::patch_at_rest(self, thread, at, expect, set, unset).await
         }
         async fn patch_header_if(
             &self,

@@ -457,6 +457,14 @@ impl StopLatches {
         at()
     }
 
+    /// Runs `at` while run `turn` of `thread` is registered, under the lock every start and every end takes: the run ended
+    /// first (`None`, and `at` never runs), or neither it ends nor another starts before all `at` did. `at` only reads
+    /// and signals.
+    pub fn while_running<R>(&self, thread: &ThreadId, turn: &TurnId, at: impl FnOnce() -> R) -> Option<R> {
+        let gates = lock(&self.0);
+        gates.get(thread.as_str()).is_some_and(|gate| gate.running.iter().any(|(running, _, _)| running == turn)).then(at)
+    }
+
     /// Running `turn` is about to take the entry of `identities` at a boundary: registered with the run, or refused (false) when
     /// any of them is latched, in which case the entry is not injected.
     pub fn claim(&self, thread: &ThreadId, turn: &TurnId, identities: &[String]) -> bool {

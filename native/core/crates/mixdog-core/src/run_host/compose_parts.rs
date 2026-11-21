@@ -344,6 +344,17 @@ impl ThreadState for LateThreads {
         self.threads()?.patch_header_if(thread, expect, set, unset).await
     }
 
+    async fn patch_header_at(
+        &self,
+        thread: &ThreadId,
+        at: &mixdog_core_ports::ports::threads::RunFence,
+        expect: Map<String, Value>,
+        set: Map<String, Value>,
+        unset: Vec<String>,
+    ) -> Result<mixdog_core_ports::ports::threads::FencedPatch, PortError> {
+        self.threads()?.patch_header_at(thread, at, expect, set, unset).await
+    }
+
     async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError> {
         self.threads()?.publish(thread, section).await
     }
@@ -559,6 +570,83 @@ mod tests {
         assert!(matches!(threads.header(&thread).await, Err(PortError::Unavailable { .. })));
         assert!(matches!(threads.messages(&thread).await, Err(PortError::Unavailable { .. })));
         assert!(matches!(LateHeaders(late).header(&thread).await, Ok(None)));
+    }
+
+    /// The daemon's agent sessions stamp an owner's close through this view: a patch for an idle thread reaches the
+    /// thread's actor as one, so nothing is written while a turn runs, and it lands once the thread is idle.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_patch_for_an_idle_thread_is_decided_by_the_threads_actor_through_the_late_view() {
+        use mixdog_core_api::CoreRequest;
+        use mixdog_core_api::Reply;
+        use mixdog_core_api::ThreadDirectory;
+        use mixdog_core_api::ThreadHandle;
+        use mixdog_core_api::call::CallContext;
+        use mixdog_core_api::ids::ConnectionId;
+        use mixdog_core_api::ids::Method;
+        use mixdog_core_api::ids::OpId;
+        use mixdog_core_ports::ports::threads::FencedPatch;
+        use mixdog_core_ports::ports::threads::RunFence;
+
+        let rig = mixdog_core_session::session::testing::Rig::new();
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let open = gate.clone();
+        rig.set_script(Arc::new(move |run| {
+            let open = open.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                open.notified().await;
+                mixdog_core_session::session::RunOutcome::Completed(Default::default())
+            })
+        }));
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let late = Arc::new(LateDirectory::default());
+        late.bind(&directory);
+        let threads = LateThreads(late);
+        let request = |method: &'static str, params: Value, op: &str| CoreRequest {
+            method: Method(method),
+            params,
+            op: Some(OpId::from(op)),
+            ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new()),
+        };
+        let reply =
+            directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        let turn = json!({ "threadId": id.as_str(), "opId": "op-1", "input": { "prompt": "work" } });
+        let started = handle.request(request("turn/start", turn, "op-1")).await.expect("turn/start");
+        let Reply::Value(started) = started else { panic!("turn/start answers a value") };
+        let running = mixdog_core_api::ids::TurnId::from(started["turnId"].as_str().expect("the started turn").to_owned());
+        let busy = |want: bool| {
+            let handle = handle.clone();
+            async move {
+                tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                    while handle.turn_busy() != want {
+                        handle.stepped().notified().await;
+                    }
+                })
+                .await
+                .expect("the turn's state")
+            }
+        };
+        busy(true).await;
+        let probe = |value: i64| Map::from_iter([("probe".to_owned(), json!(value))]);
+        let patch = |at: RunFence, value: i64| {
+            let (threads, id) = (&threads, &id);
+            async move { threads.patch_header_at(id, &at, Map::new(), probe(value), Vec::new()).await.expect("answered") }
+        };
+
+        assert_eq!(patch(RunFence::Idle, 1).await, FencedPatch::Moved, "a turn runs: nothing is written for an idle thread");
+        assert_eq!(patch(RunFence::Turn(mixdog_core_api::ids::TurnId::from("another".to_owned())), 2).await, FencedPatch::Moved);
+        assert_eq!(threads.header(&id).await.expect("header").get("probe"), None);
+        assert_eq!(patch(RunFence::Turn(running.clone()), 3).await, FencedPatch::Written, "the turn that runs");
+        assert_eq!(threads.header(&id).await.expect("header").get("probe"), Some(&json!(3)));
+
+        gate.notify_one();
+        busy(false).await;
+        assert_eq!(patch(RunFence::Turn(running), 4).await, FencedPatch::Moved, "that turn ended");
+        assert_eq!(patch(RunFence::Idle, 5).await, FencedPatch::Written);
+        assert_eq!(threads.header(&id).await.expect("header").get("probe"), Some(&json!(5)));
     }
 
     #[test]

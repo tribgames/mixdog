@@ -144,13 +144,14 @@ impl Registry for Fakes {
         tag: Option<&str>,
         root: &str,
         descendants: &[String],
-        at: &std::collections::HashMap<String, Option<mixdog_agent::agent_tool::host::TurnMark>>,
+        at: Option<&std::collections::HashMap<String, Option<mixdog_agent::agent_tool::host::TurnMark>>>,
     ) -> mixdog_agent::agent_tool::host::Released {
         use mixdog_agent::agent_tool::host::{Release, ReleaseOutcome, Released};
         self.release_closed(scope, tag, root, descendants);
+        let turn = |id: &str| at.and_then(|at| at.get(id)).cloned().flatten();
         let releases = std::iter::once(root.to_owned())
             .chain(descendants.iter().cloned())
-            .map(|id| Release::answered(id.clone(), tag.filter(|_| id == root).map(str::to_owned), at.get(&id).cloned().flatten(), ReleaseOutcome::Stored))
+            .map(|id| Release::answered(id.clone(), tag.filter(|_| id == root).map(str::to_owned), turn(&id), ReleaseOutcome::Stored))
             .collect();
         Released { releases, spared: Vec::new() }
     }
@@ -269,6 +270,11 @@ impl Sessions for Fakes {
         self.0.log(json!(["closeSession", session_id, reason, opts]));
         self.0.json.get("closeOk") == Some(&Value::Bool(true))
     }
+    // The recorder runs no turn: it has none to close.
+    async fn close_turn(&self, session_id: &str, turn_id: &str, reason: &str) -> bool {
+        self.0.log(json!(["closeTurn", session_id, turn_id, reason]));
+        false
+    }
     fn descendant_session_ids(&self, session_id: &str) -> Vec<String> {
         self.0
             .json
@@ -284,9 +290,12 @@ impl Sessions for Fakes {
     }
     fn clear_statusline_route(&self, _session_id: &str) {}
     // The recorder's manager answers these from the world and logs none of them; the hidden set is the daemon's own.
-    async fn hide_sessions(&self, session_ids: &[String]) -> Vec<mixdog_tools::orch::agent::HideFailed> {
-        self.0.hidden.lock().unwrap().extend(session_ids.iter().cloned());
+    async fn hide_sessions(&self, hides: &[mixdog_agent::agent_tool::host::Hide]) -> Vec<mixdog_tools::orch::agent::HideFailed> {
+        self.0.hidden.lock().unwrap().extend(hides.iter().map(|hide| hide.session_id.clone()));
         Vec::new()
+    }
+    async fn reveal_session(&self, session_id: &str) {
+        self.0.hidden.lock().unwrap().remove(session_id);
     }
     async fn is_hidden(&self, session_id: &str) -> bool {
         self.0.hidden.lock().unwrap().contains(session_id)
