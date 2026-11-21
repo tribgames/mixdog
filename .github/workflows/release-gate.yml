@@ -970,10 +970,9 @@ jobs:
         with:
           path: ~/AppData/Local/electron/Cache
           key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron-key.outputs.key }}
-      # The Computer Use suites import only node builtins and local .ts modules, so this leg skips the heavy root install
-      # (sharp/tesseract). The boot's dev core install needs two things from the root tree: onnxruntime-node (its library) and
-      # pptxgenjs/jszip, the sources of the four data/pptxgenjs files `writeDevInstall` requires in the package root. test-env.mjs
-      # treats a root tree without the rest as "nothing to compare".
+      # The dev core boot needs onnxruntime-node plus pptxgenjs/jszip for the four data/pptxgenjs files.
+      # The renderer layout tests also import unpdf and strip-ansi. Keep this root subset small;
+      # test-env.mjs skips its React version comparison when root React packages are absent.
       - name: Install dependencies
         shell: bash
         run: |
@@ -986,7 +985,7 @@ jobs:
             done
             return 1
           }
-          node scripts/ci/lock-subset.mjs ci-boot-subset onnxruntime-node pptxgenjs jszip
+          node scripts/ci/lock-subset.mjs ci-boot-subset onnxruntime-node pptxgenjs jszip unpdf strip-ansi
           { npm_ci --prefix apps/desktop && node apps/desktop/node_modules/electron/install.js; } &
           desktop_pid=$!
           npm_ci --prefix ci-boot-subset --ignore-scripts &
