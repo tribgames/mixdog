@@ -242,6 +242,14 @@ pub fn ready_lines(port: u16, pid: u32, ms: f64) -> [String; 2] {
     [format!("ready port={port} pid={pid} in {ms:.0}ms"), format!("boot-phase phase=daemon-ready status=mark totalMs={}", (ms * 10.0).round() / 10.0)]
 }
 
+/// When the boot began, for the `totalMs` of its marks: the first call fixes it. `serve` calls it on entry, so the marks count
+/// from the same instant as the `ready` line's total, not from process launch (the login-shell adoption and the executors'
+/// start come before it), and the steps before the log exists (the runtime, the lock, the migration) show.
+pub fn boot_clock() -> std::time::Instant {
+    static BOOT_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    *BOOT_START.get_or_init(std::time::Instant::now)
+}
+
 impl DaemonLog {
     /// The daemon's log at `path` (`<data>/daemon.log`): the system clock, the process's stderr
     /// before ready, the file's I/O on `lane`. `cancel` is the daemon's run token.
@@ -283,9 +291,12 @@ impl DaemonLog {
     /// A boot step's mark: `boot-phase phase=<phase> status=mark totalMs=<ms since the first mark>`, so a slow start shows
     /// which step held it (the start had only its `daemon-ready` total before).
     pub fn boot_mark(&self, phase: &str) {
-        static BOOT_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-        let start = *BOOT_START.get_or_init(std::time::Instant::now);
-        let line = format!("boot-phase phase={phase} status=mark totalMs={}", start.elapsed().as_millis());
+        self.boot_mark_at(phase, std::time::Instant::now());
+    }
+
+    /// [`Self::boot_mark`] for a step that ended at `at`, before the log existed.
+    pub fn boot_mark_at(&self, phase: &str, at: std::time::Instant) {
+        let line = format!("boot-phase phase={phase} status=mark totalMs={}", at.saturating_duration_since(boot_clock()).as_millis());
         if !locked(&self.shared.state).file_logging {
             let mut held = BOOT_MARKS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             if held.len() < 256 {

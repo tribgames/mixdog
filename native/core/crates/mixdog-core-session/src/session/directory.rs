@@ -1093,10 +1093,12 @@ impl DirInner {
         use mixdog_core_base::support::on_lane_wait;
         let deps = self.deps.clone();
         let token = CancellationToken::new();
+        let began = std::time::Instant::now();
         // An open (for a turn, a carried mark, a worker's report) waits out full lanes rather than failing on them.
         deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
         let head = on_lane_wait(deps.lanes.io, &token, move |lane| store.read_head(lane, &thread)).await??;
+        let headed = std::time::Instant::now();
         deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
         let (head, window) = on_lane_wait(deps.lanes.io, &token, move |lane| {
@@ -1105,15 +1107,19 @@ impl DirInner {
         })
         .await?;
         let window = window?;
+        let windowed = std::time::Instant::now();
         let (decode_deps, thread) = (deps.clone(), id.clone());
-        let opened = on_lane_wait(deps.lanes.cpu, &token, move |lane| {
+        let (opened, decoded) = on_lane_wait(deps.lanes.cpu, &token, move |lane| {
             let log = decode_deps.store.decode(lane, &thread, head, window)?;
-            Ok::<_, CoreError>(fold_opened(lane, &decode_deps, log))
+            let decoded = std::time::Instant::now();
+            Ok::<_, CoreError>((fold_opened(lane, &decode_deps, log), decoded))
         })
         .await??;
+        let folded = std::time::Instant::now();
         deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
         let fenced = on_lane_wait(deps.lanes.io, &token, move |lane| store.fenced_ops(lane, &thread)).await??;
+        let fenced_at = std::time::Instant::now();
         let lineage = self.lineage_of(id, &opened.state.header);
         let (ready, recovered) = tokio::sync::oneshot::channel();
         let (handle, launch) = self.spawn(
@@ -1134,6 +1140,19 @@ impl DirInner {
         // Node recovers an interrupted turn before the session is returned (`turn-checkpoint-recovery.mjs:131`):
         // the first read sees the recovered conversation. A dropped actor ends the wait too.
         let _ = recovered.await;
+        let recovered_at = std::time::Instant::now();
+        if (recovered_at - began).as_millis() >= SLOW_OPEN_MS as u128 {
+            let ms = |from: std::time::Instant, to: std::time::Instant| (to - from).as_millis() as u64;
+            tracing::warn!(
+                head_ms = ms(began, headed),
+                window_ms = ms(headed, windowed),
+                decode_ms = ms(windowed, decoded),
+                fold_ms = ms(decoded, folded),
+                fenced_ms = ms(folded, fenced_at),
+                recover_ms = ms(fenced_at, recovered_at),
+                "slow session load"
+            );
+        }
         // The history is read for its images once the recovery has settled it, never beside the recovery's own read.
         drop(mixdog_rt::spawn("image-gate", mixdog_rt::TaskClass::Work, image_gate_run(deps.clone(), id.clone(), handle.image_gate.clone())));
         Ok(handle)

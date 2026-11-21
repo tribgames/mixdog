@@ -2998,11 +2998,16 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The one catalog index (`<data>/index/store.sqlite`): `StoreThreads` and `DirectoryImportSessions` hold this handle. Its open
     // (a boot purge, a rebuild from the logs when needed) blocks, so it is a maintenance lane job.
     boot.boot_mark("before-catalog-index-open");
+    let index_job_began = Arc::new(std::sync::OnceLock::new());
     let open_index = async {
-        let (data, thread, read, rebuild) = (b.data_dir.clone(), b.tokens.sqlite_writer_thread, b.tokens.interactive_io, b.rebuild.clone());
+        let (data, thread, read, rebuild, began) =
+            (b.data_dir.clone(), b.tokens.sqlite_writer_thread, b.tokens.interactive_io, b.rebuild.clone(), index_job_began.clone());
         b.tokens
             .maintenance_io
-            .submit(&b.cancel, move |lane| mixdog_store::sqlite::SqliteStore::open_reporting(lane, thread, read, &data, Some(&rebuild)))
+            .submit(&b.cancel, move |lane| {
+                let _ = began.set(std::time::Instant::now());
+                mixdog_store::sqlite::SqliteStore::open_reporting(lane, thread, read, &data, Some(&rebuild))
+            })
             .map_err(|_| ComposeError::CatalogIndex("the maintenance lane refused the job".to_owned()))? // new variant, added with the flip
             .await
             .map_err(|_| ComposeError::CatalogIndex("the open job was dropped".to_owned()))?
@@ -3011,7 +3016,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // Loading the archive entries only reads `state/core.sqlite`; only projecting them needs the open catalog.
     // Finish both opens before handling errors so an archive read failure cannot strand a queued catalog open.
     let (catalog_index, archive_states) = tokio::join!(open_index, mixdog_store::archive_state::ArchiveStates::open(b.core_state.clone()),);
+    if let Some(began) = index_job_began.get() {
+        boot.boot_mark_at("catalog-index-job-started", *began);
+    }
     let catalog_index = catalog_index?;
+    for (step, ended) in catalog_index.boot_steps() {
+        boot.boot_mark_at(&format!("catalog-index-{step}"), ended);
+    }
     let archive_states = archive_states.map_err(|e| ComposeError::CatalogIndex(format!("the session archive authority: {e}")))?;
     boot.boot_mark("before-archive-states-bind");
     // The projection waits behind the catalog writer (seconds at start) and the first screen reads archive state through the bound
@@ -4080,6 +4091,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         let legacy = b.cutover.as_ref().filter(|cutover| !cutover.legacy_homes.is_empty());
         let evidence = mixdog_core_session::session::agent_evidence::SessionAgentEvidence::new(directory.clone(), routine_evidence);
         let evidence = if let Some(cutover) = legacy { evidence.with_legacy_homes(cutover.legacy_homes.clone()) } else { evidence };
+        boot.boot_mark("before-agent-store-migrate");
         let outcome = agents
             .migrate_agent_store(
                 &evidence,
@@ -4090,6 +4102,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 }),
             )
             .await;
+        boot.boot_mark("agent-store-migrated");
         match outcome {
             Ok((kinds, split)) if legacy.is_some() && (kinds.failed || split.failed || split.busy) => {
                 return Err(ComposeError::BotCutover("the agent store migration did not finish; retry startup before converting home histories".into()));
@@ -4316,7 +4329,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             reap: &*reap,
             now_ms: clock.now_ms(),
         };
+        boot.boot_mark("before-stale-worker-rows");
         agent_registry.recover_stale_worker_rows(true, &live).await.map_err(ComposeError::AgentRecover)?;
+        boot.boot_mark("stale-worker-rows-recovered");
     }
     // `reconcileRecoveredShellJobCompletions` (`shell-jobs.mjs:697-750`): the background shells the previous process left running end as
     // failed and their owners are told, on a Work task beside the start, not on its path.
@@ -4404,6 +4419,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     )
     .await
     .map_err(ComposeError::ComposeDomains)?;
+    boot.boot_mark("domains-composed");
 
     // ---- 11. register every service (registration-inventory.md); no `MockDomain`: what nobody claims is `ComposeError::Unclaimed` ----
     let mut builder = mixdog_core_domains::domains::DomainsBuilder::new();
