@@ -96,6 +96,8 @@ export function createWsConnector(
             })
           );
         },
+        // The media lane (protocol.md X17): a frame the paired device's stream receives as a binary message.
+        sendBinary: (data) => socket.send(data, { binary: true }),
         close: (code, reason) => {
           requested = true;
           socket.close(code, reason);

@@ -33,7 +33,8 @@ function publishNow(stream: PublishState, publishFrame: PublishFrame): void {
   // frame ack window the gate reopens and the newest frame goes instead.
   const bound = setTimeout(release, REMOTE_BROWSER_FRAME_ACK_TIMEOUT_MS);
   bound.unref?.();
-  void publishFrame(frame)
+  // A publisher that throws instead of rejecting (a refused media send) runs on a timer here: caught, it is a dropped frame, not an uncaught exception.
+  void new Promise<void>((resolve) => resolve(publishFrame(frame)))
     // A frame the service rejects is dropped; the next one supersedes it.
     .catch(() => undefined)
     .finally(release);
