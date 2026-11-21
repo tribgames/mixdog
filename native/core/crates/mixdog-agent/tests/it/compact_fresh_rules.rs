@@ -607,7 +607,8 @@ async fn a_smart_summary_whose_warm_fork_wrote_nothing_is_written_by_the_maintai
     use mixdog_agent::compact::summary_run::SummaryMode;
     fresh!(_meter, ctx, &NoAttachments);
     let messages = dialogue();
-    let routes = TwoRoutes { own: Arc::new(Scripted::answering(vec![valid_summary("own")])), maintainer: Arc::new(Scripted::answering(vec![valid_summary("light")])) };
+    let routes =
+        TwoRoutes { own: Arc::new(Scripted::answering(vec![valid_summary("own")])), maintainer: Arc::new(Scripted::answering(vec![valid_summary("light")])) };
     let fork = WarmFork { text: String::new(), stop: StopReason::EndTurn };
     let cx = mixdog_agent::compact::summary_run::SummarizeContext {
         fresh: &ctx,
@@ -629,7 +630,8 @@ async fn a_smart_summary_whose_warm_fork_wrote_nothing_is_written_by_the_maintai
     assert_eq!((usage.input_tokens, usage.output_tokens), (110, 12), "the fork's usage is kept with the isolated call's");
 
     // A fork that writes the summary is the conversation's own, with no other request.
-    let routes = TwoRoutes { own: Arc::new(Scripted::answering(vec![valid_summary("own")])), maintainer: Arc::new(Scripted::answering(vec![valid_summary("light")])) };
+    let routes =
+        TwoRoutes { own: Arc::new(Scripted::answering(vec![valid_summary("own")])), maintainer: Arc::new(Scripted::answering(vec![valid_summary("light")])) };
     let fork = WarmFork { text: valid_summary("fork"), stop: StopReason::EndTurn };
     let cx = mixdog_agent::compact::summary_run::SummarizeContext { fork: &fork, resolver: &routes, ..cx };
     let (step, got) =
@@ -666,7 +668,8 @@ async fn a_forks_usage_joins_the_writing_routes_in_that_routes_cache_convention(
     fresh!(_meter, ctx, &NoAttachments);
     let messages = dialogue();
     // The Maintainer's adapter (`Scripted`) counts the cache inside its input.
-    let routes = TwoRoutes { own: Arc::new(Scripted::answering(vec![valid_summary("own")])), maintainer: Arc::new(Scripted::answering(vec![valid_summary("light")])) };
+    let routes =
+        TwoRoutes { own: Arc::new(Scripted::answering(vec![valid_summary("own")])), maintainer: Arc::new(Scripted::answering(vec![valid_summary("light")])) };
     let cx = mixdog_agent::compact::summary_run::SummarizeContext {
         fresh: &ctx,
         fork: &CacheExcludingFork,
